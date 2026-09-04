@@ -107,6 +107,12 @@ jobs:
       - name: Check property generation
         run: python3 tools/gen_props.py --check
 
+      # design.md section 5.8 decision 4: a prop_id is an ABI contract -
+      # append-only, never reused, never renumbered. The step above would
+      # regenerate cheerfully after a renumber; this one refuses to.
+      - name: Check property id lock
+        run: python3 tools/prop_lock.py --check
+
   tidy:
     name: clang-tidy
     runs-on: ubuntu-latest

@@ -25,7 +25,9 @@ get_filename_component(DRAWGUI_PROPS_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUT
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
 
 set(DRAWGUI_PROPS_GENERATOR "${DRAWGUI_PROPS_ROOT}/tools/gen_props.py")
+set(DRAWGUI_PROPS_LOCK_TOOL "${DRAWGUI_PROPS_ROOT}/tools/prop_lock.py")
 set(DRAWGUI_PROPS_TOML "${DRAWGUI_PROPS_ROOT}/props/drawgui.props.toml")
+set(DRAWGUI_PROPS_LOCK "${DRAWGUI_PROPS_ROOT}/props/prop_ids.lock")
 set(DRAWGUI_PROPS_INCLUDE_DIR "${DRAWGUI_PROPS_ROOT}/include")
 set(DRAWGUI_PROPS_HEADER
     "${DRAWGUI_PROPS_ROOT}/include/drawgui/render/prop_ids.generated.h")
@@ -35,7 +37,11 @@ set(DRAWGUI_PROPS_GENERATED_FILES
     "${DRAWGUI_PROPS_HEADER}"
     "${DRAWGUI_PROPS_DISPATCH}")
 
-foreach(_drawgui_props_input IN ITEMS "${DRAWGUI_PROPS_GENERATOR}" "${DRAWGUI_PROPS_TOML}")
+foreach(_drawgui_props_input IN ITEMS
+        "${DRAWGUI_PROPS_GENERATOR}"
+        "${DRAWGUI_PROPS_LOCK_TOOL}"
+        "${DRAWGUI_PROPS_TOML}"
+        "${DRAWGUI_PROPS_LOCK}")
   if(NOT EXISTS "${_drawgui_props_input}")
     message(FATAL_ERROR "GenerateProps.cmake: missing input ${_drawgui_props_input}")
   endif()
@@ -61,6 +67,20 @@ add_custom_target(
           --root "${DRAWGUI_PROPS_ROOT}" --check
   WORKING_DIRECTORY "${DRAWGUI_PROPS_ROOT}"
   COMMENT "Checking that the generated property files match props/drawgui.props.toml"
+  VERBATIM)
+
+# The ABI gate. drawgui_props_check only proves the generated files agree with
+# the TOML; it regenerates just as happily after someone moves `width` from id
+# 1 to id 7, which silently breaks every already-compiled consumer. This target
+# compares the TOML against the committed props/prop_ids.lock instead, so a
+# renumber, a rename or a deletion is a hard failure. Appending a new property
+# is MINOR and passes (design.md section 5.8 decision 4).
+add_custom_target(
+  drawgui_props_lock_check
+  COMMAND "${Python3_EXECUTABLE}" "${DRAWGUI_PROPS_LOCK_TOOL}"
+          --root "${DRAWGUI_PROPS_ROOT}" --check
+  WORKING_DIRECTORY "${DRAWGUI_PROPS_ROOT}"
+  COMMENT "Checking props/drawgui.props.toml against the property id lock"
   VERBATIM)
 
 # Re-run CMake when the source of truth changes, so a fresh property shows up

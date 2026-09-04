@@ -39,6 +39,12 @@ add_test(NAME golden.scenes
 add_test(NAME props.no_drift
   COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_props_check)
 
+# props.no_drift only proves the generated files match the TOML; it passes
+# just as happily after an id is renumbered. This one guards the numbers
+# themselves against props/prop_ids.lock.
+add_test(NAME props.abi_lock
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_props_lock_check)
+
 # Convenience target for deliberately refreshing baselines. Never invoked by
 # CTest: a suite that can rewrite its own expectations proves nothing.
 add_custom_target(golden_update

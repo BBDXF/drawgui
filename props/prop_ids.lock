@@ -1,0 +1,64 @@
+# ============================================================================
+# drawgui property id lock - an ABI contract, not a cache.
+#
+# One line per locked property, "<id>  <name>", in ascending id order.
+# Written by `python3 tools/prop_lock.py --write` and verified by
+# `python3 tools/prop_lock.py --check`.
+#
+# Every id and name below is frozen. Compiled consumers already hold these
+# numbers, so renumbering an id, renaming a property or deleting one is a
+# MAJOR version break (design.md section 5.8 decision 4: values are never
+# reused, and only a MAJOR version may break them). Appending a new property
+# with a fresh id and a fresh name is MINOR and is allowed.
+#
+# NEVER hand-edit this file to make a failing check pass. The check is
+# reporting that props/drawgui.props.toml broke its own contract; editing the
+# ledger does not repair the break, it only hides it from the next reviewer.
+# Fix the TOML instead. A genuinely intended break is a reviewed MAJOR
+# version change that says so out loud, never a quiet edit here.
+# ============================================================================
+    1  width
+    2  height
+    3  min_width
+    4  max_width
+    5  min_height
+    6  max_height
+    7  aspect_ratio
+    8  padding_l
+    9  padding_t
+   10  padding_r
+   11  padding_b
+   12  margin_l
+   13  margin_t
+   14  margin_r
+   15  margin_b
+   16  background_color
+   17  background_gradient
+   18  border_width_l
+   19  border_width_t
+   20  border_width_r
+   21  border_width_b
+   22  border_color
+   23  border_radius_tl
+   24  border_radius_tr
+   25  border_radius_br
+   26  border_radius_bl
+   27  opacity
+   28  shadow
+   29  overflow
+   30  transform
+   31  direction
+   32  justify
+   33  align
+   34  gap
+   35  main_size
+   36  run_gap
+   37  align_content
+   38  grow
+   39  shrink
+   40  basis
+   41  align_self
+   42  left
+   43  top
+   44  right
+   45  bottom

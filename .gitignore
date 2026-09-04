@@ -5,3 +5,4 @@ third_party/skia-prebuilt/
 compile_commands.json
 *.o
 *.a
+__pycache__/
