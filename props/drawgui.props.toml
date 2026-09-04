@@ -1,0 +1,545 @@
+# drawgui property definitions - the single source of truth.
+#
+# Everything that knows about a property is generated from this file by
+# tools/gen_props.py. Hand-writing a second copy of this data is what
+# silently drifted the predecessor project across four files (design.md
+# section 5.8 decision 5, section 5.7.7).
+#
+# NUMBERING IS AN ABI CONTRACT (design.md section 5.8 decision 4):
+#
+#   - `id` is a uint16_t, assigned explicitly here, APPEND-ONLY.
+#   - id 0 is reserved for DG_PROP_INVALID and must not appear below.
+#   - An id is NEVER reused and NEVER renumbered. Removing a property
+#     retires its id forever (leave a gap and a comment); doing otherwise
+#     is a MAJOR version break.
+#   - New entries take `meta.next_id` and then bump it.
+#   - Entries are listed in strictly ascending id order. The generator
+#     enforces this so that "append-only" is visible in the diff.
+#
+# FIELD REFERENCE (a property table may gain new optional fields later
+# without touching any existing id):
+#
+#   name              required. snake_case, matches ^[a-z][a-z0-9_]*$.
+#                     The generated constant is DG_PROP_<NAME uppercased>.
+#   id                required. uint16_t, see numbering rules above.
+#   type              required. One of:
+#                       float     - plain logical-pixel / unitless scalar
+#                       length    - float that may also be a percentage of
+#                                   the incoming max_* constraint; a
+#                                   percentage under an unbounded
+#                                   constraint is an error (section 5.4.5)
+#                       color     - 0xAARRGGBB, unpremultiplied at the
+#                                   boundary (section 5.11.3)
+#                       enum      - one of `values`, below
+#                       gradient  - NOT a scalar; dedicated setter
+#                       shadow    - NOT a scalar; dedicated setter
+#                       transform - NOT a scalar; dedicated setter
+#                     The three complex types cannot travel in the scalar
+#                     tagged union and take dg_node_set_* setters of their
+#                     own (section 5.9.5).
+#   values            required for type = "enum", forbidden otherwise.
+#   group             required. Documentation grouping only.
+#   field             required. The concrete struct member the dispatch
+#                     switch assigns into (section 5.15.3 - there is no
+#                     per-node map).
+#   applies_to        required when parent_data = false. Node kinds that
+#                     own the field. "box" means RenderBox and every
+#                     RenderObject deriving from it (flex, wrap, stack).
+#   parent_data       optional, default false. True when the property is
+#                     set on the CHILD but consumed by the PARENT, so
+#                     validation defers to layout time and a mismatch must
+#                     produce a diagnostic carrying a node path, never a
+#                     silent ignore (section 5.8 decision 7).
+#   parent_data_scope required when parent_data = true, forbidden
+#                     otherwise. One of:
+#                       base  - lives on the ParentData BASE class because
+#                               every container must handle it
+#                               (section 5.9.4: margin)
+#                       flex  - lives on FlexParentData
+#                       stack - lives on StackParentData
+#   consumed_by       required when parent_data = true, forbidden
+#                     otherwise. Container kinds that read the field.
+#   optional          optional, default false. True when the field is an
+#                     absent-able value (std::optional) rather than one
+#                     with a meaningful zero.
+#   summary           required. One-line human description.
+
+schema_version = 1
+
+[meta]
+# The id the next new property must take. Bump it when appending.
+next_id = 46
+node_kinds = ["box", "flex", "wrap", "stack"]
+
+# ---------------------------------------------------------------------------
+# Box model - constant border-box: width/height = border + padding + content,
+# margin excluded (section 5.9.4).
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "width"
+id = 1
+type = "length"
+group = "box_model"
+field = "width"
+applies_to = ["box"]
+optional = true
+summary = "Border-box width; absent means shrink-to-fit."
+
+[[property]]
+name = "height"
+id = 2
+type = "length"
+group = "box_model"
+field = "height"
+applies_to = ["box"]
+optional = true
+summary = "Border-box height; absent means shrink-to-fit."
+
+[[property]]
+name = "min_width"
+id = 3
+type = "length"
+group = "box_model"
+field = "min_width"
+applies_to = ["box"]
+summary = "Lower clamp applied after the size source resolves."
+
+[[property]]
+name = "max_width"
+id = 4
+type = "length"
+group = "box_model"
+field = "max_width"
+applies_to = ["box"]
+summary = "Upper clamp applied after the size source resolves."
+
+[[property]]
+name = "min_height"
+id = 5
+type = "length"
+group = "box_model"
+field = "min_height"
+applies_to = ["box"]
+summary = "Lower clamp applied after the size source resolves."
+
+[[property]]
+name = "max_height"
+id = 6
+type = "length"
+group = "box_model"
+field = "max_height"
+applies_to = ["box"]
+summary = "Upper clamp applied after the size source resolves."
+
+[[property]]
+name = "aspect_ratio"
+id = 7
+type = "float"
+group = "box_model"
+field = "aspect_ratio"
+applies_to = ["box"]
+optional = true
+summary = "width/height; derives the second dimension from the first."
+
+[[property]]
+name = "padding_l"
+id = 8
+type = "float"
+group = "box_model"
+field = "padding_l"
+applies_to = ["box"]
+summary = "Left padding; shrinks the constraint passed to children."
+
+[[property]]
+name = "padding_t"
+id = 9
+type = "float"
+group = "box_model"
+field = "padding_t"
+applies_to = ["box"]
+summary = "Top padding; shrinks the constraint passed to children."
+
+[[property]]
+name = "padding_r"
+id = 10
+type = "float"
+group = "box_model"
+field = "padding_r"
+applies_to = ["box"]
+summary = "Right padding; shrinks the constraint passed to children."
+
+[[property]]
+name = "padding_b"
+id = 11
+type = "float"
+group = "box_model"
+field = "padding_b"
+applies_to = ["box"]
+summary = "Bottom padding; shrinks the constraint passed to children."
+
+# margin is parentData, but unlike grow/left it sits on the ParentData BASE
+# class: every container applies it through layout_child_with_margin()
+# (section 5.9.4). No margin collapsing; adjacent margins add.
+
+[[property]]
+name = "margin_l"
+id = 12
+type = "float"
+group = "box_model"
+field = "margin_l"
+parent_data = true
+parent_data_scope = "base"
+consumed_by = ["flex", "wrap", "stack"]
+summary = "Left outer spacing applied by the parent, excluded from size."
+
+[[property]]
+name = "margin_t"
+id = 13
+type = "float"
+group = "box_model"
+field = "margin_t"
+parent_data = true
+parent_data_scope = "base"
+consumed_by = ["flex", "wrap", "stack"]
+summary = "Top outer spacing applied by the parent, excluded from size."
+
+[[property]]
+name = "margin_r"
+id = 14
+type = "float"
+group = "box_model"
+field = "margin_r"
+parent_data = true
+parent_data_scope = "base"
+consumed_by = ["flex", "wrap", "stack"]
+summary = "Right outer spacing applied by the parent, excluded from size."
+
+[[property]]
+name = "margin_b"
+id = 15
+type = "float"
+group = "box_model"
+field = "margin_b"
+parent_data = true
+parent_data_scope = "base"
+consumed_by = ["flex", "wrap", "stack"]
+summary = "Bottom outer spacing applied by the parent, excluded from size."
+
+# ---------------------------------------------------------------------------
+# Visual - decoration layers, painted bottom-up in the order shadow,
+# background colour, background gradient, border; all clipped by the corner
+# radii (section 5.9.5). Only RenderBox has a background.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "background_color"
+id = 16
+type = "color"
+group = "visual"
+field = "background_color"
+applies_to = ["box"]
+summary = "Border-box fill, 0xAARRGGBB unpremultiplied."
+
+[[property]]
+name = "background_gradient"
+id = 17
+type = "gradient"
+group = "visual"
+field = "background_gradient"
+applies_to = ["box"]
+optional = true
+summary = "Linear/radial/sweep gradient fill; dedicated setter, not a scalar."
+
+[[property]]
+name = "border_width_l"
+id = 18
+type = "float"
+group = "visual"
+field = "border_width_l"
+applies_to = ["box"]
+summary = "Left border thickness, inside the border box."
+
+[[property]]
+name = "border_width_t"
+id = 19
+type = "float"
+group = "visual"
+field = "border_width_t"
+applies_to = ["box"]
+summary = "Top border thickness, inside the border box."
+
+[[property]]
+name = "border_width_r"
+id = 20
+type = "float"
+group = "visual"
+field = "border_width_r"
+applies_to = ["box"]
+summary = "Right border thickness, inside the border box."
+
+[[property]]
+name = "border_width_b"
+id = 21
+type = "float"
+group = "visual"
+field = "border_width_b"
+applies_to = ["box"]
+summary = "Bottom border thickness, inside the border box."
+
+[[property]]
+name = "border_color"
+id = 22
+type = "color"
+group = "visual"
+field = "border_color"
+applies_to = ["box"]
+summary = "Colour of all four borders, 0xAARRGGBB unpremultiplied."
+
+[[property]]
+name = "border_radius_tl"
+id = 23
+type = "float"
+group = "visual"
+field = "border_radius_tl"
+applies_to = ["box"]
+summary = "Top-left corner radius; clips every decoration layer."
+
+[[property]]
+name = "border_radius_tr"
+id = 24
+type = "float"
+group = "visual"
+field = "border_radius_tr"
+applies_to = ["box"]
+summary = "Top-right corner radius; clips every decoration layer."
+
+[[property]]
+name = "border_radius_br"
+id = 25
+type = "float"
+group = "visual"
+field = "border_radius_br"
+applies_to = ["box"]
+summary = "Bottom-right corner radius; clips every decoration layer."
+
+[[property]]
+name = "border_radius_bl"
+id = 26
+type = "float"
+group = "visual"
+field = "border_radius_bl"
+applies_to = ["box"]
+summary = "Bottom-left corner radius; clips every decoration layer."
+
+[[property]]
+name = "opacity"
+id = 27
+type = "float"
+group = "visual"
+field = "opacity"
+applies_to = ["box"]
+summary = "0..1 subtree alpha; below 1 forces a compositing layer."
+
+[[property]]
+name = "shadow"
+id = 28
+type = "shadow"
+group = "visual"
+field = "shadow"
+applies_to = ["box"]
+optional = true
+summary = "Outer shadow (offset/blur/spread/colour); dedicated setter."
+
+[[property]]
+name = "overflow"
+id = 29
+type = "enum"
+values = ["visible", "clip"]
+group = "visual"
+field = "overflow"
+applies_to = ["box"]
+summary = "Whether content beyond the border box is clipped."
+
+[[property]]
+name = "transform"
+id = 30
+type = "transform"
+group = "visual"
+field = "transform"
+applies_to = ["box"]
+optional = true
+summary = "Decomposed translate/scale/rotate plus origin, for interpolation."
+
+# ---------------------------------------------------------------------------
+# Container properties - read by the container itself (section 5.4.3, 5.4.4).
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "direction"
+id = 31
+type = "enum"
+values = ["row", "column", "row_reverse", "column_reverse"]
+group = "container"
+field = "direction"
+applies_to = ["flex", "wrap"]
+summary = "Main axis orientation and ordering."
+
+[[property]]
+name = "justify"
+id = 32
+type = "enum"
+values = ["start", "end", "center", "space_between", "space_around", "space_evenly"]
+group = "container"
+field = "justify"
+applies_to = ["flex", "wrap"]
+summary = "Distribution of free space along the main axis."
+
+[[property]]
+name = "align"
+id = 33
+type = "enum"
+values = ["start", "end", "center", "stretch", "baseline"]
+group = "container"
+field = "align"
+applies_to = ["flex", "wrap"]
+summary = "Cross-axis alignment of children within a line."
+
+[[property]]
+name = "gap"
+id = 34
+type = "float"
+group = "container"
+field = "gap"
+applies_to = ["flex", "wrap"]
+summary = "Main-axis spacing between adjacent children; adds to margins."
+
+[[property]]
+name = "main_size"
+id = 35
+type = "enum"
+values = ["min", "max"]
+group = "container"
+field = "main_size"
+applies_to = ["flex", "wrap"]
+summary = "Whether the container hugs its content or fills the main axis."
+
+[[property]]
+name = "run_gap"
+id = 36
+type = "float"
+group = "container"
+field = "run_gap"
+applies_to = ["wrap"]
+summary = "Spacing between wrapped runs; meaningful only on RenderWrap."
+
+[[property]]
+name = "align_content"
+id = 37
+type = "enum"
+values = ["start", "end", "center", "stretch", "space_between", "space_around"]
+group = "container"
+field = "align_content"
+applies_to = ["wrap"]
+summary = "Cross-axis alignment of the run stack; RenderWrap only."
+
+# ---------------------------------------------------------------------------
+# Child parentData - set on the child, consumed by the parent. The parent may
+# not be attached yet at set time, so validation happens at layout, and a
+# property the parent does not consume (grow on a Stack child) must produce a
+# diagnostic with a node path (section 5.8 decision 7).
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "grow"
+id = 38
+type = "float"
+group = "parent_data"
+field = "grow"
+parent_data = true
+parent_data_scope = "flex"
+consumed_by = ["flex"]
+summary = "Weight for distributing positive free main-axis space."
+
+[[property]]
+name = "shrink"
+id = 39
+type = "float"
+group = "parent_data"
+field = "shrink"
+parent_data = true
+parent_data_scope = "flex"
+consumed_by = ["flex"]
+summary = "Weight for absorbing negative free main-axis space."
+
+[[property]]
+name = "basis"
+id = 40
+type = "float"
+group = "parent_data"
+field = "basis"
+parent_data = true
+parent_data_scope = "flex"
+consumed_by = ["flex"]
+optional = true
+summary = "Main-axis base size; absent means the child's natural size."
+
+[[property]]
+name = "align_self"
+id = 41
+type = "enum"
+values = ["auto", "start", "end", "center", "stretch", "baseline"]
+group = "parent_data"
+field = "align_self"
+parent_data = true
+parent_data_scope = "flex"
+consumed_by = ["flex"]
+summary = "Per-child override of the container's cross-axis align."
+
+[[property]]
+name = "left"
+id = 42
+type = "float"
+group = "parent_data"
+field = "left"
+parent_data = true
+parent_data_scope = "stack"
+consumed_by = ["stack"]
+optional = true
+summary = "Inset from the stack content box; setting it positions the child."
+
+[[property]]
+name = "top"
+id = 43
+type = "float"
+group = "parent_data"
+field = "top"
+parent_data = true
+parent_data_scope = "stack"
+consumed_by = ["stack"]
+optional = true
+summary = "Inset from the stack content box; setting it positions the child."
+
+[[property]]
+name = "right"
+id = 44
+type = "float"
+group = "parent_data"
+field = "right"
+parent_data = true
+parent_data_scope = "stack"
+consumed_by = ["stack"]
+optional = true
+summary = "Inset from the stack content box; setting it positions the child."
+
+[[property]]
+name = "bottom"
+id = 45
+type = "float"
+group = "parent_data"
+field = "bottom"
+parent_data = true
+parent_data_scope = "stack"
+consumed_by = ["stack"]
+optional = true
+summary = "Inset from the stack content box; setting it positions the child."
