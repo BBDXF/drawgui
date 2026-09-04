@@ -1,0 +1,146 @@
+# design.md section 7 and constraint C4: CI, formatter, linter and regression
+# tests are in place before the first widget. The retrospective this project
+# inherits from records that deleting the tooling left no defence at all.
+#
+# Windows is in scope per design.md section 3 but has no job yet: the MSVC
+# Skia asset has no SHA256 registered in cmake/FetchSkia.cmake, and that file
+# refuses to consume an unverified archive. A job would be red by
+# construction, so it is added together with the hash rather than before it.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: linux / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build clang clang-tidy libfreetype-dev
+
+      # libskia.a references FreeType unconditionally, and the prebuilt
+      # archive plus the pinned headers are large enough that re-fetching them
+      # on every run is wasteful. The key covers every pin in FetchSkia.cmake,
+      # so changing a pin invalidates the cache rather than silently reusing
+      # the previous artifact.
+      - name: Cache Skia
+        uses: actions/cache@v4
+        with:
+          path: third_party/skia-prebuilt
+          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia.cmake') }}
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CC=clang CXX=clang++
+          else
+            export CC=gcc CXX=g++
+          fi
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DDRAWGUI_WERROR=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      # A failed golden comparison writes the actual and diff images. Without
+      # them a CI-only pixel regression is undebuggable.
+      - name: Upload golden failure images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-output-${{ matrix.compiler }}-${{ matrix.build_type }}
+          path: build/tests/golden-output/
+          if-no-files-found: ignore
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-format
+
+      # Generated files are excluded: their formatting is the generator's
+      # responsibility, and props.no_drift already guards their content.
+      - name: Check formatting
+        run: |
+          files=$(find include src tests examples -name '*.cpp' -o -name '*.h' \
+                  | grep -v generated | sort)
+          echo "$files"
+          clang-format --style=file --dry-run --Werror $files
+
+  generated:
+    name: generated files are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # design.md section 5.8 decision 5: props/drawgui.props.toml is the
+      # single source of truth. The stonegui retrospective traces a whole
+      # class of bugs to four copies of the same table drifting apart.
+      - name: Check property generation
+        run: python3 tools/gen_props.py --check
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build clang clang-tidy libfreetype-dev
+
+      - name: Cache Skia
+        uses: actions/cache@v4
+        with:
+          path: third_party/skia-prebuilt
+          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia.cmake') }}
+
+      # clang-tidy needs compile_commands.json, which the configure step
+      # emits, and needs the generated property header to exist on disk.
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Generate property headers
+        run: cmake --build build --target drawgui_props_generate
+
+      - name: Run clang-tidy
+        run: |
+          clang-tidy -p build \
+            src/graphics/canvas.cpp \
+            src/graphics/raster_surface.cpp \
+            examples/render_png.cpp \
+            tests/golden/golden_image.cpp \
+            tests/golden/golden_test.cpp

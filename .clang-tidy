@@ -1,0 +1,33 @@
+# design.md section 7 names bugprone-* and cppcoreguidelines-* explicitly.
+#
+# The disabled checks below are turned off deliberately, not out of
+# convenience; each one conflicts with a decision recorded in design.md:
+#
+#   *-avoid-c-arrays / *-pro-bounds-*
+#       The ABI is C99 (design.md section 5.8) and Skia's own interfaces take
+#       raw arrays; forbidding them here would only produce wrappers.
+#   *-non-private-member-variables-in-classes
+#       design.md section 5.15.3 mandates plain POD field storage for render
+#       objects rather than accessors over a hash map.
+#   *-magic-numbers
+#       Golden-image scenes and geometry are full of literal coordinates,
+#       which is the point of them.
+Checks: >
+  bugprone-*,
+  cppcoreguidelines-*,
+  performance-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -readability-magic-numbers,
+  -readability-identifier-length
+
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(include|src|tests|examples)/drawgui.*'
+FormatStyle: file

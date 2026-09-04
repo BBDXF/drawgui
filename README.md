@@ -19,18 +19,63 @@ accessibility, complex text editing, and depth of native integration.
 
 ## Current status
 
-Design complete; P0-P2 in progress. Everything before P0 was design-only.
+P0 (foundation) is in place: CMake build, verified prebuilt Skia, a CPU
+raster path that produces a PNG, and a golden-image test pipeline. No
+windowing, layout, widgets, theming, C ABI or JS yet - those are P1 onward.
 
 ## Platform scope
 
 The current phase targets Linux and Windows desktop. macOS, Android and iOS
 are deferred, with the platform abstraction shaped so they remain addable.
+Only Linux is wired into the build so far; Windows needs its prebuilt Skia
+asset hash registered in `cmake/FetchSkia.cmake`.
 
 ## Build prerequisites
 
 - CMake >= 3.24
 - Ninja
 - clang or gcc with C++20 support
+- FreeType development headers (`libfreetype-dev`)
+
+`libskia.a` references `SkTypeface_FreeType` unconditionally, so FreeType is
+required even though this phase draws no text.
+
+## Building
+
+```sh
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The first configure downloads a prebuilt Skia static library and the matching
+headers into `third_party/skia-prebuilt/`. The library is verified by SHA256
+and the headers by commit SHA; a mismatch is a hard error, because headers
+that disagree with the binary produce a link that succeeds and then
+misbehaves at runtime.
+
+Render a frame:
+
+```sh
+./build/examples/drawgui_render_png out.png
+```
+
+## Golden-image tests
+
+Rendering is compared against committed PNG baselines pixel by pixel, at zero
+tolerance. CPU raster output is deterministic - it is byte-identical across
+gcc and clang - so any difference is a real change rather than driver noise.
+
+A failing comparison writes `<scene>.actual.png` and `<scene>.diff.png` into
+`build/tests/golden-output/`. To accept an intended rendering change, inspect
+the diff, then regenerate:
+
+```sh
+cmake --build build --target golden_update
+```
+
+`ctest` never regenerates baselines. A suite that can rewrite its own
+expectations proves nothing.
 
 ## Documentation
 

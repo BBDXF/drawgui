@@ -1,0 +1,14 @@
+# design.md section 7: format is CI-enforced, so it has to be mechanical.
+# Google style with a wider column limit, which suits the constraint-passing
+# signatures in the render layer.
+---
+Language: Cpp
+BasedOnStyle: Google
+Standard: c++20
+ColumnLimit: 96
+IndentWidth: 2
+AccessModifierOffset: -1
+DerivePointerAlignment: false
+PointerAlignment: Left
+IncludeBlocks: Preserve
+AllowShortFunctionsOnASingleLine: Inline
