@@ -27,7 +27,8 @@ target_link_libraries(drawgui_unit_test PRIVATE
   drawgui::drawgui
   drawgui::skia
   drawgui::doctest
-  drawgui_warnings)
+  drawgui_warnings
+  drawgui_sanitizers)
 
 # One CTest entry running every case, deliberately: a per-suite entry would be
 # filtered by name, and doctest exits 0 when a filter matches nothing. A typo
@@ -48,7 +49,8 @@ target_include_directories(drawgui_golden_test PRIVATE
 target_link_libraries(drawgui_golden_test PRIVATE
   drawgui::drawgui
   drawgui::skia
-  drawgui_warnings)
+  drawgui_warnings
+  drawgui_sanitizers)
 
 set(DRAWGUI_GOLDEN_BASELINE_DIR "${CMAKE_CURRENT_LIST_DIR}/golden/baseline")
 set(DRAWGUI_GOLDEN_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/golden-output")
@@ -66,6 +68,37 @@ add_test(NAME golden.scenes
 # The comparator's own tests live in `unit`. If it is broken, every golden
 # result is meaningless, so run it first and read its verdict first.
 set_tests_properties(golden.scenes PROPERTIES DEPENDS unit)
+
+# --- Sanitizer runtime options ----------------------------------------------
+
+# Only the two entries that actually run an instrumented binary; props.no_drift
+# and props.abi_lock shell out to the build system.
+#
+# UBSan prints a bare `file:line: runtime error: ...` and nothing else by
+# default, which names the expression but not the caller that produced the bad
+# value. print_stacktrace=1 is what turns that one line into a usable report,
+# and it is a runtime option rather than a compile flag, so it has to be set
+# here to apply automatically under `ctest`. Measured identical on GCC 15.2 and
+# clang 21.1.
+#
+# Deliberately NOT set: ASAN_OPTIONS=detect_container_overflow=0. That is the
+# standard remedy for a std::vector crossing into non-instrumented code - Skia
+# here - but it was measured unnecessary rather than assumed so: libstdc++ 15
+# gates its container annotations behind _GLIBCXX_SANITIZE_STD_ALLOCATOR, which
+# this build does not define, and a deliberate read into a vector's
+# [size, capacity) slack went unreported under both compilers. Turning a live
+# check off on speculation is how a build stops finding things. See
+# doc/development.md for the recipe if a future toolchain does annotate.
+#
+# Also deliberately NOT set: detect_leaks=0. LeakSanitizer is on by default
+# inside ASan on Linux, it is armed here (verified against a deliberate leak),
+# and it currently reports nothing - Skia's lazily registered PNG decoder and
+# its other process-lifetime state stay reachable at exit, so LSan is content.
+# Leak detection is left fully on until something real forces the question.
+if(DG_SANITIZE)
+  set_tests_properties(unit golden.scenes PROPERTIES
+    ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1")
+endif()
 
 # Fails the build rather than silently regenerating when the committed
 # property files have drifted from props/drawgui.props.toml.

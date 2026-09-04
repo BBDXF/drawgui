@@ -75,6 +75,63 @@ jobs:
           path: build/tests/golden-output/
           if-no-files-found: ignore
 
+  sanitize:
+    name: sanitize / ${{ matrix.compiler }} / ASan+UBSan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build clang clang-tidy libfreetype-dev
+
+      - name: Cache Skia
+        uses: actions/cache@v4
+        with:
+          path: third_party/skia-prebuilt
+          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia.cmake') }}
+
+      # Debug rather than Release on purpose. UBSan's checks are emitted before
+      # optimisation and an optimiser is entitled to delete the ones it can
+      # prove unreachable, so -O0 is the configuration that sees the most.
+      # DG_SANITIZE forces -g independently of the build type, so the traces
+      # carry line numbers either way.
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CC=clang CXX=clang++
+          else
+            export CC=gcc CXX=g++
+          fi
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DDRAWGUI_WERROR=ON \
+            -DDG_SANITIZE=ON
+
+      - name: Build
+        run: cmake --build build
+
+      # No ASAN_OPTIONS / UBSAN_OPTIONS here: tests/CMakeLists.txt sets what
+      # the instrumented entries need as a CTest property, so a local run and
+      # a CI run cannot disagree about it.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Upload golden failure images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-output-sanitize-${{ matrix.compiler }}
+          path: build/tests/golden-output/
+          if-no-files-found: ignore
+
   format:
     name: clang-format
     runs-on: ubuntu-latest

@@ -100,3 +100,123 @@ ctest --test-dir build --output-on-failure
 `ctest` runs both property checks alongside the golden-image tests. CI runs
 the same two commands directly in the `generated` job, so a stale or
 contract-breaking commit fails before it reaches a build matrix.
+
+## Running the sanitized suite
+
+design.md section 7 puts ASan + UBSan over the test suite as part of
+constraint C4. It is a separate build directory, not a flag on the normal one:
+
+```sh
+cmake -B build-san -G Ninja -DCMAKE_BUILD_TYPE=Debug -DDG_SANITIZE=ON
+cmake --build build-san
+ctest --test-dir build-san --output-on-failure
+```
+
+`DG_SANITIZE` defaults to OFF. The instrumented binaries are not what ships
+and they run several times slower, so this is a deliberate extra run rather
+than the normal one. CI has a dedicated `sanitize` job that does exactly the
+above under both gcc and clang.
+
+Debug is the recommended build type. UBSan's checks are emitted before
+optimisation and an optimiser may delete the ones it can prove unreachable, so
+`-O0` sees the most. A sanitized Release build is still useful and still
+carries line numbers, because `DG_SANITIZE` adds `-g` regardless of
+`CMAKE_BUILD_TYPE`.
+
+The flags live on the `drawgui_sanitizers` interface target in the root
+`CMakeLists.txt`, next to `drawgui_warnings`, and are applied to first-party
+targets only. Skia is a prebuilt archive with no instrumentation; ASan is
+designed to link against uninstrumented code, so this works, but it also means
+a defect inside `libskia.a` is invisible here.
+
+Both the compile line and the link line get the same flags, from one list. A
+target compiled with `-fsanitize=address` but linked without it fails on
+undefined `__asan_*` symbols, which reads as a mysterious linker error rather
+than as the misconfiguration it is.
+
+## Reading a sanitizer failure
+
+`ctest` prints the report inline with `--output-on-failure`. There are two
+shapes.
+
+**ASan** names the fault kind on the first line, then gives two stack traces -
+where the bad access happened, and where the memory it touched came from:
+
+```
+==33933==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x...
+READ of size 1 at 0x... thread T0
+    #0 ... in dg::RasterSurface::encode_png() const .../src/graphics/raster_surface.cpp:76
+    #1 ... in render_scene .../tests/golden/golden_test.cpp:92
+...
+0x... is located 8 bytes after 756-byte region [0x...,0x...)
+allocated by thread T0 here:
+    #0 ... in operator new(unsigned long)
+    #7 ... in dg::RasterSurface::encode_png() const .../src/graphics/raster_surface.cpp:73
+```
+
+Read the second trace first. "8 bytes after a 756-byte region allocated at
+line 73" identifies the buffer; frame `#0` of the first trace identifies the
+access. The shadow-byte dump underneath is rarely needed.
+
+**UBSan** is one line naming the operation and the values, followed by a stack
+trace:
+
+```
+.../src/graphics/raster_surface.cpp:67:17: runtime error: signed integer
+overflow: 320 * 2147483647 cannot be represented in type 'int'
+    #0 ... in dg::RasterSurface::encode_png() const .../raster_surface.cpp:67
+    #1 ... in render_scene .../tests/golden/golden_test.cpp:92
+```
+
+The trace is there because `tests/CMakeLists.txt` sets
+`UBSAN_OPTIONS=print_stacktrace=1` on the instrumented CTest entries. Without
+it UBSan prints the first line and nothing else, which names the expression but
+not the caller that fed it the bad value. Running a test binary by hand outside
+`ctest` gets the bare version, so pass the variable yourself:
+
+```sh
+UBSAN_OPTIONS=print_stacktrace=1 ./build-san/tests/drawgui_unit_test
+```
+
+**A UBSan report always fails the test.** `-fno-sanitize-recover=undefined` is
+in the flag set for exactly that reason. Without it UBSan prints the same
+diagnostic, lets the program carry on, and the process still exits 0 - so CI
+stays green over code that is undefined. Measured, on both compilers: the same
+overflow exits 0 without the flag and 1 with it. design.md sections 5.4.7 and
+5.17.5 both choose loud failure over quiet wrongness, and a sanitizer that only
+warns is the opposite of that.
+
+Two cosmetic differences between the compilers, neither of which changes the
+verdict: clang appends a `SUMMARY:` line to UBSan reports and gcc does not, and
+clang's traces carry a column number as well as a line.
+
+## What the sanitizer configuration deliberately does and does not disable
+
+One UBSan sub-check is off: **`vptr`**. It is off because it cannot work here,
+not because it is noisy. `-fsanitize=vptr` emits a `typeinfo for T` reference
+at every polymorphic dereference, and the prebuilt Skia archive is compiled
+without RTTI, so a sanitized link fails outright with
+`undefined reference to 'typeinfo for SkCanvas'`. First-party code declares no
+virtual function, no `dynamic_cast` and no `typeid` anywhere - design.md
+section 5.15.3 stores render-object state as plain fields - so the check has
+nothing of ours to inspect. If drawgui ever grows a polymorphic type of its
+own, this needs revisiting.
+
+Nothing else is disabled, and in particular these two commonly-disabled things
+are **left on**:
+
+| Check | Status | Why |
+| --- | --- | --- |
+| `detect_leaks` (LeakSanitizer) | on | It is armed - verified against a deliberate leak - and currently reports nothing. Skia's lazily registered PNG decoder and its other process-lifetime state stay reachable at exit, so LSan is content. |
+| `detect_container_overflow` | on | The usual reason to disable it is a `std::vector` crossing into non-instrumented code, which this project does do - `golden_image.cpp` hands `pixels.data()` straight to Skia. It was measured rather than assumed: libstdc++ 15 gates its container annotations behind `_GLIBCXX_SANITIZE_STD_ALLOCATOR`, which this build does not define, and a deliberate read into a vector's `[size, capacity)` slack went unreported under both compilers. |
+
+If a future toolchain does annotate containers, the boundary crossing will
+start producing false positives, and the fix is
+`ASAN_OPTIONS=detect_container_overflow=0` added to the `ENVIRONMENT` property
+already set on the instrumented tests in `tests/CMakeLists.txt` - not a
+suppression file, and not turning ASan off.
+
+There are no suppression files, because nothing needed suppressing. If one ever
+becomes necessary it may name third-party paths only. Hiding a finding in
+`src/`, `include/` or `tests/` behind a suppression defeats the point of
+running this at all; the finding is the product.

@@ -30,6 +30,11 @@ option(DRAWGUI_BUILD_TESTS "Build the drawgui test suite" ${DRAWGUI_IS_TOP_LEVEL
 option(DRAWGUI_BUILD_EXAMPLES "Build the drawgui examples" ${DRAWGUI_IS_TOP_LEVEL})
 option(DRAWGUI_WERROR "Treat compiler warnings as errors" ON)
 
+# design.md section 7 (constraint C4): ASan + UBSan run the test suite. OFF by
+# default - the instrumented build is roughly 2x slower and its binaries are
+# not what ships, so it is a deliberate extra run rather than the normal one.
+option(DG_SANITIZE "Build first-party code with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+
 # Always emit compile_commands.json: clang-tidy and editor tooling need it,
 # and design.md section 7 puts the linter in CI from the start (constraint C4).
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -62,6 +67,71 @@ else()
   endif()
 endif()
 
+# --- Sanitizer configuration ------------------------------------------------
+
+# design.md section 7 requires ASan + UBSan over the test suite. This is a
+# second interface target rather than more flags on drawgui_warnings, because
+# the two do different jobs: warnings only change diagnostics, whereas these
+# change the emitted code, add a runtime, and - the part that is easy to get
+# wrong - must appear on the LINK line as well as the compile line. A target
+# compiled with -fsanitize=address but linked without it fails on undefined
+# __asan_* symbols, which reads as a mysterious linker error rather than as
+# the misconfiguration it is. Hence both target_compile_options and
+# target_link_options below, from one list, so they cannot drift.
+#
+# Like drawgui_warnings it is attached per-target rather than set globally:
+# Skia is a prebuilt archive with no instrumentation, and only first-party
+# code is being held to this standard. ASan is designed to link against
+# uninstrumented code, so the mix works; tests/CMakeLists.txt records what was
+# measured about the one boundary where it is known to need help.
+#
+# The target always exists so that every first-party target can link it
+# unconditionally; when DG_SANITIZE is OFF it carries nothing at all.
+add_library(drawgui_sanitizers INTERFACE)
+
+if(DG_SANITIZE)
+  if(MSVC)
+    # /fsanitize=address exists on MSVC but there is no UBSan, so the half
+    # this build would get is not what section 7 asks for. Fail loudly rather
+    # than quietly delivering a weaker check under the same option name.
+    message(FATAL_ERROR
+      "DG_SANITIZE is not supported under MSVC: MSVC has no UndefinedBehaviorSanitizer, "
+      "and an ASan-only build under this option name would misrepresent what ran.")
+  endif()
+
+  set(_dg_sanitize_flags
+    -fsanitize=address
+    -fsanitize=undefined
+    # The load-bearing flag. Without it UBSan prints its diagnostic and lets
+    # the program carry on, the test exits 0, and CI stays green over code
+    # that is undefined. design.md sections 5.4.7 and 5.17.5 both choose loud
+    # failure over quiet wrongness; a sanitizer that only warns is the
+    # opposite of that.
+    -fno-sanitize-recover=undefined
+    # The one sub-check that is switched off, and it is switched off because
+    # it cannot work here rather than because it is noisy. -fsanitize=vptr
+    # emits a `typeinfo for T` reference at every polymorphic dereference; the
+    # prebuilt Skia archive is compiled without RTTI, so `SkCanvas` has no
+    # typeinfo and the sanitized link fails outright with
+    # `undefined reference to 'typeinfo for SkCanvas'`. First-party code
+    # declares no virtual function, no dynamic_cast and no typeid anywhere
+    # (design.md section 5.15.3 stores render-object state as plain fields),
+    # so this check has nothing of ours to inspect in the first place. Revisit
+    # if drawgui ever grows a polymorphic type of its own.
+    -fno-sanitize=vptr
+    # Without a frame pointer the reports still arrive, but their stack traces
+    # degrade to a handful of frames and stop naming the caller that matters.
+    -fno-omit-frame-pointer
+    # Line numbers in those traces, independent of CMAKE_BUILD_TYPE. A
+    # sanitized Release run is worth having and is useless without this.
+    -g)
+
+  target_compile_options(drawgui_sanitizers INTERFACE ${_dg_sanitize_flags})
+  target_link_options(drawgui_sanitizers INTERFACE ${_dg_sanitize_flags})
+
+  message(STATUS "Sanitizers: ASan + UBSan (non-recovering) on first-party code")
+endif()
+
 # --- The library ------------------------------------------------------------
 
 add_library(drawgui STATIC
@@ -83,7 +153,8 @@ target_include_directories(drawgui
 target_link_libraries(drawgui
   PRIVATE
     drawgui::skia
-    drawgui_warnings)
+    drawgui_warnings
+    drawgui_sanitizers)
 
 # The generated property header is committed but regenerated every build, so
 # a stale copy cannot survive. See cmake/GenerateProps.cmake.
