@@ -1,0 +1,7 @@
+build/
+build-*/
+third_party/skia-prebuilt/
+.cache/
+compile_commands.json
+*.o
+*.a
