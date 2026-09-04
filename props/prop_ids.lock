@@ -9,7 +9,9 @@
 # numbers, so renumbering an id, renaming a property or deleting one is a
 # MAJOR version break (design.md section 5.8 decision 4: values are never
 # reused, and only a MAJOR version may break them). Appending a new property
-# with a fresh id and a fresh name is MINOR and is allowed.
+# with a fresh id and a fresh name is MINOR and is allowed - but it has to be
+# recorded here in the same change, because an id that already ships in the
+# generated header while missing from this file is guarded by nothing.
 #
 # NEVER hand-edit this file to make a failing check pass. The check is
 # reporting that props/drawgui.props.toml broke its own contract; editing the

@@ -23,9 +23,14 @@ about a property is hand-written anywhere else.
    python3 tools/prop_lock.py --write
    ```
 
-   This appends one line to `props/prop_ids.lock`.
-4. Commit the TOML, both generated files and the lock **together**. A
-   checkout must always pass `--check` on both tools.
+   This appends one line to `props/prop_ids.lock`. It is not optional: step 2
+   already made `DG_PROP_<NEW>` a real constant that a consumer can compile
+   against, so until this line exists the new id is live and unguarded.
+   `prop_lock.py --check` fails while it is missing.
+4. Commit the TOML, both generated files and the lock **together**. Adding a
+   property is a two-file source change - `props/drawgui.props.toml` and
+   `props/prop_ids.lock` - and the two belong in one commit. A checkout must
+   always pass `--check` on both tools.
 
 ## Why ids are never reused
 
@@ -46,14 +51,22 @@ The first one is not enough on its own. Move `width` from id 1 to id 7 and
 writes the wrong field. `props/prop_ids.lock` holds the committed name-to-id
 mapping so that the second question has an answer.
 
-`prop_lock.py --check` fails on exactly three things:
+`prop_lock.py --check` fails on exactly four things:
 
 - an id was **renumbered** - a locked name now carries a different id
 - a property was **renamed** - a locked id now carries a different name
 - a locked property was **deleted** - its id must stay claimed forever
+- an append was **left unrecorded** - the TOML has a property the lock has
+  never seen
 
-Appending a brand-new property with a fresh id and a fresh name is a MINOR
-change and passes; the check just reminds you to run `--write`.
+The last one is not a restriction on appending. Appending is MINOR and is
+always permitted; what is rejected is appending and then not writing it down.
+`cmake --build build` regenerates the header from the TOML alone, so a new
+property is compilable the instant it is added, while nothing guards its id
+until it reaches the lock. A guard that only starts protecting an id once
+somebody remembers to run `--write` has a lag window, and "depends on someone
+remembering" is precisely the failure the stonegui retrospective records.
+Running `--write` closes it in the same commit.
 
 ## When the lock check fails
 
@@ -69,6 +82,9 @@ TOML:
 - renamed - restore the locked name. If you want a differently named
   property, append a new one; the old id keeps its old name.
 - deleted - restore the entry. Retiring a property is not a cleanup.
+- unrecorded - run `python3 tools/prop_lock.py --write` and commit the lock
+  with your TOML edit. This is the one case where the fix is to update the
+  lock, and `--write` does it for you; you still never edit it by hand.
 
 If a break is genuinely intended, it is a MAJOR version change and lands as a
 reviewed commit that says so out loud - not as a quiet edit to the lock.

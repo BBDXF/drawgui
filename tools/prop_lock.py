@@ -12,11 +12,19 @@ it against props/drawgui.props.toml:
   renumbered id      a locked name now carries a different id   FAIL
   renamed property   a locked id now carries a different name   FAIL
   deleted property   a locked entry is gone from the TOML       FAIL
-  appended property  a fresh id with a fresh name               ALLOWED
+  unrecorded append  a TOML property this lock has never seen   FAIL
+  appended property  a fresh id and name, recorded by --write   ALLOWED
 
-Appending is MINOR and must never be blocked; the other three are MAJOR
-breaks (design.md section 5.8 decision 4: values are never reused, and only a
-MAJOR version may break them).
+Appending a property is MINOR and is always permitted. What --check rejects
+is leaving that append unrecorded: the build regenerates prop_ids.generated.h
+from the TOML alone, so DG_PROP_<NEW> is live and consumers can compile
+against it the moment it is added, while nothing at all guards its id until
+it reaches this lock. A guard that only starts protecting an id once somebody
+remembers to run --write has a lag window, and "depends on someone
+remembering" is the failure class this project exists to eliminate.
+
+The other three are MAJOR breaks (design.md section 5.8 decision 4: values
+are never reused, and only a MAJOR version may break them).
 
 Usage:
   python3 tools/prop_lock.py --check    verify the TOML against the lock
@@ -68,7 +76,9 @@ LOCK_HEADER = f"""\
 # numbers, so renumbering an id, renaming a property or deleting one is a
 # MAJOR version break (design.md section 5.8 decision 4: values are never
 # reused, and only a MAJOR version may break them). Appending a new property
-# with a fresh id and a fresh name is MINOR and is allowed.
+# with a fresh id and a fresh name is MINOR and is allowed - but it has to be
+# recorded here in the same change, because an id that already ships in the
+# generated header while missing from this file is guarded by nothing.
 #
 # NEVER hand-edit this file to make a failing check pass. The check is
 # reporting that {SOURCE_NAME} broke its own contract; editing the
@@ -185,6 +195,18 @@ def _removed(locked: LockEntry) -> str:
     )
 
 
+def _unrecorded(prop: Property) -> str:
+    return (
+        f"property '{prop.name}' (id {prop.id}) is in {SOURCE_NAME} but not in "
+        f"{LOCK_NAME}. Appending is MINOR and is still allowed - what is "
+        f"missing is the record. The build already emits "
+        f"DG_PROP_{prop.name.upper()} = {prop.id} into the generated header, "
+        f"so a consumer can compile against that id while nothing guards it "
+        f"against being renumbered. Run `python3 {TOOL_NAME} --write` and "
+        f"commit {LOCK_NAME} in the same change as {SOURCE_NAME}."
+    )
+
+
 def compare(
     defs: Definitions, lock: tuple[LockEntry, ...]
 ) -> tuple[list[str], list[Property]]:
@@ -211,26 +233,14 @@ def compare(
     return violations, appended
 
 
-def _report_appended(appended: list[Property]) -> None:
-    for prop in appended:
-        print(f"appended:  '{prop.name}' (id {prop.id}) - new, not locked yet")
-    if appended:
-        print(
-            f"note: appending is MINOR and is allowed. Run "
-            f"`python3 {TOOL_NAME} --write` and commit {LOCK_NAME} alongside "
-            f"{SOURCE_NAME} so the new id is locked too."
-        )
+def _plural(count: int) -> str:
+    return "property" if count == 1 else "properties"
 
 
-def _fail(violations: list[str]) -> int:
-    for violation in violations:
-        print(f"error: {violation}", file=sys.stderr)
-    print(
-        f"error: {SOURCE_NAME} disagrees with {LOCK_NAME} on "
-        f"{len(violations)} propert{'y' if len(violations) == 1 else 'ies'}. "
-        f"Fix the TOML - do not edit {LOCK_NAME} to silence this.",
-        file=sys.stderr,
-    )
+def _fail(problems: list[str], summary: str) -> int:
+    for problem in problems:
+        print(f"error: {problem}", file=sys.stderr)
+    print(f"error: {summary}", file=sys.stderr)
     return 1
 
 
@@ -247,7 +257,7 @@ def main(argv: list[str]) -> int:
     action.add_argument(
         "--check",
         action="store_true",
-        help="exit non-zero if an id was renumbered, a name changed or a property vanished",
+        help="exit non-zero if an id was renumbered, a name changed, a property vanished, or an append is unrecorded",
     )
     action.add_argument(
         "--write",
@@ -297,10 +307,22 @@ def main(argv: list[str]) -> int:
 
     violations, appended = compare(defs, lock)
     if violations:
-        return _fail(violations)
+        return _fail(
+            violations,
+            f"{SOURCE_NAME} disagrees with {LOCK_NAME} on "
+            f"{len(violations)} {_plural(len(violations))}. "
+            f"Fix the TOML - do not edit {LOCK_NAME} to silence this.",
+        )
 
     if args.check:
-        _report_appended(appended)
+        if appended:
+            return _fail(
+                [_unrecorded(prop) for prop in appended],
+                f"{len(appended)} {_plural(len(appended))} in {SOURCE_NAME} "
+                f"{'is' if len(appended) == 1 else 'are'} live in the generated "
+                f"header but unguarded. A property and its lock line land in the "
+                f"same commit.",
+            )
         print(f"{len(lock)} locked properties; every id and name is unchanged")
         return 0
 
