@@ -1,6 +1,7 @@
 build/
 build-*/
 third_party/skia-prebuilt/
+third_party/doctest-*/
 .cache/
 compile_commands.json
 *.o

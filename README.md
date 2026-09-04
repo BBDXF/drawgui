@@ -54,10 +54,25 @@ and the headers by commit SHA; a mismatch is a hard error, because headers
 that disagree with the binary produce a link that succeeds and then
 misbehaves at runtime.
 
+It also downloads the doctest single header into `third_party/doctest-<version>/`,
+verified by SHA256 on every configure. Building without network access is
+possible once both are present; `-DDRAWGUI_BUILD_TESTS=OFF` skips doctest
+entirely.
+
 Render a frame:
 
 ```sh
 ./build/examples/drawgui_render_png out.png
+```
+
+## Unit tests
+
+`ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`
+and the golden-image comparator. It can also be run directly for per-case
+output:
+
+```sh
+./build/tests/drawgui_unit_test
 ```
 
 ## Golden-image tests
