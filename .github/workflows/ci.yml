@@ -296,7 +296,10 @@ jobs:
             examples/05_widgets/main.cpp
             examples/05_widgets/demo.cpp
             examples/05_widgets/hud.cpp
-            examples/05_widgets/clip_probe.cpp"
+            examples/05_widgets/clip_probe.cpp
+            examples/06_font_fallback/main.cpp
+            examples/06_font_fallback/font_check.cpp
+            examples/06_font_fallback/font_scene.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
