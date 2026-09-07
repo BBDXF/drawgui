@@ -7,9 +7,9 @@
 // no SDL, only the layout tree, which is what lets that verification be a
 // CTest entry on a headless machine.
 //
-// The five mutations are not a sample of what a layout can do. They are one
-// per class of thing incremental layout can get wrong, and each one is named
-// after the property it is there to pin down.
+// The mutations are not a sample of what a layout can do. They are one per
+// class of thing incremental layout can get wrong, and each one is named after
+// the property it is there to pin down.
 
 #pragma once
 
@@ -49,6 +49,18 @@ enum class Mutation : std::uint8_t {
   // is the only acceptable answer, and it is the case that catches layout
   // invalidation leaking out of the render tree's.
   kPaintOnly,
+
+  // One chip of a wrapping band changes width by enough to push its later
+  // siblings across a run boundary, and sometimes to change how many runs
+  // there are.
+  //
+  // This is the shape no earlier mutation has: every other one moves a node
+  // whose siblings' positions follow it in list order, so an incremental pass
+  // that got the prefix right got everything right. A run boundary is not a
+  // prefix - closing a run early moves children that come AFTER the change
+  // onto a different line, and changing the run count resizes the band, which
+  // moves everything below it as well.
+  kWrapRebreak,
 };
 
 // The nodes the script touches. Everything else is arranged once and never
@@ -77,6 +89,21 @@ struct Handles {
 
   // Colour only, never a size.
   dg::NodeId sidebar_dot;
+
+  // A wrapping band whose width follows the window, so resizing it re-breaks
+  // the runs on screen rather than only in a test. It has no height of its
+  // own, so a change in the number of runs resizes the band and moves
+  // everything below it.
+  dg::NodeId wrap_band;
+
+  // The chip the script resizes, chosen in the middle of the band so there
+  // are siblings on both sides of it - the ones after it are the evidence
+  // that a re-break moved children the change never touched.
+  dg::NodeId wrap_chip;
+
+  // A chip carrying align_self, so the override is visible against neighbours
+  // that obey the band.
+  dg::NodeId wrap_self;
 
   // Pinned by two opposite edges inside an absolute layer, so its constraints
   // are tight and its size is the container's business rather than its own.
@@ -127,8 +154,8 @@ void apply_frame(dg::LayoutTree& tree, const Handles& handles, int frame);
 
 [[nodiscard]] const char* name_of(Mutation mutation);
 
-// The five in declaration order, for a test or a report that wants to walk
-// them all without repeating the list and getting it wrong.
+// Every mutation in declaration order, for a test or a report that wants to
+// walk them all without repeating the list and getting it wrong.
 [[nodiscard]] const Mutation* all_mutations(int& count);
 
 }  // namespace layout_scene

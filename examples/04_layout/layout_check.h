@@ -26,6 +26,18 @@ struct Config {
 // that disagrees, having reported which node and by how much.
 [[nodiscard]] bool verify_layout(const Config& config, std::ostream& out);
 
+// Resizes the scene through a ladder of widths and, at every one, requires hit
+// testing to agree with a brute-force paint-order oracle over the wrapping
+// band - the region that has just re-broken into a different number of runs.
+//
+// It is a separate check from verify_layout because it fails for a different
+// reason. Bounds identity says the tree computed the right rectangles;
+// this says the thing that answers "what is under the pointer" is reading
+// those rectangles rather than ones it cached before the reflow. Wrapping
+// moves many nodes at once, which is exactly when a stale hit rectangle stops
+// being a theoretical bug.
+[[nodiscard]] bool verify_hit_after_rewrap(const Config& config, std::ostream& out);
+
 // One row per class of change: how many nodes were entered, how many were
 // actually recomputed, how many moved, how many pixels the movement damaged,
 // and how many pixels a repaint of that damage actually touched. The last two

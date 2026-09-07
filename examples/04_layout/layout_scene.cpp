@@ -118,8 +118,64 @@ Color mix(std::uint32_t from, std::uint32_t to, int numerator, int denominator) 
 constexpr Mutation kAllMutations[] = {
     Mutation::kLeafResizesParent, Mutation::kContainedResize,
     Mutation::kNestedRowInColumn, Mutation::kNoOp,
-    Mutation::kPaintOnly,
+    Mutation::kPaintOnly,         Mutation::kWrapRebreak,
 };
+
+constexpr int kWrapChips = 11;
+constexpr int kWrapChipIndex = 4;
+constexpr int kWrapSelfIndex = 7;
+
+// Unequal on every side, so a transposed side is visible rather than merely
+// possible, and so the demo shows what the paint half of border_width_* now
+// does. The layout inset and the painted stroke are the same four numbers.
+constexpr dg::EdgeInsets kBandBorder{6, 2, 10, 4};
+
+// Widths that do not divide evenly into any likely band width, so the run
+// boundary lands in a different place at every viewport size instead of
+// repeating a tidy pattern that could hide an off-by-one.
+int chip_width(int index) {
+  return 46 + (((index * 29) + 7) % 63);
+}
+
+int chip_height(int index) {
+  // The align_self chip is deliberately the SHORTEST one. The band centres its
+  // children, so an override is only visible by as much as the chip's own
+  // slack - and a chip near the run's tallest has almost none. At 12 against a
+  // run of 26 the override moves it seven pixels, which a human can see.
+  if (index == kWrapSelfIndex) {
+    return 12;
+  }
+  return 14 + ((index * 5) % 13);
+}
+
+void build_wrap_band(dg::LayoutTree& tree, NodeId content, Handles& handles, bool rounded) {
+  BoxStyle band_box = stack(LayoutKind::kWrapRow, 8, CrossAlign::kCenter);
+  band_box.run_gap = 6;
+  band_box.padding = EdgeInsets::all(6);
+  band_box.border = kBandBorder;
+
+  NodeStyle band_style = panel(0xFF1A1F27, 0xFF4C6EF5, rounded);
+  band_style.border_width = dg::BorderWidths{
+      static_cast<float>(kBandBorder.left), static_cast<float>(kBandBorder.top),
+      static_cast<float>(kBandBorder.right), static_cast<float>(kBandBorder.bottom)};
+  handles.wrap_band = tree.add_child(content, band_box, band_style);
+
+  for (int i = 0; i < kWrapChips; ++i) {
+    BoxStyle chip = leaf(chip_width(i), chip_height(i));
+    if (i == kWrapSelfIndex) {
+      chip.align_self = CrossAlign::kStart;
+    }
+    const NodeId node = tree.add_child(
+        handles.wrap_band, chip,
+        i == kWrapSelfIndex ? accent(0xFFF6C445, 0xFFFFE08A) : accent(0xFF2E86DE, 0xFF8FC8FF));
+    if (i == kWrapChipIndex) {
+      handles.wrap_chip = node;
+    }
+    if (i == kWrapSelfIndex) {
+      handles.wrap_self = node;
+    }
+  }
+}
 
 void build_header(dg::LayoutTree& tree, NodeId root, bool rounded) {
   BoxStyle header_box = stack(LayoutKind::kRow, 10, CrossAlign::kCenter);
@@ -280,6 +336,7 @@ Scene build(const Options& options) {
   const NodeId content = tree.add_child(handles.body, content_box, flat(0xFF14171C));
 
   build_toolbar(tree, content, handles, rounded);
+  build_wrap_band(tree, content, handles, rounded);
 
   BoxStyle grid_box = stack(LayoutKind::kColumn, 12, CrossAlign::kStretch);
   grid_box.grow = 1;
@@ -337,12 +394,22 @@ void apply(dg::LayoutTree& tree, const Handles& handles, Mutation mutation, int 
       tree.render().set_fill(handles.sidebar_dot,
                              mix(0xFF264257, 0xFF3FA9F5, triangle(frame, 96), 48));
       return;
+    case Mutation::kWrapRebreak: {
+      // A swing of 150 px on one chip, which is more than any chip's own
+      // width - so the band goes from packing its widest run to spilling an
+      // extra run and back, rather than merely nudging one boundary.
+      BoxStyle box = tree.box(handles.wrap_chip);
+      box.width = chip_width(kWrapChipIndex) + triangle(frame * 5, 300);
+      set_box_copy(tree, handles.wrap_chip, box);
+      return;
+    }
   }
 }
 
 void apply_frame(dg::LayoutTree& tree, const Handles& handles, int frame) {
   apply(tree, handles, Mutation::kLeafResizesParent, frame);
   apply(tree, handles, Mutation::kPaintOnly, frame);
+  apply(tree, handles, Mutation::kWrapRebreak, frame);
   if (frame % 3 == 0) {
     apply(tree, handles, Mutation::kContainedResize, frame);
   }
@@ -366,6 +433,8 @@ const char* name_of(Mutation mutation) {
       return "box reassigned its own value";
     case Mutation::kPaintOnly:
       return "fill colour only, no geometry";
+    case Mutation::kWrapRebreak:
+      return "chip resize re-breaks the wrapped runs";
   }
   return "?";
 }

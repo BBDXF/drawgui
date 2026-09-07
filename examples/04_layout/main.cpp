@@ -210,7 +210,10 @@ int main(int argc, char** argv) {
 
   switch (options.mode) {
     case Mode::kVerify:
-      return layout_check::verify_layout(check_config(options), std::cout) ? 0 : 1;
+      return layout_check::verify_layout(check_config(options), std::cout) &&
+                     layout_check::verify_hit_after_rewrap(check_config(options), std::cout)
+                 ? 0
+                 : 1;
     case Mode::kScope:
       layout_check::report_scope(check_config(options), std::cout);
       return 0;

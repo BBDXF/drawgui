@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <optional>
 #include <ostream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -168,6 +169,151 @@ bool verify_layout(const Config& config, std::ostream& out) {
 
   out << "  OK: every node's bounds identical to a full layout, every frame\n";
   return true;
+}
+
+namespace {
+
+// Children reconstructed from the parent links rather than asked of the
+// library, so the oracle trusts one piece of structure and derives the rest.
+// A node's children were appended in order, so scanning indices upward and
+// grouping by parent recovers the same lists the tree holds.
+std::vector<std::vector<std::uint32_t>> children_of(const dg::RenderTree& tree) {
+  std::vector<std::vector<std::uint32_t>> children(tree.node_count());
+  for (std::uint32_t index = 1; index < tree.node_count(); ++index) {
+    children[tree.parent(NodeId{index}).value].push_back(index);
+  }
+  return children;
+}
+
+std::vector<std::uint32_t> paint_order_of(const dg::RenderTree& tree) {
+  const std::vector<std::vector<std::uint32_t>> children = children_of(tree);
+  std::vector<std::uint32_t> order;
+  order.reserve(tree.node_count());
+  std::vector<std::uint32_t> stack{0};
+  while (!stack.empty()) {
+    const std::uint32_t index = stack.back();
+    stack.pop_back();
+    order.push_back(index);
+    for (auto child = children[index].rbegin(); child != children[index].rend(); ++child) {
+      stack.push_back(*child);
+    }
+  }
+  return order;
+}
+
+// The last node in paint order covering the point is by definition the one
+// visible there: painting is depth-first pre-order, so the last to paint a
+// pixel owns it.
+std::uint32_t topmost_at(const dg::RenderTree& tree, const std::vector<std::uint32_t>& order,
+                         const std::vector<PixelRect>& absolute, dg::PixelPoint point) {
+  auto found = static_cast<std::uint32_t>(tree.node_count());
+  for (const std::uint32_t index : order) {
+    if (dg::contains(absolute[index], point)) {
+      found = index;
+    }
+  }
+  return found;
+}
+
+// Every pixel of the band, at one viewport width. Bounded to the band rather
+// than the whole window because the band is the part that just re-broke; the
+// rest of the scene is covered by the widget demo's own every-pixel pass.
+bool hit_matches_oracle(layout_scene::Scene& scene, std::ostream& out) {
+  const dg::RenderTree& tree = scene.tree.render();
+  const std::vector<std::uint32_t> order = paint_order_of(tree);
+
+  std::vector<PixelRect> absolute(tree.node_count());
+  for (std::uint32_t index = 0; index < tree.node_count(); ++index) {
+    absolute[index] = tree.absolute_bounds(NodeId{index});
+  }
+
+  const PixelRect band = absolute[scene.handles.wrap_band.value];
+  for (int y = band.top(); y < band.bottom(); ++y) {
+    for (int x = band.left(); x < band.right(); ++x) {
+      const dg::PixelPoint point{x, y};
+      const std::optional<NodeId> hit = tree.hit_test(point);
+      const std::uint32_t said =
+          hit.has_value() ? hit->value : static_cast<std::uint32_t>(tree.node_count());
+      const std::uint32_t expected = topmost_at(tree, order, absolute, point);
+      if (said != expected) {
+        out << "\n    FAIL at " << x << "," << y << ": hit test says " << said
+            << ", paint order says " << expected << "\n";
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// How many runs the band broke into, derived from the children's positions
+// rather than asked of the layout. The point of the ladder is that this number
+// CHANGES, and a check that never saw it change would be evidence about
+// nothing.
+std::size_t run_count_of(const layout_scene::Scene& scene) {
+  const dg::RenderTree& tree = scene.tree.render();
+  const std::vector<std::vector<std::uint32_t>> children = children_of(tree);
+  std::vector<int> tops;
+  tops.reserve(children[scene.handles.wrap_band.value].size());
+  for (const std::uint32_t child : children[scene.handles.wrap_band.value]) {
+    tops.push_back(tree.absolute_bounds(NodeId{child}).top());
+  }
+  std::sort(tops.begin(), tops.end());
+  tops.erase(std::unique(tops.begin(), tops.end()), tops.end());
+
+  // Children of one run share a run origin but not a top, because `align`
+  // centres them inside it. Two tops belong to the same run when they are
+  // closer together than the tallest chip's own slack could ever put them.
+  std::size_t runs = tops.empty() ? 0 : 1;
+  for (std::size_t i = 1; i < tops.size(); ++i) {
+    if (tops[i] - tops[i - 1] > 8) {
+      ++runs;
+    }
+  }
+  return runs;
+}
+
+}  // namespace
+
+bool verify_hit_after_rewrap(const Config& config, std::ostream& out) {
+  out << "verify: hit testing over the wrapping band, at every width in the ladder\n";
+
+  std::set<std::size_t> seen_run_counts;
+  bool ok = true;
+  for (const int width : {1500, 1180, 980, 820, 700, 620}) {
+    Config local = config;
+    local.viewport = dg::PixelSize{width, config.viewport.height};
+    layout_scene::Scene scene = layout_scene::build(options_from(local));
+
+    // Laid out at a size other than the one it was built at, so this runs
+    // against a REFLOWED tree rather than a freshly built one. Stale geometry
+    // after a reflow is the bug it is aimed at.
+    scene.tree.resize(local.viewport);
+    scene.tree.layout();
+
+    const std::size_t runs = run_count_of(scene);
+    seen_run_counts.insert(runs);
+    out << "  " << width << "x" << config.viewport.height << ": " << runs << " run(s)";
+    if (!hit_matches_oracle(scene, out)) {
+      ok = false;
+      break;
+    }
+    out << ", hit testing agrees with paint order at every pixel of the band\n";
+  }
+
+  // The ladder has to have actually re-broken something, or every pass above
+  // was one arrangement checked six times. This is the notepad's "the scene may
+  // lack the shape" lesson made automatic rather than left to whoever chose the
+  // widths.
+  if (ok && seen_run_counts.size() < 3) {
+    out << "  FAIL: the width ladder produced only " << seen_run_counts.size()
+        << " distinct run count(s), so it is not exercising a re-break\n";
+    ok = false;
+  }
+  if (ok) {
+    out << "  OK: " << seen_run_counts.size()
+        << " distinct run counts, and hit testing followed every one\n";
+  }
+  return ok;
 }
 
 namespace {

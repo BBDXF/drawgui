@@ -129,7 +129,7 @@ bool same_pixels(const RasterSurface& left, const RasterSurface& right) {
 TEST_CASE("incremental layout equals full layout, node for node") {
   int count = 0;
   const Mutation* mutations = layout_scene::all_mutations(count);
-  REQUIRE(count == 5);
+  REQUIRE(count == 6);
 
   for (int which = 0; which < count; ++which) {
     const Mutation mutation = mutations[which];
