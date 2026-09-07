@@ -174,6 +174,43 @@ struct NodeStyle {
 
   Overflow overflow = Overflow::kVisible;
 
+  // How opaque this node AND ITS DESCENDANTS are, TOGETHER, in 0..1.
+  //
+  // GROUP OPACITY, NOT PER-OBJECT ALPHA, and the difference is visible rather
+  // than pedantic. Per-object alpha draws every operation translucently, so
+  // two overlapping children inside the subtree show through each other and
+  // the overlap comes out darker than either. Group opacity composites the
+  // subtree into an offscreen buffer first, resolves the overlaps there at
+  // full opacity, and then draws that one image translucently - so the group
+  // fades as a single picture and its internal overlaps do not accumulate.
+  // `opacity` is the CSS property, so it is the second one. Per-object alpha
+  // is still available and costs nothing: it is the alpha channel of `fill`,
+  // `border_color` and `text.color`.
+  //
+  // examples/02_skia_cpu_gallery has drawn the two side by side since step 2,
+  // and examples/08_opacity now draws them out of the same node table with
+  // one field different. tests/unit/test_opacity.cpp pins the difference with
+  // hand-derived pixel values rather than with a comparison against another
+  // run of this code.
+  //
+  // A VALUE OF 1 COSTS NOTHING. `SkCanvas::saveLayer` allocates an offscreen
+  // buffer, so a layer created for a node that is fully opaque would be pure
+  // waste - and, worse, a layer nobody can see is a defect no pixel
+  // comparison can report, since compositing at alpha 1 is the identity. That
+  // is why RepaintStats::layers exists: it is the only place the absence of a
+  // needless layer is observable.
+  //
+  // A VALUE OF 0 PAINTS NOTHING, and the subtree is skipped rather than
+  // composited at alpha 0. The two are pixel-identical (a source of alpha
+  // zero leaves its destination untouched) and tests/unit/test_opacity.cpp
+  // requires them to be.
+  //
+  // HIT TESTING IGNORES THIS FIELD ENTIRELY, including at 0. That is a
+  // decision, not an oversight; RenderTree::hit_test() below records why, and
+  // the exhaustive pixel oracle in tests/unit/test_hit_test.cpp checks that
+  // painting and hit testing agree about it at every pixel of a faded scene.
+  float opacity = 1.0F;
+
   TextStyle text;
 };
 
@@ -214,6 +251,21 @@ struct RepaintStats {
   // True when a kPicture repaint had to re-record the scene, which is the
   // cost that caching is trading against.
   bool recorded = false;
+
+  // Offscreen buffers opened for group opacity, under kDirect.
+  //
+  // Reported because it is the ONLY observable consequence of a layer that
+  // should not exist. Compositing at alpha 1 is the identity, so a painter
+  // that opened a layer for every node would produce byte-identical pixels
+  // while allocating a buffer per node per damage rectangle - a defect the
+  // whole acceptance technique of this project is structurally blind to. The
+  // counter is incremented at the `saveLayerAlphaf` call itself, not derived
+  // from the styles a second time, so it cannot report a layer that was not
+  // opened or miss one that was.
+  //
+  // Zero under kPicture, where the layers are inside the recording and Skia
+  // does not report them back - the same asymmetry `nodes_drawn` already has.
+  std::size_t layers = 0;
 };
 
 struct TreeSpec {
@@ -285,6 +337,24 @@ class RenderTree {
   // THAT WAS NOT PAINTED BECAUSE IT WAS CLIPPED IS NOT HITTABLE. Both oracles
   // in tests/unit/test_hit_test.cpp are extended to say so at every pixel of a
   // clipped scene.
+  //
+  // IT IGNORES `NodeStyle::opacity`, INCLUDING AT ZERO, and that is the
+  // deliberate other half of the sentence above: a pixel that was not painted
+  // because it was faded away IS still hittable. The reason is that opacity
+  // has no threshold to put the boundary at. A group at 0.5 is obviously
+  // still clickable, a fade is a continuous animation through every value
+  // between 1 and 0, and any cut-off would make one frame of that animation
+  // silently stop responding - a defect visible only at the moment it
+  // happens. CSS draws the line in the same place and for a related reason:
+  // `opacity: 0` stays hit-testable while `visibility: hidden` does not,
+  // because they are two properties and only one of them is about
+  // interaction. drawgui has no `visibility` yet, and when it arrives it is
+  // that property - not this one - that removes a node from hit testing.
+  //
+  // A clip is different in kind, which is why the two rules differ: a clip
+  // says the pixels belong to someone else, and something ELSE is visible
+  // there to be clicked. A fade leaves the node exactly where it was and puts
+  // nothing in its place.
   [[nodiscard]] std::optional<NodeId> hit_test(PixelPoint point) const;
 
   // Where the node sits relative to its parent, and where it sits in the

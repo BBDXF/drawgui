@@ -1,9 +1,11 @@
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPicture.h"
 #include "include/core/SkPictureRecorder.h"
+#include "include/core/SkRect.h"
 
 #include "render/skia_paint.h"
 #include "render/tree_impl.h"
@@ -40,7 +42,74 @@ constexpr int kAntiAliasSlack = 1;
 
 }  // namespace
 
+PixelRect RenderTree::Impl::subtree_extent(std::uint32_t index) const {
+  PixelRect extent;
+  std::vector<std::uint32_t> stack{index};
+  while (!stack.empty()) {
+    const std::uint32_t walk = stack.back();
+    stack.pop_back();
+    extent = join(extent, nodes[walk].visible_bounds());
+    for (const std::uint32_t child : nodes[walk].children) {
+      stack.push_back(child);
+    }
+  }
+  return extent;
+}
+
 void RenderTree::Impl::paint_subtree(const PaintPass& pass, std::uint32_t index) const {
+  const Node& node = nodes[index];
+
+  // A subtree faded to nothing is skipped rather than composited and then
+  // multiplied away. Its descendants cannot become visible again further
+  // down - alpha only ever multiplies - so this is a pruning, not a shortcut
+  // that a nested opacity could invalidate.
+  if (paints_nothing(node.style)) {
+    return;
+  }
+
+  const bool layered = needs_layer(node.style);
+  if (layered) {
+    // The layer covers the whole subtree, not the node's own box: a child is
+    // free to overflow its parent here, and a layer sized to the parent would
+    // silently cut the overflow away - Skia treats saveLayer bounds as a clip,
+    // not merely as an allocation hint.
+    //
+    // NO ANTI-ALIAS SLACK, and that is a proof rather than an omission. The
+    // one-pixel halo a damage rectangle carries exists because a damage
+    // rectangle DIFFERS between an incremental and a full repaint, so a
+    // rounded node cut by one is rasterized under two different clips. This
+    // rectangle is derived from the tree alone, so it is the SAME rectangle in
+    // both passes; a rounded node flush with its edge is cut identically in
+    // both and produces identical pixels. Inflating it was measured to change
+    // nothing - the injection that removed the slack was the one defect of
+    // thirteen that no test could see - so the constant is not carried here
+    // just because it is carried next door. doc/compositing.md section 3 has
+    // the argument.
+    //
+    // VISIBLE bounds, not declared ones. A descendant an ancestor clip has
+    // removed entirely has no pixels, so including it would open an offscreen
+    // buffer for a region that paints nothing.
+    const PixelRect extent = subtree_extent(index);
+    if (extent.is_empty()) {
+      return;
+    }
+    if (pass.region.has_value() && !intersects(extent, *pass.region)) {
+      return;
+    }
+    const SkRect bounds = detail::to_sk_rect(extent);
+    pass.canvas->saveLayerAlphaf(&bounds, node.style.opacity);
+    ++pass.stats->layers;
+  }
+
+  paint_node_and_children(pass, index);
+
+  if (layered) {
+    pass.canvas->restore();
+  }
+}
+
+void RenderTree::Impl::paint_node_and_children(const PaintPass& pass,
+                                               std::uint32_t index) const {
   const Node& node = nodes[index];
   const PixelRect visible = node.visible_bounds();
 

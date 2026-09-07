@@ -80,6 +80,25 @@ struct Node {
   return style.overflow == Overflow::kClip;
 }
 
+// Whether this node's subtree has to be composited offscreen before it is
+// drawn, which is what makes `opacity` a GROUP opacity rather than a per-draw
+// alpha. False at 1, which is the whole point: `saveLayer` allocates, and
+// compositing at alpha 1 is the identity, so a layer opened here would be
+// invisible waste.
+//
+// False at 0 as well, and for a different reason: at 0 the subtree cannot
+// change a pixel at all, so painting skips it rather than composites it into
+// a buffer that is then multiplied away. `paints_nothing` is that test, kept
+// separate because the two answers are not opposites - a node at 1 needs no
+// layer AND paints normally.
+[[nodiscard]] constexpr bool needs_layer(const NodeStyle& style) {
+  return style.opacity < 1.0F && style.opacity > 0.0F;
+}
+
+[[nodiscard]] constexpr bool paints_nothing(const NodeStyle& style) {
+  return !(style.opacity > 0.0F);
+}
+
 // Everything one traversal of the tree needs, so that painting takes two
 // arguments rather than six. `region` absent means "paint everything", which
 // is what recording a picture wants and what culling against a damage
@@ -120,8 +139,21 @@ struct RenderTree::Impl {
   [[nodiscard]] PixelRect expand_to_whole_nodes(PixelRect region) const;
   [[nodiscard]] DamageRegion expand(const DamageRegion& raw) const;
 
+  // Every pixel the subtree rooted at `index` may paint, which is the union
+  // of each node's VISIBLE bounds - so an ancestor clip shrinks it and a
+  // child overflowing its parent grows it.
+  //
+  // Computed on demand rather than cached on the node, for the reason
+  // hit_test.cpp already records against the same optimisation: a stored
+  // subtree extent is a second copy of the geometry carrying an invalidation
+  // obligation on every move, resize and insertion, and this project has
+  // already deleted one speculative structure. It is asked for only by nodes
+  // that actually open a layer.
+  [[nodiscard]] PixelRect subtree_extent(std::uint32_t index) const;
+
   void record();
   void paint_subtree(const PaintPass& pass, std::uint32_t index) const;
+  void paint_node_and_children(const PaintPass& pass, std::uint32_t index) const;
   void paint_region(SkCanvas& canvas, const PixelRect& region, RepaintStats& stats);
   RepaintStats paint(RasterSurface& surface, const DamageRegion& region);
 };
