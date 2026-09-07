@@ -27,6 +27,16 @@
 // aligned square rectangles rasterize bit-identically, while anti-aliased
 // rounded ones do not. A rounded scene here would blend two nodes' colours at
 // the corners and the oracle would be reading a colour belonging to neither.
+// That is also why the clipped scene below clips with SQUARE corners: a square
+// clip lands on pixel boundaries, so "painted" stays a yes-or-no question and
+// the equivalence is checkable at every pixel. The rounded clip has a real
+// anti-aliased band where it is neither, and it is pinned against the
+// rasterizer's own alpha in tests/unit/test_clip.cpp instead.
+//
+// BOTH ORACLES NOW HONOUR CLIPPING, which is the point of this slice: a pixel
+// that was not painted because a clip removed it must not be hittable. The
+// first oracle re-derives the ancestor clip chain here, from the same flat
+// table, sharing no code with the library.
 
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +67,7 @@ struct Row {
   std::uint32_t parent;
   PixelRect local;
   const char* name;
+  dg::Overflow clip = dg::Overflow::kVisible;
 };
 
 struct Scene {
@@ -82,14 +93,35 @@ std::vector<PixelRect> absolute_bounds_of(const Scene& scene) {
   return absolute;
 }
 
+// Whether every clipping ancestor of `index` admits the point.
+//
+// Climbed here rather than accumulated into a rectangle, so that a defect
+// which intersected only the nearest clip instead of all of them has
+// something to disagree with. The root is its own parent, which is the stop
+// condition.
+bool passes_ancestor_clips(const Scene& scene, const std::vector<PixelRect>& absolute,
+                           std::uint32_t index, PixelPoint point) {
+  std::uint32_t walk = index;
+  while (walk != 0) {
+    walk = scene.rows[walk].parent;
+    if (scene.rows[walk].clip == dg::Overflow::kClip && !dg::contains(absolute[walk], point)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // The visible node at `point`, by the definition painting gives it: the last
-// one to cover it wins.
-std::optional<std::uint32_t> topmost_by_order(const std::vector<PixelRect>& absolute,
+// one to cover it, among those no ancestor clip has removed.
+std::optional<std::uint32_t> topmost_by_order(const Scene& scene,
+                                              const std::vector<PixelRect>& absolute,
                                               PixelPoint point) {
   std::optional<std::uint32_t> found;
   for (std::size_t index = 0; index < absolute.size(); ++index) {
-    if (dg::contains(absolute[index], point)) {
-      found = static_cast<std::uint32_t>(index);
+    const auto id = static_cast<std::uint32_t>(index);
+    if (dg::contains(absolute[index], point) &&
+        passes_ancestor_clips(scene, absolute, id, point)) {
+      found = id;
     }
   }
   return found;
@@ -107,11 +139,13 @@ RenderTree build(const Scene& scene) {
   dg::TreeSpec spec;
   spec.viewport = scene.viewport;
   spec.background.fill = colour_for(0);
+  spec.background.overflow = scene.rows[0].clip;
   RenderTree tree{spec};
 
   for (std::size_t index = 1; index < scene.rows.size(); ++index) {
     dg::NodeStyle style;
     style.fill = colour_for(index);
+    style.overflow = scene.rows[index].clip;
     const NodeId created =
         tree.add_child(NodeId{scene.rows[index].parent}, scene.rows[index].local, style);
     REQUIRE(created == NodeId{static_cast<std::uint32_t>(index)});
@@ -171,6 +205,62 @@ Scene overlapping_scene() {
   return scene;
 }
 
+// The same questions asked of a scene that CLIPS. Square corners throughout,
+// so the rasterizer oracle stays exact - see the file header.
+//
+// Every shape the traversal branches on has an instance here, because a long
+// sweep over a scene that lacks one is evidence about nothing (this project
+// has been caught by that three times; doc/wrapping.md and doc/properties.md
+// record the previous two):
+//
+//   a clipped child cut on one side, and one cut on two;
+//   a child entirely outside its clipping parent, visible nowhere;
+//   a GRANDCHILD outside a clipping GRANDPARENT while inside its own parent,
+//     which is the only shape that can tell "honours ancestor clips" from
+//     "honours the immediate parent";
+//   two nested clips whose intersection is smaller than either, with a child
+//     inside the inner box but outside the outer one;
+//   a clipping node with ZERO AREA, which must remove its subtree and be
+//     hittable nowhere itself;
+//   a clipping node with an unclipped SIBLING subtree overlapping it, so the
+//     clip cannot be confused with "everything after this stops painting".
+Scene clipped_scene() {
+  Scene scene;
+  scene.viewport = PixelSize{160, 120};
+  scene.rows = {
+      {0, PixelRect{0, 0, 160, 120}, "root"},
+
+      // A clipping panel. Its first child is cut on the right, the second is
+      // cut on two sides, and the third is outside it entirely.
+      {0, PixelRect{10, 10, 50, 40}, "clipper", dg::Overflow::kClip},
+      {1, PixelRect{20, 5, 40, 12}, "clipper.cut_right"},
+      {1, PixelRect{30, 25, 40, 40}, "clipper.cut_twice"},
+      {1, PixelRect{60, 5, 20, 20}, "clipper.gone"},
+
+      // The grandparent case: `outer` clips, `inner` does not, and inner's
+      // child reaches past outer. A hit test that only consulted the
+      // immediate parent would hand that child back.
+      {0, PixelRect{80, 10, 40, 30}, "outer", dg::Overflow::kClip},
+      {5, PixelRect{5, 5, 30, 20}, "outer.inner"},
+      {6, PixelRect{10, 5, 45, 12}, "outer.inner.escapes"},
+
+      // Two clips in a chain. Their intersection is 20 wide, narrower than
+      // either, and the child is inside the inner box but outside the outer.
+      {0, PixelRect{10, 60, 40, 40}, "nest_a", dg::Overflow::kClip},
+      {8, PixelRect{20, 5, 40, 30}, "nest_b", dg::Overflow::kClip},
+      {9, PixelRect{5, 5, 34, 20}, "nest_b.child"},
+
+      // Zero area, so the clip removes everything under it.
+      {0, PixelRect{70, 60, 0, 20}, "empty_clip", dg::Overflow::kClip},
+      {11, PixelRect{0, 0, 30, 20}, "empty_clip.child"},
+
+      // An ordinary overlapping sibling declared after the clips, which must
+      // still paint and still be hittable over them.
+      {0, PixelRect{40, 45, 30, 30}, "unclipped_sibling"},
+  };
+  return scene;
+}
+
 std::string describe(const Scene& scene, std::optional<std::uint32_t> index) {
   return index.has_value() ? scene.rows[index.value_or(0)].name : "<nothing>";
 }
@@ -226,67 +316,129 @@ void report(const Scene& scene, const Sweep& result, const char* oracle) {
           describe(scene, result.expected));
 }
 
+// One scene, swept against what the rasterizer actually drew.
+//
+// A named function rather than the body of a loop inside the TEST_CASE, for
+// the reason this file's neighbours already record: doctest expands every
+// assertion into branches, and two scenes' worth inside one case runs past
+// clang-tidy's cognitive-complexity budget.
+void check_against_the_surface(const Scene& scene) {
+  RenderTree tree = build(scene);
+
+  std::optional<dg::RasterSurface> surface =
+      dg::RasterSurface::create(scene.viewport.width, scene.viewport.height);
+
+  // Tested with an `if` rather than a REQUIRE, and the difference is not
+  // cosmetic: clang-tidy cannot model doctest's REQUIRE, so a REQUIRE
+  // followed by a dereference reads to clang-analyzer as an unchecked
+  // optional access. Failing explicitly and returning gives it the control
+  // flow it needs, and gives a reader the same information.
+  if (!surface.has_value()) {
+    FAIL("could not allocate a surface");
+    return;
+  }
+  dg::RasterSurface& target = *surface;
+  tree.repaint_full(target);
+
+  const dg::PixelView view = target.peek_pixels();
+  REQUIRE(view.pixels != nullptr);
+  REQUIRE(view.is_bgra8888);
+
+  const Sweep result = sweep(scene, tree, [&view](PixelPoint point) {
+    // BGRA: red is the third byte, and colour_for() put the node index there
+    // offset by one so that zero cannot be mistaken for node 0.
+    const std::size_t offset = (static_cast<std::size_t>(point.y) * view.row_bytes) +
+                               (static_cast<std::size_t>(point.x) * 4);
+    return static_cast<std::uint32_t>(view.pixels[offset + 2]) - 1;
+  });
+  report(scene, result, "the surface");
+  CHECK(result.mismatches == 0);
+}
+
 }  // namespace
 
 TEST_SUITE("hit testing") {
-  TEST_CASE("the scene table is declared in paint order") {
+  TEST_CASE("the scene tables are declared in paint order") {
     check_declaration_order(overlapping_scene());
+    check_declaration_order(clipped_scene());
   }
 
   TEST_CASE("every pixel agrees with a flat reverse-paint-order scan") {
-    const Scene scene = overlapping_scene();
-    check_declaration_order(scene);
-    const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
-    const RenderTree tree = build(scene);
-    const auto miss = static_cast<std::uint32_t>(scene.rows.size());
+    for (const Scene& scene : {overlapping_scene(), clipped_scene()}) {
+      check_declaration_order(scene);
+      const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
+      const RenderTree tree = build(scene);
+      const auto miss = static_cast<std::uint32_t>(scene.rows.size());
 
-    // The tree's own geometry is checked once, separately, so that a bounds
-    // disagreement is reported as one failure rather than as thirty thousand.
-    for (std::size_t index = 0; index < scene.rows.size(); ++index) {
-      REQUIRE(tree.absolute_bounds(NodeId{static_cast<std::uint32_t>(index)}) ==
-              absolute[index]);
+      // The tree's own geometry is checked once, separately, so that a bounds
+      // disagreement is reported as one failure rather than as thirty
+      // thousand.
+      for (std::size_t index = 0; index < scene.rows.size(); ++index) {
+        REQUIRE(tree.absolute_bounds(NodeId{static_cast<std::uint32_t>(index)}) ==
+                absolute[index]);
+      }
+
+      const Sweep result = sweep(scene, tree, [&scene, &absolute, miss](PixelPoint point) {
+        const std::optional<std::uint32_t> topmost = topmost_by_order(scene, absolute, point);
+        return topmost.value_or(miss);
+      });
+      report(scene, result, "paint order");
+      CHECK(result.mismatches == 0);
     }
-
-    const Sweep result = sweep(scene, tree, [&absolute, miss](PixelPoint point) {
-      const std::optional<std::uint32_t> topmost = topmost_by_order(absolute, point);
-      return topmost.value_or(miss);
-    });
-    report(scene, result, "paint order");
-    CHECK(result.mismatches == 0);
   }
 
   TEST_CASE("every pixel agrees with what the rasterizer actually drew") {
-    const Scene scene = overlapping_scene();
-    RenderTree tree = build(scene);
+    check_against_the_surface(overlapping_scene());
+    check_against_the_surface(clipped_scene());
+  }
 
-    std::optional<dg::RasterSurface> surface =
-        dg::RasterSurface::create(scene.viewport.width, scene.viewport.height);
+  // Guards the two sweeps above against the failure this project has hit
+  // repeatedly: a scene that does not contain the shape under test passes
+  // whatever the code does. If clipping removed nothing, both oracles would
+  // agree for the trivial reason, so the pixel count the clip is responsible
+  // for is asserted to be large rather than merely non-zero, and asserted
+  // through the clip-blind oracle the previous slice shipped.
+  TEST_CASE("the clipped scene really is clipped") {
+    const Scene scene = clipped_scene();
+    const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
 
-    // Tested with an `if` rather than a REQUIRE, and the difference is not
-    // cosmetic: clang-tidy cannot model doctest's REQUIRE, so a REQUIRE
-    // followed by a dereference reads to clang-analyzer as an unchecked
-    // optional access. Failing explicitly and returning gives it the control
-    // flow it needs, and gives a reader the same information.
-    if (!surface.has_value()) {
-      FAIL("could not allocate a surface");
-      return;
+    std::size_t removed = 0;
+    for (int y = 0; y < scene.viewport.height; ++y) {
+      for (int x = 0; x < scene.viewport.width; ++x) {
+        const PixelPoint point{x, y};
+        std::optional<std::uint32_t> blind;
+        for (std::size_t index = 0; index < absolute.size(); ++index) {
+          if (dg::contains(absolute[index], point)) {
+            blind = static_cast<std::uint32_t>(index);
+          }
+        }
+        if (blind != topmost_by_order(scene, absolute, point)) {
+          ++removed;
+        }
+      }
     }
-    dg::RasterSurface& target = *surface;
-    tree.repaint_full(target);
+    MESSAGE("clipping changes the answer at ", removed, " pixels");
+    CHECK(removed > 500);
+  }
 
-    const dg::PixelView view = target.peek_pixels();
-    REQUIRE(view.pixels != nullptr);
-    REQUIRE(view.is_bgra8888);
+  // Each of the five nodes the clipped scene declares to be entirely hidden is
+  // named, so that a defect removing one shape's coverage - the grandparent
+  // chain, say - is reported as itself rather than as a sweep mismatch whose
+  // cause has to be reconstructed.
+  TEST_CASE("a node a clip removes entirely is hit nowhere") {
+    const Scene scene = clipped_scene();
+    const RenderTree tree = build(scene);
+    const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
 
-    const Sweep result = sweep(scene, tree, [&view](PixelPoint point) {
-      // BGRA: red is the third byte, and colour_for() put the node index there
-      // offset by one so that zero cannot be mistaken for node 0.
-      const std::size_t offset = (static_cast<std::size_t>(point.y) * view.row_bytes) +
-                                 (static_cast<std::size_t>(point.x) * 4);
-      return static_cast<std::uint32_t>(view.pixels[offset + 2]) - 1;
-    });
-    report(scene, result, "the surface");
-    CHECK(result.mismatches == 0);
+    for (const std::uint32_t hidden : {4U, 11U, 12U}) {
+      const PixelRect box = absolute[hidden];
+      for (int y = box.top(); y < box.bottom(); ++y) {
+        for (int x = box.left(); x < box.right(); ++x) {
+          REQUIRE_MESSAGE(hit_index(tree, PixelPoint{x, y}) != hidden, describe(scene, hidden),
+                          " was hit at ", x, ",", y);
+        }
+      }
+    }
   }
 
   TEST_CASE("a child overflowing its parent is hittable in the overflow") {

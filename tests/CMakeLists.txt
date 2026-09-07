@@ -58,6 +58,8 @@ add_executable(drawgui_unit_test
   unit/test_pixel_geometry.cpp
   unit/test_damage.cpp
   unit/test_damage_repaint.cpp
+  unit/test_clip_damage.cpp
+  unit/test_clip.cpp
   unit/test_hit_test.cpp
   unit/test_interaction.cpp
   unit/test_text_damage.cpp
@@ -78,7 +80,15 @@ target_include_directories(drawgui_unit_test PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/golden
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout
-  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets)
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets
+
+  # src/ so that the clip geometry can be tested DIRECTLY rather than only
+  # through the pixels it produces. Two of the fifteen defect injections for
+  # this slice survived because the only observers of fit_radii() were a
+  # rasterizer and a hit test that both degrade a bad radius to a square
+  # corner in the same way - the arithmetic itself had no test at all.
+  # clip_shape.h names no Skia type, so this pulls nothing else in.
+  ${CMAKE_CURRENT_LIST_DIR}/../src)
 
 # Skia is linked directly, mirroring drawgui_golden_test, because the golden
 # comparator decodes and encodes PNG. drawgui itself keeps Skia PRIVATE.
@@ -153,7 +163,15 @@ add_executable(drawgui_widget_identity
   ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets/widget_scene.cpp)
 
 target_include_directories(drawgui_widget_identity PRIVATE
-  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets)
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets
+
+  # src/ so that the clip geometry can be tested DIRECTLY rather than only
+  # through the pixels it produces. Two of the fifteen defect injections for
+  # this slice survived because the only observers of fit_radii() were a
+  # rasterizer and a hit test that both degrade a bad radius to a square
+  # corner in the same way - the arithmetic itself had no test at all.
+  # clip_shape.h names no Skia type, so this pulls nothing else in.
+  ${CMAKE_CURRENT_LIST_DIR}/../src)
 
 target_link_libraries(drawgui_widget_identity PRIVATE
   drawgui::drawgui
