@@ -60,6 +60,8 @@ add_executable(drawgui_unit_test
   unit/test_damage_repaint.cpp
   unit/test_clip_damage.cpp
   unit/test_clip.cpp
+  unit/test_opacity.cpp
+  unit/test_opacity_damage.cpp
   unit/test_hit_test.cpp
   unit/test_interaction.cpp
   unit/test_text_damage.cpp

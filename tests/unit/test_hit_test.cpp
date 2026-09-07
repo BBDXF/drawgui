@@ -37,6 +37,16 @@
 // that was not painted because a clip removed it must not be hittable. The
 // first oracle re-derives the ancestor clip chain here, from the same flat
 // table, sharing no code with the library.
+//
+// NEITHER ORACLE HONOURS `opacity`, which is the OTHER slice's point and the
+// deliberate opposite answer: a pixel that was not painted because it was
+// faded away IS still hittable. render_tree.h records why - there is no
+// threshold to put the boundary at, and a fade is a continuous animation
+// through every value between 1 and 0. So the claim checked here is stronger
+// than "the sweeps still pass with opacity in the scene": the SAME scene is
+// built twice, once faded and once fully opaque, and hit testing is required
+// to give the same answer at every pixel of both while the two renders are
+// required to differ at a great many.
 
 #include <cstddef>
 #include <cstdint>
@@ -68,6 +78,7 @@ struct Row {
   PixelRect local;
   const char* name;
   dg::Overflow clip = dg::Overflow::kVisible;
+  float opacity = 1.0F;
 };
 
 struct Scene {
@@ -140,17 +151,33 @@ RenderTree build(const Scene& scene) {
   spec.viewport = scene.viewport;
   spec.background.fill = colour_for(0);
   spec.background.overflow = scene.rows[0].clip;
+  spec.background.opacity = scene.rows[0].opacity;
   RenderTree tree{spec};
 
   for (std::size_t index = 1; index < scene.rows.size(); ++index) {
     dg::NodeStyle style;
     style.fill = colour_for(index);
     style.overflow = scene.rows[index].clip;
+    style.opacity = scene.rows[index].opacity;
     const NodeId created =
         tree.add_child(NodeId{scene.rows[index].parent}, scene.rows[index].local, style);
     REQUIRE(created == NodeId{static_cast<std::uint32_t>(index)});
   }
   return tree;
+}
+
+// The same scene with every fade removed.
+//
+// This is what makes the opacity claim checkable rather than merely
+// unrefuted: the rasterizer oracle recovers a node index from a flat colour
+// and cannot read a blended one, so the pixel sweep runs on this twin - which
+// proves the traversal order - while the hit-test answers are required to be
+// identical between the twin and the faded original.
+Scene without_opacity(Scene scene) {
+  for (Row& row : scene.rows) {
+    row.opacity = 1.0F;
+  }
+  return scene;
 }
 
 // A parent must be declared before its children, and a subtree must be
@@ -261,10 +288,51 @@ Scene clipped_scene() {
   return scene;
 }
 
+// The same questions asked of a scene that FADES, and the answers must not
+// change at all.
+//
+// Every shape the layer code branches on has an instance here, for the reason
+// the clipped scene above already records - a sweep over a scene that lacks
+// the shape is evidence about nothing:
+//
+//   a faded group with two OVERLAPPING children, which is the shape that
+//     distinguishes group opacity from per-object alpha;
+//   a fade inside a fade;
+//   a group faded to NOTHING, sitting over the root with no neighbour on top
+//     of it, which is the shape that tests the decision rather than the
+//     arithmetic: it is invisible and must still be hittable;
+//   a faded group that also CLIPS, so a pixel removed by the clip and a pixel
+//     removed by the fade are both present and must be answered differently;
+//   an opaque node overlapping a faded one and declared after it, so the fade
+//     cannot be confused with "everything after this stops painting".
+Scene faded_scene() {
+  Scene scene;
+  scene.viewport = PixelSize{160, 120};
+  scene.rows = {
+      {0, PixelRect{0, 0, 160, 120}, "root"},
+
+      {0, PixelRect{10, 10, 60, 40}, "fade", dg::Overflow::kVisible, 0.5F},
+      {1, PixelRect{5, 5, 30, 20}, "fade.left"},
+      {1, PixelRect{20, 12, 30, 20}, "fade.right"},
+
+      {0, PixelRect{80, 10, 50, 40}, "deep_fade", dg::Overflow::kVisible, 0.6F},
+      {4, PixelRect{5, 5, 35, 25}, "deep_fade.inner", dg::Overflow::kVisible, 0.4F},
+      {5, PixelRect{5, 5, 25, 15}, "deep_fade.inner.leaf"},
+
+      {0, PixelRect{10, 60, 50, 35}, "ghost", dg::Overflow::kVisible, 0.0F},
+      {7, PixelRect{6, 6, 30, 20}, "ghost.child"},
+
+      {0, PixelRect{80, 60, 50, 35}, "fade_clip", dg::Overflow::kClip, 0.7F},
+      {9, PixelRect{20, 5, 50, 20}, "fade_clip.cut"},
+
+      {0, PixelRect{60, 45, 40, 25}, "solid"},
+  };
+  return scene;
+}
+
 std::string describe(const Scene& scene, std::optional<std::uint32_t> index) {
   return index.has_value() ? scene.rows[index.value_or(0)].name : "<nothing>";
 }
-
 // The hit as an index, with the node count meaning "nothing". Every case below
 // goes through this rather than dereferencing the optional: the check and the
 // access would otherwise sit in different expressions, which is a shape
@@ -355,16 +423,122 @@ void check_against_the_surface(const Scene& scene) {
   CHECK(result.mismatches == 0);
 }
 
+// One channel of one pixel, which is all the rasterizer oracle ever needs:
+// colour_for() puts the node index in red.
+std::uint32_t red_at(const dg::PixelView& pixels, PixelPoint point) {
+  const std::size_t offset = (static_cast<std::size_t>(point.y) * pixels.row_bytes) +
+                             (static_cast<std::size_t>(point.x) * 4);
+  return static_cast<std::uint32_t>(pixels.pixels[offset + 2]);
+}
+
+// Hoisted out of its TEST_CASE for the reason this file's neighbours already
+// record: doctest expands every assertion into branches, and a body carrying
+// two full-viewport sweeps runs past clang-tidy's cognitive-complexity budget.
+// How many pixels the fades are responsible for, which is what stops the
+// case above from holding for the trivial reason that nothing faded.
+std::size_t pixels_the_fades_changed(const Scene& scene, const dg::PixelView& faded,
+                                     const dg::PixelView& opaque) {
+  std::size_t changed = 0;
+  for (int y = 0; y < scene.viewport.height; ++y) {
+    for (int x = 0; x < scene.viewport.width; ++x) {
+      if (red_at(faded, PixelPoint{x, y}) != red_at(opaque, PixelPoint{x, y})) {
+        ++changed;
+      }
+    }
+  }
+  return changed;
+}
+
+// The whole opacity-versus-clipping decision, at every pixel of one box: the
+// surface must show the node UNDERNEATH the ghost, and hit testing must go on
+// naming the ghost.
+// The first pixel of `ghost` that the surface shows something at, and the
+// first that hit testing declines to name the ghost at. Kept as two searches
+// returning a point rather than as two assertions inside the loop, because an
+// assertion inside a doubly nested loop is what puts this over clang-tidy's
+// cognitive-complexity budget - and reporting the first offender is what a
+// failure needs anyway.
+struct GhostProbe {
+  std::optional<PixelPoint> painted;
+  std::optional<PixelPoint> unclickable;
+};
+
+GhostProbe probe_the_ghost_box(const RenderTree& tree, const dg::PixelView& view,
+                               const PixelRect& ghost, std::uint32_t background) {
+  GhostProbe found;
+  for (int y = ghost.top(); y < ghost.bottom(); ++y) {
+    for (int x = ghost.left(); x < ghost.right(); ++x) {
+      const PixelPoint point{x, y};
+      const std::uint32_t hit = hit_index(tree, point);
+      if (red_at(view, point) != background && !found.painted.has_value()) {
+        found.painted = point;
+      }
+      if (hit != 7 && hit != 8 && !found.unclickable.has_value()) {
+        found.unclickable = point;
+      }
+    }
+  }
+  return found;
+}
+
+// The whole opacity-versus-clipping decision, at every pixel of one box: the
+// surface must show the node UNDERNEATH the ghost, and hit testing must go on
+// naming the ghost.
+void check_the_ghost_box(const RenderTree& tree, const dg::PixelView& view,
+                         const PixelRect& ghost) {
+  const std::uint32_t root_red = red_at(view, PixelPoint{ghost.left(), ghost.top()});
+  CHECK(root_red == 1);
+
+  const GhostProbe probed = probe_the_ghost_box(tree, view, ghost, root_red);
+  const PixelPoint painted = probed.painted.value_or(PixelPoint{});
+  const PixelPoint unclickable = probed.unclickable.value_or(PixelPoint{});
+  CHECK_MESSAGE(!probed.painted.has_value(), "the ghost painted at ", painted.x, ",",
+                painted.y);
+  CHECK_MESSAGE(!probed.unclickable.has_value(), "the ghost was not hittable at ",
+                unclickable.x, ",", unclickable.y);
+}
+
+// Hoisted out of its TEST_CASE for the reason this file's neighbours already
+// record: doctest expands every assertion into branches, and a body carrying
+// two full-viewport sweeps runs past clang-tidy's cognitive-complexity budget.
+void check_a_ghost_is_invisible_and_still_hittable() {
+  const Scene scene = faded_scene();
+  RenderTree faded = build(scene);
+  RenderTree opaque = build(without_opacity(scene));
+
+  std::optional<dg::RasterSurface> surface =
+      dg::RasterSurface::create(scene.viewport.width, scene.viewport.height);
+  std::optional<dg::RasterSurface> opaque_surface =
+      dg::RasterSurface::create(scene.viewport.width, scene.viewport.height);
+  if (!surface.has_value() || !opaque_surface.has_value()) {
+    FAIL("could not allocate a surface");
+    return;
+  }
+  faded.repaint_full(*surface);
+  opaque.repaint_full(*opaque_surface);
+
+  const dg::PixelView view = surface->peek_pixels();
+  REQUIRE(view.is_bgra8888);
+
+  const std::size_t changed =
+      pixels_the_fades_changed(scene, view, opaque_surface->peek_pixels());
+  MESSAGE("fading changes ", changed, " pixels");
+  CHECK(changed > 2000);
+
+  check_the_ghost_box(faded, view, absolute_bounds_of(scene)[7]);
+}
+
 }  // namespace
 
 TEST_SUITE("hit testing") {
   TEST_CASE("the scene tables are declared in paint order") {
     check_declaration_order(overlapping_scene());
     check_declaration_order(clipped_scene());
+    check_declaration_order(faded_scene());
   }
 
   TEST_CASE("every pixel agrees with a flat reverse-paint-order scan") {
-    for (const Scene& scene : {overlapping_scene(), clipped_scene()}) {
+    for (const Scene& scene : {overlapping_scene(), clipped_scene(), faded_scene()}) {
       check_declaration_order(scene);
       const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
       const RenderTree tree = build(scene);
@@ -390,6 +564,35 @@ TEST_SUITE("hit testing") {
   TEST_CASE("every pixel agrees with what the rasterizer actually drew") {
     check_against_the_surface(overlapping_scene());
     check_against_the_surface(clipped_scene());
+
+    // The opaque twin of the faded scene. The oracle recovers a node index
+    // from a flat colour and a blended one names nobody, so the pixel sweep
+    // runs here and the two cases below carry the opacity claim.
+    check_against_the_surface(without_opacity(faded_scene()));
+  }
+
+  // The decision, stated at every pixel: opacity is a paint property and
+  // changes no hit-test answer anywhere. Two trees, identical but for the
+  // fades, swept against each other.
+  TEST_CASE("fading a scene changes no hit-test answer, at any pixel") {
+    const Scene scene = faded_scene();
+    const RenderTree faded = build(scene);
+    const RenderTree opaque = build(without_opacity(scene));
+
+    const Sweep result =
+        sweep(scene, faded, [&opaque](PixelPoint point) { return hit_index(opaque, point); });
+    report(scene, result, "the same scene unfaded");
+    CHECK(result.mismatches == 0);
+  }
+
+  // Guards the case above against the failure this project has hit
+  // repeatedly: if the fades changed no pixel, "the answers match" would hold
+  // for the trivial reason. The two renders are required to differ at a great
+  // many pixels, and the ghost's box is required to be indistinguishable from
+  // the background while hit testing still names the ghost inside it - which
+  // is the whole opacity-versus-clipping decision in one assertion.
+  TEST_CASE("a group faded to nothing is invisible and still hittable") {
+    check_a_ghost_is_invisible_and_still_hittable();
   }
 
   // Guards the two sweeps above against the failure this project has hit
