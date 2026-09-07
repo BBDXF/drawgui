@@ -109,6 +109,33 @@ struct TextStyle {
   friend bool operator==(const TextStyle&, const TextStyle&) = default;
 };
 
+// Whether a node confines its descendants to its own rectangle.
+//
+// The two ordinals of the property table's `overflow` (id 29), and the
+// property that closes the decision hit_test() below records: painting and hit
+// testing must honour ONE rule, and this is it.
+//
+// WHICH RECTANGLE: the node's own bounds - the border box - together with its
+// `radii`. That is a deliberate deviation from CSS, which clips at the padding
+// box, and the reason is the invariant the rest of this layer already rests
+// on: the rectangle a node declares is exactly the rectangle it paints, and
+// the render tree is the layer that does not know what padding is. Clipping at
+// the padding box would put a second copy of layout's insets in NodeStyle and
+// make a clipping container look different from a non-clipping one along its
+// own border, which has nothing to do with overflow. doc/clipping.md records
+// the deviation and what would force the other choice.
+//
+// WHAT IS CLIPPED: the descendants, not the node itself. Everything the node
+// paints is inside its bounds by construction - the fill and border are drawn
+// to the box, and text carries its own containment clip - so clipping the node
+// with its own shape would change nothing except the anti-aliased coverage of
+// its own rounded fill, which is a measured way to make pixels move for no
+// reason.
+enum class Overflow : std::uint8_t {
+  kVisible,
+  kClip,
+};
+
 // Everything a node paints.
 //
 // Fills, borders and one run of text. Blur is still absent deliberately - it
@@ -144,6 +171,8 @@ struct NodeStyle {
   // unequal one fills the ring between the outer border box and the box the
   // four widths inset it to. Both stay inside the declared rectangle.
   BorderWidths border_width;
+
+  Overflow overflow = Overflow::kVisible;
 
   TextStyle text;
 };
@@ -242,15 +271,20 @@ class RenderTree {
   // symptom: a widget you can see but cannot click, and a click landing on
   // something hidden underneath what you aimed at.
   //
-  // IT DOES NOT CLIP A CHILD TO ITS PARENT, and that is a decision rather than
-  // an omission. paint_node() does not clip either - a child whose box runs
-  // past its parent's is drawn in the overflow region, and the layout tree
-  // reports the overrun as a diagnostic instead of hiding it. Hit testing that
-  // clipped would therefore disagree with the screen in exactly the region the
-  // screen is already telling the user is interactive. When a scrolling
-  // container introduces a real clip, the clip becomes a property of the node,
-  // painting honours it, and hit testing honours the same property - one rule,
-  // read by both. doc/widgets.md records the reasoning.
+  // IT HONOURS `Overflow::kClip`, AND NOTHING ELSE CLIPS. A child is not
+  // confined to its parent by being its child: an overflowing child of an
+  // ordinary node is painted in the overflow region and is hittable there, and
+  // the layout tree reports the overrun as a diagnostic rather than hiding it.
+  // Only a node that has asked to clip confines what is under it, and then
+  // both readers ask the same question of the same field - painting applies
+  // the shape, this applies `clip_contains` to the same shape. Ancestors, not
+  // just the immediate parent: the traversal stops at the first clip the point
+  // is outside, so a grandparent's clip is honoured for free.
+  //
+  // The equivalence that makes that checkable rather than arguable: A PIXEL
+  // THAT WAS NOT PAINTED BECAUSE IT WAS CLIPPED IS NOT HITTABLE. Both oracles
+  // in tests/unit/test_hit_test.cpp are extended to say so at every pixel of a
+  // clipped scene.
   [[nodiscard]] std::optional<NodeId> hit_test(PixelPoint point) const;
 
   // Where the node sits relative to its parent, and where it sits in the

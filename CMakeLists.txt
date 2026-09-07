@@ -169,6 +169,7 @@ add_library(drawgui STATIC
   src/layout/box_layout.cpp
   src/layout/layout_tree.cpp
   src/props/node_props.cpp
+  src/render/clip_shape.cpp
   src/render/damage.cpp
   src/render/font_catalog.cpp
   src/render/font_fallback.cpp

@@ -33,30 +33,33 @@ bool clips_atomically(const NodeStyle& style) {
   return !style.radii.is_zero();
 }
 
-void RenderTree::Impl::rebuild_paint_order() {
-  paint_order.clear();
-  paint_order.reserve(nodes.size());
-  std::vector<std::uint32_t> stack{0};
-  while (!stack.empty()) {
-    const std::uint32_t index = stack.back();
-    stack.pop_back();
-    paint_order.push_back(index);
-    const std::vector<std::uint32_t>& children = nodes[index].children;
-    for (auto child = children.rbegin(); child != children.rend(); ++child) {
-      stack.push_back(*child);
-    }
-  }
-}
-
 void RenderTree::Impl::reposition(std::uint32_t root_index) {
   std::vector<std::uint32_t> stack{root_index};
   while (!stack.empty()) {
     const std::uint32_t index = stack.back();
     stack.pop_back();
     Node& node = nodes[index];
-    node.absolute = index == 0 ? node.local
-                               : node.local.offset_by(nodes[node.parent].absolute.x,
-                                                      nodes[node.parent].absolute.y);
+    if (index == 0) {
+      node.absolute = node.local;
+      node.clip_bounds.reset();
+    } else {
+      const Node& parent = nodes[node.parent];
+      node.absolute = node.local.offset_by(parent.absolute.x, parent.absolute.y);
+
+      // The clip a child inherits is everything its ancestors impose, and
+      // this is where "nested clips intersect" is actually implemented: the
+      // parent's own box joins the set only if the parent asked to clip, and
+      // it is INTERSECTED with what the parent had already inherited rather
+      // than replacing it. Taking the innermost clip alone is the classic
+      // wrong answer - an inner box wider than its clipped grandparent would
+      // hand its children back the space the grandparent removed.
+      node.clip_bounds = parent.clip_bounds;
+      if (clips_subtree(parent.style)) {
+        node.clip_bounds = node.clip_bounds.has_value()
+                               ? intersect(*node.clip_bounds, parent.absolute)
+                               : parent.absolute;
+      }
+    }
     for (const std::uint32_t child : node.children) {
       stack.push_back(child);
     }
@@ -68,7 +71,13 @@ void RenderTree::Impl::damage_subtree(std::uint32_t root_index) {
   while (!stack.empty()) {
     const std::uint32_t index = stack.back();
     stack.pop_back();
-    damage.add(nodes[index].absolute);
+
+    // The VISIBLE extent, not the declared one. A node inside a clip cannot
+    // put a pixel outside it, so damaging its whole box would ask for a
+    // repaint - and, through painted(), a present - of a region the user
+    // cannot see. A node clipped away entirely contributes nothing at all,
+    // and DamageRegion::add already ignores an empty rectangle.
+    damage.add(nodes[index].visible_bounds());
     for (const std::uint32_t child : nodes[index].children) {
       stack.push_back(child);
     }
@@ -99,7 +108,6 @@ RenderTree::RenderTree(const TreeSpec& spec) : impl_(std::make_unique<Impl>()) {
   root_node.style = spec.background;
   root_node.clip_atomic = clips_atomically(spec.background);
   impl_->nodes.push_back(std::move(root_node));
-  impl_->paint_order.push_back(0);
   damage_all();
 }
 
@@ -120,7 +128,6 @@ NodeId RenderTree::add_child(NodeId parent, const PixelRect& bounds, const NodeS
   impl_->nodes.push_back(std::move(node));
   impl_->nodes[parent.value].children.push_back(index);
 
-  impl_->rebuild_paint_order();
   impl_->reposition(index);
   impl_->invalidate(index);
   return NodeId{index};
@@ -159,8 +166,25 @@ PixelRect RenderTree::absolute_bounds(NodeId id) const {
 }
 
 void RenderTree::set_style(NodeId id, const NodeStyle& style) {
-  impl_->nodes[id.value].style = style;
-  impl_->nodes[id.value].clip_atomic = clips_atomically(style);
+  Node& node = impl_->nodes[id.value];
+
+  // A change to the clip is the one style change that moves pixels the node
+  // does not own. Turning a clip ON hides descendants that were painted
+  // outside it, and those pixels are damaged HERE, while clip_bounds still
+  // describes where they used to be allowed to go - after the update they are
+  // unreachable and nothing would ever repaint them. Same shape as
+  // set_local_bounds()'s damage-then-move, and the same class of bug.
+  const bool clip_changed = clips_subtree(node.style) != clips_subtree(style) ||
+                            (clips_subtree(style) && node.style.radii != style.radii);
+  if (clip_changed) {
+    impl_->damage_subtree(id.value);
+  }
+
+  node.style = style;
+  node.clip_atomic = clips_atomically(style);
+  if (clip_changed) {
+    impl_->reposition(id.value);
+  }
   impl_->invalidate(id.value);
 }
 

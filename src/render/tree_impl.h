@@ -46,9 +46,50 @@ struct Node {
   // forces the damage rectangle to grow around it. doc/damage-repaint.md has
   // the measurement.
   bool clip_atomic = false;
+
+  // The rectangle every ancestor clip together confines this node to, or
+  // nothing when no ancestor clips.
+  //
+  // ABSENT RATHER THAN "THE VIEWPORT", so that a tree containing no clip
+  // behaves exactly as it did before this field existed - every damage
+  // rectangle, every reported area and every painted pixel. A sentinel of the
+  // viewport would silently start intersecting damage that used to be allowed
+  // to run past the edge, which is a change nobody asked for riding along with
+  // one that was.
+  //
+  // For a ROUNDED ancestor clip this is the bounding rectangle, not the
+  // rounded shape. That is conservative in the only direction that is safe:
+  // it may keep a corner pixel that the curve removes, so damage is a
+  // superset of what changed and painting is still exact, while the shape
+  // itself is applied by the canvas and by clip_contains().
+  std::optional<PixelRect> clip_bounds;
+
+  // Where this node may put pixels: its own box, minus whatever its ancestors
+  // clip away. Empty means it is entirely hidden and paints nothing.
+  [[nodiscard]] PixelRect visible_bounds() const {
+    return clip_bounds.has_value() ? intersect(absolute, *clip_bounds) : absolute;
+  }
 };
 
 [[nodiscard]] bool clips_atomically(const NodeStyle& style);
+
+// Whether this node confines its descendants. One reader would be a private
+// rule; this has three - painting, damage and hit testing - which is the
+// point of the slice.
+[[nodiscard]] constexpr bool clips_subtree(const NodeStyle& style) {
+  return style.overflow == Overflow::kClip;
+}
+
+// Everything one traversal of the tree needs, so that painting takes two
+// arguments rather than six. `region` absent means "paint everything", which
+// is what recording a picture wants and what culling against a damage
+// rectangle must not do.
+struct PaintPass {
+  SkCanvas* canvas = nullptr;
+  const FontCatalog* fonts = nullptr;
+  std::optional<PixelRect> region;
+  RepaintStats* stats = nullptr;
+};
 
 struct RenderTree::Impl {
   PixelSize viewport;
@@ -56,20 +97,13 @@ struct RenderTree::Impl {
   PaintMode paint_mode = PaintMode::kDirect;
   std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
   std::vector<Node> nodes;
-  std::vector<std::uint32_t> paint_order;
   DamageRegion damage;
   DamageRegion painted;
   sk_sp<SkPicture> picture;
   bool picture_stale = true;
 
-  // Depth-first pre-order: a parent paints before its children, and siblings
-  // paint in the order they were added. That order IS the z-order, and a
-  // damage repaint must honour it or a node above the changed one gets
-  // clipped through - the characteristic partial-repaint artifact.
-  void rebuild_paint_order();
-
   // Depth-first, children in REVERSE order, first match wins. That order is
-  // the reverse of rebuild_paint_order()'s, which is what makes hit testing
+  // the reverse of paint_subtree()'s, which is what makes hit testing
   // agree with what the screen shows. Returns the node count when nothing is
   // hit, so the caller has one out-of-range value to test rather than a
   // node index that could be mistaken for the root.
@@ -87,6 +121,7 @@ struct RenderTree::Impl {
   [[nodiscard]] DamageRegion expand(const DamageRegion& raw) const;
 
   void record();
+  void paint_subtree(const PaintPass& pass, std::uint32_t index) const;
   void paint_region(SkCanvas& canvas, const PixelRect& region, RepaintStats& stats);
   RepaintStats paint(RasterSurface& surface, const DamageRegion& region);
 };

@@ -33,4 +33,20 @@ namespace dg::detail {
 void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style,
                 const FontCatalog* fonts);
 
+// Confines everything drawn until the matching restore() to `bounds` rounded
+// by `radii`.
+//
+// ANTI-ALIASED FOR A ROUNDED SHAPE, ALIASED FOR A SQUARE ONE, and the two
+// halves are decided by different arguments. A square clip lands on integer
+// pixel boundaries, so anti-aliasing it could only blend an edge that has no
+// fraction to blend - and the damage clip in paint_region() is aliased for
+// exactly that reason, so an aliased square clip is also the one that cannot
+// disagree with it. A rounded clip has a real curve, and the whole point of
+// the feature is that content follows the curve rather than its bounding box.
+//
+// The radii handed to SkRRect are fit_radii()'s, not the caller's, so that
+// hit testing - which asks clip_contains() about the same numbers - cannot
+// answer for a shape the rasterizer never drew.
+void apply_clip(SkCanvas& canvas, const PixelRect& bounds, const Radii& radii);
+
 }  // namespace dg::detail

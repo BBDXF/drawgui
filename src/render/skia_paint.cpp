@@ -16,6 +16,7 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypeface.h"
 
+#include "render/clip_shape.h"
 #include "render/font_access.h"
 
 namespace dg::detail {
@@ -259,6 +260,16 @@ void paint_border(SkCanvas& canvas, const SkRect& rect, const NodeStyle& style,
 SkRect to_sk_rect(const PixelRect& rect) {
   return SkRect::MakeXYWH(static_cast<float>(rect.x), static_cast<float>(rect.y),
                           static_cast<float>(rect.width), static_cast<float>(rect.height));
+}
+
+void apply_clip(SkCanvas& canvas, const PixelRect& bounds, const Radii& radii) {
+  const SkRect rect = to_sk_rect(bounds);
+  const Radii fitted = fit_radii(bounds, radii);
+  if (fitted.is_zero()) {
+    canvas.clipRect(rect, false);
+    return;
+  }
+  canvas.clipRRect(to_sk_rrect(rect, fitted), true);
 }
 
 void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style,
