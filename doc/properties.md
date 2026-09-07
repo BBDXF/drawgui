@@ -251,16 +251,17 @@ written for a different purpose.
 
 ## 4. The gap report
 
-45 properties: **27 implemented**, **9 partially implemented**, **9 not yet**.
+45 properties: **28 implemented**, **9 partially implemented**, **8 not yet**.
 
 A partially implemented property applies correctly for the values listed as
 supported and returns `kUnsupported` - naming the node - for the rest. Nothing
 in either column is silently ignored.
 
-The counts moved because the slice that followed this report built the two
-pieces section 4.4 called 1 and 5. `doc/wrapping.md` records what that took.
+The counts moved twice after this report was first written: the wrapping slice
+built the pieces section 4.4 called 1 and 5 (`doc/wrapping.md`), and the
+clipping slice built piece 2 (`doc/clipping.md`).
 
-### 4.1 Implemented (27)
+### 4.1 Implemented (28)
 
 | id | property | notes |
 | --- | --- | --- |
@@ -284,6 +285,7 @@ pieces section 4.4 called 1 and 5. `doc/wrapping.md` records what that took.
 | 24 | `border_radius_tr` | |
 | 25 | `border_radius_br` | |
 | 26 | `border_radius_bl` | |
+| 29 | `overflow` | both values; paint, hit testing and damage all read the one field. Clips at the BORDER box, which is a deliberate deviation from CSS - `doc/clipping.md` section 2 |
 | 34 | `gap` | flex and wrap containers; stacks with margins, does not collapse |
 | 36 | `run_gap` | wrapping containers only; `kNotApplicable` on a flex row |
 | 37 | `align_content` | wrapping containers only; all six values |
@@ -311,7 +313,7 @@ behaviour, so that test is load-bearing rather than tidy.
 | 38 | `grow` | whole non-negative weights, under a flex parent | fractional weights would need the free-space split to stop being exact integer division. Under a WRAP parent it is refused entirely - `kNotApplicable` at the boundary, a layout diagnostic through the struct API - matching design.md section 5.4.4 |
 | 41 | `align_self` | `auto`, `start`, `end`, `center`, `stretch` | `baseline`, for the same reason `align=baseline` is unavailable. `stretch` under a wrapping parent degrades exactly as `align=stretch` does |
 
-### 4.3 Not yet implemented (9)
+### 4.3 Not yet implemented (8)
 
 | id | property | what it needs |
 | --- | --- | --- |
@@ -319,7 +321,6 @@ behaviour, so that test is load-bearing rather than tidy.
 | 17 | `background_gradient` | an `SkShader` in the painter, plus the dedicated `dg_node_set_gradient`-shaped setter design.md section 5.9.5 specifies - it cannot travel in the scalar union |
 | 27 | `opacity` | a compositing layer. An alpha below 1 must composite the whole subtree through a `saveLayer`; no node has a layer, and `clips_atomically` would need to account for one |
 | 28 | `shadow` | painting OUTSIDE the node's bounds, which damage tracking has no concept of - every rectangle a node declares is currently the rectangle it paints. Also a dedicated setter |
-| 29 | `overflow` | a real clip. Painting does not clip a child to its parent and neither does hit testing; `render_tree.h` requires that when a clip arrives, both honour ONE rule, so this lands with scrolling |
 | 30 | `transform` | non-axis-aligned geometry. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare. Also a dedicated setter |
 | 35 | `main_size` | a second container sizing rule. A container always shrinks to its content within its limits; `max` means filling the main axis instead |
 | 39 | `shrink` | a negative-free-space pass. Children that overrun are currently reported as a layout diagnostic and left overrunning |
@@ -328,13 +329,19 @@ behaviour, so that test is load-bearing rather than tidy.
 ### 4.4 Suggested grouping for the next slice
 
 Reading down the "needs" column, the unimplemented properties fall into five
-pieces of engine work rather than nine. **Pieces 1 and 5 are done**; the
-remaining three are unchanged.
+pieces of engine work rather than nine. **Pieces 1, 2 and 5 are done**; the
+remaining two are unchanged.
 
 1. ~~**A wrapping arrangement**~~ - done. `run_gap`, `align_content` and the
    run-scoped meaning of `align` all landed with it. `doc/wrapping.md`.
-2. **A real clip** - unlocks `overflow`, and is a precondition for scrolling.
-   Must land in painting AND hit testing together.
+2. ~~**A real clip**~~ - done. `overflow` landed in painting, hit testing and
+   damage together, and it is the clip a scroll viewport will need. The rounded
+   case turned out to need no new damage rule: a rounded clipper already has
+   radii, so it is already clip-atomic, and the one pixel of anti-alias slack
+   this engine carries was measured to be necessary and sufficient for a
+   rounded CLIP as well - nesting included. The cost is that a rounded clipping
+   container becomes the minimum damage unit for its whole subtree.
+   `doc/clipping.md`.
 3. **A compositing layer** - unlocks `opacity`, and is the precondition for
    `shadow` and `transform` having anywhere to live.
 4. **A second sizing stage** - unlocks `aspect_ratio`, `main_size`, `basis`,

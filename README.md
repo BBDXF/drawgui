@@ -48,6 +48,15 @@ implemented, 9 partially and 9 report `kUnsupported`. `doc/wrapping.md` records
 why wrapping still lays every node out exactly once, and where design.md asks
 for two things that cannot both be true.
 
+A container can now **clip** what overflows it. `overflow` is one field on the
+node, and painting, hit testing and damage all read it: content is cut at the
+boundary, a point in the cut-away region does not hit the widget that would
+have been there, and a change inside a clipped container does not ask for a
+repaint of pixels the clip removes. Rounded clips follow the curve. 28
+properties are now fully implemented, 9 partially and 8 report `kUnsupported`.
+`doc/clipping.md` records why a rounded clip needed no new damage rule, what it
+costs, and where `overflow` deviates from CSS.
+
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
@@ -194,8 +203,8 @@ out.
 ## Unit tests
 
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
-the golden-image comparator, damage, layout, hit testing, interaction, UTF-8
-decoding and font fallback. It can also be run directly for per-case output:
+the golden-image comparator, damage, layout, clipping, hit testing,
+interaction, UTF-8 decoding and font fallback. It can also be run directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -233,4 +242,5 @@ Findings and decisions from each slice live beside it:
 | `doc/font-fallback.md` | why the fallback chain is built here rather than delegated to fontconfig |
 | `doc/properties.md` | the property system: reconciliation, boundary shape, and the gap report |
 | `doc/wrapping.md` | the wrapping arrangement, `align_self`, and per-side borders |
+| `doc/clipping.md` | `overflow`, and how a rounded clip composes with the anti-alias slack rule |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
