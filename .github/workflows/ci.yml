@@ -248,7 +248,14 @@ jobs:
           if pkg-config --exists sdl3; then
             files="$files
             src/platform/sdl3/window_manager.cpp
-            examples/01_sdl3_multi_window/main.cpp"
+            examples/01_sdl3_multi_window/main.cpp
+            examples/02_skia_cpu_gallery/main.cpp
+            examples/02_skia_cpu_gallery/bench.cpp
+            examples/02_skia_cpu_gallery/gallery.cpp
+            examples/02_skia_cpu_gallery/resources.cpp
+            examples/02_skia_cpu_gallery/panels_geometry.cpp
+            examples/02_skia_cpu_gallery/panels_text.cpp
+            examples/02_skia_cpu_gallery/panels_effects.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files

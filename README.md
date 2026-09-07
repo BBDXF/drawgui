@@ -20,13 +20,14 @@ accessibility, complex text editing, and depth of native integration.
 ## Current status
 
 The foundation is in place: CMake build, verified prebuilt Skia, a CPU raster
-path that produces a PNG, a golden-image test pipeline, and a concrete SDL3
-multi-window manager with a demo that puts several windows on screen at once.
+path that produces a PNG, a golden-image test pipeline, a concrete SDL3
+multi-window manager, and Skia rendering on the CPU into a real window.
 
-Skia and the window manager do not meet yet - how a surface attaches to a
-window, and whether it does so on CPU or GPU, is the next question and is
-deliberately still open. There is no layout, no widget, no theming and no C
-ABI.
+Skia and the window manager now meet, on the CPU. A frame is rasterized into
+an ordinary buffer and copied onto the window surface; no GL context is
+created anywhere. `doc/cpu-raster-findings.md` records what that costs and
+where it stops being enough. There is no layout, no widget, no theming and no
+C ABI.
 
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
@@ -108,6 +109,31 @@ real code rather than a shortcut around it:
 SDL3 is found through `pkg-config sdl3`. Without it the window manager and
 this demo are skipped and everything else still builds; the configure output
 says which way it went.
+
+## The Skia CPU gallery
+
+`examples/02_skia_cpu_gallery` draws sixteen labelled panels covering
+geometry, stroking, dashes, anti-aliasing, transforms, clipping, text
+(including measurement and CJK), compositing, gradients, blur, drop shadow and
+image decoding - all rasterized on the CPU and blitted to the window.
+
+```sh
+./build/examples/drawgui_skia_cpu_gallery              # resize it; it re-renders
+./build/examples/drawgui_skia_cpu_gallery --bench          # offscreen timings
+./build/examples/drawgui_skia_cpu_gallery --bench-present  # raster vs presentation
+./build/examples/drawgui_skia_cpu_gallery --dump-png out.png
+```
+
+It is the one example that links Skia directly, because its subject is Skia:
+it exists to show what the rasterizer does and to measure it, so that layout
+and widgets can be designed against real costs. It is not a template for
+application code, and it is deliberately not a golden-image baseline - it
+draws system fonts, so its output is a property of the host.
+
+The headline result, in Release on an i5-1145G7: a full-window repaint at
+1080p is 3.88 ms of rasterization plus 7.71 ms of presentation, while the
+same scene under a 260x72 damage rectangle is 0.12 ms and does not grow with
+resolution. See `doc/cpu-raster-findings.md`.
 
 ## Unit tests
 
