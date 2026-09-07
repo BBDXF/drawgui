@@ -23,6 +23,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FetchDoctest.cmake)
 add_executable(drawgui_unit_test
   unit/unit_test_main.cpp
   unit/test_expected.cpp
+  unit/test_utf8.cpp
   unit/test_golden_image.cpp
   unit/test_pixel_geometry.cpp
   unit/test_damage.cpp
