@@ -239,13 +239,18 @@ jobs:
           files="
             src/graphics/canvas.cpp
             src/graphics/raster_surface.cpp
+            src/render/damage.cpp
+            src/render/render_tree.cpp
+            src/render/skia_paint.cpp
+            src/render/tree_paint.cpp
             examples/00_cpu_raster_png/main.cpp
             tests/golden/golden_image.cpp
             tests/golden/golden_test.cpp
             tests/unit/unit_test_main.cpp
             tests/unit/test_expected.cpp
             tests/unit/test_golden_image.cpp
-            tests/unit/test_pixel_geometry.cpp"
+            tests/unit/test_pixel_geometry.cpp
+            tests/unit/test_damage.cpp"
           if pkg-config --exists sdl3; then
             files="$files
             src/platform/sdl3/window_manager.cpp

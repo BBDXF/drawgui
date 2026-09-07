@@ -165,7 +165,11 @@ endif()
 
 add_library(drawgui STATIC
   src/graphics/canvas.cpp
-  src/graphics/raster_surface.cpp)
+  src/graphics/raster_surface.cpp
+  src/render/damage.cpp
+  src/render/render_tree.cpp
+  src/render/skia_paint.cpp
+  src/render/tree_paint.cpp)
 
 if(DRAWGUI_HAVE_SDL3)
   target_sources(drawgui PRIVATE src/platform/sdl3/window_manager.cpp)
