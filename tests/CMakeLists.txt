@@ -16,6 +16,7 @@ add_executable(drawgui_unit_test
   unit/unit_test_main.cpp
   unit/test_expected.cpp
   unit/test_golden_image.cpp
+  unit/test_pixel_geometry.cpp
   golden/golden_image.cpp)
 
 target_include_directories(drawgui_unit_test PRIVATE

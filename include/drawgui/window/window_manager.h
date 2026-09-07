@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "drawgui/base/expected.h"
+#include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/types.h"
 
 namespace dg {
@@ -77,27 +78,6 @@ struct WindowSpec {
 // quietly presenting the wrong channels is worse than saying so.
 enum class PixelFormat : std::uint8_t {
   kBgra8888,
-};
-
-// A size in physical device pixels, which is what a frame must be rasterized
-// at. Integral, unlike dg::Size, because a framebuffer is allocated in whole
-// pixels and rounding it at the point of use is how off-by-one edges happen.
-struct PixelSize {
-  int width = 0;
-  int height = 0;
-
-  friend bool operator==(PixelSize, PixelSize) = default;
-};
-
-// A region in physical device pixels, relative to the top-left of the image
-// it describes.
-struct PixelRect {
-  int x = 0;
-  int y = 0;
-  int width = 0;
-  int height = 0;
-
-  friend bool operator==(PixelRect, PixelRect) = default;
 };
 
 // Somebody else's pixels, borrowed for the duration of one call.
@@ -187,6 +167,7 @@ class WindowManager {
   // and never again afterwards.
   [[nodiscard]] Expected<void, WindowError> present(WindowId id, const ImageView& image,
                                                     const PixelRect& dirty);
+
 
  private:
   struct Impl;

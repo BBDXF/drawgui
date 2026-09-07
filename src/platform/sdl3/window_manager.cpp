@@ -112,14 +112,7 @@ void paint(const OwnedWindow& owned) {
 // window size is one pump() out of date whenever a resize is in flight, and
 // an unclipped copy of a stale rectangle is a heap overflow.
 PixelRect clip_to(const PixelRect& dirty, int width, int height) {
-  const int left = std::max(dirty.x, 0);
-  const int top = std::max(dirty.y, 0);
-  const int right = std::min(dirty.x + dirty.width, width);
-  const int bottom = std::min(dirty.y + dirty.height, height);
-  if (right <= left || bottom <= top) {
-    return PixelRect{};
-  }
-  return PixelRect{left, top, right - left, bottom - top};
+  return intersect(dirty, PixelRect{0, 0, width, height});
 }
 
 }  // namespace
