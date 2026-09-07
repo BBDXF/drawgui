@@ -29,6 +29,16 @@ created anywhere. `doc/cpu-raster-findings.md` records what that costs and
 where it stops being enough. There is no layout, no widget, no theming and no
 C ABI.
 
+Layout and paint are now configurable by **property id**. `props/` held a
+45-property CSS-like table, a generator and an ABI lock from the very first
+phase, frozen because nothing included either generated file; its real consumer
+- the eventual C ABI, where a host language sets a property by number rather
+than by calling a C++ setter - finally exists in outline, so `dg::set_prop()`
+connects the table to the layout and render trees. 21 properties are fully
+implemented, 12 partially, and 12 report `kUnsupported` naming what they need.
+`doc/properties.md` records the reconciliation, the per-property gap report, and
+why the generated ids are plain constants rather than an enumeration.
+
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
@@ -202,3 +212,15 @@ expectations proves nothing.
 ## Documentation
 
 The full design document lives at `doc/design.md` (written in Chinese).
+
+Findings and decisions from each slice live beside it:
+
+| Document | Subject |
+| --- | --- |
+| `doc/cpu-raster-findings.md` | what CPU rasterization costs, and where it stops being enough |
+| `doc/damage-repaint.md` | partial repaint, and why rounded corners are a damage-granularity decision |
+| `doc/layout.md` | incremental layout, and the integer-device-pixel deviation |
+| `doc/widgets.md` | why there is no widget tree |
+| `doc/font-fallback.md` | why the fallback chain is built here rather than delegated to fontconfig |
+| `doc/properties.md` | the property system: reconciliation, boundary shape, and the gap report |
+| `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
