@@ -381,10 +381,21 @@ PropWrite apply_border_radius_bl(Target& target, const PropValue& value) {
   return style_radius(target, value, &Radii::bottom_left, "border_radius_bl");
 }
 
-PropWrite apply_opacity(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "opacity",
-                     "an alpha below 1 has to composite the whole subtree through a "
-                     "saveLayer, and no node here has a compositing layer");
+// The one property in the table whose unit is neither a length nor a colour:
+// a plain 0..1 fraction, and out of that range it is refused rather than
+// clamped. Clamping would let a caller whose own arithmetic produced 1.4 or
+// -0.2 - the overshoot of an easing curve is the obvious source - never find
+// out, and the two ends fail differently enough to be worth telling apart: a
+// value above 1 means the animation is running past its endpoint, a value
+// below 0 means it is running past its start.
+PropWrite apply_opacity(Target& target, const PropValue& value) {
+  const float opacity = value.scalar();
+  if (!std::isfinite(opacity) || opacity < 0.0F || opacity > 1.0F) {
+    return out_of_range(target, "opacity needs a fraction in 0..1");
+  }
+  target.style.opacity = opacity;
+  target.style_changed = true;
+  return PropWrite{};
 }
 
 PropWrite apply_shadow(Target& target, const PropValue& /*value*/) {

@@ -158,6 +158,24 @@ std::vector<int> defined_ids() {
   return ids;
 }
 
+// Hoisted out of its TEST_CASE for the reason this file's neighbours already
+// record: doctest expands every assertion into branches, and a body with two
+// loops of them runs past clang-tidy's cognitive-complexity budget.
+void check_opacity_lands(Fixture& fixture, float value) {
+  CHECK(
+      dg::set_prop(fixture.tree, fixture.leaf, DG_PROP_OPACITY, PropValue::number(value)).ok());
+  CHECK(fixture.tree.render().style(fixture.leaf).opacity == value);
+}
+
+void check_opacity_refuses_out_of_range(Fixture& fixture) {
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float inf = std::numeric_limits<float>::infinity();
+  for (const float bad : {nan, inf, -inf, -0.01F, 1.01F, 2.0F}) {
+    expect_rejected(fixture.tree, fixture.leaf, DG_PROP_OPACITY, PropValue::number(bad),
+                    PropStatus::kValueOutOfRange);
+  }
+}
+
 }  // namespace
 
 // --------------------------------------------------------------------------
@@ -438,7 +456,6 @@ TEST_CASE("a property the engine does not implement says so") {
   };
 
   refuse(fixture.leaf, DG_PROP_ASPECT_RATIO, PropValue::number(1.5F));
-  refuse(fixture.leaf, DG_PROP_OPACITY, PropValue::number(0.5F));
   refuse(fixture.row, DG_PROP_MAIN_SIZE, PropValue::option(DG_MAIN_SIZE_MAX));
   refuse(fixture.row_child, DG_PROP_SHRINK, PropValue::number(1));
   refuse(fixture.row_child, DG_PROP_BASIS, PropValue::number(40));
@@ -450,6 +467,29 @@ TEST_CASE("a property the engine does not implement says so") {
   refuse(fixture.leaf, DG_PROP_BACKGROUND_GRADIENT, PropValue::number(0));
   refuse(fixture.leaf, DG_PROP_SHADOW, PropValue::number(0));
   refuse(fixture.leaf, DG_PROP_TRANSFORM, PropValue::number(0));
+}
+
+// `opacity` moved out of the refusal list with this slice, so the value has to
+// be asserted to LAND rather than merely to stop being refused - "no longer
+// kUnsupported" is equally satisfied by a handler that writes the wrong
+// number, or writes it and then forgets to commit the style.
+//
+// Both ends of the range are refused rather than clamped, and both are
+// checked: an easing curve that overshoots produces 1.02 at one end and -0.02
+// at the other, and a clamp would answer kApplied to both.
+TEST_CASE("opacity reaches the node style, and out of 0..1 is refused") {
+  Fixture fixture;
+
+  // Both ENDS as well as the middle: 0 and 1 are the two values the painter
+  // treats specially, so a range check that stopped short of them would leave
+  // the two branches that matter untested.
+  for (const float value : {0.25F, 0.0F, 1.0F}) {
+    check_opacity_lands(fixture, value);
+  }
+  check_opacity_refuses_out_of_range(fixture);
+
+  // The last accepted write was 1.0, and a rejection must not have moved it.
+  CHECK(fixture.tree.render().style(fixture.leaf).opacity == 1.0F);
 }
 
 // The values a wired property has that the arrangement does not, which is a
