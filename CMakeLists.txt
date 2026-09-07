@@ -169,9 +169,13 @@ add_library(drawgui STATIC
   src/layout/box_layout.cpp
   src/layout/layout_tree.cpp
   src/render/damage.cpp
+  src/render/font_catalog.cpp
+  src/render/hit_test.cpp
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
-  src/render/tree_paint.cpp)
+  src/render/tree_paint.cpp
+  src/widget/interaction.cpp
+  src/widget/widget_set.cpp)
 
 if(DRAWGUI_HAVE_SDL3)
   target_sources(drawgui PRIVATE src/platform/sdl3/window_manager.cpp)
