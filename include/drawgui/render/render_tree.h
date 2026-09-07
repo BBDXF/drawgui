@@ -80,10 +80,22 @@ enum class TextAlign : std::uint8_t {
 struct TextStyle {
   std::string text;
 
-  // Which family, resolved once through the tree's FontCatalog. An invalid id
-  // draws nothing rather than substituting: the font manager this project has
-  // has no fallback chain, so a substitution would not even be a near miss.
+  // Which family the caller wants FIRST. An invalid id still draws nothing -
+  // "I forgot to set a font" stays a visible failure rather than becoming a
+  // silent pick of whichever family sorted first.
+  //
+  // A codepoint this family does not cover is NOT nothing any more. It goes to
+  // the catalog's fallback chain, which is what lets one style render a string
+  // mixing Latin, CJK and emoji without the caller naming a family per script.
+  // The named family still wins wherever it can draw the codepoint itself.
   FontId font;
+
+  // BCP 47, and the only thing that can resolve Han unification: the same
+  // codepoint is a different glyph in zh-Hans, zh-Hant, ja and ko, and no
+  // property of the codepoint says which (design.md section 5.13.5). Empty
+  // means the generic chain, which is a deliberate "unspecified" rather than a
+  // guess at the user's locale.
+  std::string language;
 
   float size = 0.0F;
   Color color;

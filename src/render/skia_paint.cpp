@@ -1,7 +1,9 @@
 #include "render/skia_paint.h"
 
 #include <algorithm>
-#include <utility>
+#include <cstddef>
+#include <string>
+#include <vector>
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
@@ -11,6 +13,7 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRRect.h"
+#include "include/core/SkRefCnt.h"
 #include "include/core/SkTypeface.h"
 
 #include "render/font_access.h"
@@ -85,32 +88,77 @@ float text_baseline_y(const PixelRect& bounds, const SkFont& font) {
          ((static_cast<float>(bounds.height) - span) * 0.5F) - metrics.fAscent;
 }
 
+// Subpixel positioning OFF. With it on, the same string at the same integer
+// origin can rasterize differently depending on the canvas translation in
+// force, and a damage repaint and a full repaint do not share one - which
+// would break the byte-identity comparison that is this project's whole
+// acceptance technique for partial repaint.
+SkFont run_font(const sk_sp<SkTypeface>& typeface, float size) {
+  SkFont font{typeface, size};
+  font.setEdging(SkFont::Edging::kAntiAlias);
+  font.setSubpixel(false);
+  return font;
+}
+
+// A run nothing covers is drawn as one .notdef box per codepoint, in the font
+// the text asked for. That is the decision, not an accident: an uncovered
+// codepoint that drew nothing would be indistinguishable from a string that
+// was never set, and the difference between "this machine has no font for
+// this" and "the label is empty" is the whole diagnosis.
+float missing_run_width(const SkFont& font, std::size_t codepoints) {
+  const SkGlyphID notdef = 0;
+  return font.getWidth(notdef) * static_cast<float>(codepoints);
+}
+
+void draw_missing_run(SkCanvas& canvas, const TextRun& run, const SkFont& font,
+                      const SkPaint& paint, SkPoint origin) {
+  std::vector<SkGlyphID> glyphs(run.codepoints, 0);
+  std::vector<SkPoint> positions(run.codepoints);
+  font.getPos(glyphs, positions, origin);
+  canvas.drawGlyphs(glyphs, positions, SkPoint{0.0F, 0.0F}, font, paint);
+}
+
+float run_width(const TextRun& run, const SkFont& font, const std::string& source) {
+  if (run.missing) {
+    return missing_run_width(font, run.codepoints);
+  }
+  return font.measureText(source.data() + run.begin, run.end - run.begin,
+                          SkTextEncoding::kUTF8);
+}
+
 void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text,
                 const FontCatalog* fonts) {
   if (text.text.empty() || text.size <= 0.0F || text.color.alpha() == 0 || fonts == nullptr) {
     return;
   }
-  sk_sp<SkTypeface> typeface = FontAccess::typeface(*fonts, text.font);
-  if (!typeface) {
+  sk_sp<SkTypeface> primary = FontAccess::typeface(*fonts, text.font);
+  if (!primary) {
     return;
   }
-
-  SkFont font{std::move(typeface), text.size};
-  font.setEdging(SkFont::Edging::kAntiAlias);
-
-  // Subpixel positioning OFF. With it on, the same string at the same integer
-  // origin can rasterize differently depending on the canvas translation in
-  // force, and a damage repaint and a full repaint do not share one - which
-  // would break the byte-identity comparison that is this project's whole
-  // acceptance technique for partial repaint.
-  font.setSubpixel(false);
+  const std::vector<TextRun> runs = FontAccess::runs(*fonts, text);
+  if (runs.empty()) {
+    return;
+  }
 
   SkPaint paint;
   paint.setAntiAlias(true);
   paint.setColor(to_sk_color(text.color));
 
-  const float width =
-      font.measureText(text.text.data(), text.text.size(), SkTextEncoding::kUTF8);
+  std::vector<SkFont> fonts_per_run;
+  fonts_per_run.reserve(runs.size());
+  float width = 0.0F;
+  for (const TextRun& run : runs) {
+    fonts_per_run.push_back(run_font(run.typeface, text.size));
+    width += run_width(run, fonts_per_run.back(), text.text);
+  }
+
+  // The baseline comes from the PRIMARY font, not from each run's own. A
+  // fallback face has its own ascent and descent, and letting each run place
+  // itself would make one string sit on several baselines - the CJK half of a
+  // mixed label would step up or down mid-sentence.
+  const SkFont primary_font = run_font(primary, text.size);
+  const float baseline = text_baseline_y(bounds, primary_font);
+  float pen = text_origin_x(bounds, text, width);
 
   // Clipped to the node. A string is the only thing in NodeStyle that is not
   // naturally contained by the box it was given, and a glyph escaping that box
@@ -123,9 +171,17 @@ void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text
   // still what keeps it inside its own box.
   canvas.save();
   canvas.clipRect(to_sk_rect(bounds), false);
-  canvas.drawSimpleText(text.text.data(), text.text.size(), SkTextEncoding::kUTF8,
-                        text_origin_x(bounds, text, width), text_baseline_y(bounds, font), font,
-                        paint);
+  for (std::size_t index = 0; index < runs.size(); ++index) {
+    const TextRun& run = runs[index];
+    const SkFont& font = fonts_per_run[index];
+    if (run.missing) {
+      draw_missing_run(canvas, run, font, paint, SkPoint{pen, baseline});
+    } else {
+      canvas.drawSimpleText(text.text.data() + run.begin, run.end - run.begin,
+                            SkTextEncoding::kUTF8, pen, baseline, font, paint);
+    }
+    pen += run_width(run, font, text.text);
+  }
   canvas.restore();
 }
 

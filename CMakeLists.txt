@@ -170,6 +170,7 @@ add_library(drawgui STATIC
   src/layout/layout_tree.cpp
   src/render/damage.cpp
   src/render/font_catalog.cpp
+  src/render/font_fallback.cpp
   src/render/hit_test.cpp
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
