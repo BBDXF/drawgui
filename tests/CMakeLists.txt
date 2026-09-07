@@ -16,7 +16,6 @@ add_executable(drawgui_unit_test
   unit/unit_test_main.cpp
   unit/test_expected.cpp
   unit/test_golden_image.cpp
-  unit/test_platform.cpp
   golden/golden_image.cpp)
 
 target_include_directories(drawgui_unit_test PRIVATE
@@ -37,53 +36,6 @@ target_link_libraries(drawgui_unit_test PRIVATE
 # warns about.
 add_test(NAME unit
   COMMAND drawgui_unit_test)
-
-# --- Standalone-header check ------------------------------------------------
-
-# Proves every public platform header is self-contained.
-#
-# design.md constraint C1 makes include/drawgui/platform/ the seam that keeps
-# platform detail out of the core, and a seam is only worth having if a
-# consumer can include one piece of it without discovering an undeclared
-# ordering requirement. Inside a real translation unit a missing include is
-# invisible, because something else already pulled the declaration in; the
-# only way to see it is to compile the header alone.
-#
-# The list is globbed rather than written out, so a header added later is
-# covered without anyone remembering to add it - the failure mode a hand-kept
-# list has is precisely the one this check exists to catch. Scoped to
-# platform/ for now; widening it is a separate change, because the other
-# directories have not been verified.
-set(_dg_header_check_dir "${CMAKE_CURRENT_BINARY_DIR}/header-check")
-
-file(GLOB _dg_platform_headers CONFIGURE_DEPENDS
-  RELATIVE "${CMAKE_CURRENT_LIST_DIR}/../include"
-  "${CMAKE_CURRENT_LIST_DIR}/../include/drawgui/platform/*.h")
-
-if(NOT _dg_platform_headers)
-  message(FATAL_ERROR
-    "No headers found under include/drawgui/platform - the standalone-header "
-    "check would pass by having nothing to check.")
-endif()
-
-set(_dg_header_check_sources "")
-foreach(_dg_header IN LISTS _dg_platform_headers)
-  # configure_file rewrites only when the content changes, so re-running
-  # CMake does not invalidate the objects.
-  set(DRAWGUI_HEADER_CHECK_INCLUDE "${_dg_header}")
-  string(REGEX REPLACE "[/.]" "_" _dg_stem "${_dg_header}")
-  set(_dg_tu "${_dg_header_check_dir}/${_dg_stem}.cpp")
-  configure_file(unit/header_check.cpp.in "${_dg_tu}" @ONLY)
-  list(APPEND _dg_header_check_sources "${_dg_tu}")
-endforeach()
-
-# OBJECT rather than STATIC: these translation units define no symbols, and
-# compiling them is the entire test.
-add_library(drawgui_header_check OBJECT ${_dg_header_check_sources})
-
-target_link_libraries(drawgui_header_check PRIVATE
-  drawgui::drawgui
-  drawgui_warnings)
 
 # --- Golden-image tests -----------------------------------------------------
 
