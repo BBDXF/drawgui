@@ -7,6 +7,34 @@
 
 include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FetchDoctest.cmake)
 
+# --- Test fonts -------------------------------------------------------------
+
+# The font-fallback tests resolve against FOUR FONTS THIS BUILD GENERATES, not
+# against the fonts of whichever machine is running the suite.
+#
+# The reason is that the resolver's answer is a function of the fonts it was
+# given, so an assertion about /usr/share/fonts is green here and red on a CI
+# image with a different font package set - and the usual way out, asserting
+# only that the call returned something, passes just as happily on a tofu box.
+# Generated fonts let a test pin an exact family name and an exact glyph id.
+#
+# tests/fonts/gen_test_fonts.py writes byte-identical output on every run, so
+# this is not a source of build nondeterminism.
+find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+
+set(DRAWGUI_TEST_FONT_DIR "${CMAKE_CURRENT_BINARY_DIR}/test-fonts")
+set(DRAWGUI_TEST_FONT_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/fonts/gen_test_fonts.py")
+set(DRAWGUI_TEST_FONT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/test-fonts.stamp")
+
+add_custom_command(
+  OUTPUT "${DRAWGUI_TEST_FONT_STAMP}"
+  COMMAND ${Python3_EXECUTABLE} "${DRAWGUI_TEST_FONT_SCRIPT}" --out "${DRAWGUI_TEST_FONT_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E touch "${DRAWGUI_TEST_FONT_STAMP}"
+  DEPENDS "${DRAWGUI_TEST_FONT_SCRIPT}"
+  COMMENT "Generating the fallback test fonts")
+
+add_custom_target(drawgui_test_fonts DEPENDS "${DRAWGUI_TEST_FONT_STAMP}")
+
 # --- Unit tests -------------------------------------------------------------
 
 # golden/golden_image.cpp is compiled in rather than linked from
@@ -24,6 +52,8 @@ add_executable(drawgui_unit_test
   unit/unit_test_main.cpp
   unit/test_expected.cpp
   unit/test_utf8.cpp
+  unit/test_font_fallback.cpp
+  unit/test_font_coverage.cpp
   unit/test_golden_image.cpp
   unit/test_pixel_geometry.cpp
   unit/test_damage.cpp
@@ -53,6 +83,21 @@ target_link_libraries(drawgui_unit_test PRIVATE
   drawgui::doctest
   drawgui_warnings
   drawgui_sanitizers)
+
+# The generated font directory, and the system one the coverage test scans.
+#
+# DRAWGUI_SYSTEM_FONT_DIR is a cache variable rather than a literal so that a
+# machine keeping its fonts elsewhere can point the test at them instead of
+# having the test quietly report "nothing to check" - which is how a coverage
+# gate becomes a tautology.
+set(DRAWGUI_SYSTEM_FONT_DIR "/usr/share/fonts"
+  CACHE PATH "Directory the system-font coverage test scans")
+
+target_compile_definitions(drawgui_unit_test PRIVATE
+  DG_TEST_FONT_DIR="${DRAWGUI_TEST_FONT_DIR}"
+  DG_SYSTEM_FONT_DIR="${DRAWGUI_SYSTEM_FONT_DIR}")
+
+add_dependencies(drawgui_unit_test drawgui_test_fonts)
 
 # One CTest entry running every case, deliberately: a per-suite entry would be
 # filtered by name, and doctest exits 0 when a filter matches nothing. A typo
