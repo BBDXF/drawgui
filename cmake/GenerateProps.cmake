@@ -26,6 +26,7 @@ find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
 
 set(DRAWGUI_PROPS_GENERATOR "${DRAWGUI_PROPS_ROOT}/tools/gen_props.py")
 set(DRAWGUI_PROPS_LOCK_TOOL "${DRAWGUI_PROPS_ROOT}/tools/prop_lock.py")
+set(DRAWGUI_PROPS_LOCK_SELFTEST "${DRAWGUI_PROPS_ROOT}/tools/prop_lock_selftest.py")
 set(DRAWGUI_PROPS_TOML "${DRAWGUI_PROPS_ROOT}/props/drawgui.props.toml")
 set(DRAWGUI_PROPS_LOCK "${DRAWGUI_PROPS_ROOT}/props/prop_ids.lock")
 set(DRAWGUI_PROPS_INCLUDE_DIR "${DRAWGUI_PROPS_ROOT}/include")
@@ -40,6 +41,7 @@ set(DRAWGUI_PROPS_GENERATED_FILES
 foreach(_drawgui_props_input IN ITEMS
         "${DRAWGUI_PROPS_GENERATOR}"
         "${DRAWGUI_PROPS_LOCK_TOOL}"
+        "${DRAWGUI_PROPS_LOCK_SELFTEST}"
         "${DRAWGUI_PROPS_TOML}"
         "${DRAWGUI_PROPS_LOCK}")
   if(NOT EXISTS "${_drawgui_props_input}")
@@ -81,6 +83,19 @@ add_custom_target(
           --root "${DRAWGUI_PROPS_ROOT}" --check
   WORKING_DIRECTORY "${DRAWGUI_PROPS_ROOT}"
   COMMENT "Checking props/drawgui.props.toml against the property id lock"
+  VERBATIM)
+
+# The gate on the gate. drawgui_props_lock_check runs the lock against a tree
+# that is correct, and correct input is precisely what cannot distinguish a
+# working check from one that returns 0 unconditionally - which is what the
+# first version of prop_lock.py actually did for an unrecorded append. This
+# target feeds the lock deliberately broken tables and requires it to reject
+# every one of them.
+add_custom_target(
+  drawgui_props_lock_selftest
+  COMMAND "${Python3_EXECUTABLE}" "${DRAWGUI_PROPS_LOCK_SELFTEST}"
+  WORKING_DIRECTORY "${DRAWGUI_PROPS_ROOT}"
+  COMMENT "Checking that the property id lock still rejects renumbering and unrecorded appends"
   VERBATIM)
 
 # Re-run CMake when the source of truth changes, so a fresh property shows up

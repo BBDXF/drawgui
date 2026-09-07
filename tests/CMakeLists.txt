@@ -233,6 +233,13 @@ add_test(NAME props.no_drift
 add_test(NAME props.abi_lock
   COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_props_lock_check)
 
+# props.abi_lock proves the committed table honours the lock. It cannot prove
+# the lock would notice if it did not, because it only ever sees a correct
+# table. This entry tampers on purpose and requires a rejection every time,
+# including the exact case that silently passed before commit c5ce347.
+add_test(NAME props.lock_selftest
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_props_lock_selftest)
+
 # Convenience target for deliberately refreshing baselines. Never invoked by
 # CTest: a suite that can rewrite its own expectations proves nothing.
 add_custom_target(golden_update
