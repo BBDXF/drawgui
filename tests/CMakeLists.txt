@@ -12,16 +12,27 @@ include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FetchDoctest.cmake)
 # golden/golden_image.cpp is compiled in rather than linked from
 # drawgui_golden_test: the comparator is what test_golden_image.cpp exercises,
 # and there is no library target holding it.
+#
+# examples/03_damage_repaint/scene.cpp is compiled in for a different reason.
+# The damage verification compares a partially repainted frame against a fully
+# repainted one byte for byte, and that comparison is worth much more when it
+# runs the scene that is actually on screen than when it runs a second scene
+# written to be easy to verify. The file needs neither SDL3 nor a display -
+# only the render tree - which is what lets the verification be a CTest entry
+# on a headless machine while the demo itself cannot be one.
 add_executable(drawgui_unit_test
   unit/unit_test_main.cpp
   unit/test_expected.cpp
   unit/test_golden_image.cpp
   unit/test_pixel_geometry.cpp
   unit/test_damage.cpp
-  golden/golden_image.cpp)
+  unit/test_damage_repaint.cpp
+  golden/golden_image.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp)
 
 target_include_directories(drawgui_unit_test PRIVATE
-  ${CMAKE_CURRENT_LIST_DIR}/golden)
+  ${CMAKE_CURRENT_LIST_DIR}/golden
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint)
 
 # Skia is linked directly, mirroring drawgui_golden_test, because the golden
 # comparator decodes and encodes PNG. drawgui itself keeps Skia PRIVATE.
