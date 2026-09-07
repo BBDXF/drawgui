@@ -7,3 +7,9 @@ compile_commands.json
 *.o
 *.a
 __pycache__/
+
+# Default output of examples/00_cpu_raster_png when run without an argument.
+# The previous slice left one of these behind in the repository root; the
+# example is meant to be run from anywhere, so the name is ignored everywhere
+# rather than only at the top level.
+drawgui-example.png
