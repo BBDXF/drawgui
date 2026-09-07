@@ -77,17 +77,27 @@ void RenderTree::Impl::paint_region(SkCanvas& canvas, const PixelRect& region,
   // anti-aliased edge would blend the boundary of a damage rectangle
   // differently from the same pixels in a full repaint.
   canvas.clipRect(detail::to_sk_rect(region), false);
-  if (paint_mode == PaintMode::kPicture && picture) {
-    canvas.drawPicture(picture.get());
-    stats.nodes_drawn += nodes.size();
-  } else {
-    for (const std::uint32_t index : paint_order) {
-      const Node& node = nodes[index];
-      if (intersects(node.absolute, region)) {
-        detail::paint_node(canvas, node.absolute, node.style);
-        ++stats.nodes_drawn;
+
+  // Switched rather than branched, so that a third paint mode is a compile
+  // error here instead of quietly taking the direct path.
+  switch (paint_mode) {
+    case PaintMode::kPicture:
+      if (picture) {
+        canvas.drawPicture(picture.get());
+        stats.nodes_drawn += nodes.size();
+        break;
       }
-    }
+      // Recording can fail; drawing nothing would be worse than traversing.
+      [[fallthrough]];
+    case PaintMode::kDirect:
+      for (const std::uint32_t index : paint_order) {
+        const Node& node = nodes[index];
+        if (intersects(node.absolute, region)) {
+          detail::paint_node(canvas, node.absolute, node.style);
+          ++stats.nodes_drawn;
+        }
+      }
+      break;
   }
   canvas.restore();
 }
