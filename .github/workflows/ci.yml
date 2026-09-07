@@ -190,6 +190,13 @@ jobs:
       - name: Check property id lock
         run: python3 tools/prop_lock.py --check
 
+      # The step above runs the lock against a correct table, which is the one
+      # input that cannot tell a working check from one that always returns 0 -
+      # and returning 0 for an unrecorded append is exactly what the first
+      # version of prop_lock.py did. This feeds it broken tables on purpose.
+      - name: Check the property id lock still rejects tampering
+        run: python3 tools/prop_lock_selftest.py
+
   tidy:
     name: clang-tidy
     runs-on: ubuntu-latest
@@ -241,6 +248,7 @@ jobs:
             src/graphics/raster_surface.cpp
             src/layout/box_layout.cpp
             src/layout/layout_tree.cpp
+            src/props/node_props.cpp
             src/render/damage.cpp
             src/render/font_catalog.cpp
             src/render/font_fallback.cpp
@@ -264,6 +272,9 @@ jobs:
             tests/unit/test_damage_repaint.cpp
             tests/unit/test_layout.cpp
             tests/unit/test_layout_identity.cpp
+            tests/unit/test_props_parity.cpp
+            tests/unit/test_props_boundary.cpp
+            tests/unit/test_props_damage.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
