@@ -28,12 +28,15 @@ add_executable(drawgui_unit_test
   unit/test_damage.cpp
   unit/test_damage_repaint.cpp
   unit/test_layout.cpp
+  unit/test_layout_identity.cpp
   golden/golden_image.cpp
-  ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp)
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp)
 
 target_include_directories(drawgui_unit_test PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/golden
-  ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint)
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout)
 
 # Skia is linked directly, mirroring drawgui_golden_test, because the golden
 # comparator decodes and encodes PNG. drawgui itself keeps Skia PRIVATE.
@@ -50,6 +53,32 @@ target_link_libraries(drawgui_unit_test PRIVATE
 # warns about.
 add_test(NAME unit
   COMMAND drawgui_unit_test)
+
+# --- Layout identity ---------------------------------------------------------
+
+# The acceptance gate for incremental layout, given a name of its own in the
+# CTest list. The same comparison runs inside `unit`; this target exists so
+# that `ctest -R layout` answers the question directly instead of requiring a
+# reader to know it is one case inside a suite called `unit`.
+#
+# Built unconditionally. It shares its scene with examples/04_layout but needs
+# neither SDL3 nor a display, which is what lets it gate CI while the demo it
+# describes cannot.
+add_executable(drawgui_layout_identity
+  layout/layout_identity_main.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_check.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp)
+
+target_include_directories(drawgui_layout_identity PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout)
+
+target_link_libraries(drawgui_layout_identity PRIVATE
+  drawgui::drawgui
+  drawgui_warnings
+  drawgui_sanitizers)
+
+add_test(NAME layout.incremental_equals_full
+  COMMAND drawgui_layout_identity)
 
 # --- Golden-image tests -----------------------------------------------------
 
@@ -110,7 +139,7 @@ set_tests_properties(golden.scenes PROPERTIES DEPENDS unit)
 # its other process-lifetime state stay reachable at exit, so LSan is content.
 # Leak detection is left fully on until something real forces the question.
 if(DG_SANITIZE)
-  set_tests_properties(unit golden.scenes PROPERTIES
+  set_tests_properties(unit golden.scenes layout.incremental_equals_full PROPERTIES
     ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1")
 endif()
 
