@@ -66,6 +66,73 @@ struct WindowSpec {
   Color fill;
 };
 
+// How the bytes of one pixel are arranged in memory.
+//
+// One enumerator, because one is what has been measured. A window surface on
+// this platform is a 32-bit XRGB word, which on a little-endian machine is
+// the bytes blue, green, red, unused - the same order a CPU-rasterized
+// drawgui frame comes out in, so a frame reaches the screen by copying rather
+// than converting. surface_format() reports a failure rather than a second
+// enumerator when a window disagrees, because nothing can convert yet and
+// quietly presenting the wrong channels is worse than saying so.
+enum class PixelFormat : std::uint8_t {
+  kBgra8888,
+};
+
+// A size in physical device pixels, which is what a frame must be rasterized
+// at. Integral, unlike dg::Size, because a framebuffer is allocated in whole
+// pixels and rounding it at the point of use is how off-by-one edges happen.
+struct PixelSize {
+  int width = 0;
+  int height = 0;
+
+  friend bool operator==(PixelSize, PixelSize) = default;
+};
+
+// A region in physical device pixels, relative to the top-left of the image
+// it describes.
+struct PixelRect {
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+
+  friend bool operator==(PixelRect, PixelRect) = default;
+};
+
+// Somebody else's pixels, borrowed for the duration of one call.
+//
+// This is the whole of what the window layer knows about rendering: an
+// address, a shape, a row stride and a channel order. It names no surface
+// type, no renderer and no graphics library, so the window layer stays
+// ignorant of how the image was produced - which is the property that let
+// this header survive the previous attempt's deletion.
+struct ImageView {
+  const std::uint8_t* pixels = nullptr;
+  int width = 0;
+  int height = 0;
+
+  // Bytes between the starts of consecutive rows. Passed rather than assumed
+  // to be width * 4, because a rasterizer is free to pad rows.
+  std::size_t row_bytes = 0;
+
+  PixelFormat format = PixelFormat::kBgra8888;
+};
+
+// Everything one pump() turned up, split by what the caller has to do about
+// it.
+struct PumpResult {
+  // Windows that closed during this call, in the order they closed.
+  std::vector<WindowId> closed;
+
+  // Windows whose contents are now stale - newly exposed, or resized. A
+  // resize is not reported separately because the only correct response to
+  // either is the same: ask for the drawable size again and draw a frame at
+  // it. Assuming the old size is still valid is how a resize turns into a
+  // torn frame or a heap overflow.
+  std::vector<WindowId> needs_repaint;
+};
+
 class WindowManager {
  public:
   // Initializes the platform's video subsystem. One at a time per process.
@@ -92,9 +159,34 @@ class WindowManager {
   void request_close(WindowId id);
 
   // Waits up to timeout_ms for something to happen, then handles everything
-  // queued. Returns the windows that closed during this call, in the order
-  // they closed; empty on a timeout.
-  [[nodiscard]] std::vector<WindowId> pump(int timeout_ms);
+  // queued. Empty on a timeout.
+  [[nodiscard]] PumpResult pump(int timeout_ms);
+
+  // The size a frame for this window must be rasterized at, right now.
+  //
+  // Asked for per frame rather than remembered from open(): the window
+  // manager, the user and the compositor all resize windows, and a cached
+  // size is stale from the moment one of them does.
+  [[nodiscard]] Expected<PixelSize, WindowError> drawable_size(WindowId id) const;
+
+  // The channel order this window's surface expects. An error means the
+  // window is in a format drawgui has never seen, not that the window is
+  // broken - see PixelFormat.
+  [[nodiscard]] Expected<PixelFormat, WindowError> surface_format(WindowId id) const;
+
+  // Copies `dirty` out of `image` onto the window and puts it on screen.
+  //
+  // `image` must cover the whole window - `dirty` selects the part of it that
+  // has actually changed, in the window's own pixel coordinates, and is
+  // clipped to the window before anything is copied. A caller repainting
+  // everything passes the full bounds; a caller repainting a hover highlight
+  // or a blinking caret passes just that, and pays for just that.
+  //
+  // Presenting is what stops the window showing its WindowSpec::fill: that
+  // flat colour is what a window displays until its owner draws something,
+  // and never again afterwards.
+  [[nodiscard]] Expected<void, WindowError> present(WindowId id, const ImageView& image,
+                                                    const PixelRect& dirty);
 
  private:
   struct Impl;

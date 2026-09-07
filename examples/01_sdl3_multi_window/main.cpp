@@ -108,7 +108,7 @@ void run_until_all_closed(dg::WindowManager& manager, const std::vector<DemoWind
       }
     }
 
-    for (const dg::WindowId closed : manager.pump(kPumpTimeoutMs)) {
+    for (const dg::WindowId closed : manager.pump(kPumpTimeoutMs).closed) {
       std::cout << "closed \"" << title_of(windows, closed) << "\" (id " << closed.value
                 << "); " << manager.open_window_count() << " window(s) still open\n";
     }

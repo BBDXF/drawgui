@@ -11,16 +11,26 @@
 // whatever the two genuinely share will be extracted then.
 //
 // Deliberately no renderer and no GL context. Painting goes through the
-// window's own surface (SDL_GetWindowSurface / SDL_FillSurfaceRect /
-// SDL_UpdateWindowSurface), which is the smallest thing that can put a colour
-// on screen. How Skia attaches, and whether it attaches on CPU or GPU, is the
-// next step's decision; creating a renderer here would quietly pre-empt it.
+// window's own surface (SDL_GetWindowSurface / SDL_UpdateWindowSurfaceRects),
+// which is the smallest thing that can put pixels on screen.
+// SDL_CreateRenderer would pick an OpenGL backend on Linux and thereby decide,
+// silently, how Skia attaches.
+//
+// present() is the whole of the Skia integration on this side, and it knows
+// nothing about Skia: it takes an address, a shape, a stride and a channel
+// order. The graphics layer owns the rasterizer and hands over finished
+// bytes. That is the same direction the ownership ran in the deleted
+// FrameTarget design, without the abstract base class it did not need.
 
 #include "drawgui/window/window_manager.h"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <bit>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -28,6 +38,23 @@
 
 namespace dg {
 namespace {
+
+constexpr std::size_t kBytesPerPixel = 4;
+
+// SDL names a pixel format by the layout of the packed 32-bit word, so
+// XRGB8888 means blue in the lowest-addressed byte only on a little-endian
+// machine. Every platform in design.md section 3.2 is little-endian, and
+// present() copies bytes rather than words, so the assumption is asserted at
+// compile time instead of being handled: a big-endian port would otherwise
+// swap red and blue in every frame and pass every test that does not look at
+// a pixel.
+static_assert(std::endian::native == std::endian::little,
+              "present() copies BGRA bytes straight into an SDL XRGB8888 surface, which is "
+              "only the same layout on a little-endian machine");
+
+bool is_bgra8888(SDL_PixelFormat format) {
+  return format == SDL_PIXELFORMAT_XRGB8888 || format == SDL_PIXELFORMAT_ARGB8888;
+}
 
 // One window and everything that has to die with it.
 //
@@ -40,6 +67,12 @@ struct OwnedWindow {
   SDL_WindowID sdl_id = 0;
   SDL_Window* window = nullptr;
   Color fill;
+
+  // Cleared by the first present(). Until then the window shows its flat
+  // WindowSpec::fill and repaints itself on exposure; afterwards the owner's
+  // pixels are the truth and repainting over them with a colour would erase
+  // the frame it just drew.
+  bool shows_fill = true;
 };
 
 // SDL reports failure as false or nullptr and leaves the reason in
@@ -60,6 +93,9 @@ std::string sdl_failure(std::string_view call) {
 // a window that is being destroyed or has no surface yet, and in both cases
 // the next exposure repaints it.
 void paint(const OwnedWindow& owned) {
+  if (!owned.shows_fill) {
+    return;
+  }
   SDL_Surface* surface = SDL_GetWindowSurface(owned.window);
   if (surface == nullptr) {
     return;
@@ -69,6 +105,21 @@ void paint(const OwnedWindow& owned) {
   if (SDL_FillSurfaceRect(surface, nullptr, colour)) {
     SDL_UpdateWindowSurface(owned.window);
   }
+}
+
+// Intersection of a caller's dirty region with the window it is being copied
+// into. Done here rather than trusted, because the caller's idea of the
+// window size is one pump() out of date whenever a resize is in flight, and
+// an unclipped copy of a stale rectangle is a heap overflow.
+PixelRect clip_to(const PixelRect& dirty, int width, int height) {
+  const int left = std::max(dirty.x, 0);
+  const int top = std::max(dirty.y, 0);
+  const int right = std::min(dirty.x + dirty.width, width);
+  const int bottom = std::min(dirty.y + dirty.height, height);
+  if (right <= left || bottom <= top) {
+    return PixelRect{};
+  }
+  return PixelRect{left, top, right - left, bottom - top};
 }
 
 }  // namespace
@@ -103,8 +154,8 @@ struct WindowManager::Impl {
     windows.erase(entry);
   }
 
-  // Handles one event and appends to `closed` if it ended a window's life.
-  void dispatch(const SDL_Event& event, std::vector<WindowId>& closed) {
+  // Handles one event and records what the caller now has to do about it.
+  void dispatch(const SDL_Event& event, PumpResult& result) {
     switch (event.type) {
       case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
         const SDL_WindowID sdl_id = event.window.windowID;
@@ -114,14 +165,17 @@ struct WindowManager::Impl {
         // called twice; both arrive here as an id nobody owns.
         if (entry != windows.end()) {
           close(entry);
-          closed.push_back(WindowId{sdl_id});
+          result.closed.push_back(WindowId{sdl_id});
         }
         break;
       }
-      case SDL_EVENT_WINDOW_EXPOSED: {
-        const auto entry = find(event.window.windowID);
+      case SDL_EVENT_WINDOW_EXPOSED:
+      case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
+        const SDL_WindowID sdl_id = event.window.windowID;
+        const auto entry = find(sdl_id);
         if (entry != windows.end()) {
           paint(*entry);
+          result.needs_repaint.push_back(WindowId{sdl_id});
         }
         break;
       }
@@ -193,8 +247,8 @@ void WindowManager::request_close(WindowId id) {
   SDL_PushEvent(&event);
 }
 
-std::vector<WindowId> WindowManager::pump(int timeout_ms) {
-  std::vector<WindowId> closed;
+PumpResult WindowManager::pump(int timeout_ms) {
+  PumpResult result;
 
   // One wait for the first event, then drain whatever else is queued without
   // waiting again. Waiting per event instead would spend a full timeout on
@@ -202,11 +256,100 @@ std::vector<WindowId> WindowManager::pump(int timeout_ms) {
   SDL_Event event;
   bool have_event = SDL_WaitEventTimeout(&event, timeout_ms);
   while (have_event) {
-    impl_->dispatch(event, closed);
+    impl_->dispatch(event, result);
     have_event = SDL_PollEvent(&event);
   }
 
-  return closed;
+  return result;
+}
+
+Expected<PixelSize, WindowError> WindowManager::drawable_size(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+
+  // The surface's own dimensions rather than SDL_GetWindowSizeInPixels: the
+  // two disagree for the one frame between a resize being reported and the
+  // surface being rebuilt, and the surface is the thing about to be written
+  // into.
+  SDL_Surface* surface = SDL_GetWindowSurface(entry->window);
+  if (surface == nullptr) {
+    return Unexpected{WindowError{sdl_failure("SDL_GetWindowSurface")}};
+  }
+  return PixelSize{surface->w, surface->h};
+}
+
+Expected<PixelFormat, WindowError> WindowManager::surface_format(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+
+  SDL_Surface* surface = SDL_GetWindowSurface(entry->window);
+  if (surface == nullptr) {
+    return Unexpected{WindowError{sdl_failure("SDL_GetWindowSurface")}};
+  }
+  if (!is_bgra8888(surface->format)) {
+    std::string message{"window surface is "};
+    message += SDL_GetPixelFormatName(surface->format);
+    message += ", which drawgui cannot describe";
+    return Unexpected{WindowError{std::move(message)}};
+  }
+  return PixelFormat::kBgra8888;
+}
+
+Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView& image,
+                                                   const PixelRect& dirty) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  if (image.pixels == nullptr) {
+    return Unexpected{WindowError{"present() was given no pixels"}};
+  }
+
+  SDL_Surface* surface = SDL_GetWindowSurface(entry->window);
+  if (surface == nullptr) {
+    return Unexpected{WindowError{sdl_failure("SDL_GetWindowSurface")}};
+  }
+  if (!is_bgra8888(surface->format)) {
+    return Unexpected{WindowError{"window surface is not a format present() can copy into"}};
+  }
+
+  // Clipped against the image as well as the window. A frame rasterized
+  // before the last resize is smaller than the window it is being shown in,
+  // and copying window-sized rows out of it would read past the end.
+  const PixelRect region =
+      clip_to(clip_to(dirty, image.width, image.height), surface->w, surface->h);
+  if (region.width <= 0 || region.height <= 0) {
+    return {};
+  }
+
+  auto* destination = static_cast<std::uint8_t*>(surface->pixels);
+  if (destination == nullptr) {
+    return Unexpected{WindowError{"window surface has no pixels"}};
+  }
+
+  const auto row_span = static_cast<std::size_t>(region.width) * kBytesPerPixel;
+  const auto x_offset = static_cast<std::size_t>(region.x) * kBytesPerPixel;
+  const auto destination_pitch = static_cast<std::size_t>(surface->pitch);
+
+  for (int row = 0; row < region.height; ++row) {
+    const std::size_t source_row = static_cast<std::size_t>(region.y + row) * image.row_bytes;
+    const std::size_t destination_row =
+        static_cast<std::size_t>(region.y + row) * destination_pitch;
+    std::memcpy(destination + destination_row + x_offset, image.pixels + source_row + x_offset,
+                row_span);
+  }
+
+  entry->shows_fill = false;
+
+  const SDL_Rect updated{region.x, region.y, region.width, region.height};
+  if (!SDL_UpdateWindowSurfaceRects(entry->window, &updated, 1)) {
+    return Unexpected{WindowError{sdl_failure("SDL_UpdateWindowSurfaceRects")}};
+  }
+  return {};
 }
 
 }  // namespace dg
