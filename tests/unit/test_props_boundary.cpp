@@ -315,6 +315,24 @@ TEST_CASE("an enum ordinal outside the property's value list is refused") {
                   PropStatus::kValueOutOfRange);
   expect_rejected(fixture.tree, fixture.row, DG_PROP_ALIGN, PropValue::option(5),
                   PropStatus::kValueOutOfRange);
+  expect_rejected(fixture.tree, fixture.leaf, DG_PROP_OVERFLOW, PropValue::option(2),
+                  PropStatus::kValueOutOfRange);
+}
+
+// `overflow` moved out of the refusal list above with this slice, so both of
+// its ordinals are asserted to land rather than merely to stop being refused -
+// "no longer kUnsupported" is also satisfied by a handler that applies the
+// wrong one.
+TEST_CASE("both overflow ordinals reach the node style") {
+  Fixture fixture;
+  CHECK(dg::set_prop(fixture.tree, fixture.leaf, DG_PROP_OVERFLOW,
+                     PropValue::option(DG_OVERFLOW_CLIP))
+            .ok());
+  CHECK(fixture.tree.render().style(fixture.leaf).overflow == dg::Overflow::kClip);
+  CHECK(dg::set_prop(fixture.tree, fixture.leaf, DG_PROP_OVERFLOW,
+                     PropValue::option(DG_OVERFLOW_VISIBLE))
+            .ok());
+  CHECK(fixture.tree.render().style(fixture.leaf).overflow == dg::Overflow::kVisible);
 }
 
 // --------------------------------------------------------------------------
@@ -421,7 +439,6 @@ TEST_CASE("a property the engine does not implement says so") {
 
   refuse(fixture.leaf, DG_PROP_ASPECT_RATIO, PropValue::number(1.5F));
   refuse(fixture.leaf, DG_PROP_OPACITY, PropValue::number(0.5F));
-  refuse(fixture.leaf, DG_PROP_OVERFLOW, PropValue::option(DG_OVERFLOW_CLIP));
   refuse(fixture.row, DG_PROP_MAIN_SIZE, PropValue::option(DG_MAIN_SIZE_MAX));
   refuse(fixture.row_child, DG_PROP_SHRINK, PropValue::number(1));
   refuse(fixture.row_child, DG_PROP_BASIS, PropValue::number(40));

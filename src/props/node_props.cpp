@@ -393,10 +393,20 @@ PropWrite apply_shadow(Target& target, const PropValue& /*value*/) {
                      "tracking would have to be taught about first");
 }
 
-PropWrite apply_overflow(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "overflow",
-                     "neither painting nor hit testing clips a child to its parent today, "
-                     "and render_tree.h requires that both honour one rule");
+PropWrite apply_overflow(Target& target, const PropValue& value) {
+  switch (value.ordinal()) {
+    case DG_OVERFLOW_VISIBLE:
+      target.style.overflow = Overflow::kVisible;
+      break;
+    case DG_OVERFLOW_CLIP:
+      target.style.overflow = Overflow::kClip;
+      break;
+    default:
+      return out_of_range(
+          target, "overflow has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.style_changed = true;
+  return PropWrite{};
 }
 
 PropWrite apply_transform(Target& target, const PropValue& /*value*/) {
