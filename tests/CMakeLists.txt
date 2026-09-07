@@ -27,6 +27,7 @@ add_executable(drawgui_unit_test
   unit/test_pixel_geometry.cpp
   unit/test_damage.cpp
   unit/test_damage_repaint.cpp
+  unit/test_layout.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp)
 

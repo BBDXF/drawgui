@@ -1,0 +1,191 @@
+// The layout tree's internal representation, shared by the two translation
+// units that implement it.
+//
+// layout_tree.cpp owns structure, invalidation and the walk that turns
+// computed boxes into render-tree bounds; box_layout.cpp owns the four
+// arrangements. Neither is an interface: this header lives under src/, nothing
+// outside the library can include it, and it exists because two translation
+// units share a struct.
+
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "drawgui/base/pixel_geometry.h"
+#include "drawgui/layout/box.h"
+#include "drawgui/layout/layout_tree.h"
+#include "drawgui/render/render_tree.h"
+
+namespace dg {
+
+struct LayoutNode {
+  BoxStyle box;
+  std::uint32_t parent = 0;
+  std::vector<std::uint32_t> children;
+
+  // Used to order the dirty list so that an ancestor is always laid out
+  // before a descendant, which is what lets the descendant be recognised as
+  // already-clean and skipped instead of laid out twice.
+  std::uint32_t depth = 0;
+
+  // The constraints this node was last laid out under, and the size it
+  // returned. Together they are the incremental pass's entire cache: entered
+  // again with the same constraints and no dirty mark, a node returns `size`
+  // and its subtree is never visited.
+  BoxConstraints constraints;
+  PixelSize size;
+  bool has_cached = false;
+
+  // The border box, relative to the parent's border-box origin - exactly what
+  // RenderTree::set_local_bounds wants. Its origin is written by the parent
+  // while positioning, its extent by this node's own measure.
+  PixelRect local;
+
+  // The nearest ancestor-or-self whose size cannot change, which is where a
+  // dirty mark starting here stops climbing.
+  std::uint32_t relayout_boundary = 0;
+
+  bool needs_layout = true;
+};
+
+// The main-axis and cross-axis view of one node, so that a row and a column
+// are one algorithm rather than two that drift apart. Everything inside a
+// flex pass is computed in (main, cross) and mapped back to (x, y) exactly
+// once, at the point where a child's local rectangle is written.
+struct Axis {
+  bool horizontal = true;
+
+  [[nodiscard]] int main_of(PixelSize size) const {
+    return horizontal ? size.width : size.height;
+  }
+  [[nodiscard]] int cross_of(PixelSize size) const {
+    return horizontal ? size.height : size.width;
+  }
+  [[nodiscard]] int main_start(const EdgeInsets& insets) const {
+    return horizontal ? insets.left : insets.top;
+  }
+  [[nodiscard]] int main_total(const EdgeInsets& insets) const {
+    return horizontal ? insets.horizontal() : insets.vertical();
+  }
+  [[nodiscard]] int cross_start(const EdgeInsets& insets) const {
+    return horizontal ? insets.top : insets.left;
+  }
+  [[nodiscard]] int cross_total(const EdgeInsets& insets) const {
+    return horizontal ? insets.vertical() : insets.horizontal();
+  }
+  [[nodiscard]] int main_max(const BoxConstraints& constraints) const {
+    return horizontal ? constraints.max_width : constraints.max_height;
+  }
+  [[nodiscard]] int cross_max(const BoxConstraints& constraints) const {
+    return horizontal ? constraints.max_height : constraints.max_width;
+  }
+  [[nodiscard]] BoxConstraints constraints_of(int min_main, int max_main, int min_cross,
+                                              int max_cross) const {
+    return horizontal ? BoxConstraints{min_main, max_main, min_cross, max_cross}
+                      : BoxConstraints{min_cross, max_cross, min_main, max_main};
+  }
+  [[nodiscard]] PixelRect rect_of(int main, int cross, PixelSize size) const {
+    return horizontal ? PixelRect{main, cross, size.width, size.height}
+                      : PixelRect{cross, main, size.width, size.height};
+  }
+};
+
+// The room a row or column has to hand out, and whether its children are
+// being stretched across it. Computed once from the container's inner
+// constraints and then read by both the sizing pass and the placing pass, so
+// the two cannot disagree about it.
+struct FlexRoom {
+  int main = kUnbounded;
+  int cross = kUnbounded;
+  bool stretching = false;
+};
+
+// The width and height a node is allowed to end up at, after its own style
+// has been folded into what its parent permitted. The parent always wins:
+// a child asking for 200 inside a box that offers at most 60 gets 60, because
+// the parent has already reserved that space from its own parent.
+struct SizeLimits {
+  int low_width = 0;
+  int high_width = kUnbounded;
+  int low_height = 0;
+  int high_height = kUnbounded;
+
+  [[nodiscard]] bool tight_width() const { return low_width == high_width; }
+  [[nodiscard]] bool tight_height() const { return low_height == high_height; }
+};
+
+[[nodiscard]] SizeLimits limits_for(const BoxStyle& box, const BoxConstraints& constraints);
+
+// Border plus padding: the ring between the border box a node reports and the
+// content box its children live in. Margin is not part of it, by design -
+// margin belongs to the parent (design.md section 5.9.4).
+[[nodiscard]] EdgeInsets content_insets(const BoxStyle& box);
+
+struct LayoutTree::Impl {
+  explicit Impl(const TreeSpec& spec);
+
+  RenderTree render;
+  std::vector<LayoutNode> nodes;
+  std::vector<std::uint32_t> dirty;
+  std::vector<std::string> diagnostics;
+  LayoutStats stats;
+  std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
+
+  // `own_style_changed` distinguishes the two reasons a node can be dirty,
+  // and they stop in different places. When something INSIDE a node changed,
+  // a node whose size is already determined absorbs the mark. When the node's
+  // OWN box changed, that is no longer true - a size determined by a style
+  // that just changed can change - so only a tight incoming constraint, which
+  // the style cannot override, still absorbs it.
+  void mark_needs_layout(std::uint32_t index, bool own_style_changed);
+
+  [[nodiscard]] bool is_boundary(std::uint32_t index) const;
+
+  // Returns the node's border-box size. Recursive, once per node per pass -
+  // there is no speculative second call, which is what makes the pass O(n).
+  PixelSize layout_node(std::uint32_t index, const BoxConstraints& constraints);
+
+  // Dispatches on LayoutKind and writes every child's local rectangle. Split
+  // out so that layout_node() is only about the cache and the boundary.
+  PixelSize measure(std::uint32_t index, const BoxConstraints& constraints);
+
+  PixelSize measure_flex(std::uint32_t index, const SizeLimits& limits,
+                         const BoxConstraints& inner, const Axis& axis);
+
+  // Lays out every child of a row or column exactly once - the inflexible
+  // ones under the room available, then the flexible ones under the share of
+  // what is left that their weight earns - and returns the main extent they
+  // occupy, gaps included.
+  int size_flex_children(std::uint32_t index, const FlexRoom& room, const Axis& axis);
+
+  // Writes each child's local rectangle. Separate from sizing because the
+  // leftover space main_align distributes only exists once the container has
+  // been told how big it ended up, which is after every child has a size.
+  void place_flex_children(std::uint32_t index, PixelSize size, int used, const Axis& axis);
+  PixelSize measure_leaf(std::uint32_t index, const SizeLimits& limits,
+                         const BoxConstraints& inner);
+  PixelSize measure_absolute(std::uint32_t index, const SizeLimits& limits,
+                             const BoxConstraints& inner);
+
+  // Copies computed boxes into the render tree, but only for the nodes whose
+  // box actually moved - which is what makes the damage a function of the
+  // change rather than of the subtree. `parent_moved` suppresses double
+  // counting only in the reported region: RenderTree::set_local_bounds
+  // already damaged this whole subtree when the parent moved.
+  void apply_bounds(std::uint32_t index, DamageRegion& moved, bool parent_moved);
+
+  void add_subtree(std::uint32_t index, DamageRegion& region) const;
+
+  LayoutStats run(bool full);
+
+  // "root(column) > #2(row) > #7(leaf)". design.md section 5.4.7 wants a
+  // constraint conflict to name the node it happened at; without widget names
+  // this is what the tree can say about itself.
+  [[nodiscard]] std::string path_of(std::uint32_t index) const;
+  void report(std::uint32_t index, const std::string& message);
+};
+
+}  // namespace dg

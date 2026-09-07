@@ -239,6 +239,8 @@ jobs:
           files="
             src/graphics/canvas.cpp
             src/graphics/raster_surface.cpp
+            src/layout/box_layout.cpp
+            src/layout/layout_tree.cpp
             src/render/damage.cpp
             src/render/render_tree.cpp
             src/render/skia_paint.cpp
@@ -252,6 +254,7 @@ jobs:
             tests/unit/test_pixel_geometry.cpp
             tests/unit/test_damage.cpp
             tests/unit/test_damage_repaint.cpp
+            tests/unit/test_layout.cpp
             examples/03_damage_repaint/scene.cpp"
           if pkg-config --exists sdl3; then
             files="$files

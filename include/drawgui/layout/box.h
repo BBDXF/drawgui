@@ -1,0 +1,263 @@
+// The box model: what a parent tells a child it may be, and what a child is
+// allowed to want.
+//
+// Constraints go down, sizes come up, and every node is laid out exactly once
+// per pass. That is Flutter's protocol and design.md section 5.4.1 asks for it
+// by name (invariants L1-L3). It was chosen here over CSS-style multi-pass
+// reflow for one reason that is specific to this project: sub-step 1 measured
+// partial repaint at 27x, which makes incremental re-layout a precondition
+// rather than a nicety, and a protocol where a node's size is a pure function
+// of (constraints, own style, children) is one where "this subtree's inputs
+// did not change, so its outputs cannot have" is a two-line check. A reflow
+// model in which a later sibling can retroactively change an earlier one has
+// no such check, and every attempt to add one is a cache with a correctness
+// obligation nobody can discharge.
+//
+// EVERYTHING HERE IS INTEGER DEVICE PIXELS, and that is a deliberate
+// deviation from design.md section 5.4.9, which keeps layout in float logical
+// pixels so that a DPI change repaints without re-laying-out. The reason for
+// the deviation is measured: sub-step 1's damage system is only correct when
+// the rectangle a node declares is exactly the rectangle it paints, and a
+// float layout has to round somewhere. A node whose left edge slides from
+// 10.4 to 10.6 rounds from 10 to 11, so its damage rectangle and its painted
+// rectangle disagree by a pixel for one frame, which is precisely the class of
+// bug the byte-identity test exists to catch - and it would catch it only on
+// the frames where the fraction happened to cross a boundary.
+//
+// What the deviation costs is that a DPI change re-lays-out rather than only
+// repainting. That is close to free, because a DPI change also changes the
+// framebuffer size, which forces a full repaint anyway; the relayout rides
+// along on a frame that was already the most expensive one in the session.
+// doc/layout.md records this trade in full.
+
+#pragma once
+
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <optional>
+
+#include "drawgui/base/pixel_geometry.h"
+
+namespace dg {
+
+// "As large as you like." A sentinel rather than a separate optional field,
+// because every arithmetic site would otherwise have to branch on presence
+// anyway - but note that it is INT_MAX, so nothing may ever be added to it.
+// shrink_bound() below is the only sanctioned way to make a bound smaller,
+// and it is what keeps UBSan quiet about signed overflow.
+inline constexpr int kUnbounded = std::numeric_limits<int>::max();
+
+[[nodiscard]] constexpr bool is_bounded(int value) {
+  return value != kUnbounded;
+}
+
+// A bound reduced by `amount`, saturating at zero and leaving an unbounded
+// bound unbounded. Subtracting from a bound is the single most common
+// operation in this file (padding, border and margin all do it), and doing it
+// by hand is how INT_MAX - 8 ends up meaning "bounded at 2147483639".
+[[nodiscard]] constexpr int shrink_bound(int bound, int amount) {
+  if (!is_bounded(bound)) {
+    return kUnbounded;
+  }
+  return std::max(0, bound - amount);
+}
+
+// Space on the four sides of a box. Used for margin, border and padding, which
+// differ in what they mean but not in their shape.
+struct EdgeInsets {
+  int left = 0;
+  int top = 0;
+  int right = 0;
+  int bottom = 0;
+
+  [[nodiscard]] static constexpr EdgeInsets all(int amount) {
+    return EdgeInsets{amount, amount, amount, amount};
+  }
+
+  [[nodiscard]] static constexpr EdgeInsets symmetric(int horizontal, int vertical) {
+    return EdgeInsets{horizontal, vertical, horizontal, vertical};
+  }
+
+  [[nodiscard]] constexpr int horizontal() const { return left + right; }
+  [[nodiscard]] constexpr int vertical() const { return top + bottom; }
+
+  friend bool operator==(EdgeInsets, EdgeInsets) = default;
+};
+
+[[nodiscard]] constexpr EdgeInsets operator+(const EdgeInsets& a, const EdgeInsets& b) {
+  return EdgeInsets{a.left + b.left, a.top + b.top, a.right + b.right, a.bottom + b.bottom};
+}
+
+// What a parent permits a child to be.
+//
+// The pair (min, max) per axis, with max possibly unbounded. `min > max` is
+// not representable in a well-formed constraint and every operation below
+// preserves that, because a node asked to be at least 40 and at most 30 has
+// no correct size and the failure would surface as a negative rectangle three
+// layers away from its cause.
+struct BoxConstraints {
+  int min_width = 0;
+  int max_width = kUnbounded;
+  int min_height = 0;
+  int max_height = kUnbounded;
+
+  // Exactly this size and no other. What a parent passes when it has already
+  // decided; also, and more importantly here, the condition that makes a node
+  // a relayout boundary - see LayoutTree.
+  [[nodiscard]] static constexpr BoxConstraints tight(PixelSize size) {
+    return BoxConstraints{size.width, size.width, size.height, size.height};
+  }
+
+  // At most this size, and as small as you like.
+  [[nodiscard]] static constexpr BoxConstraints loose(PixelSize size) {
+    return BoxConstraints{0, size.width, 0, size.height};
+  }
+
+  [[nodiscard]] constexpr bool has_bounded_width() const { return is_bounded(max_width); }
+  [[nodiscard]] constexpr bool has_bounded_height() const { return is_bounded(max_height); }
+
+  [[nodiscard]] constexpr bool is_tight_width() const {
+    return has_bounded_width() && min_width >= max_width;
+  }
+  [[nodiscard]] constexpr bool is_tight_height() const {
+    return has_bounded_height() && min_height >= max_height;
+  }
+  [[nodiscard]] constexpr bool is_tight() const {
+    return is_tight_width() && is_tight_height();
+  }
+
+  [[nodiscard]] constexpr int constrain_width(int width) const {
+    return std::max(min_width, has_bounded_width() ? std::min(width, max_width) : width);
+  }
+  [[nodiscard]] constexpr int constrain_height(int height) const {
+    return std::max(min_height, has_bounded_height() ? std::min(height, max_height) : height);
+  }
+  [[nodiscard]] constexpr PixelSize constrain(PixelSize size) const {
+    return PixelSize{constrain_width(size.width), constrain_height(size.height)};
+  }
+
+  // The same maxima with the minima dropped. What a parent passes to a child
+  // it is not stretching.
+  [[nodiscard]] constexpr BoxConstraints loosened() const {
+    return BoxConstraints{0, max_width, 0, max_height};
+  }
+
+  // Room left over after `insets` are taken out of every side. The minima
+  // shrink too: a node told "be at least 100 wide" whose padding is 8 a side
+  // must hand its child at least 84, or the child underfills a box its parent
+  // has already committed to.
+  [[nodiscard]] constexpr BoxConstraints deflate(const EdgeInsets& insets) const {
+    return BoxConstraints{std::max(0, min_width - insets.horizontal()),
+                          shrink_bound(max_width, insets.horizontal()),
+                          std::max(0, min_height - insets.vertical()),
+                          shrink_bound(max_height, insets.vertical())};
+  }
+
+  friend bool operator==(BoxConstraints, BoxConstraints) = default;
+};
+
+// How a node arranges its children.
+//
+// Four values, not an open set and not a virtual method. design.md section
+// 5.4.11 estimates the whole self-written layout subset at under a thousand
+// lines and this slice implements the part of it that a widget layer cannot
+// be built without; a fifth arrangement is a fifth enumerator and a fifth
+// case in one switch, which the compiler will demand.
+enum class LayoutKind : std::uint8_t {
+  // Sizes itself from its own style and its constraints, and positions no
+  // children. A leaf may still HAVE children - they are laid out at the
+  // content origin with loose constraints - which is what makes a decorated
+  // box with one thing in it not need a container kind of its own.
+  kLeaf,
+
+  // Children stacked along x, then along y.
+  kRow,
+  kColumn,
+
+  // Children placed by their own left/top/right/bottom/width, relative to
+  // this node's content box. design.md section 5.4.2's table.
+  kAbsolute,
+};
+
+// Where the leftover main-axis space goes in a row or a column.
+enum class MainAlign : std::uint8_t {
+  kStart,
+  kCenter,
+  kEnd,
+  kSpaceBetween,
+};
+
+// What a child does with the cross axis it was not given.
+enum class CrossAlign : std::uint8_t {
+  kStart,
+  kCenter,
+  kEnd,
+
+  // Tight cross constraint equal to the container's content extent. This is
+  // the alignment that produces relayout boundaries, because a stretched
+  // child with a flex weight is constrained tightly on BOTH axes and its size
+  // therefore cannot depend on anything inside it.
+  kStretch,
+};
+
+// Everything about a node that layout reads.
+//
+// A plain struct of plain fields, deliberately: design.md section 5.15.3
+// requires render-object state to be compact POD reachable by a switch rather
+// than a per-node property map, and the same argument applies a layer up.
+struct BoxStyle {
+  LayoutKind kind = LayoutKind::kLeaf;
+
+  // Applied by the PARENT, never by this node - design.md section 5.9.4. If a
+  // node subtracted its own margin from its own size, `width` would stop
+  // meaning the box the background fills, and whether the background reaches
+  // into the margin would become a question with no answer.
+  EdgeInsets margin;
+
+  // border-box: `width` and `height` include both of these, and exclude
+  // margin. Always border-box, never content-box (design.md section 5.9.1).
+  EdgeInsets border;
+  EdgeInsets padding;
+
+  // A definite border-box size. Still clamped by the incoming constraints: a
+  // parent that says "at most 60 wide" wins over a child that asked for 200,
+  // because the parent has already reserved the space.
+  std::optional<int> width;
+  std::optional<int> height;
+
+  int min_width = 0;
+  int max_width = kUnbounded;
+  int min_height = 0;
+  int max_height = kUnbounded;
+
+  // Share of the leftover main-axis space in the parent row or column.
+  //
+  // An INTEGER weight, not a float ratio, and that is a correctness decision
+  // rather than a stylistic one: the distribution is exact integer division
+  // with the remainder handed out to the earliest children, so re-running a
+  // layout produces the same pixels rather than the same pixels up to
+  // rounding. Byte-identity between an incremental and a full layout is the
+  // acceptance bar for this slice, and float weights would make it a coin
+  // toss on the frames where a sum lands near a half.
+  int grow = 0;
+
+  // Space between adjacent children of a row or column. design.md section
+  // 5.9.4: gap and margin STACK, they do not collapse, so the real distance
+  // between two children is gap + left margin + right margin.
+  int gap = 0;
+
+  MainAlign main_align = MainAlign::kStart;
+  CrossAlign cross_align = CrossAlign::kStart;
+
+  // Consumed by a kAbsolute PARENT, ignored everywhere else. Setting any of
+  // the four is what makes a child positioned; design.md section 5.4.2.
+  std::optional<int> left;
+  std::optional<int> top;
+  std::optional<int> right;
+  std::optional<int> bottom;
+
+  friend bool operator==(const BoxStyle&, const BoxStyle&) = default;
+};
+
+}  // namespace dg

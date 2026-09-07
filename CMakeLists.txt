@@ -166,6 +166,8 @@ endif()
 add_library(drawgui STATIC
   src/graphics/canvas.cpp
   src/graphics/raster_surface.cpp
+  src/layout/box_layout.cpp
+  src/layout/layout_tree.cpp
   src/render/damage.cpp
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
