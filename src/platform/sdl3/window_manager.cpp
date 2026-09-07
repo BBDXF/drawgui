@@ -31,6 +31,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -294,6 +295,11 @@ Expected<PixelFormat, WindowError> WindowManager::surface_format(WindowId id) co
 
 Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView& image,
                                                    const PixelRect& dirty) {
+  return present(id, image, std::span<const PixelRect>{&dirty, 1});
+}
+
+Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView& image,
+                                                   std::span<const PixelRect> dirty) {
   const auto entry = impl_->find(id.value);
   if (entry == impl_->windows.end()) {
     return Unexpected{WindowError{"no such window"}};
@@ -310,36 +316,48 @@ Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView&
     return Unexpected{WindowError{"window surface is not a format present() can copy into"}};
   }
 
-  // Clipped against the image as well as the window. A frame rasterized
-  // before the last resize is smaller than the window it is being shown in,
-  // and copying window-sized rows out of it would read past the end.
-  const PixelRect region =
-      clip_to(clip_to(dirty, image.width, image.height), surface->w, surface->h);
-  if (region.width <= 0 || region.height <= 0) {
-    return {};
-  }
-
   auto* destination = static_cast<std::uint8_t*>(surface->pixels);
   if (destination == nullptr) {
     return Unexpected{WindowError{"window surface has no pixels"}};
   }
 
-  const auto row_span = static_cast<std::size_t>(region.width) * kBytesPerPixel;
-  const auto x_offset = static_cast<std::size_t>(region.x) * kBytesPerPixel;
-  const auto destination_pitch = static_cast<std::size_t>(surface->pitch);
+  std::vector<SDL_Rect> updated;
+  updated.reserve(dirty.size());
 
-  for (int row = 0; row < region.height; ++row) {
-    const std::size_t source_row = static_cast<std::size_t>(region.y + row) * image.row_bytes;
-    const std::size_t destination_row =
-        static_cast<std::size_t>(region.y + row) * destination_pitch;
-    std::memcpy(destination + destination_row + x_offset, image.pixels + source_row + x_offset,
-                row_span);
+  for (const PixelRect& requested : dirty) {
+    // Clipped against the image as well as the window. A frame rasterized
+    // before the last resize is smaller than the window it is being shown in,
+    // and copying window-sized rows out of it would read past the end.
+    const PixelRect region =
+        clip_to(clip_to(requested, image.width, image.height), surface->w, surface->h);
+    if (region.width <= 0 || region.height <= 0) {
+      continue;
+    }
+
+    const auto row_span = static_cast<std::size_t>(region.width) * kBytesPerPixel;
+    const auto x_offset = static_cast<std::size_t>(region.x) * kBytesPerPixel;
+    const auto destination_pitch = static_cast<std::size_t>(surface->pitch);
+
+    for (int row = 0; row < region.height; ++row) {
+      const std::size_t source_row = static_cast<std::size_t>(region.y + row) * image.row_bytes;
+      const std::size_t destination_row =
+          static_cast<std::size_t>(region.y + row) * destination_pitch;
+      std::memcpy(destination + destination_row + x_offset,
+                  image.pixels + source_row + x_offset, row_span);
+    }
+    updated.push_back(SDL_Rect{region.x, region.y, region.width, region.height});
   }
 
+  if (updated.empty()) {
+    return {};
+  }
   entry->shows_fill = false;
 
-  const SDL_Rect updated{region.x, region.y, region.width, region.height};
-  if (!SDL_UpdateWindowSurfaceRects(entry->window, &updated, 1)) {
+  // One call, however many rectangles. Each call is a round trip to the
+  // display server, and at 1080p that round trip dominates everything else
+  // present() does - see doc/cpu-raster-findings.md.
+  if (!SDL_UpdateWindowSurfaceRects(entry->window, updated.data(),
+                                    static_cast<int>(updated.size()))) {
     return Unexpected{WindowError{sdl_failure("SDL_UpdateWindowSurfaceRects")}};
   }
   return {};
