@@ -70,7 +70,7 @@ enum class TextAlign : std::uint8_t {
 //   at zero slack and text differs by ZERO. Glyphs are rasterized into masks
 //   and blitted, so a clip masks the blit instead of changing the coverage.
 //   A label may therefore be cut in half by a damage rectangle, which is worth
-//   1.9x of the widget demo's damage. `--clip-probe` reprints the table and
+//   1.57x of the widget demo's damage. `--clip-probe` reprints the table and
 //   doc/widgets.md records it.
 //
 //   The node does NOT size itself to the text. Sub-step 2 excluded intrinsic

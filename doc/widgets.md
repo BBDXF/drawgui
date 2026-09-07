@@ -1,4 +1,4 @@
-# Sub-step 3: basic widgets and pointer interaction
+#Sub - step 3 : basic widgets and pointer interaction
 
 Third slice of step 3. Sub-step 1 built damage-driven retained repaint, sub-step 2
 built incremental layout, and both landed with a byte-identity acceptance test.
@@ -80,7 +80,8 @@ indices with `RenderTree`.
 failure is silent: delete node 7, compact the vector, and every widget from 8
 upward is now attached to its neighbour. When removal arrives it needs either
 tombstones (never compact; indices stay valid, memory is not reclaimed) or a
-generation counter in `NodeId` (`{index, generation}`, with a stale id rejected
+generation counter in `NodeId` (`{
+  index, generation}`, with a stale id rejected
 on lookup). The second is the one that also catches use-after-remove in the C
 ABI, where a host can hold an id indefinitely.
 
@@ -216,9 +217,9 @@ blitted, so a clip masks the blit, whereas a path fill computes analytic
 coverage that the clip participates in.
 
 So the rule was removed. `clips_atomically()` returns `!style.radii.is_zero()`
-and nothing else. **This is worth 1.9x of the demo's damage** — the same
-scripted pointer path repaints 2,105,100 px with text clip-atomic and
-1,133,448 px without.
+and nothing else. **This is worth 1.57x of the demo's damage** — the same
+scripted pointer path repaints 2,912,220 px with text clip-atomic and
+1,860,708 px without.
 
 The probe cannot be written against the render tree, and the first version of it
 was thrown away for exactly that reason: a text node was *already* clip-atomic,

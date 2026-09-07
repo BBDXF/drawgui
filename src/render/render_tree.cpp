@@ -15,12 +15,21 @@
 namespace dg {
 
 bool clips_atomically(const NodeStyle& style) {
-  // Rounded corners: measured in sub-step 1, 6530 differing pixels over 1800
-  // randomized clips. Text: measured in sub-step 3 the same way, and it is
-  // worse - a glyph cut by a clip changes coverage across its whole run, not
-  // only at the cut. Both are Skia anti-aliasing that is not clip-invariant,
-  // and both therefore repaint whole or not at all. doc/widgets.md has the
-  // text number; doc/damage-repaint.md has the corner one.
+  // Rounded corners only, and text deliberately NOT - which is the opposite of
+  // what sub-step 3 first assumed.
+  //
+  // Both are anti-aliased, so the expectation was that both would be
+  // clip-dependent. Measured instead (examples/05_widgets --clip-probe, 600
+  // random clips that cut the shape): a rounded rectangle differs by 582
+  // pixels at zero slack and needs one pixel of slack to reach zero, matching
+  // sub-step 1; TEXT DIFFERS BY ZERO at zero slack. Glyphs go through a mask
+  // cache and a clip masks the blit, rather than through the analytic coverage
+  // a path fill computes.
+  //
+  // Adding text here costs 1.57x the demo's damage and buys nothing.
+  // tests/unit/test_text_damage.cpp holds the shape that proves it - a damage
+  // rectangle laid across a run of glyphs - because the interaction scene
+  // never cuts a label and so cannot see this either way.
   return !style.radii.is_zero();
 }
 

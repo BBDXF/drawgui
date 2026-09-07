@@ -15,8 +15,9 @@
 // coverage, which is a different mechanism from the analytic anti-aliasing a
 // path fill goes through.
 //
-// So the rule was removed, and a label is now cut freely. That is worth
-// 1.9x of the demo's damage.
+// So the rule was removed, and a label is now cut freely. That is worth 1.57x
+// of the demo's damage (2,912,220 px against 1,860,708 px over the demo's
+// scripted pointer path).
 //
 // THE CATCH, AND WHY THIS FILE IS NOT THE INTERACTION TEST: the byte-identity
 // check over the demo scene passed both with the rule and without it - because
