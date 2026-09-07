@@ -1,0 +1,364 @@
+// Hit testing, checked at every pixel against two independent ground truths.
+//
+// The acceptance bar for this sub-step is not "a few probes land where I
+// expect". It is that for EVERY pixel of a scene containing overlapping,
+// nested and overflowing nodes, the node hit testing names is the node the
+// user can see - no widget visible but unclickable, none reachable while
+// occluded. That is checkable exhaustively at these sizes, so it is checked
+// exhaustively.
+//
+// TWO ORACLES, because they fail differently:
+//
+//   ORDER, from a flat list. The scene here is declared as a table and this
+//   file computes absolute bounds and paint order from it with its own code,
+//   sharing nothing with the library. The last node of that order covering a
+//   pixel is the visible one. This catches a traversal that visits siblings or
+//   subtrees in the wrong sequence.
+//
+//   PIXELS, from the rasterizer. Every node is painted a unique flat colour
+//   through the real RenderTree onto a real surface, and the colour read back
+//   at a pixel names the node that actually reached the screen there. This
+//   catches the case where hit testing and paint order agree with each other
+//   and both are wrong, which the first oracle cannot see - and it is the
+//   literal statement of "what you see is what you click".
+//
+// The second oracle is only exact because these scenes use square corners,
+// opaque fills and no borders or text: sub-step 1 measured that integer
+// aligned square rectangles rasterize bit-identically, while anti-aliased
+// rounded ones do not. A rounded scene here would blend two nodes' colours at
+// the corners and the oracle would be reading a colour belonging to neither.
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <doctest/doctest.h>
+
+#include "drawgui/base/pixel_geometry.h"
+#include "drawgui/graphics/raster_surface.h"
+#include "drawgui/render/render_tree.h"
+
+namespace {
+
+using dg::NodeId;
+using dg::PixelPoint;
+using dg::PixelRect;
+using dg::PixelSize;
+using dg::RenderTree;
+
+// One row of a scene table: a parent index and a box relative to that parent.
+// Declared flat so that the expected paint order is the declaration order,
+// which is only true when every subtree is completed before its next sibling
+// starts - the table below does that, and `check_declaration_order` refuses to
+// run if a future edit stops doing it.
+struct Row {
+  std::uint32_t parent;
+  PixelRect local;
+  const char* name;
+};
+
+struct Scene {
+  std::vector<Row> rows;
+  PixelSize viewport;
+};
+
+// Absolute bounds, computed here rather than asked of the tree. Asking would
+// make the oracle depend on the thing under test for the geometry AND the
+// order, which leaves it able to check only the order.
+std::vector<PixelRect> absolute_bounds_of(const Scene& scene) {
+  std::vector<PixelRect> absolute;
+  absolute.reserve(scene.rows.size());
+  for (std::size_t index = 0; index < scene.rows.size(); ++index) {
+    const Row& row = scene.rows[index];
+    if (index == 0) {
+      absolute.push_back(row.local);
+      continue;
+    }
+    const PixelRect& parent = absolute[row.parent];
+    absolute.push_back(row.local.offset_by(parent.x, parent.y));
+  }
+  return absolute;
+}
+
+// The visible node at `point`, by the definition painting gives it: the last
+// one to cover it wins.
+std::optional<std::uint32_t> topmost_by_order(const std::vector<PixelRect>& absolute,
+                                              PixelPoint point) {
+  std::optional<std::uint32_t> found;
+  for (std::size_t index = 0; index < absolute.size(); ++index) {
+    if (dg::contains(absolute[index], point)) {
+      found = static_cast<std::uint32_t>(index);
+    }
+  }
+  return found;
+}
+
+// A distinct opaque colour per node, recoverable from one byte. Red carries
+// the index so the read-back is a single channel comparison; green and blue
+// are fixed and non-zero so that a node is never confused with an unpainted
+// surface.
+dg::Color colour_for(std::size_t index) {
+  return dg::Color::rgba(static_cast<std::uint8_t>(index + 1), 0x40, 0x80);
+}
+
+RenderTree build(const Scene& scene) {
+  dg::TreeSpec spec;
+  spec.viewport = scene.viewport;
+  spec.background.fill = colour_for(0);
+  RenderTree tree{spec};
+
+  for (std::size_t index = 1; index < scene.rows.size(); ++index) {
+    dg::NodeStyle style;
+    style.fill = colour_for(index);
+    const NodeId created =
+        tree.add_child(NodeId{scene.rows[index].parent}, scene.rows[index].local, style);
+    REQUIRE(created == NodeId{static_cast<std::uint32_t>(index)});
+  }
+  return tree;
+}
+
+// A parent must be declared before its children, and a subtree must be
+// contiguous. Both are what make the declaration order equal the paint order,
+// and neither is obvious from reading the table.
+void check_declaration_order(const Scene& scene) {
+  for (std::size_t index = 1; index < scene.rows.size(); ++index) {
+    CHECK(scene.rows[index].parent < index);
+  }
+  for (std::size_t index = 1; index + 1 < scene.rows.size(); ++index) {
+    const std::uint32_t parent = scene.rows[index].parent;
+    const std::uint32_t next_parent = scene.rows[index + 1].parent;
+    const bool contiguous = next_parent == index || next_parent <= parent;
+    CHECK_MESSAGE(contiguous, "subtree of node ", index, " is interleaved with a sibling's");
+  }
+}
+
+// Overlap, nesting, an occluded node, adjacency and - deliberately - a child
+// that runs past its parent on two sides.
+Scene overlapping_scene() {
+  Scene scene;
+  scene.viewport = PixelSize{160, 120};
+  scene.rows = {
+      {0, PixelRect{0, 0, 160, 120}, "root"},
+
+      // A panel with two children, the second of which extends past the
+      // panel's right and bottom edges. Painting does not clip it, so hit
+      // testing must not either.
+      {0, PixelRect{10, 10, 60, 40}, "panel"},
+      {1, PixelRect{5, 5, 20, 15}, "panel.inner"},
+      {1, PixelRect{40, 25, 40, 35}, "panel.overflowing"},
+
+      // Two siblings that overlap. The later one is on top in the overlap.
+      {0, PixelRect{90, 10, 50, 50}, "under"},
+      {0, PixelRect{115, 30, 40, 40}, "over"},
+
+      // Fully swallowed by its later sibling: visible nowhere, so hit testing
+      // must never name it.
+      {0, PixelRect{20, 70, 30, 30}, "occluded"},
+      {0, PixelRect{15, 65, 45, 45}, "occluder"},
+
+      // Edge-sharing neighbours. Half-open rectangles mean the shared column
+      // belongs to exactly one of them.
+      {0, PixelRect{80, 85, 20, 20}, "left_of_pair"},
+      {0, PixelRect{100, 85, 20, 20}, "right_of_pair"},
+
+      // A deep chain whose innermost node is the one on top.
+      {0, PixelRect{125, 80, 30, 30}, "deep0"},
+      {10, PixelRect{4, 4, 22, 22}, "deep1"},
+      {11, PixelRect{4, 4, 14, 14}, "deep2"},
+  };
+  return scene;
+}
+
+std::string describe(const Scene& scene, std::optional<std::uint32_t> index) {
+  return index.has_value() ? scene.rows[index.value_or(0)].name : "<nothing>";
+}
+
+// The hit as an index, with the node count meaning "nothing". Every case below
+// goes through this rather than dereferencing the optional: the check and the
+// access would otherwise sit in different expressions, which is a shape
+// clang-analyzer cannot follow and a reader has to re-derive.
+std::uint32_t hit_index(const RenderTree& tree, PixelPoint point) {
+  const std::optional<NodeId> hit = tree.hit_test(point);
+  return hit.value_or(NodeId{static_cast<std::uint32_t>(tree.node_count())}).value;
+}
+
+// One pixel sweep, with the oracle supplied. Extracted so the two exhaustive
+// cases are one loop read twice rather than two loops that can drift apart.
+struct Sweep {
+  std::size_t mismatches = 0;
+  int x = 0;
+  int y = 0;
+  std::uint32_t said = 0;
+  std::uint32_t expected = 0;
+};
+
+template <typename Oracle>
+Sweep sweep(const Scene& scene, const RenderTree& tree, const Oracle& oracle) {
+  Sweep result;
+  for (int y = 0; y < scene.viewport.height; ++y) {
+    for (int x = 0; x < scene.viewport.width; ++x) {
+      const PixelPoint point{x, y};
+      const std::uint32_t expected = oracle(point);
+      const std::uint32_t actual = hit_index(tree, point);
+      if (actual == expected) {
+        continue;
+      }
+      if (result.mismatches == 0) {
+        result.x = x;
+        result.y = y;
+        result.said = actual;
+        result.expected = expected;
+      }
+      ++result.mismatches;
+    }
+  }
+  return result;
+}
+
+void report(const Scene& scene, const Sweep& result, const char* oracle) {
+  if (result.mismatches == 0) {
+    return;
+  }
+  MESSAGE("first mismatch at ", result.x, ",", result.y, ": hit test says ",
+          describe(scene, result.said), ", ", oracle, " says ",
+          describe(scene, result.expected));
+}
+
+}  // namespace
+
+TEST_SUITE("hit testing") {
+  TEST_CASE("the scene table is declared in paint order") {
+    check_declaration_order(overlapping_scene());
+  }
+
+  TEST_CASE("every pixel agrees with a flat reverse-paint-order scan") {
+    const Scene scene = overlapping_scene();
+    check_declaration_order(scene);
+    const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
+    const RenderTree tree = build(scene);
+    const auto miss = static_cast<std::uint32_t>(scene.rows.size());
+
+    // The tree's own geometry is checked once, separately, so that a bounds
+    // disagreement is reported as one failure rather than as thirty thousand.
+    for (std::size_t index = 0; index < scene.rows.size(); ++index) {
+      REQUIRE(tree.absolute_bounds(NodeId{static_cast<std::uint32_t>(index)}) ==
+              absolute[index]);
+    }
+
+    const Sweep result = sweep(scene, tree, [&absolute, miss](PixelPoint point) {
+      const std::optional<std::uint32_t> topmost = topmost_by_order(absolute, point);
+      return topmost.value_or(miss);
+    });
+    report(scene, result, "paint order");
+    CHECK(result.mismatches == 0);
+  }
+
+  TEST_CASE("every pixel agrees with what the rasterizer actually drew") {
+    const Scene scene = overlapping_scene();
+    RenderTree tree = build(scene);
+
+    std::optional<dg::RasterSurface> surface =
+        dg::RasterSurface::create(scene.viewport.width, scene.viewport.height);
+
+    // Tested with an `if` rather than a REQUIRE, and the difference is not
+    // cosmetic: clang-tidy cannot model doctest's REQUIRE, so a REQUIRE
+    // followed by a dereference reads to clang-analyzer as an unchecked
+    // optional access. Failing explicitly and returning gives it the control
+    // flow it needs, and gives a reader the same information.
+    if (!surface.has_value()) {
+      FAIL("could not allocate a surface");
+      return;
+    }
+    dg::RasterSurface& target = *surface;
+    tree.repaint_full(target);
+
+    const dg::PixelView view = target.peek_pixels();
+    REQUIRE(view.pixels != nullptr);
+    REQUIRE(view.is_bgra8888);
+
+    const Sweep result = sweep(scene, tree, [&view](PixelPoint point) {
+      // BGRA: red is the third byte, and colour_for() put the node index there
+      // offset by one so that zero cannot be mistaken for node 0.
+      const std::size_t offset = (static_cast<std::size_t>(point.y) * view.row_bytes) +
+                                 (static_cast<std::size_t>(point.x) * 4);
+      return static_cast<std::uint32_t>(view.pixels[offset + 2]) - 1;
+    });
+    report(scene, result, "the surface");
+    CHECK(result.mismatches == 0);
+  }
+
+  TEST_CASE("a child overflowing its parent is hittable in the overflow") {
+    const Scene scene = overlapping_scene();
+    const RenderTree tree = build(scene);
+    const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
+
+    const PixelRect panel = absolute[1];
+    const PixelRect overflowing = absolute[3];
+    REQUIRE(overflowing.right() > panel.right());
+    REQUIRE(overflowing.bottom() > panel.bottom());
+
+    // A pixel that belongs to the child and lies outside the parent on BOTH
+    // axes, so neither edge alone can produce the right answer by accident.
+    const PixelPoint outside{overflowing.right() - 1, overflowing.bottom() - 1};
+    REQUIRE_FALSE(dg::contains(panel, outside));
+    CHECK(hit_index(tree, outside) == 3);
+  }
+
+  TEST_CASE("a fully occluded node is never hit") {
+    const Scene scene = overlapping_scene();
+    const RenderTree tree = build(scene);
+    const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
+    REQUIRE(dg::contains(absolute[7], absolute[6]));
+
+    for (int y = absolute[6].top(); y < absolute[6].bottom(); ++y) {
+      for (int x = absolute[6].left(); x < absolute[6].right(); ++x) {
+        REQUIRE(hit_index(tree, PixelPoint{x, y}) != 6);
+      }
+    }
+  }
+
+  TEST_CASE("edge-sharing neighbours claim a boundary column exactly once") {
+    const Scene scene = overlapping_scene();
+    const RenderTree tree = build(scene);
+    const std::vector<PixelRect> absolute = absolute_bounds_of(scene);
+    REQUIRE(absolute[8].right() == absolute[9].left());
+
+    const int y = absolute[8].top() + 1;
+    CHECK(tree.hit_test(PixelPoint{absolute[8].right() - 1, y}) ==
+          std::optional<NodeId>{NodeId{8}});
+    CHECK(tree.hit_test(PixelPoint{absolute[9].left(), y}) == std::optional<NodeId>{NodeId{9}});
+  }
+
+  TEST_CASE("a point outside the viewport hits nothing") {
+    const Scene scene = overlapping_scene();
+    const RenderTree tree = build(scene);
+    CHECK_FALSE(tree.hit_test(PixelPoint{-1, 10}).has_value());
+    CHECK_FALSE(tree.hit_test(PixelPoint{10, -1}).has_value());
+    CHECK_FALSE(tree.hit_test(PixelPoint{scene.viewport.width, 10}).has_value());
+    CHECK_FALSE(tree.hit_test(PixelPoint{10, scene.viewport.height}).has_value());
+  }
+
+  TEST_CASE("moving a node moves where it is hit, with no stale rectangle") {
+    const Scene scene = overlapping_scene();
+    RenderTree tree = build(scene);
+
+    const PixelPoint before{18, 18};
+    REQUIRE(hit_index(tree, before) == 2);
+
+    tree.set_local_origin(NodeId{2}, 30, 15);
+    CHECK(hit_index(tree, before) != 2);
+    CHECK(hit_index(tree, PixelPoint{45, 30}) == 2);
+  }
+
+  TEST_CASE("a resize repositions nothing but still answers inside the new viewport") {
+    const Scene scene = overlapping_scene();
+    RenderTree tree = build(scene);
+    tree.resize(PixelSize{200, 150});
+
+    // The root grew, so a point that was outside the viewport now hits it.
+    CHECK(hit_index(tree, PixelPoint{180, 140}) == RenderTree::root().value);
+    CHECK(hit_index(tree, PixelPoint{18, 18}) == 2);
+  }
+}
