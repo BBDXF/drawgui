@@ -100,6 +100,41 @@ struct ImageView {
   PixelFormat format = PixelFormat::kBgra8888;
 };
 
+// What the pointer did.
+//
+// Four actions, and no button identity. Only the PRIMARY button produces an
+// event at all - the backend drops the others, because nothing routes them and
+// an enumerator naming a button no widget can receive would be a promise. The
+// consequence is worth stating: a right-click cannot activate a widget here,
+// not because the state machine checks, but because the event does not exist.
+enum class PointerAction : std::uint8_t {
+  kMove,
+  kDown,
+  kUp,
+
+  // The pointer left the window. It carries NO position - `x` and `y` are
+  // zero and mean nothing - because the platform does not report where the
+  // pointer went, only that it is no longer here. A caller reading them would
+  // be hit-testing the top-left corner and clearing hover for the wrong
+  // reason, which is a bug that looks exactly like correct behaviour.
+  kLeave,
+};
+
+// One thing the pointer did to one window.
+//
+// The position is in the window's PHYSICAL pixels - the same coordinates
+// drawable_size() reports and present() copies into - not the logical ones the
+// platform delivers. The conversion happens once, in the backend, because a
+// pointer coordinate and a framebuffer coordinate that differ by a display
+// scale is how clicks land near a widget instead of on it, and every consumer
+// would otherwise have to remember to apply it.
+struct PointerEvent {
+  WindowId window;
+  PointerAction action = PointerAction::kMove;
+  int x = 0;
+  int y = 0;
+};
+
 // Everything one pump() turned up, split by what the caller has to do about
 // it.
 struct PumpResult {
@@ -112,6 +147,15 @@ struct PumpResult {
   // it. Assuming the old size is still valid is how a resize turns into a
   // torn frame or a heap overflow.
   std::vector<WindowId> needs_repaint;
+
+  // In the order they happened, which is the whole of what makes them usable:
+  // a press and the release that ends it are only a click if nothing was
+  // reordered between them.
+  //
+  // A caller must handle `needs_repaint` BEFORE these. A resize changes where
+  // every widget is, and a pointer event that arrived in the same pump would
+  // otherwise be hit-tested against the layout the window no longer has.
+  std::vector<PointerEvent> pointer;
 };
 
 class WindowManager {
@@ -142,6 +186,27 @@ class WindowManager {
   // Waits up to timeout_ms for something to happen, then handles everything
   // queued. Empty on a timeout.
   [[nodiscard]] PumpResult pump(int timeout_ms);
+
+  // Moves the actual pointer, in the window's physical pixels.
+  //
+  // This is the real thing: the display server moves the cursor and delivers
+  // the motion event it would have delivered had a hand done it. Together with
+  // post_pointer_button() it lets a demo drive itself along a scripted path
+  // THROUGH the ordinary event queue, hit testing and state machine - never
+  // around them. A scripted mode that called the state machine directly would
+  // prove nothing about the path a user takes, which is the only path that can
+  // be wrong.
+  void warp_pointer(WindowId id, int x, int y);
+
+  // Puts a primary-button press or release on the platform's own event queue,
+  // by the same route request_close() uses for a close.
+  //
+  // Pushed rather than synthesized at the device, because no windowing system
+  // offers a "press the button" call - warping the pointer is as far as the
+  // real hardware path goes. The event is indistinguishable from a physical
+  // one once queued, so everything downstream of pump() is exercised exactly
+  // as it is for a user.
+  void post_pointer_button(WindowId id, bool down, int x, int y);
 
   // The size a frame for this window must be rasterized at, right now.
   //

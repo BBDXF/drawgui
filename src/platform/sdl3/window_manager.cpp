@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -116,6 +117,23 @@ PixelRect clip_to(const PixelRect& dirty, int width, int height) {
   return intersect(dirty, PixelRect{0, 0, width, height});
 }
 
+// SDL reports pointer positions in LOGICAL window coordinates and this library
+// speaks physical framebuffer pixels everywhere else. The two differ by the
+// window's pixel density on a scaled display, and a pointer that is off by
+// that factor lands near widgets rather than on them - a defect that is
+// invisible at density 1, which is every developer machine that has not been
+// tested on a second monitor.
+//
+// Floored rather than rounded: a coordinate names the pixel it is inside, and
+// rounding would make the upper half of the last row belong to the row after
+// it, which does not exist.
+PixelPoint to_physical(SDL_Window* window, float x, float y) {
+  const float density = SDL_GetWindowPixelDensity(window);
+  const float scale = density > 0.0F ? density : 1.0F;
+  return PixelPoint{static_cast<int>(std::floor(x * scale)),
+                    static_cast<int>(std::floor(y * scale))};
+}
+
 }  // namespace
 
 // The whole of the manager's state. Its destructor is the only place windows
@@ -160,6 +178,43 @@ struct WindowManager::Impl {
         if (entry != windows.end()) {
           close(entry);
           result.closed.push_back(WindowId{sdl_id});
+        }
+        break;
+      }
+      case SDL_EVENT_MOUSE_MOTION: {
+        const auto entry = find(event.motion.windowID);
+        if (entry != windows.end()) {
+          const PixelPoint at = to_physical(entry->window, event.motion.x, event.motion.y);
+          result.pointer.push_back(
+              PointerEvent{WindowId{entry->sdl_id}, PointerAction::kMove, at.x, at.y});
+        }
+        break;
+      }
+      case SDL_EVENT_MOUSE_BUTTON_DOWN:
+      case SDL_EVENT_MOUSE_BUTTON_UP: {
+        // Every other button is dropped here rather than carried and ignored
+        // upstream. Nothing routes a secondary button, and reporting one would
+        // let a right-click reach a state machine that has no case for it.
+        if (event.button.button != SDL_BUTTON_LEFT) {
+          break;
+        }
+        const auto entry = find(event.button.windowID);
+        if (entry != windows.end()) {
+          const PixelPoint at = to_physical(entry->window, event.button.x, event.button.y);
+          const PointerAction action =
+              event.button.down ? PointerAction::kDown : PointerAction::kUp;
+          result.pointer.push_back(PointerEvent{WindowId{entry->sdl_id}, action, at.x, at.y});
+        }
+        break;
+      }
+      case SDL_EVENT_WINDOW_MOUSE_LEAVE: {
+        const auto entry = find(event.window.windowID);
+        if (entry != windows.end()) {
+          // No position, deliberately: SDL does not report where the pointer
+          // went, and inventing one would clear hover against a hit test of
+          // the origin.
+          result.pointer.push_back(
+              PointerEvent{WindowId{entry->sdl_id}, PointerAction::kLeave});
         }
         break;
       }
@@ -238,6 +293,38 @@ void WindowManager::request_close(WindowId id) {
   SDL_Event event{};
   event.window.type = SDL_EVENT_WINDOW_CLOSE_REQUESTED;
   event.window.windowID = id.value;
+  SDL_PushEvent(&event);
+}
+
+void WindowManager::warp_pointer(WindowId id, int x, int y) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  // Back into logical coordinates, because that is what SDL takes - the
+  // inverse of the conversion every reported position goes through.
+  const float density = SDL_GetWindowPixelDensity(entry->window);
+  const float scale = density > 0.0F ? density : 1.0F;
+  SDL_WarpMouseInWindow(entry->window, static_cast<float>(x) / scale,
+                        static_cast<float>(y) / scale);
+}
+
+void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  const float density = SDL_GetWindowPixelDensity(entry->window);
+  const float scale = density > 0.0F ? density : 1.0F;
+
+  SDL_Event event{};
+  event.button.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+  event.button.windowID = id.value;
+  event.button.button = SDL_BUTTON_LEFT;
+  event.button.down = down;
+  event.button.clicks = 1;
+  event.button.x = static_cast<float>(x) / scale;
+  event.button.y = static_cast<float>(y) / scale;
   SDL_PushEvent(&event);
 }
 
