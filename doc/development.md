@@ -89,6 +89,21 @@ TOML:
 If a break is genuinely intended, it is a MAJOR version change and lands as a
 reviewed commit that says so out loud - not as a quiet edit to the lock.
 
+## Running a GUI example under WSL with GPU acceleration
+
+`/dev/dri` is absent under WSL, which looks like "no GPU" but is not one - see
+`doc/platform-notes.md` for the full measurement. WSL exposes the GPU through
+`/dev/dxg` and Mesa's D3D12 driver, selected with an environment variable:
+
+```sh
+GALLIUM_DRIVER=d3d12 ./build/examples/<gui_example>
+```
+
+Without it, Mesa silently falls back to the `llvmpipe` software rasterizer.
+There is no error and no warning - the example still runs, just on the CPU
+path instead of the GPU path - so a benchmark or visual check run without this
+variable is measuring the wrong thing without saying so.
+
 ## Running everything locally
 
 ```sh

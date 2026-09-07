@@ -1725,7 +1725,7 @@ drawgui/
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| SDL3 的 popup 窗口支持不足以实现原生菜单 | **高** | P1 就做 spike 验证；退路是桌面上直接写三份原生 popup |
+| SDL3 的 popup 窗口支持不足以实现原生菜单 | **高**（Linux 已降低，见 `doc/platform-notes.md`；Windows / macOS 未验证） | P1 就做 spike 验证；退路是桌面上直接写三份原生 popup |
 | 预编译 Skia 的 fork patch 与官方行为有差异 | 中 | 记录确切 tag；黄金图像测试能发现渲染差异 |
 | 共享 GL context 在某平台失效 | 中 | 回退到每窗口独立 GrDirectContext（已有方案） |
 | Node FFI 事件泵与窗口消息循环的耦合 | 中 | `dg_wait_events(timeout)` + poll 模式已设计 |
@@ -1760,8 +1760,11 @@ drawgui/
 
 ## 12. 未决问题
 
-1. SDL3 的 popup 窗口（`SDL_CreatePopupWindow`）在 Wayland / Windows / macOS 上的
-   实际行为一致性 —— **P1 必须 spike 验证**，它决定 `PopupHost` 的实现路径
+1. ~~SDL3 的 popup 窗口（`SDL_CreatePopupWindow`）在 Wayland / Windows / macOS 上的
+   实际行为一致性~~ —— **Linux 已解决**：x11 与 wayland 均已 spike 验证，popup
+   为真 OS 窗口且能超出父窗口边界，`PopupHost` 在 Linux 桌面上采用
+   `caps.native_popup == true` 路径，证据见 `doc/platform-notes.md`。
+   Windows / macOS 仍未验证，问题对这两个平台保持未决
 2. 多窗口下共享 GL context 与 `SkSurface` 的 MakeCurrent 开销 —— P1 基准测量
 3. JSON 解析器选型（nlohmann/json 便利 vs 更轻量的方案）—— P3 前定案，权衡二进制体积与编译时间
 5. **ICU 数据的嵌入与裁剪**（§5.10.5）—— 完整 `icudtl.dat` 约 10 MB 量级，
