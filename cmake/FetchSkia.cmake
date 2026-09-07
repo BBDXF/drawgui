@@ -39,11 +39,16 @@ set(DRAWGUI_SKIA_BUILD_KEY "b0260d93e48425b4b39f"
     CACHE STRING "rust-skia build key embedded in the release asset name")
 
 # design.md section 3.2 lists textlayout + svg + webp + gl as the eventual
-# feature set. P0 is CPU raster only (design.md section 5.3.2), so it takes
-# the smallest asset that the spike actually validated. Switching this string
-# is how P1 and P3 pull in gl and textlayout; each new value needs its SHA256
-# registered below.
-set(DRAWGUI_SKIA_FEATURES "jpegd-jpege-pdf"
+# feature set, but they arrive one phase at a time. P1 needs Ganesh GL and
+# nothing else, so this is the smallest published asset that carries it:
+# textlayout would drag in HarfBuzz + ICU and the icudtl.dat distribution
+# problem that design.md section 5.10.5 defers to P3. The `-x11` sibling is
+# deliberately not used - it only adds Skia's own GLX native-interface
+# assembly, and the GL entry points are supplied by the windowing layer's
+# proc loader instead, so nothing links against X11 here.
+# Switching this string is how P3 pulls in textlayout; each new value needs
+# its SHA256 registered below.
+set(DRAWGUI_SKIA_FEATURES "ganesh-gl-jpegd-jpege-pdf"
     CACHE STRING "Feature suffix of the rust-skia binary asset to consume")
 
 set(DRAWGUI_SKIA_HEADER_TAG "m153-0.101.1"
@@ -86,6 +91,8 @@ endif()
 # hole.
 set(_dg_skia_sha256_x86_64-unknown-linux-gnu:jpegd-jpege-pdf
     "19f9ada302c9828d7a284efb62e5f0c4954dc43a9930094deec9bbc7a32cf747")
+set(_dg_skia_sha256_x86_64-unknown-linux-gnu:ganesh-gl-jpegd-jpege-pdf
+    "e85d9317a2b312426ab620f09a5ebe9c691ff3218abeeb352060168bfc8afe51")
 
 set(_dg_skia_asset_key "${_dg_skia_triple}:${DRAWGUI_SKIA_FEATURES}")
 if(NOT DEFINED _dg_skia_sha256_${_dg_skia_asset_key})
@@ -228,8 +235,11 @@ endif()
 # libskia.a references FreeType unconditionally: SkTypeface_FreeType is linked
 # in even when no font API is called, leaving 43 undefined FT_* symbols
 # otherwise. Everything else the archive might plausibly want - fontconfig,
-# dl, pthread, z, png, jpeg, expat, GL, X11 - was verified unnecessary for
-# this feature set by removal.
+# dl, pthread, z, png, jpeg, expat, GL, EGL, X11 - was verified unnecessary by
+# removal, re-checked against the ganesh-gl asset. GL in particular stays out:
+# this build ships GrGLMakeNativeInterface_none, so every GL entry point is
+# resolved at runtime through a caller-supplied proc loader and the archive
+# holds no link-time reference to libGL.
 find_package(Freetype REQUIRED)
 
 # --- The target -------------------------------------------------------------
@@ -245,9 +255,16 @@ set_target_properties(drawgui_skia PROPERTIES
 target_include_directories(drawgui_skia SYSTEM INTERFACE "${_dg_skia_include_dir}")
 target_link_libraries(drawgui_skia INTERFACE Freetype::Freetype)
 
-# The spike established that this archive needs zero preprocessor defines.
-# Notably it does NOT need SK_GANESH or SK_GL - and must not get them, since
-# design.md section 5.3.2 keeps CPU raster as a first-class permanent path.
+# This archive needs zero preprocessor defines, including for the Ganesh API.
+# SK_GANESH and SK_GL are build-time switches for compiling Skia itself; in
+# the m153 public headers SK_GANESH appears only in SkTypes.h (where it undefs
+# the backend macros) and in an Android-framework header, and SK_GL appears
+# nowhere at all. GrDirectContext, GrDirectContexts::MakeGL,
+# GrBackendRenderTargets::MakeGL and SkSurfaces::WrapBackendRenderTarget are
+# therefore declared unconditionally. Measured: preprocessing a translation
+# unit that uses all four is byte-identical with and without
+# `-DSK_GANESH -DSK_GL`, and so is the resulting object file. Defining them
+# would be cargo cult, so they are not defined.
 
 add_library(drawgui::skia ALIAS drawgui_skia)
 

@@ -40,6 +40,11 @@ asset hash registered in `cmake/FetchSkia.cmake`.
 `libskia.a` references `SkTypeface_FreeType` unconditionally, so FreeType is
 required even though this phase draws no text.
 
+FreeType is the only external library. The prebuilt includes the Ganesh GL
+backend, but no OpenGL development package is needed: the build ships
+`GrGLMakeNativeInterface_none`, so every GL entry point is resolved at runtime
+through a proc loader the caller supplies, and nothing links against libGL.
+
 ## Building
 
 ```sh
