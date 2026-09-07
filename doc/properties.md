@@ -161,20 +161,32 @@ absolute one. A percentage constructor was deliberately not written: this
 project does not add a representation before the code that consumes it exists,
 and no arrangement can resolve one today.
 
-### 3.3 One border in the table, two in the engine
+### 3.3 One border in the table, two in the engine — RESOLVED
 
-`BoxStyle::border` reserves space per side, exactly as the table describes.
-`NodeStyle::border_width` is a **single uniform stroke**, because that is what
-the painter implements - it insets by half the width and strokes once.
+**This was a disagreement and is not one any more.** `doc/wrapping.md` records
+how it was closed; what follows is what it used to say, kept because the shape
+of the argument is the reusable part.
 
-`border_width_*` therefore writes the per-side layout inset exactly, and sets
-the painted stroke to the **minimum of the four**. The alternatives were worse:
+`BoxStyle::border` reserved space per side, exactly as the table describes.
+`NodeStyle::border_width` was a **single uniform stroke**, because that is what
+the painter implemented — it insets by half the width and strokes once.
+
+`border_width_*` therefore wrote the per-side layout inset exactly, and set the
+painted stroke to the **minimum of the four**. The alternatives were worse:
 rejecting unequal sides makes setting them one at a time impossible, since the
 first write is what makes them unequal; painting the maximum would put stroke
 outside the space some side reserved, and a node painting outside the rectangle
 it declared is exactly what damage tracking cannot survive. The minimum is
-always inside the box and is exact whenever the four agree - every case the
-paint layer can express.
+always inside the box and is exact whenever the four agree.
+
+`NodeStyle::border_width` is now a `BorderWidths` carrying all four, and the
+painter takes one of two routes: a **uniform** border still strokes once, inset
+by half, so every pixel this project has already measured is unchanged; an
+**unequal** one fills the ring between the border box and the box the four
+widths inset it to, with `drawDRRect`. Both stay inside the declared rectangle.
+`tests/unit/test_border_paint.cpp` measures the painted thickness of each side
+in pixels rather than reading the field back, because the field was always
+right — it was the painter that collapsed it.
 
 ### 3.4 `grow` is an integer weight
 
@@ -239,13 +251,16 @@ written for a different purpose.
 
 ## 4. The gap report
 
-45 properties: **21 implemented**, **12 partially implemented**, **12 not yet**.
+45 properties: **27 implemented**, **9 partially implemented**, **9 not yet**.
 
 A partially implemented property applies correctly for the values listed as
 supported and returns `kUnsupported` - naming the node - for the rest. Nothing
 in either column is silently ignored.
 
-### 4.1 Implemented (21)
+The counts moved because the slice that followed this report built the two
+pieces section 4.4 called 1 and 5. `doc/wrapping.md` records what that took.
+
+### 4.1 Implemented (27)
 
 | id | property | notes |
 | --- | --- | --- |
@@ -260,12 +275,18 @@ in either column is silently ignored.
 | 10 | `padding_r` | |
 | 11 | `padding_b` | |
 | 16 | `background_color` | `NodeStyle::fill`; paint only, no relayout |
+| 18 | `border_width_l` | reserves layout space AND paints, per side |
+| 19 | `border_width_t` | |
+| 20 | `border_width_r` | |
+| 21 | `border_width_b` | |
 | 22 | `border_color` | paint only; inert until a border width is set |
 | 23 | `border_radius_tl` | paint only; also flips the node to clip-atomic |
 | 24 | `border_radius_tr` | |
 | 25 | `border_radius_br` | |
 | 26 | `border_radius_bl` | |
-| 34 | `gap` | flex containers only; stacks with margins, does not collapse |
+| 34 | `gap` | flex and wrap containers; stacks with margins, does not collapse |
+| 36 | `run_gap` | wrapping containers only; `kNotApplicable` on a flex row |
+| 37 | `align_content` | wrapping containers only; all six values |
 | 42 | `left` | absolute parent only; negative insets allowed |
 | 43 | `top` | |
 | 44 | `right` | |
@@ -276,7 +297,7 @@ because layout is integer device pixels. Non-finite values, magnitudes over
 2^24 and negative lengths are refused - `static_cast<int>(NaN)` is undefined
 behaviour, so that test is load-bearing rather than tidy.
 
-### 4.2 Partially implemented (12)
+### 4.2 Partially implemented (9)
 
 | id | property | works | does not, and what it needs |
 | --- | --- | --- | --- |
@@ -284,16 +305,13 @@ behaviour, so that test is load-bearing rather than tidy.
 | 13 | `margin_t` | non-negative | as above |
 | 14 | `margin_r` | non-negative | as above |
 | 15 | `margin_b` | non-negative | as above |
-| 18 | `border_width_l` | reserves layout space exactly | painting four independent widths needs the painter to stroke four rects instead of one, and needs new clip-atomicity measurements for the corners |
-| 19 | `border_width_t` | as above | as above |
-| 20 | `border_width_r` | as above | as above |
-| 21 | `border_width_b` | as above | as above |
 | 31 | `direction` | `row`, `column` | `row_reverse` / `column_reverse` need `size_flex_children` to walk children in reverse, which changes which children absorb the integer-division remainder - so the byte-identity gate has to be re-established, not just extended |
-| 32 | `justify` | `start`, `end`, `center`, `space_between` | `space_around` / `space_evenly` also distribute space BEFORE the first child; `place_flex_children` only spreads between them |
-| 33 | `align` | `start`, `end`, `center`, `stretch` | `baseline` needs a child's baseline before it is placed, which is intrinsic sizing - deliberately absent, and it must come with the caching design.md section 5.4.6 requires |
-| 38 | `grow` | whole non-negative weights | fractional weights would need the free-space split to stop being exact integer division, which is what makes incremental and full layout agree |
+| 32 | `justify` | `start`, `end`, `center`, `space_between` | `space_around` / `space_evenly` also distribute space BEFORE the first child; `place_flex_children` only spreads between them. `align_content` now does exactly that on the cross axis, so the arithmetic exists - what is missing is the decision to change `MainAlign` |
+| 33 | `align` | `start`, `end`, `center`, `stretch` in a flex; `start`, `end`, `center` in a wrap | `baseline` needs a child's baseline before it is placed, which is intrinsic sizing. `stretch` under a WRAPPING container is a different refusal: the extent to stretch to is the child's run, which is not known until the run closes, so it is reported as a layout diagnostic and placed as `start` |
+| 38 | `grow` | whole non-negative weights, under a flex parent | fractional weights would need the free-space split to stop being exact integer division. Under a WRAP parent it is refused entirely - `kNotApplicable` at the boundary, a layout diagnostic through the struct API - matching design.md section 5.4.4 |
+| 41 | `align_self` | `auto`, `start`, `end`, `center`, `stretch` | `baseline`, for the same reason `align=baseline` is unavailable. `stretch` under a wrapping parent degrades exactly as `align=stretch` does |
 
-### 4.3 Not yet implemented (12)
+### 4.3 Not yet implemented (9)
 
 | id | property | what it needs |
 | --- | --- | --- |
@@ -304,28 +322,29 @@ behaviour, so that test is load-bearing rather than tidy.
 | 29 | `overflow` | a real clip. Painting does not clip a child to its parent and neither does hit testing; `render_tree.h` requires that when a clip arrives, both honour ONE rule, so this lands with scrolling |
 | 30 | `transform` | non-axis-aligned geometry. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare. Also a dedicated setter |
 | 35 | `main_size` | a second container sizing rule. A container always shrinks to its content within its limits; `max` means filling the main axis instead |
-| 36 | `run_gap` | a wrapping arrangement. There is no `wrap` node kind, so there are no runs |
-| 37 | `align_content` | a wrapping arrangement, as above - there is no run stack to align |
 | 39 | `shrink` | a negative-free-space pass. Children that overrun are currently reported as a layout diagnostic and left overrunning |
 | 40 | `basis` | a base size distinct from the measured one. A flexible child is measured directly under the share its weight earns |
-| 41 | `align_self` | per-child cross-axis override. `place_flex_children` reads the container's `cross_align` for every child |
 
 ### 4.4 Suggested grouping for the next slice
 
-Reading down the "needs" column, the twelve unimplemented properties fall into
-five pieces of engine work rather than twelve:
+Reading down the "needs" column, the unimplemented properties fall into five
+pieces of engine work rather than nine. **Pieces 1 and 5 are done**; the
+remaining three are unchanged.
 
-1. **A wrapping arrangement** - unlocks `run_gap`, `align_content`, and makes
-   `align`'s remaining values meaningful. Largest single item.
+1. ~~**A wrapping arrangement**~~ - done. `run_gap`, `align_content` and the
+   run-scoped meaning of `align` all landed with it. `doc/wrapping.md`.
 2. **A real clip** - unlocks `overflow`, and is a precondition for scrolling.
    Must land in painting AND hit testing together.
 3. **A compositing layer** - unlocks `opacity`, and is the precondition for
    `shadow` and `transform` having anywhere to live.
 4. **A second sizing stage** - unlocks `aspect_ratio`, `main_size`, `basis`,
-   `shrink`. This is the one that most threatens the exactly-once invariant, so
-   it needs the intrinsic-sizing caching argument settled first.
-5. **Per-child overrides and per-side painting** - `align_self`, and the paint
-   half of `border_width_*`. Smallest, most independent.
+   `shrink`, and would additionally unlock `align=stretch` inside a wrap and
+   `align=baseline` everywhere. This is the one that most threatens the
+   exactly-once invariant, so it needs the intrinsic-sizing caching argument
+   settled first. The wrapping slice deliberately did NOT start it, and
+   `doc/wrapping.md` records the two places it would have been convenient to.
+5. ~~**Per-child overrides and per-side painting**~~ - done. `align_self`, and
+   the paint half of `border_width_*`.
 
 The three complex-typed properties (`background_gradient`, `shadow`,
 `transform`) additionally need the dedicated-setter shape from design.md section

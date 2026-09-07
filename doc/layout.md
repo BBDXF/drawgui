@@ -92,11 +92,21 @@ coin toss on the frames where a sum landed near a half.
 
 Box model per design.md section 5.9.4: always border-box, `width`/`height`
 include border and padding and exclude margin, **margin is applied by the
-parent**, gap and margin stack rather than collapsing. Four arrangements:
+parent**, gap and margin stack rather than collapsing. Six arrangements:
 `kLeaf` (shrink-to-fit), `kRow`, `kColumn` (gap, integer grow, four main
-alignments, four cross alignments), `kAbsolute` (every row of design.md section
+alignments, four cross alignments, plus per-child `align_self`), `kWrapRow`,
+`kWrapColumn` (the same, minus `grow` and minus `stretch`, plus `run_gap` and
+six `align_content` values), `kAbsolute` (every row of design.md section
 5.4.2's table - two near edges, two far edges, two opposite edges for a stretch,
 and unanchored).
+
+Wrapping arrived a slice later than the rest and `doc/wrapping.md` is its
+record. The one thing worth repeating here is why it did not disturb anything
+above: a wrapping container measures every child under a **loose** constraint,
+so a child's size never depends on which run it lands in, and closing a run
+cannot invalidate a measurement already taken. That is what keeps L3 - and it is
+also why `align: stretch` cannot be honoured inside a run, since the extent to
+stretch to is not known until the run closes.
 
 **No intrinsic sizing, deliberately.** `intrinsic_width(height)` and friends are
 speculative layout: they break the exactly-once invariant and section 5.4.6 puts
@@ -410,8 +420,15 @@ number. Those have live consumers and unit tests.
 4. **Section 5.4.11's line estimate.** The document estimates the whole layout
    subset at under 1,000 lines. This slice implements roughly the Flex + Stack +
    BoxConstraints part of it (`RenderWrap` is not built) in about 700 lines of
-   `src/layout/` plus 250 of headers, which is consistent.
-5. **Section 5.15.7, "single-frame layout under 2 ms for ~500 nodes".** Not
+   `src/layout/` plus 250 of headers, which is consistent. *`RenderWrap` landed
+   a slice later, in about 180 further lines - see `doc/wrapping.md`.*
+5. **Sections 5.4.3 and 5.4.4 together, on `align: stretch` inside a wrap.**
+   Section 5.4.3 defines stretch as a tight cross constraint; section 5.4.4
+   requires a wrap to lay each child out exactly once; and a run's extent is not
+   known until every child in it has been measured. The two cannot both hold, so
+   stretch under a wrapping container is placed as `start` and reported as a
+   layout diagnostic. `doc/wrapping.md` section 3.1.
+6. **Section 5.15.7, "single-frame layout under 2 ms for ~500 nodes".** Not
    contradicted but wildly conservative for this workload: a *full* layout of
    10,001 nodes is 0.48 ms and of 40,001 nodes is 2.70 ms, tight-loop. Layout is
    not where this project's frame budget goes; presentation is (sub-step 1

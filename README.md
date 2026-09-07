@@ -39,6 +39,15 @@ implemented, 12 partially, and 12 report `kUnsupported` naming what they need.
 `doc/properties.md` records the reconciliation, the per-property gap report, and
 why the generated ids are plain constants rather than an enumeration.
 
+Layout now **wraps**. A container whose children overrun the main axis breaks
+them into runs; `run_gap` spaces the runs, `align_content` positions the run
+stack, and `align` applies within a run rather than across the container. A
+child can override its container with `align_self`, and a border can be a
+different thickness on each of its four sides. 27 properties are now fully
+implemented, 9 partially and 9 report `kUnsupported`. `doc/wrapping.md` records
+why wrapping still lays every node out exactly once, and where design.md asks
+for two things that cannot both be true.
+
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
@@ -223,4 +232,5 @@ Findings and decisions from each slice live beside it:
 | `doc/widgets.md` | why there is no widget tree |
 | `doc/font-fallback.md` | why the fallback chain is built here rather than delegated to fontconfig |
 | `doc/properties.md` | the property system: reconciliation, boundary shape, and the gap report |
+| `doc/wrapping.md` | the wrapping arrangement, `align_self`, and per-side borders |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
