@@ -23,8 +23,14 @@
 //       Write the incoming descriptor into `field`. These types do not fit
 //       the scalar tagged union and arrive through a dedicated setter
 //       (design.md section 5.9.5): gradient, shadow, transform.
-//   DG_PROP_UNKNOWN()
-//       Handle an id this node does not accept. It must report a
+//   DG_PROP_UNKNOWN
+//       Handle an id this node does not accept. Object-like, and
+//       deliberately so: it takes no arguments, and a function-like
+//       macro that takes none is one clang-tidy will tell you to
+//       write as a function (cppcoreguidelines-macro-usage). The
+//       other two paste tokens, which a function cannot do, so they
+//       stay function-like.
+//       It must report a
 //       diagnostic carrying the node path; silently ignoring a write is
 //       exactly the failure mode this design forbids (section 5.8
 //       decision 7).
@@ -176,6 +182,6 @@ switch (prop_id) {
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:
-    DG_PROP_UNKNOWN();
+    DG_PROP_UNKNOWN;
     break;
 }

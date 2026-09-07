@@ -88,6 +88,19 @@ class Property:
         return "DG_PROP_" + self.name.upper()
 
     @property
+    def value_constants(self) -> tuple[tuple[str, int], ...]:
+        """The (constant, ordinal) pairs an enum property's `values` become.
+
+        The ordinal is the index in `values`, so the ORDER of that list is as
+        much an ABI contract as the id is - a consumer compiles the number,
+        not the word. Emitting these is what stops a hand-written copy of the
+        list drifting from the TOML; props/prop_ids.lock does not yet cover
+        them, which doc/properties.md records as a known gap.
+        """
+        prefix = "DG_" + self.name.upper() + "_"
+        return tuple((prefix + value.upper(), index) for index, value in enumerate(self.values))
+
+    @property
     def is_complex(self) -> bool:
         return self.type in COMPLEX_TYPES
 
@@ -299,12 +312,39 @@ def load_definitions(toml_path: Path) -> Definitions:
             f"next_id must exceed every assigned id"
         )
 
+    _reject_constant_collisions(properties)
+
     return Definitions(
         schema_version=schema_version,
         next_id=next_id,
         node_kinds=node_kinds,
         properties=tuple(properties),
     )
+
+
+def _reject_constant_collisions(properties: list[Property]) -> None:
+    """No two generated constants may spell the same identifier.
+
+    The header emits both DG_PROP_<NAME> and, for enum properties,
+    DG_<NAME>_<VALUE>. Those live in one namespace, and two properties whose
+    names and values happen to collide would produce a C++ file that either
+    fails to compile or - worse, if the values agreed - silently bound two
+    meanings to one spelling. Checked here rather than left to the compiler so
+    the error names the two TOML entries instead of a generated line number.
+    """
+    owners: dict[str, str] = {}
+    for prop in properties:
+        for constant, owner in [(prop.constant, f"property '{prop.name}'")] + [
+            (name, f"property '{prop.name}' value #{ordinal}")
+            for name, ordinal in prop.value_constants
+        ]:
+            if constant in owners:
+                raise GenError(
+                    f"generated constant '{constant}' would be emitted twice: "
+                    f"once for {owners[constant]} and once for {owner}. "
+                    f"Rename one of them; a generated constant is an ABI spelling."
+                )
+            owners[constant] = owner
 
 
 def _reject_duplicates(properties: list[Property], key, label: str) -> None:
@@ -350,7 +390,7 @@ def _scope_note(prop: Property) -> str:
 
 
 def render_header(defs: Definitions) -> str:
-    """Render the uint16_t prop_id enum."""
+    """Render the uint16_t prop_id constants."""
     lines = list(_banner())
     lines += [
         "",
@@ -365,9 +405,33 @@ def render_header(defs: Definitions) -> str:
         "// These values are an ABI contract. They are append-only and are never",
         "// reused or renumbered; only a MAJOR version may break them",
         "// (design.md section 5.8 decision 4).",
-        "enum dg_prop_id : std::uint16_t {",
-        "  // Reserved. A write with this id is always an error.",
-        "  DG_PROP_INVALID = 0,",
+        "//",
+        "// THESE ARE CONSTANTS, NOT AN ENUMERATION, and that is a deliberate",
+        "// boundary decision rather than a stylistic one. A prop_id arrives from",
+        "// outside the process, so the set of values it may hold is every uint16_t,",
+        "// not the set spelled below - and an enumeration type whose variable can",
+        "// hold a non-enumerator is exactly the thing C++ says nothing about.",
+        "// Measured, on clang-tidy 21 with this project's .clang-tidy, against a",
+        "// translation unit that merely INCLUDED the previous `enum dg_prop_id :",
+        "// std::uint16_t` form:",
+        "//",
+        "//   cppcoreguidelines-use-enum-class  enum 'dg_prop_id' is unscoped",
+        "//   performance-enum-size             uses a larger base type than",
+        "//                                     necessary, consider std::uint8_t",
+        "//",
+        "// Both are errors under WarningsAsErrors: '*', and obeying either one",
+        "// makes the ABI worse. `enum class` makes casting a host-supplied",
+        "// uint16_t in the only way to dispatch on it. `std::uint8_t` narrows an",
+        "// id the ABI transports as 16 bits, which is the defect already recorded",
+        "// against the platform service ids, where 0x0101 folded onto a valid",
+        "// enumerator and a query for a service nobody had answered with the",
+        "// system tray. Plain constants have neither problem and need no NOLINT:",
+        "// the dispatch switches on a uint16_t and its default arm is what decides",
+        "// an id is unknown. doc/properties.md records the reasoning in full.",
+        "using dg_prop_id = std::uint16_t;",
+        "",
+        "// Reserved. A write with this id is always an error.",
+        "inline constexpr dg_prop_id DG_PROP_INVALID = 0;",
     ]
 
     current_group = ""
@@ -375,19 +439,42 @@ def render_header(defs: Definitions) -> str:
         if prop.group != current_group:
             current_group = prop.group
             lines.append("")
-            lines.append(f"  // -- {current_group} " + "-" * (58 - len(current_group)))
-        lines.append(f"  // {prop.summary}")
+            lines.append(f"// -- {current_group} " + "-" * (60 - len(current_group)))
+        lines.append(f"// {prop.summary}")
         detail = f"type={prop.type}"
         if prop.optional:
             detail += " optional"
-        lines.append(f"  // {detail}; {_scope_note(prop)}")
+        lines.append(f"// {detail}; {_scope_note(prop)}")
         if prop.values:
-            lines.append("  // values: " + " | ".join(prop.values))
-        lines.append(f"  {prop.constant} = {prop.id},")
+            lines.append("// values: " + " | ".join(prop.values))
+        lines.append(f"inline constexpr dg_prop_id {prop.constant} = {prop.id};")
+
+    enum_props = [prop for prop in defs.properties if prop.values]
+    if enum_props:
+        lines += [
+            "",
+            "// -- enum property values " + "-" * 46,
+            "//",
+            "// An enum-typed property travels as an ORDINAL, so the order of each",
+            "// `values` list in the TOML is an ABI contract in the same way an id",
+            "// is: a consumer compiles the number, not the word. Generating these",
+            "// is what stops a hand-written copy of the list drifting from the",
+            "// source of truth - the drift class design.md section 5.8 decision 5",
+            "// exists to remove.",
+            "//",
+            "// Plain constants rather than one enum per property, for the reason",
+            "// given above: an ordinal also arrives from outside the process.",
+            "//",
+            "// props/prop_ids.lock does NOT yet cover these orderings.",
+            "// doc/properties.md records that as a known gap.",
+        ]
+        for prop in enum_props:
+            lines.append(f"// {prop.name}")
+            for constant, ordinal in prop.value_constants:
+                lines.append(f"inline constexpr std::uint32_t {constant} = {ordinal};")
 
     highest = max(prop.id for prop in defs.properties)
     lines += [
-        "};",
         "",
         "// Highest id currently assigned. Boundary code uses it to reject out of",
         "// range ids before dispatching; it grows as properties are appended.",
@@ -422,8 +509,14 @@ def render_dispatch(defs: Definitions) -> str:
         "//       Write the incoming descriptor into `field`. These types do not fit",
         "//       the scalar tagged union and arrive through a dedicated setter",
         f"//       (design.md section 5.9.5): {', '.join(COMPLEX_TYPES)}.",
-        f"//   {UNKNOWN_MACRO}()",
-        "//       Handle an id this node does not accept. It must report a",
+        f"//   {UNKNOWN_MACRO}",
+        "//       Handle an id this node does not accept. Object-like, and",
+        "//       deliberately so: it takes no arguments, and a function-like",
+        "//       macro that takes none is one clang-tidy will tell you to",
+        "//       write as a function (cppcoreguidelines-macro-usage). The",
+        "//       other two paste tokens, which a function cannot do, so they",
+        "//       stay function-like.",
+        "//       It must report a",
         "//       diagnostic carrying the node path; silently ignoring a write is",
         "//       exactly the failure mode this design forbids (section 5.8",
         "//       decision 7).",
@@ -450,7 +543,7 @@ def render_dispatch(defs: Definitions) -> str:
         "  // No implicit fall-through: an unhandled id is reported, never dropped.",
         "  case DG_PROP_INVALID:",
         "  default:",
-        f"    {UNKNOWN_MACRO}();",
+        f"    {UNKNOWN_MACRO};",
         "    break;",
         "}",
         "",

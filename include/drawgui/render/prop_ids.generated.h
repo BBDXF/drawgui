@@ -18,160 +18,236 @@
 // These values are an ABI contract. They are append-only and are never
 // reused or renumbered; only a MAJOR version may break them
 // (design.md section 5.8 decision 4).
-enum dg_prop_id : std::uint16_t {
-  // Reserved. A write with this id is always an error.
-  DG_PROP_INVALID = 0,
+//
+// THESE ARE CONSTANTS, NOT AN ENUMERATION, and that is a deliberate
+// boundary decision rather than a stylistic one. A prop_id arrives from
+// outside the process, so the set of values it may hold is every uint16_t,
+// not the set spelled below - and an enumeration type whose variable can
+// hold a non-enumerator is exactly the thing C++ says nothing about.
+// Measured, on clang-tidy 21 with this project's .clang-tidy, against a
+// translation unit that merely INCLUDED the previous `enum dg_prop_id :
+// std::uint16_t` form:
+//
+//   cppcoreguidelines-use-enum-class  enum 'dg_prop_id' is unscoped
+//   performance-enum-size             uses a larger base type than
+//                                     necessary, consider std::uint8_t
+//
+// Both are errors under WarningsAsErrors: '*', and obeying either one
+// makes the ABI worse. `enum class` makes casting a host-supplied
+// uint16_t in the only way to dispatch on it. `std::uint8_t` narrows an
+// id the ABI transports as 16 bits, which is the defect already recorded
+// against the platform service ids, where 0x0101 folded onto a valid
+// enumerator and a query for a service nobody had answered with the
+// system tray. Plain constants have neither problem and need no NOLINT:
+// the dispatch switches on a uint16_t and its default arm is what decides
+// an id is unknown. doc/properties.md records the reasoning in full.
+using dg_prop_id = std::uint16_t;
 
-  // -- box_model -------------------------------------------------
-  // Border-box width; absent means shrink-to-fit.
-  // type=length optional; applies_to=box
-  DG_PROP_WIDTH = 1,
-  // Border-box height; absent means shrink-to-fit.
-  // type=length optional; applies_to=box
-  DG_PROP_HEIGHT = 2,
-  // Lower clamp applied after the size source resolves.
-  // type=length; applies_to=box
-  DG_PROP_MIN_WIDTH = 3,
-  // Upper clamp applied after the size source resolves.
-  // type=length; applies_to=box
-  DG_PROP_MAX_WIDTH = 4,
-  // Lower clamp applied after the size source resolves.
-  // type=length; applies_to=box
-  DG_PROP_MIN_HEIGHT = 5,
-  // Upper clamp applied after the size source resolves.
-  // type=length; applies_to=box
-  DG_PROP_MAX_HEIGHT = 6,
-  // width/height; derives the second dimension from the first.
-  // type=float optional; applies_to=box
-  DG_PROP_ASPECT_RATIO = 7,
-  // Left padding; shrinks the constraint passed to children.
-  // type=float; applies_to=box
-  DG_PROP_PADDING_L = 8,
-  // Top padding; shrinks the constraint passed to children.
-  // type=float; applies_to=box
-  DG_PROP_PADDING_T = 9,
-  // Right padding; shrinks the constraint passed to children.
-  // type=float; applies_to=box
-  DG_PROP_PADDING_R = 10,
-  // Bottom padding; shrinks the constraint passed to children.
-  // type=float; applies_to=box
-  DG_PROP_PADDING_B = 11,
-  // Left outer spacing applied by the parent, excluded from size.
-  // type=float; parentData scope=base consumed_by=flex,wrap,stack
-  DG_PROP_MARGIN_L = 12,
-  // Top outer spacing applied by the parent, excluded from size.
-  // type=float; parentData scope=base consumed_by=flex,wrap,stack
-  DG_PROP_MARGIN_T = 13,
-  // Right outer spacing applied by the parent, excluded from size.
-  // type=float; parentData scope=base consumed_by=flex,wrap,stack
-  DG_PROP_MARGIN_R = 14,
-  // Bottom outer spacing applied by the parent, excluded from size.
-  // type=float; parentData scope=base consumed_by=flex,wrap,stack
-  DG_PROP_MARGIN_B = 15,
+// Reserved. A write with this id is always an error.
+inline constexpr dg_prop_id DG_PROP_INVALID = 0;
 
-  // -- visual ----------------------------------------------------
-  // Border-box fill, 0xAARRGGBB unpremultiplied.
-  // type=color; applies_to=box
-  DG_PROP_BACKGROUND_COLOR = 16,
-  // Linear/radial/sweep gradient fill; dedicated setter, not a scalar.
-  // type=gradient optional; applies_to=box
-  DG_PROP_BACKGROUND_GRADIENT = 17,
-  // Left border thickness, inside the border box.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_WIDTH_L = 18,
-  // Top border thickness, inside the border box.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_WIDTH_T = 19,
-  // Right border thickness, inside the border box.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_WIDTH_R = 20,
-  // Bottom border thickness, inside the border box.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_WIDTH_B = 21,
-  // Colour of all four borders, 0xAARRGGBB unpremultiplied.
-  // type=color; applies_to=box
-  DG_PROP_BORDER_COLOR = 22,
-  // Top-left corner radius; clips every decoration layer.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_RADIUS_TL = 23,
-  // Top-right corner radius; clips every decoration layer.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_RADIUS_TR = 24,
-  // Bottom-right corner radius; clips every decoration layer.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_RADIUS_BR = 25,
-  // Bottom-left corner radius; clips every decoration layer.
-  // type=float; applies_to=box
-  DG_PROP_BORDER_RADIUS_BL = 26,
-  // 0..1 subtree alpha; below 1 forces a compositing layer.
-  // type=float; applies_to=box
-  DG_PROP_OPACITY = 27,
-  // Outer shadow (offset/blur/spread/colour); dedicated setter.
-  // type=shadow optional; applies_to=box
-  DG_PROP_SHADOW = 28,
-  // Whether content beyond the border box is clipped.
-  // type=enum; applies_to=box
-  // values: visible | clip
-  DG_PROP_OVERFLOW = 29,
-  // Decomposed translate/scale/rotate plus origin, for interpolation.
-  // type=transform optional; applies_to=box
-  DG_PROP_TRANSFORM = 30,
+// -- box_model ---------------------------------------------------
+// Border-box width; absent means shrink-to-fit.
+// type=length optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_WIDTH = 1;
+// Border-box height; absent means shrink-to-fit.
+// type=length optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_HEIGHT = 2;
+// Lower clamp applied after the size source resolves.
+// type=length; applies_to=box
+inline constexpr dg_prop_id DG_PROP_MIN_WIDTH = 3;
+// Upper clamp applied after the size source resolves.
+// type=length; applies_to=box
+inline constexpr dg_prop_id DG_PROP_MAX_WIDTH = 4;
+// Lower clamp applied after the size source resolves.
+// type=length; applies_to=box
+inline constexpr dg_prop_id DG_PROP_MIN_HEIGHT = 5;
+// Upper clamp applied after the size source resolves.
+// type=length; applies_to=box
+inline constexpr dg_prop_id DG_PROP_MAX_HEIGHT = 6;
+// width/height; derives the second dimension from the first.
+// type=float optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_ASPECT_RATIO = 7;
+// Left padding; shrinks the constraint passed to children.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_PADDING_L = 8;
+// Top padding; shrinks the constraint passed to children.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_PADDING_T = 9;
+// Right padding; shrinks the constraint passed to children.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_PADDING_R = 10;
+// Bottom padding; shrinks the constraint passed to children.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_PADDING_B = 11;
+// Left outer spacing applied by the parent, excluded from size.
+// type=float; parentData scope=base consumed_by=flex,wrap,stack
+inline constexpr dg_prop_id DG_PROP_MARGIN_L = 12;
+// Top outer spacing applied by the parent, excluded from size.
+// type=float; parentData scope=base consumed_by=flex,wrap,stack
+inline constexpr dg_prop_id DG_PROP_MARGIN_T = 13;
+// Right outer spacing applied by the parent, excluded from size.
+// type=float; parentData scope=base consumed_by=flex,wrap,stack
+inline constexpr dg_prop_id DG_PROP_MARGIN_R = 14;
+// Bottom outer spacing applied by the parent, excluded from size.
+// type=float; parentData scope=base consumed_by=flex,wrap,stack
+inline constexpr dg_prop_id DG_PROP_MARGIN_B = 15;
 
-  // -- container -------------------------------------------------
-  // Main axis orientation and ordering.
-  // type=enum; applies_to=flex,wrap
-  // values: row | column | row_reverse | column_reverse
-  DG_PROP_DIRECTION = 31,
-  // Distribution of free space along the main axis.
-  // type=enum; applies_to=flex,wrap
-  // values: start | end | center | space_between | space_around | space_evenly
-  DG_PROP_JUSTIFY = 32,
-  // Cross-axis alignment of children within a line.
-  // type=enum; applies_to=flex,wrap
-  // values: start | end | center | stretch | baseline
-  DG_PROP_ALIGN = 33,
-  // Main-axis spacing between adjacent children; adds to margins.
-  // type=float; applies_to=flex,wrap
-  DG_PROP_GAP = 34,
-  // Whether the container hugs its content or fills the main axis.
-  // type=enum; applies_to=flex,wrap
-  // values: min | max
-  DG_PROP_MAIN_SIZE = 35,
-  // Spacing between wrapped runs; meaningful only on RenderWrap.
-  // type=float; applies_to=wrap
-  DG_PROP_RUN_GAP = 36,
-  // Cross-axis alignment of the run stack; RenderWrap only.
-  // type=enum; applies_to=wrap
-  // values: start | end | center | stretch | space_between | space_around
-  DG_PROP_ALIGN_CONTENT = 37,
+// -- visual ------------------------------------------------------
+// Border-box fill, 0xAARRGGBB unpremultiplied.
+// type=color; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BACKGROUND_COLOR = 16;
+// Linear/radial/sweep gradient fill; dedicated setter, not a scalar.
+// type=gradient optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BACKGROUND_GRADIENT = 17;
+// Left border thickness, inside the border box.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_WIDTH_L = 18;
+// Top border thickness, inside the border box.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_WIDTH_T = 19;
+// Right border thickness, inside the border box.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_WIDTH_R = 20;
+// Bottom border thickness, inside the border box.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_WIDTH_B = 21;
+// Colour of all four borders, 0xAARRGGBB unpremultiplied.
+// type=color; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_COLOR = 22;
+// Top-left corner radius; clips every decoration layer.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_RADIUS_TL = 23;
+// Top-right corner radius; clips every decoration layer.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_RADIUS_TR = 24;
+// Bottom-right corner radius; clips every decoration layer.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_RADIUS_BR = 25;
+// Bottom-left corner radius; clips every decoration layer.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_BORDER_RADIUS_BL = 26;
+// 0..1 subtree alpha; below 1 forces a compositing layer.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_OPACITY = 27;
+// Outer shadow (offset/blur/spread/colour); dedicated setter.
+// type=shadow optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_SHADOW = 28;
+// Whether content beyond the border box is clipped.
+// type=enum; applies_to=box
+// values: visible | clip
+inline constexpr dg_prop_id DG_PROP_OVERFLOW = 29;
+// Decomposed translate/scale/rotate plus origin, for interpolation.
+// type=transform optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_TRANSFORM = 30;
 
-  // -- parent_data -----------------------------------------------
-  // Weight for distributing positive free main-axis space.
-  // type=float; parentData scope=flex consumed_by=flex
-  DG_PROP_GROW = 38,
-  // Weight for absorbing negative free main-axis space.
-  // type=float; parentData scope=flex consumed_by=flex
-  DG_PROP_SHRINK = 39,
-  // Main-axis base size; absent means the child's natural size.
-  // type=float optional; parentData scope=flex consumed_by=flex
-  DG_PROP_BASIS = 40,
-  // Per-child override of the container's cross-axis align.
-  // type=enum; parentData scope=flex consumed_by=flex
-  // values: auto | start | end | center | stretch | baseline
-  DG_PROP_ALIGN_SELF = 41,
-  // Inset from the stack content box; setting it positions the child.
-  // type=float optional; parentData scope=stack consumed_by=stack
-  DG_PROP_LEFT = 42,
-  // Inset from the stack content box; setting it positions the child.
-  // type=float optional; parentData scope=stack consumed_by=stack
-  DG_PROP_TOP = 43,
-  // Inset from the stack content box; setting it positions the child.
-  // type=float optional; parentData scope=stack consumed_by=stack
-  DG_PROP_RIGHT = 44,
-  // Inset from the stack content box; setting it positions the child.
-  // type=float optional; parentData scope=stack consumed_by=stack
-  DG_PROP_BOTTOM = 45,
-};
+// -- container ---------------------------------------------------
+// Main axis orientation and ordering.
+// type=enum; applies_to=flex,wrap
+// values: row | column | row_reverse | column_reverse
+inline constexpr dg_prop_id DG_PROP_DIRECTION = 31;
+// Distribution of free space along the main axis.
+// type=enum; applies_to=flex,wrap
+// values: start | end | center | space_between | space_around | space_evenly
+inline constexpr dg_prop_id DG_PROP_JUSTIFY = 32;
+// Cross-axis alignment of children within a line.
+// type=enum; applies_to=flex,wrap
+// values: start | end | center | stretch | baseline
+inline constexpr dg_prop_id DG_PROP_ALIGN = 33;
+// Main-axis spacing between adjacent children; adds to margins.
+// type=float; applies_to=flex,wrap
+inline constexpr dg_prop_id DG_PROP_GAP = 34;
+// Whether the container hugs its content or fills the main axis.
+// type=enum; applies_to=flex,wrap
+// values: min | max
+inline constexpr dg_prop_id DG_PROP_MAIN_SIZE = 35;
+// Spacing between wrapped runs; meaningful only on RenderWrap.
+// type=float; applies_to=wrap
+inline constexpr dg_prop_id DG_PROP_RUN_GAP = 36;
+// Cross-axis alignment of the run stack; RenderWrap only.
+// type=enum; applies_to=wrap
+// values: start | end | center | stretch | space_between | space_around
+inline constexpr dg_prop_id DG_PROP_ALIGN_CONTENT = 37;
+
+// -- parent_data -------------------------------------------------
+// Weight for distributing positive free main-axis space.
+// type=float; parentData scope=flex consumed_by=flex
+inline constexpr dg_prop_id DG_PROP_GROW = 38;
+// Weight for absorbing negative free main-axis space.
+// type=float; parentData scope=flex consumed_by=flex
+inline constexpr dg_prop_id DG_PROP_SHRINK = 39;
+// Main-axis base size; absent means the child's natural size.
+// type=float optional; parentData scope=flex consumed_by=flex
+inline constexpr dg_prop_id DG_PROP_BASIS = 40;
+// Per-child override of the container's cross-axis align.
+// type=enum; parentData scope=flex consumed_by=flex
+// values: auto | start | end | center | stretch | baseline
+inline constexpr dg_prop_id DG_PROP_ALIGN_SELF = 41;
+// Inset from the stack content box; setting it positions the child.
+// type=float optional; parentData scope=stack consumed_by=stack
+inline constexpr dg_prop_id DG_PROP_LEFT = 42;
+// Inset from the stack content box; setting it positions the child.
+// type=float optional; parentData scope=stack consumed_by=stack
+inline constexpr dg_prop_id DG_PROP_TOP = 43;
+// Inset from the stack content box; setting it positions the child.
+// type=float optional; parentData scope=stack consumed_by=stack
+inline constexpr dg_prop_id DG_PROP_RIGHT = 44;
+// Inset from the stack content box; setting it positions the child.
+// type=float optional; parentData scope=stack consumed_by=stack
+inline constexpr dg_prop_id DG_PROP_BOTTOM = 45;
+
+// -- enum property values ----------------------------------------------
+//
+// An enum-typed property travels as an ORDINAL, so the order of each
+// `values` list in the TOML is an ABI contract in the same way an id
+// is: a consumer compiles the number, not the word. Generating these
+// is what stops a hand-written copy of the list drifting from the
+// source of truth - the drift class design.md section 5.8 decision 5
+// exists to remove.
+//
+// Plain constants rather than one enum per property, for the reason
+// given above: an ordinal also arrives from outside the process.
+//
+// props/prop_ids.lock does NOT yet cover these orderings.
+// doc/properties.md records that as a known gap.
+// overflow
+inline constexpr std::uint32_t DG_OVERFLOW_VISIBLE = 0;
+inline constexpr std::uint32_t DG_OVERFLOW_CLIP = 1;
+// direction
+inline constexpr std::uint32_t DG_DIRECTION_ROW = 0;
+inline constexpr std::uint32_t DG_DIRECTION_COLUMN = 1;
+inline constexpr std::uint32_t DG_DIRECTION_ROW_REVERSE = 2;
+inline constexpr std::uint32_t DG_DIRECTION_COLUMN_REVERSE = 3;
+// justify
+inline constexpr std::uint32_t DG_JUSTIFY_START = 0;
+inline constexpr std::uint32_t DG_JUSTIFY_END = 1;
+inline constexpr std::uint32_t DG_JUSTIFY_CENTER = 2;
+inline constexpr std::uint32_t DG_JUSTIFY_SPACE_BETWEEN = 3;
+inline constexpr std::uint32_t DG_JUSTIFY_SPACE_AROUND = 4;
+inline constexpr std::uint32_t DG_JUSTIFY_SPACE_EVENLY = 5;
+// align
+inline constexpr std::uint32_t DG_ALIGN_START = 0;
+inline constexpr std::uint32_t DG_ALIGN_END = 1;
+inline constexpr std::uint32_t DG_ALIGN_CENTER = 2;
+inline constexpr std::uint32_t DG_ALIGN_STRETCH = 3;
+inline constexpr std::uint32_t DG_ALIGN_BASELINE = 4;
+// main_size
+inline constexpr std::uint32_t DG_MAIN_SIZE_MIN = 0;
+inline constexpr std::uint32_t DG_MAIN_SIZE_MAX = 1;
+// align_content
+inline constexpr std::uint32_t DG_ALIGN_CONTENT_START = 0;
+inline constexpr std::uint32_t DG_ALIGN_CONTENT_END = 1;
+inline constexpr std::uint32_t DG_ALIGN_CONTENT_CENTER = 2;
+inline constexpr std::uint32_t DG_ALIGN_CONTENT_STRETCH = 3;
+inline constexpr std::uint32_t DG_ALIGN_CONTENT_SPACE_BETWEEN = 4;
+inline constexpr std::uint32_t DG_ALIGN_CONTENT_SPACE_AROUND = 5;
+// align_self
+inline constexpr std::uint32_t DG_ALIGN_SELF_AUTO = 0;
+inline constexpr std::uint32_t DG_ALIGN_SELF_START = 1;
+inline constexpr std::uint32_t DG_ALIGN_SELF_END = 2;
+inline constexpr std::uint32_t DG_ALIGN_SELF_CENTER = 3;
+inline constexpr std::uint32_t DG_ALIGN_SELF_STRETCH = 4;
+inline constexpr std::uint32_t DG_ALIGN_SELF_BASELINE = 5;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
