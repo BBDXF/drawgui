@@ -29,6 +29,10 @@ created anywhere. `doc/cpu-raster-findings.md` records what that costs and
 where it stops being enough. There is no layout, no widget, no theming and no
 C ABI.
 
+Text now falls back across scripts: one named family draws any string, and a
+BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
+why that chain is built here rather than delegated to fontconfig.
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -52,10 +56,19 @@ will be measured before it is abstracted over.
 `libskia.a` references `SkTypeface_FreeType` unconditionally, so FreeType is
 required even though this phase draws no text.
 
-FreeType is the only external library. The prebuilt includes the Ganesh GL
-backend, but no OpenGL development package is needed: the build ships
-`GrGLMakeNativeInterface_none`, so every GL entry point is resolved at runtime
-through a proc loader the caller supplies, and nothing links against libGL.
+FreeType is the only external library, and it stays that way now that text
+falls back across scripts. `SkFontMgr_New_FontConfig` is present in the
+prebuilt archive - with 47 undefined `Fc*` symbols to go with it - and was
+deliberately not used: fontconfig's per-language answers come from
+`/etc/fonts` on the host, so glyph selection would have become a property of
+the machine rather than of the program. drawgui builds the chain itself
+instead. `doc/font-fallback.md` records the measurements, the cost, and what
+would force the other choice.
+
+The prebuilt includes the Ganesh GL backend, but no OpenGL development package
+is needed: the build ships `GrGLMakeNativeInterface_none`, so every GL entry
+point is resolved at runtime through a proc loader the caller supplies, and
+nothing links against libGL.
 
 ## Building
 
@@ -135,11 +148,35 @@ The headline result, in Release on an i5-1145G7: a full-window repaint at
 same scene under a 260x72 damage rectangle is 0.12 ms and does not grow with
 resolution. See `doc/cpu-raster-findings.md`.
 
+## The font fallback demo
+
+`examples/06_font_fallback` draws Latin, Greek, Cyrillic, Hebrew, Arabic, Han,
+Kana, Hangul, Georgian, Armenian, symbols and colour emoji - all from **one
+named family**, `DejaVu Sans`, with no family named per script. A last row
+carries a codepoint nothing on the machine has, so what a missing glyph looks
+like is visible rather than theoretical.
+
+Below it, the same four Han characters are drawn twice, differing only in their
+BCP 47 language tag, and select two different faces.
+
+```sh
+./build/examples/drawgui_font_fallback
+./build/examples/drawgui_font_fallback --verify-fallback         # headless check
+./build/examples/drawgui_font_fallback --dump-png fallback.png
+```
+
+The honest caveat, which the demo prints on itself: this machine has no
+Japanese font, so the `ja` panel draws Japanese text in a Chinese face. What is
+proven is the routing, not the typography. There is also no shaping, no BiDi
+and no line breaking - Arabic renders in isolated forms - because those need
+HarfBuzz and ICU, which `doc/font-fallback.md` explains are deliberately still
+out.
+
 ## Unit tests
 
-`ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`
-and the golden-image comparator. It can also be run directly for per-case
-output:
+`ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
+the golden-image comparator, damage, layout, hit testing, interaction, UTF-8
+decoding and font fallback. It can also be run directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
