@@ -36,6 +36,30 @@ const char* kind_name(LayoutKind kind) {
   return "?";
 }
 
+// Fields a node carries but its PARENT consumes.
+//
+// design.md section 5.8 decision 7 calls these parentData, and
+// props/drawgui.props.toml marks them `parent_data = true`: margin on the
+// ParentData base, grow on the flex scope, left/top/right/bottom on the stack
+// scope. Those are exactly the fields listed here; shrink, basis and
+// align_self are parentData too but BoxStyle has no member for them, so a
+// slice that adds one has to extend this predicate with it.
+//
+// They matter here because they break the assumption mark_needs_layout() rests
+// on. That function absorbs a node's OWN style change when the node's incoming
+// constraints are tight, reasoning that a style cannot override a constraint
+// the parent already fixed. True for everything the node consumes itself - and
+// false for these, because the tight constraint was DERIVED from the value
+// that just changed. A flexible, stretched child is tight on both axes, so
+// changing its weight from 1 to 0 was absorbed by the child and never reached
+// the row that hands weights out: the incremental pass left it at its old
+// size while a full pass resized it. Measured, not theorised.
+[[nodiscard]] bool differs_in_parent_data(const BoxStyle& before, const BoxStyle& after) {
+  return before.margin != after.margin || before.grow != after.grow ||
+         before.left != after.left || before.top != after.top || before.right != after.right ||
+         before.bottom != after.bottom;
+}
+
 }  // namespace
 
 LayoutTree::Impl::Impl(const TreeSpec& spec)
@@ -294,8 +318,19 @@ const BoxStyle& LayoutTree::box(NodeId id) const {
 }
 
 void LayoutTree::set_box(NodeId id, const BoxStyle& box) {
+  const bool parent_data_changed = differs_in_parent_data(impl_->nodes[id.value].box, box);
   impl_->nodes[id.value].box = box;
   impl_->mark_needs_layout(id.value, true);
+
+  // A parentData change has to reach the node that reads it. Marking only this
+  // node is correct for everything it consumes itself, and silently wrong for
+  // the six fields above: the arrangement that would notice runs one level up.
+  // Passing false says "something inside you changed", which is what happened
+  // from the parent's point of view and which stops at the parent's own
+  // relayout boundary rather than climbing to the root.
+  if (parent_data_changed && id != root()) {
+    impl_->mark_needs_layout(impl_->nodes[id.value].parent, false);
+  }
 }
 
 RenderTree& LayoutTree::render() {

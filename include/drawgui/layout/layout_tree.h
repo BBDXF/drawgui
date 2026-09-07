@@ -175,6 +175,7 @@ class LayoutTree {
   // recent layout and not the session.
   [[nodiscard]] const std::vector<std::string>& diagnostics() const;
 
+
  private:
   struct Impl;
 

@@ -474,4 +474,125 @@ TEST_CASE("a resize re-lays-out and the render tree agrees about the bounds") {
   CHECK(tree.render().absolute_bounds(filler) == tree.bounds(filler));
 }
 
+// parentData changes on a child whose constraints are tight.
+//
+// This shape was missing from every layout test and from
+// layout.incremental_equals_full, and it hid a real divergence between the
+// incremental and full passes for the whole of slices 2 and 3. It was found
+// while wiring the property table, because the table is what says out loud
+// that margin, grow and left/top/right/bottom are consumed by the PARENT.
+//
+// Why the gap existed: a flexible, stretched child is tight on both axes, so
+// mark_needs_layout() absorbed its own style change at the child - correct
+// reasoning for a style the child consumes, wrong for one whose tight
+// constraint was DERIVED from the value that just changed. The row that hands
+// out weights was never told. Nothing looked broken; the child simply kept its
+// old size until something else forced a full pass.
+//
+// The demo scene could not have caught it either: it never changes a weight,
+// a margin or an inset after the first layout. That is the same lesson the
+// dirty-root comparator taught - enumerate the shapes the ALGORITHM branches
+// on, rather than trusting a scene written for a different purpose.
+NodeId build_flex_row(LayoutTree& tree) {
+  BoxStyle root_box = stack_of(LayoutKind::kColumn);
+  root_box.cross_align = CrossAlign::kStretch;
+  tree.set_box(LayoutTree::root(), root_box);
+
+  BoxStyle row = stack_of(LayoutKind::kRow);
+  row.height = 90;
+  row.gap = 6;
+  row.cross_align = CrossAlign::kStretch;
+  const NodeId container = tree.add_child(LayoutTree::root(), row, NodeStyle{});
+  tree.add_child(container, sized(70, 0), NodeStyle{});
+  const NodeId flexible = tree.add_child(container, grown(1), NodeStyle{});
+  tree.add_child(container, sized(70, 0), NodeStyle{});
+  return flexible;
+}
+
+NodeId build_absolute_overlay(LayoutTree& tree) {
+  BoxStyle root_box = stack_of(LayoutKind::kColumn);
+  root_box.cross_align = CrossAlign::kStretch;
+  tree.set_box(LayoutTree::root(), root_box);
+
+  BoxStyle overlay = stack_of(LayoutKind::kAbsolute);
+  overlay.grow = 1;
+  const NodeId container = tree.add_child(LayoutTree::root(), overlay, NodeStyle{});
+  BoxStyle pinned;
+  pinned.left = 10;
+  pinned.top = 10;
+  pinned.right = 10;
+  pinned.bottom = 10;
+  return tree.add_child(container, pinned, NodeStyle{});
+}
+
+TEST_CASE("a weight change reaches the row that hands weights out") {
+  LayoutTree incremental{spec_of(317, 223)};
+  const NodeId flexible = build_flex_row(incremental);
+  incremental.layout();
+
+  // Tight on both axes: the flex child of a stretched row is exactly the node
+  // mark_needs_layout() used to absorb the change at.
+  REQUIRE(incremental.bounds(flexible).width == 165);
+
+  BoxStyle settled = incremental.box(flexible);
+  settled.grow = 0;
+  settled.width = 70;
+  incremental.set_box(flexible, settled);
+  incremental.layout();
+
+  CHECK(incremental.bounds(flexible).width == 70);
+
+  LayoutTree full{spec_of(317, 223)};
+  const NodeId same = build_flex_row(full);
+  BoxStyle full_settled = full.box(same);
+  full_settled.grow = 0;
+  full_settled.width = 70;
+  full.set_box(same, full_settled);
+  full.layout_full();
+
+  CHECK(all_bounds(incremental) == all_bounds(full));
+}
+
+TEST_CASE("a margin change reaches the container that applies it") {
+  LayoutTree incremental{spec_of(317, 223)};
+  const NodeId flexible = build_flex_row(incremental);
+  incremental.layout();
+
+  BoxStyle moved = incremental.box(flexible);
+  moved.margin = EdgeInsets{20, 0, 10, 0};
+  incremental.set_box(flexible, moved);
+  incremental.layout();
+
+  LayoutTree full{spec_of(317, 223)};
+  const NodeId same = build_flex_row(full);
+  BoxStyle full_moved = full.box(same);
+  full_moved.margin = EdgeInsets{20, 0, 10, 0};
+  full.set_box(same, full_moved);
+  full.layout_full();
+
+  CHECK(all_bounds(incremental) == all_bounds(full));
+}
+
+TEST_CASE("an inset change reaches the absolute container that positions with it") {
+  LayoutTree incremental{spec_of(317, 223)};
+  const NodeId pinned = build_absolute_overlay(incremental);
+  incremental.layout();
+
+  BoxStyle repinned = incremental.box(pinned);
+  repinned.left = 40;
+  repinned.top = 25;
+  incremental.set_box(pinned, repinned);
+  incremental.layout();
+
+  LayoutTree full{spec_of(317, 223)};
+  const NodeId same = build_absolute_overlay(full);
+  BoxStyle full_repinned = full.box(same);
+  full_repinned.left = 40;
+  full_repinned.top = 25;
+  full.set_box(same, full_repinned);
+  full.layout_full();
+
+  CHECK(all_bounds(incremental) == all_bounds(full));
+}
+
 }  // namespace
