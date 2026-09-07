@@ -273,6 +273,8 @@ jobs:
             tests/unit/test_damage_repaint.cpp
             tests/unit/test_clip.cpp
             tests/unit/test_clip_damage.cpp
+            tests/unit/test_opacity.cpp
+            tests/unit/test_opacity_damage.cpp
             tests/unit/test_layout.cpp
             tests/unit/test_layout_identity.cpp
             tests/unit/test_wrap.cpp
@@ -319,7 +321,11 @@ jobs:
             examples/07_clipping/main.cpp
             examples/07_clipping/clip_check.cpp
             examples/07_clipping/clip_scene.cpp
-            examples/07_clipping/clip_window.cpp"
+            examples/07_clipping/clip_window.cpp
+            examples/08_opacity/main.cpp
+            examples/08_opacity/opacity_check.cpp
+            examples/08_opacity/opacity_scene.cpp
+            examples/08_opacity/opacity_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
