@@ -134,7 +134,7 @@ endif()
 
 # --- SDL3 -------------------------------------------------------------------
 
-# Discovered rather than required. src/platform/sdl3/ and examples/multi_window
+# Discovered rather than required. src/platform/sdl3/ and examples/01_sdl3_multi_window
 # are its only consumers, and a host without libsdl3-dev should still be able
 # to build and test the CPU raster path and the golden images.
 #
@@ -154,11 +154,11 @@ endif()
 
 if(DRAWGUI_HAVE_SDL3)
   message(STATUS
-    "SDL3 ${DRAWGUI_SDL3_VERSION}: building the multi-window backend and examples/multi_window")
+    "SDL3 ${DRAWGUI_SDL3_VERSION}: building the multi-window backend and examples/01_sdl3_multi_window")
 else()
   message(STATUS
     "SDL3 not found (pkg-config sdl3): skipping the multi-window backend and "
-    "examples/multi_window")
+    "examples/01_sdl3_multi_window")
 endif()
 
 # --- The library ------------------------------------------------------------

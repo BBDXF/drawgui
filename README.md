@@ -83,7 +83,7 @@ Render a frame:
 
 ## The multi-window demo
 
-`examples/multi_window.cpp` opens three windows at once, each a different size
+`examples/01_sdl3_multi_window/main.cpp` opens three windows at once, each a different size
 and flat colour, and exits when the last one is closed. Closing any one of
 them leaves the others running.
 

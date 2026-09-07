@@ -39,7 +39,7 @@ jobs:
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
-      # this is a no-op and the multi-window backend plus examples/multi_window
+      # this is a no-op and the multi-window backend plus examples/01_sdl3_multi_window
       # are simply not built - CMake says so in its configure output. When the
       # image catches up they start building here with no further change. This
       # cannot fake a passing test: there is no CTest entry for the demo, only
@@ -104,7 +104,7 @@ jobs:
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
-      # this is a no-op and the multi-window backend plus examples/multi_window
+      # this is a no-op and the multi-window backend plus examples/01_sdl3_multi_window
       # are simply not built - CMake says so in its configure output. When the
       # image catches up they start building here with no further change. This
       # cannot fake a passing test: there is no CTest entry for the demo, only
@@ -204,7 +204,7 @@ jobs:
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
-      # this is a no-op and the multi-window backend plus examples/multi_window
+      # this is a no-op and the multi-window backend plus examples/01_sdl3_multi_window
       # are simply not built - CMake says so in its configure output. When the
       # image catches up they start building here with no further change. This
       # cannot fake a passing test: there is no CTest entry for the demo, only
@@ -239,7 +239,7 @@ jobs:
           files="
             src/graphics/canvas.cpp
             src/graphics/raster_surface.cpp
-            examples/render_png.cpp
+            examples/00_cpu_raster_png/main.cpp
             tests/golden/golden_image.cpp
             tests/golden/golden_test.cpp
             tests/unit/unit_test_main.cpp
@@ -248,7 +248,7 @@ jobs:
           if pkg-config --exists sdl3; then
             files="$files
             src/platform/sdl3/window_manager.cpp
-            examples/multi_window.cpp"
+            examples/01_sdl3_multi_window/main.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files

@@ -3,7 +3,7 @@
 //
 // This header was extracted from src/platform/sdl3/window_manager.cpp after
 // that implementation was running, and it declares only what
-// examples/multi_window.cpp actually calls. Nothing here is a seam for a
+// examples/01_sdl3_multi_window/main.cpp actually calls. Nothing here is a seam for a
 // second backend: the project's previous attempt wrote twelve abstract
 // platform headers before any backend existed, and an interface no
 // implementation has ever contradicted is a guess with a build rule. When a
