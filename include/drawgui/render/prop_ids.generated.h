@@ -180,7 +180,7 @@ inline constexpr dg_prop_id DG_PROP_SHRINK = 39;
 // type=float optional; parentData scope=flex consumed_by=flex
 inline constexpr dg_prop_id DG_PROP_BASIS = 40;
 // Per-child override of the container's cross-axis align.
-// type=enum; parentData scope=flex consumed_by=flex
+// type=enum; parentData scope=flex consumed_by=flex,wrap
 // values: auto | start | end | center | stretch | baseline
 inline constexpr dg_prop_id DG_PROP_ALIGN_SELF = 41;
 // Inset from the stack content box; setting it positions the child.

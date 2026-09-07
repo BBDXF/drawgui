@@ -595,4 +595,46 @@ TEST_CASE("an inset change reaches the absolute container that positions with it
   CHECK(all_bounds(incremental) == all_bounds(full));
 }
 
+// The fourth parentData field, and the one whose shape is easiest to get wrong.
+//
+// A defect injection - dropping align_self from differs_in_parent_data - was
+// NOT caught by the wrapping tests, and the reason is structural rather than
+// accidental: a wrapping container hands every child a LOOSE constraint, so a
+// child's own style change never satisfies mark_needs_layout()'s absorb rule
+// and climbs to the container regardless. The delivery is redundant there.
+//
+// It is not redundant here. A flexible, stretched child of a row is tight on
+// BOTH axes, which is exactly the state that absorbs a child's own style
+// change - so without the parentData rule the row that decides whether to
+// stretch this child is never told to reconsider, and the child keeps a height
+// a full pass would have taken away. That is the same shape doc/properties.md
+// section 3.7 records for `grow`, one field over.
+TEST_CASE("an align_self change reaches the row that would have stretched it") {
+  LayoutTree incremental{spec_of(317, 223)};
+  const NodeId flexible = build_flex_row(incremental);
+  incremental.layout();
+
+  // The premise: tight on both axes, so the child is a relayout boundary and
+  // its own style change stops there unless something says otherwise.
+  REQUIRE(incremental.bounds(flexible).height == 90);
+
+  BoxStyle opted_out = incremental.box(flexible);
+  opted_out.align_self = CrossAlign::kStart;
+  incremental.set_box(flexible, opted_out);
+  incremental.layout();
+
+  // No height of its own, so once it stops being stretched it shrinks to fit
+  // the nothing it contains.
+  CHECK(incremental.bounds(flexible).height == 0);
+
+  LayoutTree full{spec_of(317, 223)};
+  const NodeId same = build_flex_row(full);
+  BoxStyle full_opted_out = full.box(same);
+  full_opted_out.align_self = CrossAlign::kStart;
+  full.set_box(same, full_opted_out);
+  full.layout_full();
+
+  CHECK(all_bounds(incremental) == all_bounds(full));
+}
+
 }  // namespace

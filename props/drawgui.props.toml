@@ -493,7 +493,7 @@ group = "parent_data"
 field = "align_self"
 parent_data = true
 parent_data_scope = "flex"
-consumed_by = ["flex"]
+consumed_by = ["flex", "wrap"]
 summary = "Per-child override of the container's cross-axis align."
 
 [[property]]

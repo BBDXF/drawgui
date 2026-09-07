@@ -103,6 +103,42 @@ struct FlexRoom {
   bool stretching = false;
 };
 
+// One run of a wrapping container: a half-open slice of the child list, plus
+// the extents it occupies.
+//
+// It holds INDICES INTO THE CHILD LIST rather than node ids, because run
+// membership is decided by walking that list in order and a slice is the only
+// representation that cannot describe a run whose children are not adjacent.
+//
+// `main` and `cross` include each child's margins, because the run is a box
+// the placing pass positions things inside and margins are part of what a
+// child occupies there.
+struct Run {
+  std::size_t begin = 0;
+  std::size_t end = 0;
+  int main = 0;
+  int cross = 0;
+
+  [[nodiscard]] bool empty() const { return begin == end; }
+  [[nodiscard]] std::size_t count() const { return end - begin; }
+};
+
+// What one wrapping pass measured, handed from the sizing half to the placing
+// half so that neither re-derives the other's numbers. A second computation
+// of "which children are in which run" is a second computation that can
+// disagree, and the two halves run far enough apart for that to go unnoticed.
+struct WrapLayout {
+  std::vector<Run> runs;
+
+  // Per child, in child-list order: the main and cross extent it occupies,
+  // margins included.
+  std::vector<int> child_main;
+  std::vector<int> child_cross;
+
+  int content_main = 0;
+  int content_cross = 0;
+};
+
 // The width and height a node is allowed to end up at, after its own style
 // has been folded into what its parent permitted. The parent always wins:
 // a child asking for 200 inside a box that offers at most 60 gets 60, because
@@ -165,10 +201,30 @@ struct LayoutTree::Impl {
   // leftover space main_align distributes only exists once the container has
   // been told how big it ended up, which is after every child has a size.
   void place_flex_children(std::uint32_t index, PixelSize size, int used, const Axis& axis);
+
+  PixelSize measure_wrap(std::uint32_t index, const SizeLimits& limits,
+                         const BoxConstraints& inner, const Axis& axis);
+
+  // Lays out every child of a wrapping container exactly once, under LOOSE
+  // constraints on both axes, and breaks them into runs as it goes. Loose is
+  // what makes one pass enough: a child's size is then a function of the room
+  // the container offers rather than of the run it turns out to land in, so
+  // no child has to be re-constrained once a run closes.
+  WrapLayout size_wrap_children(std::uint32_t index, const FlexRoom& room, const Axis& axis);
+
+  void place_wrap_children(std::uint32_t index, PixelSize size, const WrapLayout& wrapped,
+                           const Axis& axis);
+
   PixelSize measure_leaf(std::uint32_t index, const SizeLimits& limits,
                          const BoxConstraints& inner);
   PixelSize measure_absolute(std::uint32_t index, const SizeLimits& limits,
                              const BoxConstraints& inner);
+
+  // The container's `align`, unless this child overrode it with `align_self`.
+  // One function, called by both the sizing pass and the placing pass, because
+  // the two must agree: a child stretched during sizing and positioned as if
+  // it were not would sit in the wrong place by exactly its own slack.
+  [[nodiscard]] CrossAlign cross_align_of(std::uint32_t container, std::uint32_t child) const;
 
   // Copies computed boxes into the render tree, but only for the nodes whose
   // box actually moved - which is what makes the damage a function of the

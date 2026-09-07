@@ -78,7 +78,7 @@ struct Target {
   bool is_root = false;
 };
 
-[[nodiscard]] bool arranges_children(LayoutKind kind) {
+[[nodiscard]] bool distributes_free_space(LayoutKind kind) {
   return kind == LayoutKind::kRow || kind == LayoutKind::kColumn;
 }
 
@@ -219,13 +219,31 @@ struct Target {
 // table says grow is consumed_by flex and left/top/right/bottom by stack; here
 // that is "the parent is a row or a column" and "the parent arranges
 // absolutely".
+//
+// `grow` stays flex-only even though a wrapping container arranges children
+// too, and that agrees with both halves of the record: the table lists
+// consumed_by = ["flex"], and design.md section 5.4.4 excludes grow from
+// RenderWrap outright. align_self is the one that widened - it reads
+// consumed_by = ["flex", "wrap"], because a run aligns on the cross axis
+// exactly as a single-line flex does.
+[[nodiscard]] std::optional<PropWrite> parent_must_flex(const Target& target,
+                                                        const std::string& what) {
+  if (target.is_root) {
+    return not_applicable(target, what, "a parent; this is the root");
+  }
+  if (!distributes_free_space(target.parent_kind)) {
+    return not_applicable(target, what, "a parent that is a row or a column");
+  }
+  return std::nullopt;
+}
+
 [[nodiscard]] std::optional<PropWrite> parent_must_arrange(const Target& target,
                                                            const std::string& what) {
   if (target.is_root) {
     return not_applicable(target, what, "a parent; this is the root");
   }
   if (!arranges_children(target.parent_kind)) {
-    return not_applicable(target, what, "a parent that is a row or a column");
+    return not_applicable(target, what, "a parent that arranges children in a line");
   }
   return std::nullopt;
 }
@@ -244,7 +262,15 @@ struct Target {
 [[nodiscard]] std::optional<PropWrite> self_must_arrange(const Target& target,
                                                          const std::string& what) {
   if (!arranges_children(target.kind)) {
-    return not_applicable(target, what, "this node to be a row or a column");
+    return not_applicable(target, what, "this node to be a row, a column or a wrap");
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<PropWrite> self_must_wrap(const Target& target,
+                                                      const std::string& what) {
+  if (!wraps_children(target.kind)) {
+    return not_applicable(target, what, "this node to be a wrapping container");
   }
   return std::nullopt;
 }
@@ -386,10 +412,11 @@ PropWrite apply_direction(Target& target, const PropValue& value) {
   }
   switch (value.ordinal()) {
     case DG_DIRECTION_ROW:
-      target.box.kind = LayoutKind::kRow;
+      target.box.kind = wraps_children(target.kind) ? LayoutKind::kWrapRow : LayoutKind::kRow;
       break;
     case DG_DIRECTION_COLUMN:
-      target.box.kind = LayoutKind::kColumn;
+      target.box.kind =
+          wraps_children(target.kind) ? LayoutKind::kWrapColumn : LayoutKind::kColumn;
       break;
     case DG_DIRECTION_ROW_REVERSE:
     case DG_DIRECTION_COLUMN_REVERSE:
@@ -480,14 +507,44 @@ PropWrite apply_main_size(Target& target, const PropValue& /*value*/) {
                      "filling the main axis instead is a second sizing rule");
 }
 
-PropWrite apply_run_gap(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "run_gap",
-                     "there is no wrapping arrangement, so there are no runs to space");
+PropWrite apply_run_gap(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = self_must_wrap(target, "run_gap");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  return box_scalar(target, value, &BoxStyle::run_gap, "run_gap", false);
 }
 
-PropWrite apply_align_content(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "align_content",
-                     "there is no wrapping arrangement, so there is no run stack to align");
+PropWrite apply_align_content(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = self_must_wrap(target, "align_content");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  switch (value.ordinal()) {
+    case DG_ALIGN_CONTENT_START:
+      target.box.align_content = AlignContent::kStart;
+      break;
+    case DG_ALIGN_CONTENT_END:
+      target.box.align_content = AlignContent::kEnd;
+      break;
+    case DG_ALIGN_CONTENT_CENTER:
+      target.box.align_content = AlignContent::kCenter;
+      break;
+    case DG_ALIGN_CONTENT_STRETCH:
+      target.box.align_content = AlignContent::kStretch;
+      break;
+    case DG_ALIGN_CONTENT_SPACE_BETWEEN:
+      target.box.align_content = AlignContent::kSpaceBetween;
+      break;
+    case DG_ALIGN_CONTENT_SPACE_AROUND:
+      target.box.align_content = AlignContent::kSpaceAround;
+      break;
+    default:
+      return out_of_range(
+          target, "align_content has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.box_changed = true;
+  return PropWrite{};
 }
 
 // An INTEGER weight, and a fractional one is rejected rather than rounded.
@@ -499,7 +556,7 @@ PropWrite apply_align_content(Target& target, const PropValue& /*value*/) {
 // bar. Rounding 0.5 to 0 here would silently delete a child's flexibility;
 // rounding it to 1 would silently double it against a sibling weighted 1.
 PropWrite apply_grow(Target& target, const PropValue& value) {
-  const std::optional<PropWrite> gate = parent_must_arrange(target, "grow");
+  const std::optional<PropWrite> gate = parent_must_flex(target, "grow");
   if (gate.has_value()) {
     return *gate;
   }
@@ -528,10 +585,48 @@ PropWrite apply_basis(Target& target, const PropValue& /*value*/) {
                      "no separate base size to start from");
 }
 
-PropWrite apply_align_self(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "align_self",
-                     "place_flex_children reads the container's cross_align for every "
-                     "child; there is no per-child override to read");
+// `auto` is absence rather than a fifth alignment, which is why BoxStyle holds
+// an optional. Writing `auto` CLEARS the override rather than recording one,
+// so a node can be handed back to its container after being taken off it.
+//
+// `stretch` is accepted here and may still not be honoured: under a WRAPPING
+// container it degrades to start, and the arrangement says so at layout time
+// with the node path attached. That is not this gate's call to make, because
+// the answer depends on the container, and a child's align_self outlives any
+// particular parent kind - a node whose container later becomes a flex must
+// not have had its stretch silently discarded at set time.
+PropWrite apply_align_self(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = parent_must_arrange(target, "align_self");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  switch (value.ordinal()) {
+    case DG_ALIGN_SELF_AUTO:
+      target.box.align_self.reset();
+      break;
+    case DG_ALIGN_SELF_START:
+      target.box.align_self = CrossAlign::kStart;
+      break;
+    case DG_ALIGN_SELF_END:
+      target.box.align_self = CrossAlign::kEnd;
+      break;
+    case DG_ALIGN_SELF_CENTER:
+      target.box.align_self = CrossAlign::kCenter;
+      break;
+    case DG_ALIGN_SELF_STRETCH:
+      target.box.align_self = CrossAlign::kStretch;
+      break;
+    case DG_ALIGN_SELF_BASELINE:
+      return unsupported(target, "align_self=baseline",
+                         "aligning on a baseline needs a child's baseline before it is "
+                         "placed, which is intrinsic sizing - deliberately absent, see "
+                         "layout_tree.h");
+    default:
+      return out_of_range(
+          target, "align_self has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.box_changed = true;
+  return PropWrite{};
 }
 
 PropWrite apply_left(Target& target, const PropValue& value) {

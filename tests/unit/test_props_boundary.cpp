@@ -54,13 +54,17 @@ dg::TreeSpec spec_of() {
 }
 
 // A tree whose shapes cover every gate: a row (so container properties
-// apply), a leaf child of that row (so `grow` has a consumer), an absolute
-// container, a child of it (so left/top have a consumer), and a leaf with a
-// leaf parent (so both gates can be seen to REFUSE).
+// apply), a leaf child of that row (so `grow` has a consumer), a wrapping
+// container and a child of it (so run_gap / align_content have a consumer and
+// `grow` can be seen to have none), an absolute container, a child of it (so
+// left/top have a consumer), and a leaf with a leaf parent (so both gates can
+// be seen to REFUSE).
 struct Fixture {
   LayoutTree tree{spec_of()};
   NodeId row;
   NodeId row_child;
+  NodeId wrap;
+  NodeId wrap_child;
   NodeId absolute;
   NodeId absolute_child;
   NodeId leaf;
@@ -71,6 +75,11 @@ struct Fixture {
     row_box.kind = LayoutKind::kRow;
     row = tree.add_child(LayoutTree::root(), row_box, NodeStyle{});
     row_child = tree.add_child(row, BoxStyle{}, NodeStyle{});
+
+    BoxStyle wrap_box;
+    wrap_box.kind = LayoutKind::kWrapRow;
+    wrap = tree.add_child(LayoutTree::root(), wrap_box, NodeStyle{});
+    wrap_child = tree.add_child(wrap, BoxStyle{}, NodeStyle{});
 
     BoxStyle absolute_box;
     absolute_box.kind = LayoutKind::kAbsolute;
@@ -324,6 +333,44 @@ TEST_CASE("a container property on a node that arranges nothing is refused") {
                   PropStatus::kNotApplicable);
 }
 
+// run_gap and align_content are the two the table gives to `wrap` ALONE, so a
+// plain row is the shape that must refuse them. Before this slice both were
+// kUnsupported everywhere, which is a different sentence: the engine now has
+// runs, and a row simply does not have any.
+TEST_CASE("a wrap-only container property on a flex row is refused") {
+  Fixture fixture;
+  for (const NodeId node : {fixture.row, fixture.leaf, fixture.absolute}) {
+    expect_rejected(fixture.tree, node, DG_PROP_RUN_GAP, PropValue::number(4),
+                    PropStatus::kNotApplicable);
+    expect_rejected(fixture.tree, node, DG_PROP_ALIGN_CONTENT,
+                    PropValue::option(DG_ALIGN_CONTENT_CENTER), PropStatus::kNotApplicable);
+  }
+  CHECK(dg::set_prop(fixture.tree, fixture.wrap, DG_PROP_RUN_GAP, PropValue::number(4)).ok());
+  CHECK(dg::set_prop(fixture.tree, fixture.wrap, DG_PROP_ALIGN_CONTENT,
+                     PropValue::option(DG_ALIGN_CONTENT_CENTER))
+            .ok());
+}
+
+// The two parentData properties whose consumers differ, which is the whole
+// reason they need separate gates: a wrapping container aligns a child on the
+// cross axis exactly as a flex does, and distributes no free space at all.
+TEST_CASE("a wrapping parent consumes align_self and refuses grow") {
+  Fixture fixture;
+  CHECK(dg::set_prop(fixture.tree, fixture.wrap_child, DG_PROP_ALIGN_SELF,
+                     PropValue::option(DG_ALIGN_SELF_CENTER))
+            .ok());
+  expect_rejected(fixture.tree, fixture.wrap_child, DG_PROP_GROW, PropValue::number(1),
+                  PropStatus::kNotApplicable);
+
+  CHECK(dg::set_prop(fixture.tree, fixture.row_child, DG_PROP_ALIGN_SELF,
+                     PropValue::option(DG_ALIGN_SELF_CENTER))
+            .ok());
+  expect_rejected(fixture.tree, fixture.leaf_child, DG_PROP_ALIGN_SELF,
+                  PropValue::option(DG_ALIGN_SELF_CENTER), PropStatus::kNotApplicable);
+  expect_rejected(fixture.tree, fixture.absolute_child, DG_PROP_ALIGN_SELF,
+                  PropValue::option(DG_ALIGN_SELF_CENTER), PropStatus::kNotApplicable);
+}
+
 TEST_CASE("a parentData property whose parent does not consume it is refused") {
   Fixture fixture;
 
@@ -376,11 +423,9 @@ TEST_CASE("a property the engine does not implement says so") {
   refuse(fixture.leaf, DG_PROP_OPACITY, PropValue::number(0.5F));
   refuse(fixture.leaf, DG_PROP_OVERFLOW, PropValue::option(DG_OVERFLOW_CLIP));
   refuse(fixture.row, DG_PROP_MAIN_SIZE, PropValue::option(DG_MAIN_SIZE_MAX));
-  refuse(fixture.row, DG_PROP_RUN_GAP, PropValue::number(4));
-  refuse(fixture.row, DG_PROP_ALIGN_CONTENT, PropValue::option(DG_ALIGN_CONTENT_CENTER));
   refuse(fixture.row_child, DG_PROP_SHRINK, PropValue::number(1));
   refuse(fixture.row_child, DG_PROP_BASIS, PropValue::number(40));
-  refuse(fixture.row_child, DG_PROP_ALIGN_SELF, PropValue::option(DG_ALIGN_SELF_CENTER));
+  refuse(fixture.row_child, DG_PROP_ALIGN_SELF, PropValue::option(DG_ALIGN_SELF_BASELINE));
 
   // The three complex types cannot travel in the scalar union at all
   // (design.md section 5.9.5), and none of the three has a dedicated setter

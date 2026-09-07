@@ -159,11 +159,17 @@ struct BoxConstraints {
 
 // How a node arranges its children.
 //
-// Four values, not an open set and not a virtual method. design.md section
+// Six values, not an open set and not a virtual method. design.md section
 // 5.4.11 estimates the whole self-written layout subset at under a thousand
 // lines and this slice implements the part of it that a widget layer cannot
-// be built without; a fifth arrangement is a fifth enumerator and a fifth
-// case in one switch, which the compiler will demand.
+// be built without; a further arrangement is a further enumerator and a
+// further case in one switch, which the compiler will demand.
+//
+// Direction is folded into the enumerator rather than carried beside it, so
+// `direction` turns a row into a column and a wrapping row into a wrapping
+// column, while nothing turns a leaf into a container. doc/properties.md
+// section 3.1 records that deviation from the table, which models box / flex /
+// wrap / stack as node KINDS and gives `direction` to flex and wrap.
 enum class LayoutKind : std::uint8_t {
   // Sizes itself from its own style and its constraints, and positions no
   // children. A leaf may still HAVE children - they are laid out at the
@@ -175,10 +181,26 @@ enum class LayoutKind : std::uint8_t {
   kRow,
   kColumn,
 
+  // The same two axes, but a child that does not fit starts a new run.
+  // design.md section 5.4.3 keeps wrapping out of Flex on purpose - "mixing it
+  // into Flex would make the single-run path, which is 99% of use, carry the
+  // multi-run branches" - so these are separate kinds rather than a flag, and
+  // `grow` is deliberately not honoured under them (section 5.4.4).
+  kWrapRow,
+  kWrapColumn,
+
   // Children placed by their own left/top/right/bottom/width, relative to
   // this node's content box. design.md section 5.4.2's table.
   kAbsolute,
 };
+
+[[nodiscard]] constexpr bool wraps_children(LayoutKind kind) {
+  return kind == LayoutKind::kWrapRow || kind == LayoutKind::kWrapColumn;
+}
+
+[[nodiscard]] constexpr bool arranges_children(LayoutKind kind) {
+  return kind == LayoutKind::kRow || kind == LayoutKind::kColumn || wraps_children(kind);
+}
 
 // Where the leftover main-axis space goes in a row or a column.
 enum class MainAlign : std::uint8_t {
@@ -198,7 +220,35 @@ enum class CrossAlign : std::uint8_t {
   // the alignment that produces relayout boundaries, because a stretched
   // child with a flex weight is constrained tightly on BOTH axes and its size
   // therefore cannot depend on anything inside it.
+  //
+  // A WRAPPING container cannot honour it, and that is a structural limit
+  // rather than an omission: the extent a child would be stretched to is its
+  // RUN's, and a run is not closed until every child in it has reported a
+  // size. Stretching would mean laying those children out a second time,
+  // which is invariant L3 in design.md section 5.4.1. The wrapping
+  // arrangement reports that at layout time and places the child as kStart.
   kStretch,
+};
+
+// Where a wrapping container puts its stack of runs on the cross axis.
+//
+// The direct counterpart of MainAlign one axis over, plus a stretch that
+// grows the runs themselves. Meaningless with a single run, which is why
+// design.md section 5.4.3 gives it to RenderWrap alone.
+enum class AlignContent : std::uint8_t {
+  kStart,
+  kCenter,
+  kEnd,
+
+  // The leftover cross space is handed to the runs rather than placed around
+  // them, so each run's extent grows. This one IS expressible in a single
+  // pass, unlike CrossAlign::kStretch: a run's extent is decided after every
+  // child in it has been laid out, and growing it moves children within the
+  // run without re-constraining any of them.
+  kStretch,
+
+  kSpaceBetween,
+  kSpaceAround,
 };
 
 // Everything about a node that layout reads.
@@ -247,8 +297,30 @@ struct BoxStyle {
   // between two children is gap + left margin + right margin.
   int gap = 0;
 
+  // Space between adjacent RUNS of a wrapping container, on the cross axis.
+  // Read only by kWrapRow and kWrapColumn; a container with one run has no
+  // pair of runs to separate.
+  int run_gap = 0;
+
   MainAlign main_align = MainAlign::kStart;
   CrossAlign cross_align = CrossAlign::kStart;
+
+  // Read only by kWrapRow and kWrapColumn, for the same reason `align` is not
+  // enough there: `align` positions a child inside its own run, and this
+  // positions the stack of runs inside the container.
+  AlignContent align_content = AlignContent::kStart;
+
+  // This child's own cross-axis alignment, overriding the container's.
+  //
+  // parentData, consumed by whichever container holds this node, so
+  // LayoutTree::set_box has to mark the PARENT when it changes - the same
+  // trap margin and grow already fell into (doc/properties.md section 3.7).
+  //
+  // Absent is the table's `auto`: defer to the container. A separate
+  // enumerator would have made `auto` a value CrossAlign has to carry into
+  // every switch that positions anything, when the whole meaning of `auto` is
+  // that this node has no opinion.
+  std::optional<CrossAlign> align_self;
 
   // Consumed by a kAbsolute PARENT, ignored everywhere else. Setting any of
   // the four is what makes a child positioned; design.md section 5.4.2.

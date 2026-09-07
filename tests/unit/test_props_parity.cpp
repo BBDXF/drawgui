@@ -518,3 +518,190 @@ TEST_CASE("the direction ordinals select the axis the table names") {
           .ok());
   CHECK(bar.ys() == std::vector<int>{0, 20, 40});
 }
+
+// --------------------------------------------------------------------------
+// The wrapping ordinals, pinned through the property path specifically.
+// --------------------------------------------------------------------------
+
+// A property-built wrapping row: 200x100, gap 10, run_gap 6, six 50x20 cells.
+//
+// The arithmetic is worked out in tests/unit/test_wrap.cpp against the struct
+// API; repeating the NUMBERS here rather than deriving them again is the
+// point. An ordinal is an ABI contract - the order of a `values` list in the
+// TOML - so the mapping from ordinal to arrangement is exactly what must be
+// pinned to geometry rather than to another code path. Slice 4-2 lost a
+// start/end swap in `justify` because no scene used those ordinals.
+struct WrapGrid {
+  LayoutTree tree{spec_of()};
+  NodeId wrap;
+  std::vector<NodeId> cells;
+  bool built = true;
+
+  WrapGrid() {
+    BoxStyle root = tree.box(LayoutTree::root());
+    root.kind = LayoutKind::kColumn;
+    tree.set_box(LayoutTree::root(), root);
+
+    BoxStyle wrap_box;
+    wrap_box.kind = LayoutKind::kWrapRow;
+    wrap = tree.add_child(LayoutTree::root(), wrap_box, NodeStyle{});
+    set(wrap, DG_PROP_WIDTH, PropValue::length(200));
+    set(wrap, DG_PROP_HEIGHT, PropValue::length(100));
+    set(wrap, DG_PROP_GAP, PropValue::number(10));
+    set(wrap, DG_PROP_RUN_GAP, PropValue::number(6));
+
+    for (int i = 0; i < 6; ++i) {
+      const NodeId leaf = tree.add_child(wrap, BoxStyle{}, NodeStyle{});
+      set(leaf, DG_PROP_WIDTH, PropValue::length(50));
+      set(leaf, DG_PROP_HEIGHT, PropValue::length(20));
+      cells.push_back(leaf);
+    }
+    tree.layout();
+  }
+
+  void set(NodeId node, dg_prop_id prop, const PropValue& value) {
+    const dg::PropWrite write = dg::set_prop(tree, node, prop, value);
+    INFO("prop id ", prop, " -> ", write.message);
+    CHECK(write.ok());
+    built = built && write.ok();
+  }
+
+  std::vector<int> ys(std::uint32_t ordinal) {
+    set(wrap, DG_PROP_ALIGN_CONTENT, PropValue::option(ordinal));
+    tree.layout();
+    std::vector<int> out;
+    out.reserve(cells.size());
+    for (const NodeId leaf : cells) {
+      out.push_back(tree.bounds(leaf).y);
+    }
+    return out;
+  }
+};
+
+TEST_CASE("run_gap and the wrap kind reach layout through the property path") {
+  WrapGrid grid;
+  CHECK(grid.built);
+
+  // Three per run, second run 20 + 6 below the first.
+  CHECK(grid.tree.bounds(grid.cells[2]) == PixelRect{120, 0, 50, 20});
+  CHECK(grid.tree.bounds(grid.cells[3]) == PixelRect{0, 26, 50, 20});
+
+  // `direction` keeps a wrapping container wrapping rather than turning it
+  // into a plain flex, which is what folding direction into the kind risks.
+  grid.set(grid.wrap, DG_PROP_DIRECTION, PropValue::option(DG_DIRECTION_ROW));
+  grid.tree.layout();
+  CHECK(grid.tree.bounds(grid.cells[3]) == PixelRect{0, 26, 50, 20});
+}
+
+TEST_CASE("align_content ordinals place the run stack where the table says") {
+  WrapGrid grid;
+  CHECK(grid.ys(DG_ALIGN_CONTENT_START) == std::vector<int>{0, 0, 0, 26, 26, 26});
+  CHECK(grid.ys(DG_ALIGN_CONTENT_END) == std::vector<int>{54, 54, 54, 80, 80, 80});
+  CHECK(grid.ys(DG_ALIGN_CONTENT_CENTER) == std::vector<int>{27, 27, 27, 53, 53, 53});
+}
+
+TEST_CASE("align_content stretch, space-between and space-around are all distinct") {
+  WrapGrid grid;
+  CHECK(grid.ys(DG_ALIGN_CONTENT_STRETCH) == std::vector<int>{0, 0, 0, 53, 53, 53});
+  CHECK(grid.ys(DG_ALIGN_CONTENT_SPACE_BETWEEN) == std::vector<int>{0, 0, 0, 80, 80, 80});
+  CHECK(grid.ys(DG_ALIGN_CONTENT_SPACE_AROUND) == std::vector<int>{13, 13, 13, 66, 66, 66});
+}
+
+// A 50px-tall row of 20px cells: 30 of cross slack, container centred, so an
+// override is visible in both directions and `auto` is visibly not `start`.
+struct SelfBar {
+  Bar bar;
+
+  SelfBar() {
+    REQUIRE(dg::set_prop(bar.tree, bar.row, DG_PROP_ALIGN, PropValue::option(DG_ALIGN_CENTER))
+                .ok());
+  }
+
+  bool self(std::uint32_t ordinal) {
+    return dg::set_prop(bar.tree, bar.first, DG_PROP_ALIGN_SELF, PropValue::option(ordinal))
+        .ok();
+  }
+
+  PixelRect first() {
+    bar.tree.layout();
+    return bar.tree.bounds(bar.first);
+  }
+};
+
+TEST_CASE("align_self ordinals override the container's align for one child") {
+  SelfBar scene;
+  REQUIRE(scene.self(DG_ALIGN_SELF_START));
+  CHECK(scene.bar.ys() == std::vector<int>{0, 15, 15});
+
+  REQUIRE(scene.self(DG_ALIGN_SELF_END));
+  CHECK(scene.bar.ys() == std::vector<int>{30, 15, 15});
+
+  REQUIRE(scene.self(DG_ALIGN_SELF_CENTER));
+  CHECK(scene.bar.ys() == std::vector<int>{15, 15, 15});
+}
+
+// stretch changes the child's SIZE rather than only its origin, and auto is
+// absence rather than a fifth alignment - so both are checked on the whole box.
+TEST_CASE("align_self stretch resizes the child and auto hands it back") {
+  SelfBar scene;
+  REQUIRE(scene.self(DG_ALIGN_SELF_STRETCH));
+  CHECK(scene.first() == PixelRect{0, 0, 40, 50});
+
+  REQUIRE(scene.self(DG_ALIGN_SELF_AUTO));
+  CHECK(scene.first() == PixelRect{0, 15, 40, 20});
+}
+
+// The struct half of the wrapping parity scene. Extracted rather than written
+// inline so that the case below stays inside clang-tidy's cognitive-complexity
+// budget - doctest's assertion macros are branch-heavy and a scene builder
+// beside them pushes one function well past it.
+LayoutTree build_wrap_direct() {
+  LayoutTree direct{spec_of()};
+  BoxStyle root = direct.box(LayoutTree::root());
+  root.kind = LayoutKind::kColumn;
+  direct.set_box(LayoutTree::root(), root);
+
+  BoxStyle wrap_box;
+  wrap_box.kind = LayoutKind::kWrapRow;
+  wrap_box.width = 200;
+  wrap_box.height = 100;
+  wrap_box.gap = 10;
+  wrap_box.run_gap = 6;
+  wrap_box.align_content = dg::AlignContent::kSpaceAround;
+  const NodeId wrap = direct.add_child(LayoutTree::root(), wrap_box, NodeStyle{});
+
+  for (int i = 0; i < 6; ++i) {
+    BoxStyle leaf;
+    leaf.width = 50;
+    leaf.height = 20;
+    if (i == 1) {
+      leaf.align_self = CrossAlign::kEnd;
+    }
+    if (i == 4) {
+      leaf.margin.left = 9;
+    }
+    direct.add_child(wrap, leaf, NodeStyle{});
+  }
+  direct.layout();
+  return direct;
+}
+
+// The struct path and the property path, on one wrapping scene, required to
+// agree on every rectangle. The two are different code: one assigns members,
+// the other goes through the generated dispatch, the type check, the range
+// checks and the applies_to gates.
+TEST_CASE("a wrapping scene built by property agrees with one built by struct") {
+  WrapGrid via_props;
+  REQUIRE(via_props.built);
+  via_props.set(via_props.wrap, DG_PROP_ALIGN_CONTENT,
+                PropValue::option(DG_ALIGN_CONTENT_SPACE_AROUND));
+  via_props.set(via_props.cells[1], DG_PROP_ALIGN_SELF, PropValue::option(DG_ALIGN_SELF_END));
+  via_props.set(via_props.cells[4], DG_PROP_MARGIN_L, PropValue::number(9));
+  via_props.tree.layout();
+
+  const LayoutTree direct = build_wrap_direct();
+
+  REQUIRE(direct.node_count() == via_props.tree.node_count());
+  CHECK(all_bounds(direct) == all_bounds(via_props.tree));
+  CHECK(direct.diagnostics() == via_props.tree.diagnostics());
+}
