@@ -27,16 +27,22 @@ add_executable(drawgui_unit_test
   unit/test_pixel_geometry.cpp
   unit/test_damage.cpp
   unit/test_damage_repaint.cpp
+  unit/test_hit_test.cpp
+  unit/test_interaction.cpp
+  unit/test_text_damage.cpp
+  unit/test_widget_pipeline.cpp
   unit/test_layout.cpp
   unit/test_layout_identity.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
-  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp)
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets/widget_scene.cpp)
 
 target_include_directories(drawgui_unit_test PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/golden
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint
-  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout)
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets)
 
 # Skia is linked directly, mirroring drawgui_golden_test, because the golden
 # comparator decodes and encodes PNG. drawgui itself keeps Skia PRIVATE.
@@ -79,6 +85,32 @@ target_link_libraries(drawgui_layout_identity PRIVATE
 
 add_test(NAME layout.incremental_equals_full
   COMMAND drawgui_layout_identity)
+
+# --- Widget interaction ------------------------------------------------------
+
+# The two acceptance gates for sub-step 3: interaction-driven repaint against a
+# full repaint byte for byte, and hit testing against a brute-force paint-order
+# oracle at every pixel of the demo scene.
+#
+# Built unconditionally, for the reason the layout gate is. It shares
+# widget_scene.cpp - the scene AND the pointer routing - with the demo a human
+# clicks, so the thing verified here is the thing on screen; but it opens no
+# window, so CI can run it.
+add_executable(drawgui_widget_identity
+  widget/widget_identity_main.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets/widget_check.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets/widget_scene.cpp)
+
+target_include_directories(drawgui_widget_identity PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets)
+
+target_link_libraries(drawgui_widget_identity PRIVATE
+  drawgui::drawgui
+  drawgui_warnings
+  drawgui_sanitizers)
+
+add_test(NAME widgets.interaction_equals_full
+  COMMAND drawgui_widget_identity)
 
 # --- Golden-image tests -----------------------------------------------------
 
@@ -139,7 +171,8 @@ set_tests_properties(golden.scenes PROPERTIES DEPENDS unit)
 # its other process-lifetime state stay reachable at exit, so LSan is content.
 # Leak detection is left fully on until something real forces the question.
 if(DG_SANITIZE)
-  set_tests_properties(unit golden.scenes layout.incremental_equals_full PROPERTIES
+  set_tests_properties(unit golden.scenes layout.incremental_equals_full
+    widgets.interaction_equals_full PROPERTIES
     ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1")
 endif()
 
