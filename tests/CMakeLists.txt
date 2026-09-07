@@ -64,6 +64,9 @@ add_executable(drawgui_unit_test
   unit/test_widget_pipeline.cpp
   unit/test_layout.cpp
   unit/test_layout_identity.cpp
+  unit/test_props_parity.cpp
+  unit/test_props_boundary.cpp
+  unit/test_props_damage.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
