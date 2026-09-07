@@ -132,11 +132,50 @@ if(DG_SANITIZE)
   message(STATUS "Sanitizers: ASan + UBSan (non-recovering) on first-party code")
 endif()
 
+# --- SDL3 -------------------------------------------------------------------
+
+# Discovered rather than required. src/platform/sdl3/ and examples/multi_window
+# are its only consumers, and a host without libsdl3-dev should still be able
+# to build and test the CPU raster path and the golden images.
+#
+# This is not the "a check that passes by having nothing to check" trap: a
+# target either builds or does not, and there is no test entry whose verdict
+# could be faked by its absence. The status line below says which way it went,
+# on every configure, so a missing SDL3 is visible rather than inferred.
+find_package(PkgConfig QUIET)
+
+set(DRAWGUI_HAVE_SDL3 OFF)
+if(PkgConfig_FOUND)
+  pkg_check_modules(DRAWGUI_SDL3 QUIET IMPORTED_TARGET sdl3)
+  if(DRAWGUI_SDL3_FOUND)
+    set(DRAWGUI_HAVE_SDL3 ON)
+  endif()
+endif()
+
+if(DRAWGUI_HAVE_SDL3)
+  message(STATUS
+    "SDL3 ${DRAWGUI_SDL3_VERSION}: building the multi-window backend and examples/multi_window")
+else()
+  message(STATUS
+    "SDL3 not found (pkg-config sdl3): skipping the multi-window backend and "
+    "examples/multi_window")
+endif()
+
 # --- The library ------------------------------------------------------------
 
 add_library(drawgui STATIC
   src/graphics/canvas.cpp
   src/graphics/raster_surface.cpp)
+
+if(DRAWGUI_HAVE_SDL3)
+  target_sources(drawgui PRIVATE src/platform/sdl3/window_manager.cpp)
+
+  # PRIVATE for the same reason Skia is: include/drawgui/window/window_manager.h
+  # names no SDL type, and linking SDL3 PUBLIC would let every consumer include
+  # SDL headers, which is exactly what that header exists to prevent. A static
+  # library still forwards the link requirement itself, so the demo links.
+  target_link_libraries(drawgui PRIVATE PkgConfig::DRAWGUI_SDL3)
+endif()
 
 add_library(drawgui::drawgui ALIAS drawgui)
 

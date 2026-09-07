@@ -19,16 +19,27 @@ accessibility, complex text editing, and depth of native integration.
 
 ## Current status
 
-P0 (foundation) is in place: CMake build, verified prebuilt Skia, a CPU
-raster path that produces a PNG, and a golden-image test pipeline. No
-windowing, layout, widgets, theming, C ABI or JS yet - those are P1 onward.
+The foundation is in place: CMake build, verified prebuilt Skia, a CPU raster
+path that produces a PNG, a golden-image test pipeline, and a concrete SDL3
+multi-window manager with a demo that puts several windows on screen at once.
+
+Skia and the window manager do not meet yet - how a surface attaches to a
+window, and whether it does so on CPU or GPU, is the next question and is
+deliberately still open. There is no layout, no widget, no theming and no C
+ABI.
+
+There is also no platform abstraction, on purpose. An earlier attempt wrote
+twelve abstract platform headers before any backend existed; they were removed
+because nothing had ever tested whether they described the machine. The rule
+now is that an interface is extracted from at least one working
+implementation, never written ahead of one.
 
 ## Platform scope
 
-The current phase targets Linux and Windows desktop. macOS, Android and iOS
-are deferred, with the platform abstraction shaped so they remain addable.
-Only Linux is wired into the build so far; Windows needs its prebuilt Skia
-asset hash registered in `cmake/FetchSkia.cmake`.
+The eventual target is Linux and Windows desktop, with macOS, Android and iOS
+deferred. Only Linux is wired into the build, and the window manager is SDL3
+on Linux with no conditional compilation for anything else - a second platform
+will be measured before it is abstracted over.
 
 ## Build prerequisites
 
@@ -69,6 +80,34 @@ Render a frame:
 ```sh
 ./build/examples/drawgui_render_png out.png
 ```
+
+## The multi-window demo
+
+`examples/multi_window.cpp` opens three windows at once, each a different size
+and flat colour, and exits when the last one is closed. Closing any one of
+them leaves the others running.
+
+```sh
+./build/examples/drawgui_multi_window
+```
+
+It needs a display, so there is no CTest entry for it - a GUI test would fail
+on every headless machine, and the only way to keep it green would be to stop
+asserting anything. The target is still built wherever SDL3 is present, so it
+cannot rot uncompiled.
+
+For a run that needs no human, `--auto-close-ms N` asks for one window to
+close every N milliseconds. It goes through the same close-request path the
+window manager's close button does, so the scripted sequence exercises the
+real code rather than a shortcut around it:
+
+```sh
+./build/examples/drawgui_multi_window --auto-close-ms 700
+```
+
+SDL3 is found through `pkg-config sdl3`. Without it the window manager and
+this demo are skipped and everything else still builds; the configure output
+says which way it went.
 
 ## Unit tests
 
