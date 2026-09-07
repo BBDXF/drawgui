@@ -251,17 +251,18 @@ written for a different purpose.
 
 ## 4. The gap report
 
-45 properties: **28 implemented**, **9 partially implemented**, **8 not yet**.
+45 properties: **29 implemented**, **9 partially implemented**, **7 not yet**.
 
 A partially implemented property applies correctly for the values listed as
 supported and returns `kUnsupported` - naming the node - for the rest. Nothing
 in either column is silently ignored.
 
-The counts moved twice after this report was first written: the wrapping slice
-built the pieces section 4.4 called 1 and 5 (`doc/wrapping.md`), and the
-clipping slice built piece 2 (`doc/clipping.md`).
+The counts have moved three times since this report was first written: the
+wrapping slice built the pieces section 4.4 called 1 and 5
+(`doc/wrapping.md`), the clipping slice built piece 2 (`doc/clipping.md`), and
+the compositing slice built piece 3 (`doc/compositing.md`).
 
-### 4.1 Implemented (28)
+### 4.1 Implemented (29)
 
 | id | property | notes |
 | --- | --- | --- |
@@ -285,6 +286,7 @@ clipping slice built piece 2 (`doc/clipping.md`).
 | 24 | `border_radius_tr` | |
 | 25 | `border_radius_br` | |
 | 26 | `border_radius_bl` | |
+| 27 | `opacity` | GROUP opacity through a `saveLayer`, not per-object alpha; the whole of 0..1, with anything outside it refused rather than clamped. Hit testing deliberately ignores it, including at 0 - `doc/compositing.md` section 4 |
 | 29 | `overflow` | both values; paint, hit testing and damage all read the one field. Clips at the BORDER box, which is a deliberate deviation from CSS - `doc/clipping.md` section 2 |
 | 34 | `gap` | flex and wrap containers; stacks with margins, does not collapse |
 | 36 | `run_gap` | wrapping containers only; `kNotApplicable` on a flex row |
@@ -313,15 +315,14 @@ behaviour, so that test is load-bearing rather than tidy.
 | 38 | `grow` | whole non-negative weights, under a flex parent | fractional weights would need the free-space split to stop being exact integer division. Under a WRAP parent it is refused entirely - `kNotApplicable` at the boundary, a layout diagnostic through the struct API - matching design.md section 5.4.4 |
 | 41 | `align_self` | `auto`, `start`, `end`, `center`, `stretch` | `baseline`, for the same reason `align=baseline` is unavailable. `stretch` under a wrapping parent degrades exactly as `align=stretch` does |
 
-### 4.3 Not yet implemented (8)
+### 4.3 Not yet implemented (7)
 
 | id | property | what it needs |
 | --- | --- | --- |
 | 7 | `aspect_ratio` | a sizing rule that derives one axis from the other AFTER the constraint resolves. No arrangement in `box_layout.cpp` has a second sizing stage |
 | 17 | `background_gradient` | an `SkShader` in the painter, plus the dedicated `dg_node_set_gradient`-shaped setter design.md section 5.9.5 specifies - it cannot travel in the scalar union |
-| 27 | `opacity` | a compositing layer. An alpha below 1 must composite the whole subtree through a `saveLayer`; no node has a layer, and `clips_atomically` would need to account for one |
-| 28 | `shadow` | painting OUTSIDE the node's bounds, which damage tracking has no concept of - every rectangle a node declares is currently the rectangle it paints. Also a dedicated setter |
-| 30 | `transform` | non-axis-aligned geometry. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare. Also a dedicated setter |
+| 28 | `shadow` | the LAYER now exists and the same `saveLayer` call takes an image filter. What is still missing: painting OUTSIDE the node's declared bounds, which `subtree_extent` and `visible_bounds` would both have to learn; and making a layer damage-atomic, which a scalar alpha turned out NOT to need - `doc/compositing.md` sections 2 and 6. Also a dedicated setter |
+| 30 | `transform` | the layer exists; non-axis-aligned geometry does not. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare and `contains(rect, point)` is not its hit test. A layer under a transform IS damage-atomic, unlike one under a scalar alpha. Also a dedicated setter |
 | 35 | `main_size` | a second container sizing rule. A container always shrinks to its content within its limits; `max` means filling the main axis instead |
 | 39 | `shrink` | a negative-free-space pass. Children that overrun are currently reported as a layout diagnostic and left overrunning |
 | 40 | `basis` | a base size distinct from the measured one. A flexible child is measured directly under the share its weight earns |
@@ -342,8 +343,15 @@ remaining two are unchanged.
    rounded CLIP as well - nesting included. The cost is that a rounded clipping
    container becomes the minimum damage unit for its whole subtree.
    `doc/clipping.md`.
-3. **A compositing layer** - unlocks `opacity`, and is the precondition for
-   `shadow` and `transform` having anywhere to live.
+3. ~~**A compositing layer**~~ - done. `opacity` landed as GROUP opacity: the
+   subtree is composited through `SkCanvas::saveLayer` and the resulting image
+   is blended, so overlaps inside a faded group do not accumulate. The damage
+   rule turned out to be the OPPOSITE of the rounded clip's - a scalar alpha
+   composites per pixel, so a layer is **not** damage-atomic and a change
+   inside one damages only that change. What would make a layer atomic is a
+   term that reads neighbouring pixels, which is exactly what `shadow` and
+   `transform` bring. Hit testing deliberately ignores `opacity`, contradicting
+   design.md section 5.11.2. `doc/compositing.md`.
 4. **A second sizing stage** - unlocks `aspect_ratio`, `main_size`, `basis`,
    `shrink`, and would additionally unlock `align=stretch` inside a wrap and
    `align=baseline` everywhere. This is the one that most threatens the
@@ -356,6 +364,8 @@ remaining two are unchanged.
 The three complex-typed properties (`background_gradient`, `shadow`,
 `transform`) additionally need the dedicated-setter shape from design.md section
 5.9.5, which does not exist yet because none of the three is implemented.
+`doc/compositing.md` section 6 lists, per property, which of the pieces
+`shadow` and `transform` need are now in place and which are not.
 
 ---
 

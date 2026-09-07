@@ -52,10 +52,22 @@ A container can now **clip** what overflows it. `overflow` is one field on the
 node, and painting, hit testing and damage all read it: content is cut at the
 boundary, a point in the cut-away region does not hit the widget that would
 have been there, and a change inside a clipped container does not ask for a
-repaint of pixels the clip removes. Rounded clips follow the curve. 28
-properties are now fully implemented, 9 partially and 8 report `kUnsupported`.
+repaint of pixels the clip removes. Rounded clips follow the curve.
 `doc/clipping.md` records why a rounded clip needed no new damage rule, what it
 costs, and where `overflow` deviates from CSS.
+
+A subtree can now be **faded as a group**. `opacity` composites the whole
+subtree through `SkCanvas::saveLayer` and blends the result as one image, so
+overlapping children inside a faded group do not show through each other - the
+CSS meaning, not per-object alpha, and the two are drawn side by side out of
+the same node table in `examples/08_opacity`. A layer is opened only when one
+is needed: never at `opacity == 1`, and never at `0` either, where the subtree
+is skipped. Hit testing deliberately ignores `opacity` entirely, so a group
+faded to nothing is invisible and still clickable. 29 properties are now fully
+implemented, 9 partially and 7 report `kUnsupported`. `doc/compositing.md`
+records why a layer is **not** a damage-atomic region, why the anti-alias slack
+does not belong on a layer's extent, where this contradicts `design.md`, and
+what `shadow` and `transform` still need.
 
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
@@ -200,11 +212,29 @@ and no line breaking - Arabic renders in isolated forms - because those need
 HarfBuzz and ICU, which `doc/font-fallback.md` explains are deliberately still
 out.
 
+## The opacity demo
+
+`examples/08_opacity` draws four panels. The first two carry **the same three
+overlapping chips** and the same amount of translucency, asked for in the two
+different ways: the left one gives each chip an alpha of 128/255, the right one
+leaves the chips opaque and fades the group. The left panel shows five bands,
+because the overlaps blend; the right shows three, because the group resolves
+its overlaps before it fades. The third panel nests two fades, and the fourth
+animates one.
+
+```sh
+./build/examples/drawgui_opacity                    # resize it; hover the panels
+./build/examples/drawgui_opacity --fade-ms 2500     # watch one panel fade
+./build/examples/drawgui_opacity --freeze-at 0      # invisible, still clickable
+./build/examples/drawgui_opacity --verify-opacity   # headless check
+./build/examples/drawgui_opacity --dump-png out.png
+```
+
 ## Unit tests
 
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
-the golden-image comparator, damage, layout, clipping, hit testing,
-interaction, UTF-8 decoding and font fallback. It can also be run directly for per-case output:
+the golden-image comparator, damage, layout, clipping, compositing, hit
+testing, interaction, UTF-8 decoding and font fallback. It can also be run directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -243,4 +273,5 @@ Findings and decisions from each slice live beside it:
 | `doc/properties.md` | the property system: reconciliation, boundary shape, and the gap report |
 | `doc/wrapping.md` | the wrapping arrangement, `align_self`, and per-side borders |
 | `doc/clipping.md` | `overflow`, and how a rounded clip composes with the anti-alias slack rule |
+| `doc/compositing.md` | `opacity` as group opacity, why a layer is not damage-atomic, and what `shadow` and `transform` still need |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
