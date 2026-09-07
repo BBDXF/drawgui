@@ -39,6 +39,27 @@ Radii shrink(const Radii& radii, float amount) {
       std::max(0.0F, radii.bottom_right - amount), std::max(0.0F, radii.bottom_left - amount)};
 }
 
+// The radii of the shape the four border widths inset the border box to.
+//
+// A corner is bounded by two sides of possibly different thickness, and this
+// type carries one circular radius per corner rather than an elliptical pair,
+// so the two have to collapse to one number. The THICKER side wins, and that
+// choice is a containment proof rather than a preference: with
+// `inner = r - max(wa, wb)` the inner corner's centre sits `|wa - wb|` away
+// from the outer corner's centre, and `|wa - wb| + (r - max(wa, wb)) <= r`
+// holds for every non-negative pair - so the inner shape is always inside the
+// outer one, which is what drawDRRect requires and what keeps the border
+// inside the rectangle the node declared.
+Radii inset_radii(const Radii& radii, const BorderWidths& widths) {
+  const auto corner = [](float radius, float a, float b) {
+    return std::max(0.0F, radius - std::max(std::max(a, 0.0F), std::max(b, 0.0F)));
+  };
+  return Radii{corner(radii.top_left, widths.left, widths.top),
+               corner(radii.top_right, widths.right, widths.top),
+               corner(radii.bottom_right, widths.right, widths.bottom),
+               corner(radii.bottom_left, widths.left, widths.bottom)};
+}
+
 // dg::Color is unpremultiplied 0xAARRGGBB at the API boundary (design.md
 // section 5.11.3 rule 1) and SkColor is the same 32-bit layout, so this is a
 // reinterpretation rather than a conversion. Skia premultiplies internally
@@ -185,6 +206,54 @@ void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text
   canvas.restore();
 }
 
+// Two routes, chosen by whether the four widths agree.
+//
+// UNIFORM is the original one, kept byte for byte: Skia centres a stroke on
+// the path it is given, so stroking the node's own rectangle would put half
+// the width outside the bounds the node declared, and those pixels would then
+// never be invalidated when the node changes. Insetting by half lands the
+// whole border inside. Every measurement and every golden baseline this
+// project holds was produced by this path, so an unequal-border feature must
+// not reroute it.
+//
+// UNEQUAL fills the ring between the border box and the box the four widths
+// inset it to. One filled annulus rather than four stroked edges, because the
+// table gives all four sides ONE colour - so mitre joints are invisible, and
+// four overlapping bands would double-blend a translucent border at the
+// corners while a single fill cannot.
+void paint_border(SkCanvas& canvas, const SkRect& rect, const NodeStyle& style,
+                  SkPaint& paint) {
+  const BorderWidths& widths = style.border_width;
+  paint.setColor(to_sk_color(style.border_color));
+
+  if (widths.is_uniform()) {
+    const float inset = widths.left * 0.5F;
+    const SkRect centred = rect.makeInset(inset, inset);
+    if (centred.isEmpty()) {
+      return;
+    }
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setStrokeWidth(widths.left);
+    fill_shape(canvas, centred, shrink(style.radii, inset), paint);
+    return;
+  }
+
+  paint.setStyle(SkPaint::kFill_Style);
+  const SkRect hole = SkRect::MakeLTRB(
+      rect.fLeft + std::max(0.0F, widths.left), rect.fTop + std::max(0.0F, widths.top),
+      rect.fRight - std::max(0.0F, widths.right), rect.fBottom - std::max(0.0F, widths.bottom));
+
+  // Widths that meet or cross in the middle leave no content box at all, so
+  // the "ring" is the whole shape. Handing drawDRRect an inverted inner
+  // rectangle would be undefined rather than merely wrong.
+  if (hole.isEmpty()) {
+    fill_shape(canvas, rect, style.radii, paint);
+    return;
+  }
+  canvas.drawDRRect(to_sk_rrect(rect, style.radii),
+                    to_sk_rrect(hole, inset_radii(style.radii, widths)), paint);
+}
+
 }  // namespace
 
 SkRect to_sk_rect(const PixelRect& rect) {
@@ -208,23 +277,12 @@ void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& styl
     fill_shape(canvas, rect, style.radii, paint);
   }
 
-  if (style.border_width <= 0.0F || style.border_color.alpha() == 0) {
+  if (style.border_width.is_zero() || style.border_color.alpha() == 0) {
     paint_text(canvas, bounds, style.text, fonts);
     return;
   }
 
-  // Skia centres a stroke on the path it is given, so stroking the node's own
-  // rectangle would put half the border width outside the bounds the node
-  // declared - and those pixels would then never be invalidated when the node
-  // changes. Insetting by half the width lands the whole border inside.
-  const float inset = style.border_width * 0.5F;
-  const SkRect inner = rect.makeInset(inset, inset);
-  if (!inner.isEmpty()) {
-    paint.setStyle(SkPaint::kStroke_Style);
-    paint.setStrokeWidth(style.border_width);
-    paint.setColor(to_sk_color(style.border_color));
-    fill_shape(canvas, inner, shrink(style.radii, inset), paint);
-  }
+  paint_border(canvas, rect, style, paint);
 
   // Text last, so a label reads over its own border rather than under it.
   paint_text(canvas, bounds, style.text, fonts);

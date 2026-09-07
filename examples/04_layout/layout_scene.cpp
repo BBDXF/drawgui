@@ -41,7 +41,7 @@ NodeStyle panel(std::uint32_t fill, std::uint32_t border, bool rounded) {
   NodeStyle style;
   style.fill = Color::from_argb(fill);
   style.border_color = Color::from_argb(border);
-  style.border_width = 1.0F;
+  style.border_width = dg::BorderWidths::all(1.0F);
   if (rounded) {
     style.radii = dg::Radii::all(kContainerRadius);
   }
@@ -57,7 +57,7 @@ NodeStyle accent(std::uint32_t fill, std::uint32_t border) {
   NodeStyle style;
   style.fill = Color::from_argb(fill);
   style.border_color = Color::from_argb(border);
-  style.border_width = 1.0F;
+  style.border_width = dg::BorderWidths::all(1.0F);
   style.radii = dg::Radii::all(kAccentRadius);
   return style;
 }

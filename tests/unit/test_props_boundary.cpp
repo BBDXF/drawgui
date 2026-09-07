@@ -90,7 +90,7 @@ struct NodeSnapshot {
   BoxStyle box;
   Color fill;
   Color border_color;
-  float border_width = 0.0F;
+  dg::BorderWidths border_width;
   dg::Radii radii;
 
   friend bool operator==(const NodeSnapshot&, const NodeSnapshot&) = default;

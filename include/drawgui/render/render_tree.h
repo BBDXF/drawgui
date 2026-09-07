@@ -135,7 +135,15 @@ struct NodeStyle {
   // way a centred stroke would. A node that draws outside the rectangle it
   // declared is the exact bug damage tracking cannot survive: the pixels it
   // touched are not the pixels it said it would touch.
-  float border_width = 0.0F;
+  //
+  // FOUR WIDTHS, not one. The property table has always carried
+  // border_width_l/t/r/b; until this slice the painter collapsed them to their
+  // minimum, which was exact only when the four agreed. A uniform border still
+  // takes the original route - one centred stroke inset by half its width - so
+  // that every pixel this project has already measured is unchanged, and an
+  // unequal one fills the ring between the outer border box and the box the
+  // four widths inset it to. Both stay inside the declared rectangle.
+  BorderWidths border_width;
 
   TextStyle text;
 };

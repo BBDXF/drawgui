@@ -136,7 +136,7 @@ Scene build_direct(LayoutTree& tree) {
   NodeStyle toolbar_style;
   toolbar_style.fill = Color::from_argb(kPanelFill);
   toolbar_style.border_color = Color::from_argb(kBorder);
-  toolbar_style.border_width = 3.0F;
+  toolbar_style.border_width = dg::BorderWidths::all(3.0F);
   const NodeId toolbar = tree.add_child(LayoutTree::root(), toolbar_box, toolbar_style);
 
   BoxStyle spacer_box;
@@ -374,13 +374,20 @@ TEST_CASE("a property-built box lands where the box model says it should") {
   CHECK(tree.bounds(child) == PixelRect{18, 22, 100, 50});
   CHECK(tree.content_bounds(child) == PixelRect{28, 32, 80, 30});
 
-  // The painted stroke is the largest uniform border fitting inside all four
-  // reserved insets. They agree here, so it is exactly 4.
-  CHECK(tree.render().style(child).border_width == 4.0F);
+  // The painted border now carries all four widths rather than the smallest
+  // of them. They agree here, so it is 4 on every side.
+  CHECK(tree.render().style(child).border_width == dg::BorderWidths::all(4.0F));
 }
 
-// The unequal-border rule, which is the one place border_width_* is not exact.
-TEST_CASE("unequal border widths reserve per side and paint the largest uniform one") {
+// The rule that used to be the one place border_width_* was not exact.
+//
+// Until this slice `BoxStyle::border` reserved four insets while
+// `NodeStyle::border_width` was a single uniform stroke, so the painter took
+// the MINIMUM of the four - it was the only value guaranteed to sit inside
+// every side's reserved space. doc/properties.md section 3.3 recorded that as
+// a table-versus-engine disagreement; the four widths now travel intact and
+// the reserved layout space and the painted stroke are the same numbers.
+TEST_CASE("unequal border widths reserve per side and paint per side") {
   LayoutTree tree{spec_of()};
   const NodeId child = tree.add_child(LayoutTree::root(), BoxStyle{}, NodeStyle{});
 
@@ -390,7 +397,16 @@ TEST_CASE("unequal border widths reserve per side and paint the largest uniform 
   REQUIRE(dg::set_prop(tree, child, DG_PROP_BORDER_WIDTH_B, PropValue::number(7)).ok());
 
   CHECK(tree.box(child).border == EdgeInsets{9, 5, 2, 7});
-  CHECK(tree.render().style(child).border_width == 2.0F);
+  CHECK(tree.render().style(child).border_width == dg::BorderWidths{9, 5, 2, 7});
+
+  // Setting one side at a time is what made rejecting unequal sides
+  // impossible, and it is still the ordinary way a caller arrives here: after
+  // the first write of the four the node IS unequal.
+  REQUIRE(dg::set_prop(tree, child, DG_PROP_BORDER_WIDTH_R, PropValue::number(9)).ok());
+  REQUIRE(dg::set_prop(tree, child, DG_PROP_BORDER_WIDTH_T, PropValue::number(9)).ok());
+  REQUIRE(dg::set_prop(tree, child, DG_PROP_BORDER_WIDTH_B, PropValue::number(9)).ok());
+  CHECK(tree.render().style(child).border_width == dg::BorderWidths::all(9.0F));
+  CHECK(tree.render().style(child).border_width.is_uniform());
 }
 
 // Every supported enum ordinal, pinned to the geometry it must produce.

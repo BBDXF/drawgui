@@ -52,7 +52,7 @@ NodeStyle panel(std::uint32_t fill, std::uint32_t border, bool rounded) {
   NodeStyle style;
   style.fill = Color::from_argb(fill);
   style.border_color = Color::from_argb(border);
-  style.border_width = 1.0F;
+  style.border_width = dg::BorderWidths::all(1.0F);
   if (rounded) {
     style.radii = dg::Radii::all(kContainerRadius);
   }
@@ -130,7 +130,7 @@ ButtonParts add_button(Scene& scene, NodeId parent, const BoxStyle& box,
                        std::uint32_t caption_colour) {
   NodeStyle style = flat(widget.fill_normal.argb());
   style.border_color = Color::from_argb(0xFF141A22);
-  style.border_width = 1.0F;
+  style.border_width = dg::BorderWidths::all(1.0F);
   if (rounded) {
     style.radii = dg::Radii::all(kControlRadius);
   }
@@ -230,7 +230,7 @@ void build_toolbar(Scene& scene, NodeId content, bool rounded, bool rounded_cont
   check.padding = EdgeInsets::symmetric(8, 0);
   NodeStyle check_style = flat(kButtonNormal);
   check_style.border_color = Color::from_argb(0xFF141A22);
-  check_style.border_width = 1.0F;
+  check_style.border_width = dg::BorderWidths::all(1.0F);
   if (rounded) {
     check_style.radii = dg::Radii::all(kControlRadius);
   }

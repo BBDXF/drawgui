@@ -174,24 +174,14 @@ struct Target {
   return PropWrite{};
 }
 
-// A border is the one property in the table that is BOTH layout and paint, and
-// the two halves of this engine disagree about its shape.
+// A border is the one property in the table that is BOTH layout and paint.
 //
-// BoxStyle::border reserves space per side, exactly as the table describes.
-// NodeStyle::border_width is a SINGLE uniform stroke, because that is what
-// slice 1's painter implements - it insets by half the width and strokes once.
-// So four independent painted widths are not expressible today.
-//
-// The resolution is to paint the largest uniform border that fits inside all
-// four reserved insets, which is their minimum. Chosen over the alternatives
-// deliberately: rejecting unequal sides would make setting them one at a time
-// impossible, since the first write is what makes them unequal; painting the
-// maximum would put stroke outside the space some side reserved, and pixels a
-// node paints outside the rectangle it declared are exactly what damage
-// tracking cannot survive. The minimum is the only choice that is always
-// inside the box, and it is exact whenever the four agree - which is every
-// case the paint layer can express. doc/properties.md classifies
-// border_width_* as partially implemented for this reason.
+// BoxStyle::border reserves space per side and NodeStyle::border_width now
+// paints per side, so the two agree exactly and the table-versus-engine
+// disagreement doc/properties.md section 3.3 recorded is gone. Until this
+// slice the painter carried a single uniform stroke and this function wrote
+// the MINIMUM of the four - the only choice that was always inside the box,
+// and exact only when the four agreed.
 [[nodiscard]] PropWrite border_edge(Target& target, const PropValue& value,
                                     int EdgeInsets::* side, const std::string& what) {
   PropWrite laid_out = box_edge(target, value, &BoxStyle::border, side, what);
@@ -199,8 +189,9 @@ struct Target {
     return laid_out;
   }
   const EdgeInsets& reserved = target.box.border;
-  target.style.border_width = static_cast<float>(
-      std::min({reserved.left, reserved.top, reserved.right, reserved.bottom}));
+  target.style.border_width =
+      BorderWidths{static_cast<float>(reserved.left), static_cast<float>(reserved.top),
+                   static_cast<float>(reserved.right), static_cast<float>(reserved.bottom)};
   target.style_changed = true;
   return PropWrite{};
 }

@@ -102,4 +102,37 @@ struct Radii {
   friend constexpr bool operator==(const Radii&, const Radii&) = default;
 };
 
+// How thick the border is on each of the four sides, matching the
+// border_width_{l,t,r,b} property group.
+//
+// Four floats rather than one, because the property table has always had four
+// and the painter used to collapse them to their minimum - which was exact
+// only when all four agreed. doc/properties.md section 3.3 recorded that as a
+// table-versus-engine disagreement; this type is what removes it.
+//
+// `is_uniform()` is not a convenience. The painter takes a different route for
+// a uniform border (one centred stroke, inset by half the width) than for an
+// unequal one (a filled ring between two shapes), and the uniform route is the
+// one every existing pixel in this project was produced by.
+struct BorderWidths {
+  float left = 0;
+  float top = 0;
+  float right = 0;
+  float bottom = 0;
+
+  static constexpr BorderWidths all(float width) {
+    return BorderWidths{width, width, width, width};
+  }
+
+  [[nodiscard]] constexpr bool is_zero() const {
+    return left <= 0 && top <= 0 && right <= 0 && bottom <= 0;
+  }
+
+  [[nodiscard]] constexpr bool is_uniform() const {
+    return left == top && top == right && right == bottom;
+  }
+
+  friend constexpr bool operator==(const BorderWidths&, const BorderWidths&) = default;
+};
+
 }  // namespace dg

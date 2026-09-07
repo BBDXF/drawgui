@@ -47,7 +47,7 @@ NodeStyle panel(std::uint32_t fill, std::uint32_t border) {
   NodeStyle style;
   style.fill = Color::from_argb(fill);
   style.border_color = Color::from_argb(border);
-  style.border_width = 1.0F;
+  style.border_width = dg::BorderWidths::all(1.0F);
   return style;
 }
 

@@ -64,6 +64,7 @@ add_executable(drawgui_unit_test
   unit/test_widget_pipeline.cpp
   unit/test_layout.cpp
   unit/test_layout_identity.cpp
+  unit/test_border_paint.cpp
   unit/test_props_parity.cpp
   unit/test_props_boundary.cpp
   unit/test_props_damage.cpp
