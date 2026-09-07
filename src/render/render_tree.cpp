@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -14,6 +15,12 @@
 namespace dg {
 
 bool clips_atomically(const NodeStyle& style) {
+  // Rounded corners: measured in sub-step 1, 6530 differing pixels over 1800
+  // randomized clips. Text: measured in sub-step 3 the same way, and it is
+  // worse - a glyph cut by a clip changes coverage across its whole run, not
+  // only at the cut. Both are Skia anti-aliasing that is not clip-invariant,
+  // and both therefore repaint whole or not at all. doc/widgets.md has the
+  // text number; doc/damage-repaint.md has the corner one.
   return !style.radii.is_zero();
 }
 
@@ -71,6 +78,7 @@ void RenderTree::Impl::retire_damage(DamageRegion just_painted) {
 
 RenderTree::RenderTree(const TreeSpec& spec) : impl_(std::make_unique<Impl>()) {
   impl_->viewport = spec.viewport;
+  impl_->fonts = spec.fonts;
   impl_->paint_mode = spec.paint_mode;
   impl_->max_damage_rects = spec.max_damage_rects;
   impl_->damage = DamageRegion{spec.max_damage_rects};
@@ -121,6 +129,18 @@ const NodeStyle& RenderTree::style(NodeId id) const {
   return impl_->nodes[id.value].style;
 }
 
+NodeId RenderTree::parent(NodeId id) const {
+  return NodeId{impl_->nodes[id.value].parent};
+}
+
+std::optional<NodeId> RenderTree::hit_test(PixelPoint point) const {
+  const std::uint32_t index = impl_->hit_test(point);
+  if (index >= impl_->nodes.size()) {
+    return std::nullopt;
+  }
+  return NodeId{index};
+}
+
 PixelRect RenderTree::local_bounds(NodeId id) const {
   return impl_->nodes[id.value].local;
 }
@@ -137,6 +157,16 @@ void RenderTree::set_style(NodeId id, const NodeStyle& style) {
 
 void RenderTree::set_fill(NodeId id, Color fill) {
   impl_->nodes[id.value].style.fill = fill;
+  impl_->invalidate(id.value);
+}
+
+void RenderTree::set_text(NodeId id, const TextStyle& text) {
+  NodeStyle& style = impl_->nodes[id.value].style;
+  if (style.text == text) {
+    return;
+  }
+  style.text = text;
+  impl_->nodes[id.value].clip_atomic = clips_atomically(style);
   impl_->invalidate(id.value);
 }
 

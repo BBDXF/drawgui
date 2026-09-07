@@ -60,8 +60,9 @@ void RenderTree::Impl::record() {
   SkPictureRecorder recorder;
   SkCanvas* canvas = recorder.beginRecording(
       detail::to_sk_rect(PixelRect{0, 0, viewport.width, viewport.height}));
+  const FontCatalog* catalog = fonts.has_value() ? &*fonts : nullptr;
   for (const std::uint32_t index : paint_order) {
-    detail::paint_node(*canvas, nodes[index].absolute, nodes[index].style);
+    detail::paint_node(*canvas, nodes[index].absolute, nodes[index].style, catalog);
   }
   picture = recorder.finishRecordingAsPicture();
   picture_stale = false;
@@ -89,15 +90,17 @@ void RenderTree::Impl::paint_region(SkCanvas& canvas, const PixelRect& region,
       }
       // Recording can fail; drawing nothing would be worse than traversing.
       [[fallthrough]];
-    case PaintMode::kDirect:
+    case PaintMode::kDirect: {
+      const FontCatalog* catalog = fonts.has_value() ? &*fonts : nullptr;
       for (const std::uint32_t index : paint_order) {
         const Node& node = nodes[index];
         if (intersects(node.absolute, region)) {
-          detail::paint_node(canvas, node.absolute, node.style);
+          detail::paint_node(canvas, node.absolute, node.style, catalog);
           ++stats.nodes_drawn;
         }
       }
       break;
+    }
   }
   canvas.restore();
 }

@@ -26,11 +26,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
 
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/graphics/types.h"
 #include "drawgui/render/damage.h"
+#include "drawgui/render/font_catalog.h"
 
 namespace dg {
 
@@ -42,12 +45,63 @@ struct NodeId {
   friend bool operator==(NodeId, NodeId) = default;
 };
 
+// Where a run of text sits inside the node that carries it, horizontally.
+enum class TextAlign : std::uint8_t {
+  kLeft,
+  kCenter,
+  kRight,
+};
+
+// One run of text, painted inside one node's box.
+//
+// Text arrived in this struct with sub-step 3's label, and it is the first
+// thing a node paints that is not a rectangle. Three consequences that are
+// easy to get wrong and are therefore pinned here:
+//
+//   It is CLIPPED to the node's bounds. Every other field in NodeStyle is
+//   naturally contained by the box; a string is not, and a glyph escaping the
+//   rectangle its node declared is exactly the pixel damage tracking will
+//   never invalidate.
+//
+//   A node carrying text is NOT clip-atomic, and that is a MEASUREMENT rather
+//   than an omission. The obvious assumption was that glyphs behave like
+//   rounded rectangles - both are anti-aliased - and it is wrong: under 600
+//   random clips that cut the shape, a rounded rectangle differs by 582 pixels
+//   at zero slack and text differs by ZERO. Glyphs are rasterized into masks
+//   and blitted, so a clip masks the blit instead of changing the coverage.
+//   A label may therefore be cut in half by a damage rectangle, which is worth
+//   1.9x of the widget demo's damage. `--clip-probe` reprints the table and
+//   doc/widgets.md records it.
+//
+//   The node does NOT size itself to the text. Sub-step 2 excluded intrinsic
+//   sizing deliberately (see LayoutTree), so a label is given a box and the
+//   text is placed inside it. Shrink-wrapping a label needs intrinsic sizing
+//   and the caching design.md section 5.4.6 requires with it.
+struct TextStyle {
+  std::string text;
+
+  // Which family, resolved once through the tree's FontCatalog. An invalid id
+  // draws nothing rather than substituting: the font manager this project has
+  // has no fallback chain, so a substitution would not even be a near miss.
+  FontId font;
+
+  float size = 0.0F;
+  Color color;
+  TextAlign align = TextAlign::kCenter;
+
+  // Space kept clear at the leading and trailing edge, so that left- and
+  // right-aligned text does not sit against the node's own border. Ignored by
+  // kCenter, which is already clear of both.
+  int inset = 0;
+
+  friend bool operator==(const TextStyle&, const TextStyle&) = default;
+};
+
 // Everything a node paints.
 //
-// Fills and borders only, deliberately. Text needs a font manager and the one
-// this project has has no fallback chain (doc/cpu-raster-findings.md), which
-// is its own sub-step; blur is 52% of a frame's raster time and belongs in a
-// budgeted feature rather than in the primitive every node carries.
+// Fills, borders and one run of text. Blur is still absent deliberately - it
+// is 52% of a frame's raster time and belongs in a budgeted feature rather
+// than in the primitive every node carries.
 struct NodeStyle {
   Color fill;
 
@@ -70,6 +124,8 @@ struct NodeStyle {
   // declared is the exact bug damage tracking cannot survive: the pixels it
   // touched are not the pixels it said it would touch.
   float border_width = 0.0F;
+
+  TextStyle text;
 };
 
 // How a repaint turns nodes into draw calls.
@@ -119,6 +175,12 @@ struct TreeSpec {
   // background instead of from whatever was there last frame.
   NodeStyle background;
 
+  // The fonts every text node in this tree may name. Absent means no node in
+  // this tree draws text - which is the case for every scene built before
+  // sub-step 3, and is why this is an optional rather than a required
+  // argument that existing callers would have to invent a value for.
+  std::optional<FontCatalog> fonts;
+
   std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
   PaintMode paint_mode = PaintMode::kDirect;
 };
@@ -144,6 +206,33 @@ class RenderTree {
   [[nodiscard]] PixelSize viewport() const;
   [[nodiscard]] const NodeStyle& style(NodeId id) const;
 
+  // The node this one hangs from. The root is its own parent, which is what
+  // lets a caller climbing towards the root stop on `id == parent(id)` without
+  // a sentinel value that could be confused with a real node.
+  [[nodiscard]] NodeId parent(NodeId id) const;
+
+  // The topmost node covering `point`, or nothing when the point is outside
+  // the viewport entirely.
+  //
+  // THIS IS THE EXACT INVERSE OF PAINTING, and that is the whole specification.
+  // Painting walks the tree in depth-first pre-order, so the last node to
+  // paint a pixel is the one visible at it; hit testing walks children in
+  // REVERSE order and takes the first match, which is the same sequence read
+  // backwards. Anything else produces the two defects that have no other
+  // symptom: a widget you can see but cannot click, and a click landing on
+  // something hidden underneath what you aimed at.
+  //
+  // IT DOES NOT CLIP A CHILD TO ITS PARENT, and that is a decision rather than
+  // an omission. paint_node() does not clip either - a child whose box runs
+  // past its parent's is drawn in the overflow region, and the layout tree
+  // reports the overrun as a diagnostic instead of hiding it. Hit testing that
+  // clipped would therefore disagree with the screen in exactly the region the
+  // screen is already telling the user is interactive. When a scrolling
+  // container introduces a real clip, the clip becomes a property of the node,
+  // painting honours it, and hit testing honours the same property - one rule,
+  // read by both. doc/widgets.md records the reasoning.
+  [[nodiscard]] std::optional<NodeId> hit_test(PixelPoint point) const;
+
   // Where the node sits relative to its parent, and where it sits in the
   // framebuffer. Both are answered rather than recomputed by callers, because
   // a damage rectangle is only correct in absolute coordinates.
@@ -152,6 +241,15 @@ class RenderTree {
 
   void set_style(NodeId id, const NodeStyle& style);
   void set_fill(NodeId id, Color fill);
+
+  // Damages nothing when the text is unchanged. Every other setter here
+  // damages unconditionally, which is right for them because comparing two
+  // colours is not obviously cheaper than repainting a small node - but a
+  // label re-asserting the string it already shows is the common case for an
+  // interaction loop that refreshes a widget on every state change, and
+  // repainting for it would make the damage a function of the loop rather
+  // than of the change.
+  void set_text(NodeId id, const TextStyle& text);
 
   // Both damage the node's old subtree extent and its new one. Damaging only
   // the new extent leaves the pixels it vacated showing last frame's paint,

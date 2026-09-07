@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "drawgui/base/pixel_geometry.h"
@@ -51,6 +52,7 @@ struct Node {
 
 struct RenderTree::Impl {
   PixelSize viewport;
+  std::optional<FontCatalog> fonts;
   PaintMode paint_mode = PaintMode::kDirect;
   std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
   std::vector<Node> nodes;
@@ -65,6 +67,13 @@ struct RenderTree::Impl {
   // damage repaint must honour it or a node above the changed one gets
   // clipped through - the characteristic partial-repaint artifact.
   void rebuild_paint_order();
+
+  // Depth-first, children in REVERSE order, first match wins. That order is
+  // the reverse of rebuild_paint_order()'s, which is what makes hit testing
+  // agree with what the screen shows. Returns the node count when nothing is
+  // hit, so the caller has one out-of-range value to test rather than a
+  // node index that could be mistaken for the root.
+  [[nodiscard]] std::uint32_t hit_test(PixelPoint point) const;
 
   void reposition(std::uint32_t root_index);
   void damage_subtree(std::uint32_t root_index);

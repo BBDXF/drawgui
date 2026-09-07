@@ -33,6 +33,20 @@ struct PixelSize {
   friend bool operator==(PixelSize, PixelSize) = default;
 };
 
+// A position in physical device pixels, relative to the top-left of the image
+// it describes.
+//
+// Integral for the same reason PixelSize is: a pointer position arrives from
+// the platform as a coordinate inside a framebuffer, and hit testing has to
+// agree with the rasterizer about which pixel that is. A float here would put
+// "which pixel is 10.5 in" between the two.
+struct PixelPoint {
+  int x = 0;
+  int y = 0;
+
+  friend bool operator==(PixelPoint, PixelPoint) = default;
+};
+
 // A region in physical device pixels, relative to the top-left of the image
 // it describes.
 //
@@ -128,6 +142,15 @@ struct PixelRect {
   }
   return outer.left() <= inner.left() && outer.top() <= inner.top() &&
          outer.right() >= inner.right() && outer.bottom() >= inner.bottom();
+}
+
+// True when the pixel at `point` belongs to `rect`. Half-open on the right and
+// bottom edges, exactly as PixelRect is everywhere else: the pixel a rectangle
+// ends at belongs to whatever comes next, so two rectangles sharing an edge
+// never both claim the pointer.
+[[nodiscard]] constexpr bool contains(const PixelRect& rect, PixelPoint point) {
+  return !rect.is_empty() && point.x >= rect.left() && point.x < rect.right() &&
+         point.y >= rect.top() && point.y < rect.bottom();
 }
 
 }  // namespace dg

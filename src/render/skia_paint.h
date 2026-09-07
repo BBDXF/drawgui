@@ -24,6 +24,13 @@ namespace dg::detail {
 // containment is the contract the whole damage model rests on: a node whose
 // paint escapes its declared rectangle leaves pixels that nothing will ever
 // invalidate.
-void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style);
+//
+// `fonts` may be null, and is null for every tree built before sub-step 3. A
+// node asking for text without a catalog to resolve its family draws no text,
+// which is the same visible outcome as naming a family the machine does not
+// have - deliberately, because with no fallback chain those two failures have
+// the same cause and the same fix.
+void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style,
+                const FontCatalog* fonts);
 
 }  // namespace dg::detail
