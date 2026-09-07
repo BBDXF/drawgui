@@ -376,4 +376,8 @@ const std::vector<std::string>& LayoutTree::diagnostics() const {
   return impl_->diagnostics;
 }
 
+std::string LayoutTree::path_of(NodeId id) const {
+  return impl_->path_of(id.value);
+}
+
 }  // namespace dg

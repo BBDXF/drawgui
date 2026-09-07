@@ -175,6 +175,14 @@ class LayoutTree {
   // recent layout and not the session.
   [[nodiscard]] const std::vector<std::string>& diagnostics() const;
 
+  // "root(column) > #2(row) > #7(leaf)" - the node path design.md section
+  // 5.4.7 wants a diagnostic to carry.
+  //
+  // Public because layout is not the only thing that has to name a node it is
+  // complaining about: a rejected property write needs the same string, and
+  // deriving it a second time from RenderTree::parent() would be useful only
+  // for as long as the two derivations agreed.
+  [[nodiscard]] std::string path_of(NodeId id) const;
 
  private:
   struct Impl;

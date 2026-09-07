@@ -168,6 +168,7 @@ add_library(drawgui STATIC
   src/graphics/raster_surface.cpp
   src/layout/box_layout.cpp
   src/layout/layout_tree.cpp
+  src/props/node_props.cpp
   src/render/damage.cpp
   src/render/font_catalog.cpp
   src/render/font_fallback.cpp
