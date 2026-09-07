@@ -2,6 +2,8 @@
 
 #include <utility>
 
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorType.h"
 #include "include/core/SkData.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkPixmap.h"
@@ -51,6 +53,30 @@ int RasterSurface::height() const {
 
 Canvas RasterSurface::canvas() {
   return Canvas{impl_->surface->getCanvas()};
+}
+
+SkCanvas* RasterSurface::sk_canvas() {
+  return impl_->surface->getCanvas();
+}
+
+PixelView RasterSurface::peek_pixels() const {
+  SkPixmap pixmap;
+  if (!impl_->surface->peekPixels(&pixmap)) {
+    return PixelView{};
+  }
+
+  // Asked of the surface rather than compared against kN32_SkColorType. That
+  // constant is a macro expansion over SK_R32_SHIFT, which a consumer of the
+  // prebuilt archive computes from its own (absent) build settings: it reads
+  // as kRGBA_8888 here while every surface the library hands back is
+  // kBGRA_8888. Trusting it would swap red and blue in every blitted frame.
+  return PixelView{
+      static_cast<const std::uint8_t*>(pixmap.addr()),
+      pixmap.width(),
+      pixmap.height(),
+      pixmap.rowBytes(),
+      pixmap.colorType() == kBGRA_8888_SkColorType,
+  };
 }
 
 std::vector<std::uint8_t> RasterSurface::encode_png() const {
