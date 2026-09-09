@@ -37,6 +37,16 @@
 
 namespace form_scene {
 
+// EQUAL to kThumbSize, and that is load-bearing rather than arbitrary: a
+// kLeaf child is clamped to its parent's own resolved bound even when
+// "loosened" - loosening drops the MINIMUM, not the MAXIMUM - so a thumb
+// declared taller than its track would silently be measured back down to
+// the track's height rather than overlapping it. This was found
+// empirically while trying to build a thin-rail-under-a-round-thumb look;
+// doc/form-controls.md section 4 records it, and tests/unit/test_form_controls.cpp's
+// slider cases use unequal heights DELIBERATELY, built directly on
+// RenderTree rather than through LayoutTree, which is the one construction
+// path this constraint does not apply to.
 inline constexpr int kSliderTrackHeight = 20;
 inline constexpr int kThumbSize = 20;
 inline constexpr int kFixedTrackWidth = 240;

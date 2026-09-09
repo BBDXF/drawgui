@@ -173,7 +173,12 @@ struct SliderScene {
 };
 
 constexpr int kTrackWidth = 200;
-constexpr int kTrackHeight = 20;
+// Track SHORTER than the thumb, matching examples/11_form_controls's own
+// pill-track-with-overlapping-round-thumb shape: a track the same height as
+// its thumb makes `(track.height - thumb.height) / 2` always zero, which
+// cannot tell a correct centering formula from a broken one. This was
+// caught empirically, not anticipated - see doc/form-controls.md section 4.
+constexpr int kTrackHeight = 8;
 constexpr int kThumbSize = 20;
 
 SliderScene build_slider_scene(float min_value, float max_value, float step) {
@@ -200,7 +205,7 @@ TEST_CASE("set_slider_value positions the thumb at the value's fraction of trave
   SliderScene scene = build_slider_scene(0.0F, 100.0F, 0.0F);
   CHECK(scene.widgets.set_slider_value(scene.tree, scene.track, 50.0F));
   CHECK(scene.tree.local_bounds(scene.thumb).x == 90);
-  CHECK(scene.tree.local_bounds(scene.thumb).y == 0);  // (20 - 20) / 2 == 0
+  CHECK(scene.tree.local_bounds(scene.thumb).y == -6);  // (8 - 20) / 2 == -6
 
   CHECK(scene.widgets.set_slider_value(scene.tree, scene.track, 0.0F));
   CHECK(scene.tree.local_bounds(scene.thumb).x == 0);
@@ -230,6 +235,17 @@ TEST_CASE("set_slider_value snaps to the nearest step") {
   scene.widgets.set_slider_value(scene.tree, scene.track, 4.6F);
   CHECK(scene.widgets.slider_value(scene.track) == 5.0F);
   CHECK(scene.tree.local_bounds(scene.thumb).x == 90);  // 5/10 * 180
+}
+
+// [0, 11] step 3 is the shape [0, 10] step 1 above cannot exercise: 10 is an
+// exact multiple of 1, so snapping never has anywhere to overflow TO. 11 is
+// not a multiple of 3 - the nearest step below 11 is round(11/3)=4 steps,
+// 4*3=12, which is PAST 11 - so a value at the top of the range must be
+// re-clamped after snapping, not merely snapped.
+TEST_CASE("set_slider_value re-clamps after a step snap that overflows the range") {
+  SliderScene scene = build_slider_scene(0.0F, 11.0F, 3.0F);
+  scene.widgets.set_slider_value(scene.tree, scene.track, 11.0F);
+  CHECK(scene.widgets.slider_value(scene.track) <= 11.0F);
 }
 
 TEST_CASE("set_slider_value is a no-op when the clamped/snapped value is unchanged") {
@@ -265,6 +281,18 @@ TEST_CASE("slidable_owner_of climbs from the thumb to the slider that owns it") 
   CHECK(scene.widgets.slidable_owner_of(scene.tree, scene.thumb) == scene.track);
   CHECK(scene.widgets.slidable_owner_of(scene.tree, scene.track) == scene.track);
   CHECK_FALSE(scene.widgets.slidable_owner_of(scene.tree, RenderTree::root()).has_value());
+}
+
+// kSlider is deliberately NOT accepts_pointer(): dragging is routed through
+// slidable_owner_of() alone, mirroring kScrollView. If a slider ever
+// answered owner_of()/widget_at() too, a slider nested inside a click
+// target would silently steal its clicks - untested by anything else here,
+// since no scene in this project nests a slider inside a clickable
+// container.
+TEST_CASE("a slider does not accept pointer input through the ordinary click climb") {
+  SliderScene scene = build_slider_scene(0.0F, 100.0F, 0.0F);
+  CHECK_FALSE(scene.widgets.accepts_pointer(scene.track));
+  CHECK_FALSE(scene.widgets.owner_of(scene.tree, scene.thumb).has_value());
 }
 
 TEST_CASE("resync_sliders repositions every slider from its stored value, unconditionally") {

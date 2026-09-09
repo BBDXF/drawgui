@@ -230,6 +230,18 @@ bool check_slider_clamps_and_geometry(std::ostream& out) {
         << form_scene::kVolumeMin << "," << form_scene::kVolumeMax << "])\n";
     ok = false;
   }
+  // The track is deliberately SHORTER than the thumb (a thin pill under a
+  // round overlapping thumb), so the thumb must be centred on the track's
+  // vertical midpoint rather than merely placed at its top - the two only
+  // disagree because the two heights differ, which is exactly why they were
+  // made to differ (doc/form-controls.md section 4).
+  const int expected_y = (volume_track.height - volume_thumb.height) / 2;
+  if (volume_thumb.y != expected_y) {
+    out << "  FAIL: volume thumb sits at y=" << volume_thumb.y << ", expected " << expected_y
+        << " (track " << volume_track.height << "px tall, thumb " << volume_thumb.height
+        << "px tall, centred)\n";
+    ok = false;
+  }
 
   scene.widgets.set_slider_value(scene.tree.render(), scene.handles.slider_volume, -1000.0F);
   if (scene.widgets.slider_value(scene.handles.slider_volume) != form_scene::kVolumeMin) {
@@ -381,6 +393,46 @@ bool check_no_relayout_during_drag(std::ostream& out) {
 }
 
 // --------------------------------------------------------------------------
+// Claim 6: resync_sliders() touches ONLY kSlider widgets. Found the hard
+// way: a non-slider widget's `thumb` field defaults to NodeId{0} - the
+// ROOT - so a resync_sliders() that forgot its own kind check moved the
+// root node itself once per non-slider widget in the scene, silently
+// corrupting the whole layout. Every geometry check above reads LOCAL
+// bounds, which this defect does not touch, and the byte-identity check
+// cannot see it either - both the incremental and full scenes are built
+// (and corrupted) identically, so they still match each other pixel for
+// pixel. Only a direct assertion on the ROOT's own bounds catches it.
+// --------------------------------------------------------------------------
+
+bool check_resync_does_not_move_root(std::ostream& out) {
+  form_scene::Scene scene = form_scene::build(spec_for(kSize));
+
+  // Compared against the rectangle root MUST have - (0,0) at the declared
+  // viewport size - rather than against a snapshot taken after build(),
+  // which already calls resync_sliders() once: a snapshot taken AFTER the
+  // first (buggy) call would already be corrupted, and calling the same
+  // deterministic bug a second time reproduces the identical corruption,
+  // making an idempotent defect look like "no change". Found the hard way
+  // - this was the first form of this check, and it did not catch
+  // injection I at all.
+  const PixelRect expected{0, 0, kSize.width, kSize.height};
+  scene.widgets.resync_sliders(scene.tree.render());
+  const PixelRect after = scene.tree.render().local_bounds(dg::RenderTree::root());
+
+  bool ok = true;
+  if (after != expected) {
+    out << "  FAIL: resync_sliders() left the root node at " << after.x << "," << after.y << " "
+        << after.width << "x" << after.height << ", expected " << expected.x << ","
+        << expected.y << " " << expected.width << "x" << expected.height << "\n";
+    ok = false;
+  }
+  if (ok) {
+    out << "  OK: resync_sliders() left the root node at its declared viewport rectangle\n";
+  }
+  return ok;
+}
+
+// --------------------------------------------------------------------------
 // The standing gate: incremental equals full, across a script mixing radio
 // clicks, checkbox toggles and slider drags.
 // --------------------------------------------------------------------------
@@ -441,6 +493,7 @@ int run(std::ostream& out) {
   ok = check_slider_clamps_and_geometry(out) && ok;
   ok = check_resize_reflows_thumb(out) && ok;
   ok = check_no_relayout_during_drag(out) && ok;
+  ok = check_resync_does_not_move_root(out) && ok;
   ok = check_identity(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;
