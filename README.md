@@ -69,6 +69,21 @@ records why a layer is **not** a damage-atomic region, why the anti-alias slack
 does not belong on a layer's extent, where this contradicts `design.md`, and
 what `shadow` and `transform` still need.
 
+Sizing now has a **second stage**, and the finding is that it needed no second
+measurement. `basis` gives a child a declared base main size, `shrink` takes
+space back from it when the container overruns - weighted by `shrink x base`,
+CSS's scaled shrink factor, split by prefix sums so no pixel is invented or
+lost - `main_size` makes a container fill its main axis instead of hugging its
+content, and `aspect_ratio` derives one axis from the other, including the
+sharp direction where a stretched child's WIDTH follows the height its
+container handed down. Every node is still laid out **exactly once** per pass,
+which the demo asserts on itself. The one thing that would have cost a second
+measurement is shrinking from a base the engine had to measure, and that is
+declined by name with a layout diagnostic; `doc/sizing.md` section 1 records
+the argument, including the exponential the obvious two-pass design costs and
+why design.md section 5.4.6's cache is mandatory rather than advisory. 32
+properties are now fully implemented, 10 partially and 3 report `kUnsupported`.
+
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
@@ -212,6 +227,22 @@ and no line breaking - Arabic renders in isolated forms - because those need
 HarfBuzz and ICU, which `doc/font-fallback.md` explains are deliberately still
 out.
 
+## The sizing demo
+
+`examples/09_sizing` puts each half of the second sizing stage on a row whose
+behaviour the window's own size drives: a toolbar of three buttons with the
+same base and different `shrink` weights, two thumbnails that derive their
+width from the height their row hands them, four declared bases that stop
+fitting, and a footer whose items reach the right edge only because its row
+fills the main axis.
+
+```sh
+./build/examples/drawgui_sizing                  # resize it, in both directions
+./build/examples/drawgui_sizing --size 620x700   # open already in deficit
+./build/examples/drawgui_sizing --verify-sizing  # headless check
+./build/examples/drawgui_sizing --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -274,4 +305,5 @@ Findings and decisions from each slice live beside it:
 | `doc/wrapping.md` | the wrapping arrangement, `align_self`, and per-side borders |
 | `doc/clipping.md` | `overflow`, and how a rounded clip composes with the anti-alias slack rule |
 | `doc/compositing.md` | `opacity` as group opacity, why a layer is not damage-atomic, and what `shadow` and `transform` still need |
+| `doc/sizing.md` | `basis`, `shrink`, `main_size`, `aspect_ratio`, and why a second sizing stage needed no second measurement |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |

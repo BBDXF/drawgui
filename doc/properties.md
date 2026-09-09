@@ -251,18 +251,19 @@ written for a different purpose.
 
 ## 4. The gap report
 
-45 properties: **29 implemented**, **9 partially implemented**, **7 not yet**.
+45 properties: **32 implemented**, **10 partially implemented**, **3 not yet**.
 
 A partially implemented property applies correctly for the values listed as
 supported and returns `kUnsupported` - naming the node - for the rest. Nothing
 in either column is silently ignored.
 
-The counts have moved three times since this report was first written: the
+The counts have moved four times since this report was first written: the
 wrapping slice built the pieces section 4.4 called 1 and 5
-(`doc/wrapping.md`), the clipping slice built piece 2 (`doc/clipping.md`), and
-the compositing slice built piece 3 (`doc/compositing.md`).
+(`doc/wrapping.md`), the clipping slice built piece 2 (`doc/clipping.md`), the
+compositing slice built piece 3 (`doc/compositing.md`), and the sizing slice
+built piece 4 (`doc/sizing.md`).
 
-### 4.1 Implemented (29)
+### 4.1 Implemented (32)
 
 | id | property | notes |
 | --- | --- | --- |
@@ -272,6 +273,7 @@ the compositing slice built piece 3 (`doc/compositing.md`).
 | 4 | `max_width` | |
 | 5 | `min_height` | |
 | 6 | `max_height` | |
+| 7 | `aspect_ratio` | derives the unsettled axis from the settled one inside `limits_for`, so it costs no second measurement. Both axes settled: the constraints win and the disagreement is a layout diagnostic. Neither settled: the content decides and the ratio GROWS the finished box - `doc/sizing.md` section 4 |
 | 8 | `padding_l` | shrinks the constraint passed to children |
 | 9 | `padding_t` | |
 | 10 | `padding_r` | |
@@ -289,8 +291,10 @@ the compositing slice built piece 3 (`doc/compositing.md`).
 | 27 | `opacity` | GROUP opacity through a `saveLayer`, not per-object alpha; the whole of 0..1, with anything outside it refused rather than clamped. Hit testing deliberately ignores it, including at 0 - `doc/compositing.md` section 4 |
 | 29 | `overflow` | both values; paint, hit testing and damage all read the one field. Clips at the BORDER box, which is a deliberate deviation from CSS - `doc/clipping.md` section 2 |
 | 34 | `gap` | flex and wrap containers; stacks with margins, does not collapse |
+| 35 | `main_size` | both values, on flex and wrap containers. Resolved in `limits_for`, which is also what decides relayout boundaries, so a filled container becomes one without declaring it |
 | 36 | `run_gap` | wrapping containers only; `kNotApplicable` on a flex row |
 | 37 | `align_content` | wrapping containers only; all six values |
+| 40 | `basis` | flex parent only. A DECLARED base, never a measured one, and deliberately not clamped to the container's room - overrunning it is what produces the deficit `shrink` absorbs |
 | 42 | `left` | absolute parent only; negative insets allowed |
 | 43 | `top` | |
 | 44 | `right` | |
@@ -301,7 +305,7 @@ because layout is integer device pixels. Non-finite values, magnitudes over
 2^24 and negative lengths are refused - `static_cast<int>(NaN)` is undefined
 behaviour, so that test is load-bearing rather than tidy.
 
-### 4.2 Partially implemented (9)
+### 4.2 Partially implemented (10)
 
 | id | property | works | does not, and what it needs |
 | --- | --- | --- | --- |
@@ -313,19 +317,16 @@ behaviour, so that test is load-bearing rather than tidy.
 | 32 | `justify` | `start`, `end`, `center`, `space_between` | `space_around` / `space_evenly` also distribute space BEFORE the first child; `place_flex_children` only spreads between them. `align_content` now does exactly that on the cross axis, so the arithmetic exists - what is missing is the decision to change `MainAlign` |
 | 33 | `align` | `start`, `end`, `center`, `stretch` in a flex; `start`, `end`, `center` in a wrap | `baseline` needs a child's baseline before it is placed, which is intrinsic sizing. `stretch` under a WRAPPING container is a different refusal: the extent to stretch to is the child's run, which is not known until the run closes, so it is reported as a layout diagnostic and placed as `start` |
 | 38 | `grow` | whole non-negative weights, under a flex parent | fractional weights would need the free-space split to stop being exact integer division. Under a WRAP parent it is refused entirely - `kNotApplicable` at the boundary, a layout diagnostic through the struct API - matching design.md section 5.4.4 |
+| 39 | `shrink` | whole non-negative weights, under a flex parent, on a child whose base main size is DECLARED - it has a `basis`, or a definite size on the container's main axis | a child whose base is its measured natural size is left at that size and reported by name. Shrinking from a measured base needs a second layout of that subtree, and nesting that makes a pass exponential rather than linear unless the base is measured under an unbounded main axis and cached - which is a slice of its own, costed in `doc/sizing.md` section 1.4. There is also no freeze-and-redistribute loop: a child that floors at its `min_*` stops absorbing and the residual overrun is reported |
 | 41 | `align_self` | `auto`, `start`, `end`, `center`, `stretch` | `baseline`, for the same reason `align=baseline` is unavailable. `stretch` under a wrapping parent degrades exactly as `align=stretch` does |
 
-### 4.3 Not yet implemented (7)
+### 4.3 Not yet implemented (3)
 
 | id | property | what it needs |
 | --- | --- | --- |
-| 7 | `aspect_ratio` | a sizing rule that derives one axis from the other AFTER the constraint resolves. No arrangement in `box_layout.cpp` has a second sizing stage |
 | 17 | `background_gradient` | an `SkShader` in the painter, plus the dedicated `dg_node_set_gradient`-shaped setter design.md section 5.9.5 specifies - it cannot travel in the scalar union |
 | 28 | `shadow` | the LAYER now exists and the same `saveLayer` call takes an image filter. What is still missing: painting OUTSIDE the node's declared bounds, which `subtree_extent` and `visible_bounds` would both have to learn; and making a layer damage-atomic, which a scalar alpha turned out NOT to need - `doc/compositing.md` sections 2 and 6. Also a dedicated setter |
 | 30 | `transform` | the layer exists; non-axis-aligned geometry does not. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare and `contains(rect, point)` is not its hit test. A layer under a transform IS damage-atomic, unlike one under a scalar alpha. Also a dedicated setter |
-| 35 | `main_size` | a second container sizing rule. A container always shrinks to its content within its limits; `max` means filling the main axis instead |
-| 39 | `shrink` | a negative-free-space pass. Children that overrun are currently reported as a layout diagnostic and left overrunning |
-| 40 | `basis` | a base size distinct from the measured one. A flexible child is measured directly under the share its weight earns |
 
 ### 4.4 Suggested grouping for the next slice
 
@@ -352,12 +353,20 @@ remaining two are unchanged.
    term that reads neighbouring pixels, which is exactly what `shadow` and
    `transform` bring. Hit testing deliberately ignores `opacity`, contradicting
    design.md section 5.11.2. `doc/compositing.md`.
-4. **A second sizing stage** - unlocks `aspect_ratio`, `main_size`, `basis`,
-   `shrink`, and would additionally unlock `align=stretch` inside a wrap and
-   `align=baseline` everywhere. This is the one that most threatens the
-   exactly-once invariant, so it needs the intrinsic-sizing caching argument
-   settled first. The wrapping slice deliberately did NOT start it, and
-   `doc/wrapping.md` records the two places it would have been convenient to.
+4. ~~**A second sizing stage**~~ - done, and the name turned out to be wrong.
+   `aspect_ratio`, `main_size` and `basis` need no second measurement at all,
+   and `shrink` needs none either given a declared base, so **every node is
+   still laid out exactly once** and L3 was preserved literally rather than
+   weakened. What the piece really needed was the argument, not the machinery:
+   `doc/sizing.md` section 1 settles it, including the exponential a
+   loose-then-tight design costs and why design.md section 5.4.6's cache is
+   mandatory rather than advisory.
+
+   Two of its predicted side effects did NOT arrive. `align=stretch` inside a
+   wrap and `align=baseline` everywhere both need a MEASURED quantity before a
+   child is placed - a run's extent, a child's baseline - which is the one
+   thing this piece declined to build. The prediction was right that they need
+   the same machinery and wrong that this piece would bring it.
 5. ~~**Per-child overrides and per-side painting**~~ - done. `align_self`, and
    the paint half of `border_width_*`.
 
