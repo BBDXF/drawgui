@@ -279,6 +279,7 @@ jobs:
             tests/unit/test_layout_identity.cpp
             tests/unit/test_wrap.cpp
             tests/unit/test_sizing.cpp
+            tests/unit/test_scroll.cpp
             tests/unit/test_border_paint.cpp
             tests/unit/test_props_parity.cpp
             tests/unit/test_props_boundary.cpp
@@ -330,7 +331,11 @@ jobs:
             examples/09_sizing/main.cpp
             examples/09_sizing/sizing_check.cpp
             examples/09_sizing/sizing_scene.cpp
-            examples/09_sizing/sizing_window.cpp"
+            examples/09_sizing/sizing_window.cpp
+            examples/10_scrolling/main.cpp
+            examples/10_scrolling/scroll_check.cpp
+            examples/10_scrolling/scroll_scene.cpp
+            examples/10_scrolling/scroll_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
