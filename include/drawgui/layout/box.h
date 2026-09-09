@@ -249,6 +249,32 @@ enum class MainSize : std::uint8_t {
   kMax,
 };
 
+// Whether a kLeaf hands its single child an UNBOUNDED constraint on one axis,
+// which is what lets that child (typically a column or row of many items) be
+// measured at its own natural size instead of being squeezed to fit - the
+// unbounded constraint doc/layout.md and doc/sizing.md both named as arriving
+// "with scrolling" (neither built one; this is that slice).
+//
+// kNone is what every kLeaf did before this existed: both axes bounded by
+// whatever this node's own limits resolve to, exactly as `inner.loosened()`
+// already computed. kVertical/kHorizontal override ONLY that one axis's
+// maximum, so the cross axis is unaffected and a node with a huge child still
+// reports a size clamped by its own constraints - overflow, not growth. A
+// node whose own extent on the freed axis is unbounded too gets a layout
+// diagnostic (there would be nothing to scroll within), and a `grow` child
+// under the freed axis gets one as well (design.md section 5.4.7's "grow
+// cannot allocate an infinite amount of space", finally reachable).
+//
+// This is a LayoutTree-only concept: it decides the constraint this node
+// hands its child, nothing else. Clipping the overflow and moving it are
+// unrelated to this field - `overflow` (already in NodeStyle) and
+// RenderTree::set_scroll_offset (runtime state, not a property) do those.
+enum class ScrollAxis : std::uint8_t {
+  kNone,
+  kVertical,
+  kHorizontal,
+};
+
 // Where a wrapping container puts its stack of runs on the cross axis.
 //
 // The direct counterpart of MainAlign one axis over, plus a stretch that
@@ -381,6 +407,12 @@ struct BoxStyle {
   // enough there: `align` positions a child inside its own run, and this
   // positions the stack of runs inside the container.
   AlignContent align_content = AlignContent::kStart;
+
+  // Read only by kLeaf. See ScrollAxis above: which axis, if any, this node's
+  // single child is measured under an unbounded constraint on, which is what
+  // lets a scrolling viewport's content grow past the viewport instead of
+  // being squeezed to fit it.
+  ScrollAxis scroll_axis = ScrollAxis::kNone;
 
   // This child's own cross-axis alignment, overriding the container's.
   //

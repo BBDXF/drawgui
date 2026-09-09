@@ -493,22 +493,61 @@ PixelSize LayoutTree::Impl::measure(std::uint32_t index, const BoxConstraints& c
 
 PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& limits,
                                          const BoxConstraints& inner) {
-  const EdgeInsets insets = content_insets(nodes[index].box);
+  const BoxStyle& box = nodes[index].box;
+  const EdgeInsets insets = content_insets(box);
   const std::vector<std::uint32_t>& children = nodes[index].children;
+
+  // A scrolling leaf hands its child an UNBOUNDED constraint on the one axis
+  // it scrolls, instead of `inner`'s own bound. This is the first unbounded
+  // constraint this engine ever constructs - doc/layout.md and doc/sizing.md
+  // both named it as arriving "with scrolling", and this is that arrival. The
+  // cross axis is untouched, so a scrolling column still fits the viewport's
+  // width; only the scrolled axis lets its child measure at its natural size
+  // instead of being squeezed to fit.
+  //
+  // A node whose OWN extent on that axis is unbounded too gets a diagnostic:
+  // there would be no viewport to scroll within, and content would grow the
+  // leaf itself rather than overflow it.
+  BoxConstraints child_bound = inner;
+  switch (box.scroll_axis) {
+    case ScrollAxis::kNone:
+      break;
+    case ScrollAxis::kVertical:
+      child_bound.max_height = kUnbounded;
+      if (!is_bounded(limits.high_height)) {
+        report(index,
+               "scroll_axis is vertical but this node's own height is unbounded; a "
+               "scrolling viewport needs a definite or max height, or there is no "
+               "room to scroll within");
+      }
+      break;
+    case ScrollAxis::kHorizontal:
+      child_bound.max_width = kUnbounded;
+      if (!is_bounded(limits.high_width)) {
+        report(index,
+               "scroll_axis is horizontal but this node's own width is unbounded; a "
+               "scrolling viewport needs a definite or max width, or there is no room "
+               "to scroll within");
+      }
+      break;
+  }
 
   // A leaf still carries children - that is what a decorated box with one
   // thing in it is - and they are stacked at the content origin rather than
-  // arranged. Their sizes are what the leaf shrinks to fit.
+  // arranged. Their sizes are what the leaf shrinks to fit - or, for a
+  // scrolling leaf, what its own bounded limits clip the reported size back
+  // to; the child itself keeps its full natural extent in `local`, which is
+  // exactly the rectangle RenderTree::set_scroll_offset moves within.
   PixelSize content;
   for (const std::uint32_t child : children) {
     const EdgeInsets margin = nodes[child].box.margin;
-    const PixelSize size = layout_node(child, inner.loosened().deflate(margin));
+    const PixelSize size = layout_node(child, child_bound.loosened().deflate(margin));
     nodes[child].local =
         PixelRect{insets.left + margin.left, insets.top + margin.top, size.width, size.height};
     content.width = std::max(content.width, size.width + margin.horizontal());
     content.height = std::max(content.height, size.height + margin.vertical());
   }
-  return resolved_size(nodes[index].box, limits, insets, content);
+  return resolved_size(box, limits, insets, content);
 }
 
 CrossAlign LayoutTree::Impl::cross_align_of(std::uint32_t container,
@@ -560,9 +599,17 @@ int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& ro
   const int gap = nodes[index].box.gap;
   const int gaps = children.empty() ? 0 : gap * static_cast<int>(children.size() - 1);
 
+  // Zero rather than summed when the main axis is unbounded: `grow`
+  // distributes FREE space, and an unbounded axis has none to distribute -
+  // design.md section 5.4.7's "grow cannot allocate an infinite amount of
+  // space" diagnostic already named this at measure_flex(). Every child's
+  // `item.grow` below is zeroed the same way, for the same reason, so a
+  // scroll-viewport's non-grow children (the common case: a plain list) are
+  // measured exactly as they would be under any other bounded axis.
+  const bool main_bounded = is_bounded(room.main);
   int total_grow = 0;
   for (const std::uint32_t child : children) {
-    total_grow += std::max(0, nodes[child].box.grow);
+    total_grow += main_bounded ? std::max(0, nodes[child].box.grow) : 0;
   }
 
   // Per child rather than per container, which is what align_self buys: a
@@ -594,7 +641,7 @@ int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& ro
     item.margin_main = axis.main_total(margin);
     item.max_cross = shrink_bound(room.cross, axis.cross_total(margin));
     item.min_cross = stretches(child) ? item.max_cross : 0;
-    item.grow = std::max(0, child_box.grow);
+    item.grow = main_bounded ? std::max(0, child_box.grow) : 0;
     item.shrink = std::max(0, child_box.shrink);
     item.floor_main = std::max(0, axis.horizontal ? child_box.min_width : child_box.min_height);
 
@@ -681,18 +728,28 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
   room.main = axis.main_max(inner);
   room.cross = axis.cross_max(inner);
 
-  // An unbounded axis is not currently constructible: the root is laid out
-  // tight to the viewport and every rule in this file derives a child's
-  // maximum from its parent's, so boundedness is inherited all the way down.
-  // These two fallbacks are what the algorithm WOULD do, defined rather than
-  // left to produce a nonsense number, and they are deliberately silent -
-  // design.md section 5.4.7 wants a node-path diagnostic for a constraint
-  // conflict, and a diagnostic nothing can reach is a message written for a
-  // caller that does not exist. The unbounded axis arrives with scrolling.
+  // An unbounded axis was not constructible before scrolling: the root is
+  // laid out tight to the viewport and every rule in this file derives a
+  // child's maximum from its parent's, so boundedness used to be inherited
+  // all the way down. A scrolling leaf's child (ScrollAxis::kVertical /
+  // kHorizontal in measure_leaf) is the first thing that breaks that chain on
+  // purpose, so the fallback below is reachable now, and design.md section
+  // 5.4.7's diagnostic - "grow cannot allocate an infinite amount of space" -
+  // finally has a caller.
   room.stretching =
       nodes[index].box.cross_align == CrossAlign::kStretch && is_bounded(room.cross);
   if (!is_bounded(room.main)) {
-    room.main = 0;
+    bool any_grow = false;
+    for (const std::uint32_t child : children) {
+      any_grow = any_grow || nodes[child].box.grow > 0;
+    }
+    if (any_grow) {
+      report(index,
+             "grow is not distributed; the incoming main-axis constraint is unbounded (an "
+             "ancestor scroll viewport lets this axis grow without limit), and grow cannot "
+             "allocate an infinite amount of space (design.md section 5.4.7). Remove grow, "
+             "or give this container a definite main-axis size");
+    }
   }
 
   const int used = size_flex_children(index, room, axis);
@@ -713,7 +770,7 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
   // of the box that contains them - which is exactly the silent failure
   // design.md section 5.4.7 refuses to allow, so it is named, measured and
   // attributed to the node it happened at.
-  if (used > room.main) {
+  if (is_bounded(room.main) && used > room.main) {
     report(index, "children overrun the main axis by " + std::to_string(used - room.main) +
                       " px (" + std::to_string(used) + " needed, " + std::to_string(room.main) +
                       " available)");
