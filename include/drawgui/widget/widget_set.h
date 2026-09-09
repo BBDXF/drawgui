@@ -69,6 +69,16 @@ enum class WidgetKind : std::uint8_t {
   // same way kCheckbox did: the offset outlives the wheel or drag event that
   // produced it, which the stateless Interaction machine cannot hold.
   kScrollView,
+
+  // A track (this node, a kLeaf) and a thumb (its one child), whose position
+  // along the track is a function of `value` - PAINT-time positioning via
+  // RenderTree::set_local_origin, the same primitive a scroll offset already
+  // proved out, not a new RenderObject kind (design.md section 5.6 line 622's
+  // acceptance bar for exactly this control). Earns its place over reusing
+  // kCheckbox the way kScrollView did: dragging accumulates a value across an
+  // unbounded stream of pointer deltas, which the stateless Interaction
+  // machine cannot hold - doc/form-controls.md section 2.
+  kSlider,
 };
 
 // One widget's whole state. A plain struct of plain fields, for the reason
@@ -92,6 +102,16 @@ struct Widget {
 
   bool checked = false;
 
+  // kCheckbox only. Unset: an ordinary checkbox, and `toggle()` flips
+  // `checked` exactly as it always has. Set: a RADIO BUTTON - clicking it
+  // always SELECTS it (an already-checked one is a no-op, not a toggle-off,
+  // matching every desktop toolkit) and clears `checked` on every OTHER
+  // kCheckbox sharing the same group id. This is the entire feature: a radio
+  // is "checkbox plus one field", not a new WidgetKind, the same way
+  // doc/scrolling.md found scrolling was three existing mechanisms composed
+  // rather than a fourth one - doc/form-controls.md section 1.
+  std::optional<int> group;
+
   // kScrollView only. `scroll_axis` mirrors BoxStyle::scroll_axis - the same
   // vocabulary, not a second one, so a caller cannot set the layout half to
   // vertical and the widget half to horizontal by mistake. `scroll_content`
@@ -101,6 +121,30 @@ struct Widget {
   // copy of that, on purpose (doc/scrolling.md section 2).
   ScrollAxis scroll_axis = ScrollAxis::kNone;
   NodeId scroll_content;
+
+  // kSlider only. `thumb` is the single child node this widget MOVES rather
+  // than paints - the same shape kCheckbox's `indicator` already has, one
+  // level over. `min_value`/`max_value` bound `value`; `step`, when
+  // positive, snaps it to the nearest multiple above `min_value` (0 means
+  // continuous).
+  //
+  // `value` is RUNTIME STATE, not a property, for the identical reason
+  // RenderTree's scroll offset is (doc/scrolling.md section 2): it
+  // accumulates across an unbounded stream of drag deltas rather than being
+  // declared once, so putting it in props/drawgui.props.toml would turn
+  // every drag pixel into a dg_node_set_prop call across the eventual C
+  // ABI - the anti-pattern design.md section 5.15.3 already rejected.
+  // `min_value`/`max_value`/`step` ARE declarative and long-lived, and would
+  // be the natural property candidates the day a caller sets them through
+  // the C ABI; they stay plain construction-time fields here because nothing
+  // consumes them through set_prop() yet - doc/properties.md's own standard
+  // for every property already implemented: a representation is not added
+  // before the code that consumes it exists.
+  NodeId thumb;
+  float min_value = 0.0F;
+  float max_value = 1.0F;
+  float step = 0.0F;
+  float value = 0.0F;
 };
 
 class WidgetSet {
@@ -117,7 +161,31 @@ class WidgetSet {
   // Flips a checkbox and reports its new state. A no-op returning false for
   // every other kind, so a caller acting on InteractionChange::clicked does
   // not have to switch on the kind before asking.
+  //
+  // GROUPED CHECKBOXES (Widget::group has a value) behave differently, and
+  // that is the whole of what makes one a radio button: rather than
+  // flipping, this SELECTS `id` - sets it checked, and clears `checked` on
+  // every other kCheckbox sharing the same group - unless `id` is already
+  // checked, in which case nothing changes (clicking the already-selected
+  // option in a group is a no-op, not a toggle-off; a real radio button is
+  // deselected only by another option in its group being selected instead).
+  // Only `id`'s own `checked` bit is reported back here - see
+  // group_members() for what else this call may have changed, which a
+  // caller has to refresh separately because this function has no RenderTree
+  // to repaint anything with.
   bool toggle(NodeId id);
+
+  // Every OTHER kCheckbox sharing `id`'s group, in the order attached. Empty
+  // when `id` is ungrouped, unattached, or not a checkbox at all.
+  //
+  // This exists because toggle() cannot repaint what it changes - it has no
+  // RenderTree - so a caller that just deselected an entire group by
+  // selecting one of its members needs to know WHICH other widgets to
+  // refresh(). It is a separate scan rather than something toggle() folds
+  // in, matching scrollable_owner_of()'s precedent immediately below: a
+  // second, differently-shaped question over the same table, not a
+  // multi-purpose answer to both.
+  [[nodiscard]] std::vector<NodeId> group_members(NodeId id) const;
 
   // The nearest ancestor-or-self of `id` that accepts pointer input, or
   // nothing when the climb reaches the root without finding one.
@@ -153,6 +221,57 @@ class WidgetSet {
   bool scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport_content, int dx,
                  int dy) const;
 
+  // The nearest ancestor-or-self of `id` that is a kSlider, or nothing - the
+  // same shape scrollable_owner_of() has, one control over: a drag starting
+  // on the thumb (a plain, non-interactive child) still has to find the
+  // slider that owns it.
+  [[nodiscard]] std::optional<NodeId> slidable_owner_of(const RenderTree& tree,
+                                                        NodeId id) const;
+
+  // Sets `id`'s value, clamped to [min_value, max_value] and snapped to the
+  // nearest `step` when it is positive, then repositions the thumb to match.
+  //
+  // Returns false, and repositions nothing, when `id` does not name a
+  // kSlider or the clamped/snapped value equals what is already stored -
+  // scroll_by()'s identical "was this worth a repaint" signal, which is what
+  // keeps a drag that has run past the track's end from damaging the thumb
+  // on every further pointer-move event.
+  //
+  // UNLIKE scroll_by(), this takes no external content-box parameter: the
+  // track is a plain kLeaf with no padding, so its own local_bounds() already
+  // IS the room the thumb may travel in, and no LayoutTree dependency is
+  // needed to ask a second time. A padded track would need one, for the
+  // identical reason scroll_by() needs `viewport_content` - doc/form-
+  // controls.md section 2 names this as declined rather than silently
+  // assumed away.
+  bool set_slider_value(RenderTree& tree, NodeId id, float value);
+
+  [[nodiscard]] float slider_value(NodeId id) const;
+
+  // The value an ABSOLUTE pointer x-coordinate maps to, against `id`'s
+  // CURRENT track geometry - the read-side counterpart of the arithmetic
+  // set_slider_value() runs in the other direction. A drag handler uses this
+  // to turn a pointer position into a value before calling
+  // set_slider_value(); it is exposed rather than folded into a combined
+  // "drag to here" entry point so a test can pin the mapping on its own,
+  // matching every other piece of geometry in this file.
+  [[nodiscard]] float slider_value_at(const RenderTree& tree, NodeId id, int pointer_x) const;
+
+  // Repositions every kSlider's thumb from its CURRENTLY STORED value,
+  // against the track and thumb's CURRENT size. Must be called once after
+  // building a scene (nothing has ever positioned the thumb yet) and again
+  // after any LayoutTree::layout()/layout_full() that may have resized a
+  // slider's track - such a pass reassigns the thumb's local origin back to
+  // the leaf's ordinary content-origin default, the same way it does for
+  // every other leaf child, which silently discards the drag position a
+  // plain set_slider_value() call would skip re-deriving once the stored
+  // value itself has not changed. This is the slider's counterpart of
+  // widget_scene::resync() re-running a stale cached hover after a reflow
+  // (doc/widgets.md section 4) - a caller obligation LayoutTree cannot
+  // discharge on its own, because it has no notion that this leaf's child
+  // position is anything but the ordinary default it just computed.
+  void resync_sliders(RenderTree& tree) const;
+
   // Writes the appearance `id` should have in `state`, and damages nothing
   // when that appearance is already on screen.
   //
@@ -171,6 +290,13 @@ class WidgetSet {
   // clang-analyzer can follow.
   [[nodiscard]] const Widget* find(NodeId id) const;
   [[nodiscard]] Widget* find(NodeId id);
+
+  // The arithmetic set_slider_value() and resync_sliders() share: move
+  // `widget.thumb` to the pixel position its CURRENT `value` maps to. Taking
+  // `widget` by reference rather than looking it up a second time is what
+  // lets resync_sliders() call this for every kSlider in one pass without
+  // re-deriving the NodeId -> Widget* lookup it already has.
+  static void reposition_slider(RenderTree& tree, NodeId id, const Widget& widget);
 
   std::vector<std::optional<Widget>> widgets_;
 };

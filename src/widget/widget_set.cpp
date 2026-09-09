@@ -1,8 +1,11 @@
 #include "drawgui/widget/widget_set.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
+#include <vector>
 
 namespace dg {
 namespace {
@@ -15,9 +18,23 @@ bool interactive(WidgetKind kind) {
     case WidgetKind::kPanel:
     case WidgetKind::kLabel:
     case WidgetKind::kScrollView:
+    case WidgetKind::kSlider:
       break;
   }
   return false;
+}
+
+// [min_value, max_value], then snapped to the nearest `step` above
+// min_value when it is positive, then clamped again - snapping can push a
+// value that was already at a bound slightly past it by rounding.
+float clamp_slider_value(const Widget& widget, float value) {
+  float clamped = std::clamp(value, widget.min_value, widget.max_value);
+  if (widget.step > 0.0F) {
+    const float steps = std::round((clamped - widget.min_value) / widget.step);
+    clamped = std::clamp(widget.min_value + (steps * widget.step), widget.min_value,
+                         widget.max_value);
+  }
+  return clamped;
 }
 
 }  // namespace
@@ -76,8 +93,47 @@ bool WidgetSet::toggle(NodeId id) {
   if (widget == nullptr || widget->kind != WidgetKind::kCheckbox) {
     return false;
   }
-  widget->checked = !widget->checked;
-  return widget->checked;
+  if (!widget->group.has_value()) {
+    widget->checked = !widget->checked;
+    return widget->checked;
+  }
+
+  // Radio behaviour: re-selecting the already-checked option in a group is
+  // a no-op, matching every desktop toolkit, then every OTHER checkbox in
+  // the same group is cleared.
+  if (widget->checked) {
+    return true;
+  }
+  widget->checked = true;
+  const int group = *widget->group;
+  for (std::optional<Widget>& slot : widgets_) {
+    if (!slot.has_value() || &(*slot) == widget) {
+      continue;
+    }
+    if (slot->kind == WidgetKind::kCheckbox && slot->group == group) {
+      slot->checked = false;
+    }
+  }
+  return true;
+}
+
+std::vector<NodeId> WidgetSet::group_members(NodeId id) const {
+  std::vector<NodeId> members;
+  const Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kCheckbox ||
+      !widget->group.has_value()) {
+    return members;
+  }
+  for (std::size_t i = 0; i < widgets_.size(); ++i) {
+    const std::optional<Widget>& slot = widgets_[i];
+    if (!slot.has_value() || i == id.value) {
+      continue;
+    }
+    if (slot->kind == WidgetKind::kCheckbox && slot->group == widget->group) {
+      members.push_back(NodeId{static_cast<std::uint32_t>(i)});
+    }
+  }
+  return members;
 }
 
 std::optional<NodeId> WidgetSet::owner_of(const RenderTree& tree, NodeId id) const {
@@ -152,6 +208,79 @@ bool WidgetSet::scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport
   }
   tree.set_scroll_offset(id, offset);
   return true;
+}
+
+std::optional<NodeId> WidgetSet::slidable_owner_of(const RenderTree& tree, NodeId id) const {
+  NodeId current = id;
+  while (true) {
+    const Widget* widget = find(current);
+    if (widget != nullptr && widget->kind == WidgetKind::kSlider) {
+      return current;
+    }
+    const NodeId parent = tree.parent(current);
+    if (parent == current) {
+      return std::nullopt;
+    }
+    current = parent;
+  }
+}
+
+void WidgetSet::reposition_slider(RenderTree& tree, NodeId id, const Widget& widget) {
+  const PixelRect track = tree.local_bounds(id);
+  const PixelRect thumb = tree.local_bounds(widget.thumb);
+  const int travel = std::max(0, track.width - thumb.width);
+  const float span = widget.max_value - widget.min_value;
+  const float fraction = span > 0.0F ? (widget.value - widget.min_value) / span : 0.0F;
+  const auto thumb_x = static_cast<int>(
+      std::lround(static_cast<double>(fraction) * static_cast<double>(travel)));
+  const int thumb_y = (track.height - thumb.height) / 2;
+  tree.set_local_origin(widget.thumb, thumb_x, thumb_y);
+}
+
+bool WidgetSet::set_slider_value(RenderTree& tree, NodeId id, float value) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kSlider) {
+    return false;
+  }
+  const float clamped = clamp_slider_value(*widget, value);
+  if (clamped == widget->value) {
+    return false;
+  }
+  widget->value = clamped;
+  reposition_slider(tree, id, *widget);
+  return true;
+}
+
+float WidgetSet::slider_value(NodeId id) const {
+  const Widget* widget = find(id);
+  return widget != nullptr && widget->kind == WidgetKind::kSlider ? widget->value : 0.0F;
+}
+
+float WidgetSet::slider_value_at(const RenderTree& tree, NodeId id, int pointer_x) const {
+  const Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kSlider) {
+    return 0.0F;
+  }
+  const PixelRect track = tree.absolute_bounds(id);
+  const PixelRect thumb = tree.local_bounds(widget->thumb);
+  const int travel = std::max(0, track.width - thumb.width);
+  const float half_thumb = static_cast<float>(thumb.width) / 2.0F;
+  const float t = travel > 0
+                      ? std::clamp((static_cast<float>(pointer_x - track.x) - half_thumb) /
+                                       static_cast<float>(travel),
+                                   0.0F, 1.0F)
+                      : 0.0F;
+  return widget->min_value + (t * (widget->max_value - widget->min_value));
+}
+
+void WidgetSet::resync_sliders(RenderTree& tree) const {
+  for (std::size_t i = 0; i < widgets_.size(); ++i) {
+    const std::optional<Widget>& slot = widgets_[i];
+    if (!slot.has_value() || slot->kind != WidgetKind::kSlider) {
+      continue;
+    }
+    reposition_slider(tree, NodeId{static_cast<std::uint32_t>(i)}, *slot);
+  }
 }
 
 void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
