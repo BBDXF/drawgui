@@ -230,6 +230,25 @@ enum class CrossAlign : std::uint8_t {
   kStretch,
 };
 
+// Whether a row, column or wrapping container hugs its content on the main
+// axis or fills the room it was offered.
+//
+// kMin is what every arrangement in this file did before it existed, so it is
+// the default and nothing that does not name kMax changes by a pixel.
+//
+// kMax is resolved in limits_for() rather than in an arrangement, and that is
+// load-bearing rather than tidy: layout_node() decides whether a node is a
+// relayout boundary from limits_for()'s answer, so a container that fills its
+// main axis becomes settled on that axis - and therefore a boundary when its
+// cross axis is settled too - without anybody declaring it one. Resolving it
+// inside measure_flex() would have left the boundary test reading the
+// pre-resolution limits, which is wrong in the direction nothing observes
+// until something moves.
+enum class MainSize : std::uint8_t {
+  kMin,
+  kMax,
+};
+
 // Where a wrapping container puts its stack of runs on the cross axis.
 //
 // The direct counterpart of MainAlign one axis over, plus a stretch that
@@ -276,6 +295,19 @@ struct BoxStyle {
   std::optional<int> width;
   std::optional<int> height;
 
+  // width / height. One axis derived from the other, once that other one is
+  // settled - design.md section 5.4.5.
+  //
+  // Resolved in limits_for(), which runs before any child is touched, so this
+  // is arithmetic on a constraint rather than a second measurement. The case
+  // design.md's sentence does not cover is when NEITHER axis is settled: the
+  // content then decides the box and the ratio GROWS the deficient axis. Only
+  // ever grows, never shrinks, because children were already laid out against
+  // the constraints the pre-ratio limits produced and a box that only grows
+  // still contains all of them - a node painting outside the rectangle it
+  // declared is the one thing damage tracking cannot survive.
+  std::optional<float> aspect_ratio;
+
   int min_width = 0;
   int max_width = kUnbounded;
   int min_height = 0;
@@ -292,6 +324,40 @@ struct BoxStyle {
   // toss on the frames where a sum lands near a half.
   int grow = 0;
 
+  // Weight for absorbing NEGATIVE free main-axis space, the counterpart of
+  // `grow`. An integer for the same reason `grow` is one.
+  //
+  // The deficit is split by `shrink * base`, CSS's scaled shrink factor, which
+  // design.md section 5.4.3 asks for by name. Weighting by `shrink` alone
+  // would take the same number of pixels from a 50 px child as from a 500 px
+  // one, so the small one reaches zero while the large one is barely touched.
+  //
+  // ONLY A CHILD WHOSE BASE IS DECLARED CAN SHRINK - see `basis` below. That
+  // restriction is what keeps every node laid out exactly once; doc/sizing.md
+  // section 1 is the argument in full, and size_flex_children() reports the
+  // node it refused to shrink rather than leaving it to be noticed.
+  int shrink = 0;
+
+  // The child's base main-axis size, before free space is handed out or a
+  // deficit is taken back. parentData, consumed by a flex parent.
+  //
+  // A DECLARED number, never a measured one, and that is the whole of this
+  // slice's answer to intrinsic sizing. An allotment depends on every
+  // sibling's base, so a base that has to be measured cannot be turned into an
+  // allotment without measuring the child a second time - once loose to learn
+  // the base, once tight at the answer - and nesting that makes a pass
+  // exponential rather than linear. A declared base needs no measurement at
+  // all, so the allotment is computed first and the child is laid out once,
+  // already at its answer.
+  //
+  // Deliberately NOT clamped to the room the container has. A base larger than
+  // the room is exactly what produces the deficit `shrink` exists to absorb.
+  //
+  // Absent means the child's natural size, which is what the engine measured
+  // before this field existed - so a tree that sets no basis is measured
+  // exactly as it was.
+  std::optional<int> basis;
+
   // Space between adjacent children of a row or column. design.md section
   // 5.9.4: gap and margin STACK, they do not collapse, so the real distance
   // between two children is gap + left margin + right margin.
@@ -304,6 +370,12 @@ struct BoxStyle {
 
   MainAlign main_align = MainAlign::kStart;
   CrossAlign cross_align = CrossAlign::kStart;
+
+  // Read by kRow, kColumn, kWrapRow and kWrapColumn. kMin hugs the content
+  // within this node's limits; kMax fills the main axis it was offered, which
+  // is what gives `justify` leftover space to place on a container that would
+  // otherwise shrink-wrap.
+  MainSize main_size = MainSize::kMin;
 
   // Read only by kWrapRow and kWrapColumn, for the same reason `align` is not
   // enough there: `align` positions a child inside its own run, and this

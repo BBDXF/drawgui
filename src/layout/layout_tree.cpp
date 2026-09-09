@@ -44,10 +44,9 @@ const char* kind_name(LayoutKind kind) {
 //
 // design.md section 5.8 decision 7 calls these parentData, and
 // props/drawgui.props.toml marks them `parent_data = true`: margin on the
-// ParentData base, grow and align_self on the flex scope, left/top/right/bottom
-// on the stack scope. Those are exactly the fields listed here; shrink and
-// basis are parentData too but BoxStyle has no member for them, so a slice
-// that adds one has to extend this predicate with it.
+// ParentData base, grow, shrink, basis and align_self on the flex scope,
+// left/top/right/bottom on the stack scope. Those are exactly the fields
+// listed here.
 //
 // They matter here because they break the assumption mark_needs_layout() rests
 // on. That function absorbs a node's OWN style change when the node's incoming
@@ -58,8 +57,14 @@ const char* kind_name(LayoutKind kind) {
 // changing its weight from 1 to 0 was absorbed by the child and never reached
 // the row that hands weights out: the incremental pass left it at its old
 // size while a full pass resized it. Measured, not theorised.
+//
+// `shrink` and `basis` join for exactly that reason and it is not theoretical
+// for them either: a child laid out tight at its declared base is tight on the
+// main axis BY CONSTRUCTION, so absorbing its own change there is the same
+// defect one property over.
 [[nodiscard]] bool differs_in_parent_data(const BoxStyle& before, const BoxStyle& after) {
   return before.margin != after.margin || before.grow != after.grow ||
+         before.shrink != after.shrink || before.basis != after.basis ||
          before.align_self != after.align_self || before.left != after.left ||
          before.top != after.top || before.right != after.right ||
          before.bottom != after.bottom;

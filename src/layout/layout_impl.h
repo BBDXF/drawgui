@@ -123,6 +123,28 @@ struct Run {
   [[nodiscard]] std::size_t count() const { return end - begin; }
 };
 
+// One child of a row or column, as the sizing pass sees it. `base` is the main
+// extent before free space is handed out, `allot` the one the child is finally
+// laid out at; margins are excluded from both.
+//
+// `deferred` says the child has NOT been laid out yet, because its extent is
+// not decided until every sibling's base is known. That is the only state in
+// this slice a reader has to hold: a deferred child is laid out exactly once,
+// later, already at its answer.
+struct FlexItem {
+  std::uint32_t node = 0;
+  int margin_main = 0;
+  int min_cross = 0;
+  int max_cross = 0;
+  int base = 0;
+  int allot = 0;
+  int floor_main = 0;
+  int grow = 0;
+  int shrink = 0;
+  std::int64_t shrink_weight = 0;
+  bool deferred = false;
+};
+
 // What one wrapping pass measured, handed from the sizing half to the placing
 // half so that neither re-derives the other's numbers. A second computation
 // of "which children are in which run" is a second computation that can
@@ -154,6 +176,37 @@ struct SizeLimits {
 };
 
 [[nodiscard]] SizeLimits limits_for(const BoxStyle& box, const BoxConstraints& constraints);
+
+// The largest extent an aspect ratio may derive. Same bound the property
+// boundary puts on a length, for the same reason: layout adds extents together
+// and a value near INT_MAX overflows on the first addition. A ratio near zero
+// or near infinity would otherwise turn a modest settled axis into one.
+inline constexpr int kMaxAspectExtent = 1 << 24;
+
+// The extent of the axis an aspect ratio derives, given the settled other one.
+// `ratio` is width/height, so a settled WIDTH divides and a settled height
+// multiplies.
+//
+// Declared here rather than left inside box_layout.cpp so that the arithmetic
+// can be tested directly instead of only through the pixels it produces. Slice
+// 4-4 learned that lesson from fit_radii(), whose two consumers both degraded
+// a bad radius in the same way and therefore could not disagree with it.
+[[nodiscard]] int aspect_partner(int settled, float ratio, bool settled_is_width);
+
+// Settles the main axis at the maximum the parent permits, when the node asked
+// to fill it. Reads BoxStyle::kind to know which axis is the main one, and does
+// nothing on a node that arranges no children.
+void fill_main_axis(const BoxStyle& box, SizeLimits& limits);
+
+// Derives the unsettled axis from the settled one. Does nothing when both are
+// settled (the constraints win, and measure() reports the disagreement) or
+// when neither is (the content decides first, and the ratio grows the result).
+void derive_from_aspect(const BoxStyle& box, SizeLimits& limits);
+
+// The smallest box of this ratio that CONTAINS `size`. Never smaller than
+// `size` on either axis, which is what keeps children inside the box they were
+// laid out against.
+[[nodiscard]] PixelSize grow_to_aspect(PixelSize size, float ratio);
 
 // Border plus padding: the ring between the border box a node reports and the
 // content box its children live in. Margin is not part of it, by design -
@@ -190,6 +243,13 @@ struct LayoutTree::Impl {
 
   PixelSize measure_flex(std::uint32_t index, const SizeLimits& limits,
                          const BoxConstraints& inner, const Axis& axis);
+
+  // Decides where one child's base main extent comes from, and lays the child
+  // out NOW when the only way to learn it is to measure it. A child whose base
+  // is DECLARED is left deferred, so that its allotment can be computed from
+  // every sibling's base first and the child laid out once, at that answer.
+  void classify_child(FlexItem& item, const BoxStyle& child_box, const FlexRoom& room,
+                      const Axis& axis);
 
   // Lays out every child of a row or column exactly once - the inflexible
   // ones under the room available, then the flexible ones under the share of

@@ -3,6 +3,7 @@
 // this file - see the note about intrinsic sizing in layout_tree.h.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -77,6 +78,99 @@ PixelSize border_box_size(const SizeLimits& limits, const EdgeInsets& insets,
       pick(content.height, insets.vertical(), limits.low_height, limits.high_height)};
 }
 
+}  // namespace
+
+int aspect_partner(int settled, float ratio, bool settled_is_width) {
+  const double scale = static_cast<double>(ratio);
+  if (!std::isfinite(scale) || scale <= 0.0) {
+    return settled;
+  }
+  const double raw = settled_is_width ? static_cast<double>(settled) / scale
+                                      : static_cast<double>(settled) * scale;
+  if (!(raw > 0.0)) {
+    return 0;
+  }
+  if (raw >= static_cast<double>(kMaxAspectExtent)) {
+    return kMaxAspectExtent;
+  }
+  return static_cast<int>(std::lround(raw));
+}
+
+void fill_main_axis(const BoxStyle& box, SizeLimits& limits) {
+  if (box.main_size != MainSize::kMax || !arranges_children(box.kind)) {
+    return;
+  }
+  const bool horizontal = box.kind == LayoutKind::kRow || box.kind == LayoutKind::kWrapRow;
+  const int high = horizontal ? limits.high_width : limits.high_height;
+  if (!is_bounded(high)) {
+    return;
+  }
+  (horizontal ? limits.low_width : limits.low_height) = high;
+}
+
+void derive_from_aspect(const BoxStyle& box, SizeLimits& limits) {
+  if (!box.aspect_ratio.has_value()) {
+    return;
+  }
+  const bool width_settled = limits.tight_width();
+  const bool height_settled = limits.tight_height();
+
+  // Neither settled: the content decides the box first and resolved_size()
+  // grows it afterwards. Both settled: the constraints win, because the parent
+  // already reserved that space, and measure() reports the disagreement.
+  //
+  // The both-settled half of this guard is PROVABLY INERT and is kept for what
+  // it says rather than for what it prevents. Deriving into a settled axis
+  // clamps the result into [low, high] where low == high by definition, so it
+  // can only produce the value that is already there - measured by injection,
+  // which removed this half and changed nothing anywhere. It stays because the
+  // clamp is an accident of how the derivation is written and this line is the
+  // rule; a later derivation that stopped clamping would need it back.
+  if (width_settled == height_settled) {
+    return;
+  }
+  if (width_settled) {
+    const int derived = std::clamp(aspect_partner(limits.low_width, *box.aspect_ratio, true),
+                                   limits.low_height, limits.high_height);
+    limits.low_height = derived;
+    limits.high_height = derived;
+    return;
+  }
+  const int derived = std::clamp(aspect_partner(limits.low_height, *box.aspect_ratio, false),
+                                 limits.low_width, limits.high_width);
+  limits.low_width = derived;
+  limits.high_width = derived;
+}
+
+PixelSize grow_to_aspect(PixelSize size, float ratio) {
+  if (static_cast<double>(size.width) <
+      static_cast<double>(size.height) * static_cast<double>(ratio)) {
+    return PixelSize{aspect_partner(size.height, ratio, false), size.height};
+  }
+  return PixelSize{size.width, aspect_partner(size.width, ratio, true)};
+}
+
+namespace {
+
+// border_box_size(), plus the aspect ratio in the one case limits_for() cannot
+// resolve: neither axis settled, so the content decides the box and the ratio
+// then GROWS the deficient side of it.
+//
+// Only grows. Children were laid out against constraints derived from the
+// pre-ratio limits and placed inside the box those produced; a box that only
+// ever grows still contains every one of them, so no node ends up painting
+// outside the rectangle it declared - which is what damage tracking rests on.
+PixelSize resolved_size(const BoxStyle& box, const SizeLimits& limits, const EdgeInsets& insets,
+                        PixelSize content) {
+  const PixelSize sized = border_box_size(limits, insets, content);
+  if (!box.aspect_ratio.has_value() || limits.tight_width() || limits.tight_height()) {
+    return sized;
+  }
+  const PixelSize grown = grow_to_aspect(sized, *box.aspect_ratio);
+  return PixelSize{std::clamp(grown.width, limits.low_width, limits.high_width),
+                   std::clamp(grown.height, limits.low_height, limits.high_height)};
+}
+
 // Hands out `pool` in proportion to the weights seen so far, by prefix sums
 // rather than by dividing each share independently. Two properties follow and
 // both are load-bearing: the shares add up to exactly `pool`, so no pixel is
@@ -97,11 +191,145 @@ int share_upto(int pool, int units, int units_total) {
   return static_cast<int>((static_cast<std::int64_t>(pool) * units) / units_total);
 }
 
+// The same running total for the shrink distribution, whose weights are a
+// PRODUCT of two bounded quantities and therefore do not fit in an int. The
+// caller guarantees `units_total` has been reduced below 2^31, which is what
+// keeps `pool * units` inside 64 bits.
+std::int64_t share_upto_wide(int pool, std::int64_t units, std::int64_t units_total) {
+  if (units_total <= 0) {
+    return 0;
+  }
+  return (static_cast<std::int64_t>(pool) * units) / units_total;
+}
+
 int prefix_share(int pool, int weight_so_far, int weight_total, int already_given) {
   if (weight_total <= 0) {
     return 0;
   }
   return share_upto(pool, weight_so_far, weight_total) - already_given;
+}
+
+// `source` folded into the child's own min/max on the main axis.
+//
+// Deliberately NOT clamped to the container's room: a base larger than the
+// room is exactly the deficit `shrink` exists to absorb.
+std::optional<int> clamped_main(const BoxStyle& box, const Axis& axis,
+                                const std::optional<int>& source) {
+  if (!source.has_value()) {
+    return std::nullopt;
+  }
+  const int low = std::max(0, axis.horizontal ? box.min_width : box.min_height);
+  const int high = axis.horizontal ? box.max_width : box.max_height;
+  const int capped = is_bounded(high) ? std::min(*source, high) : *source;
+  return std::max(low, std::max(0, capped));
+}
+
+// What a child brings to the sizing pass before anything is measured: its
+// declared base if it has one, and whether that base came from an explicit
+// `basis` rather than from a definite size.
+//
+// This is the whole of doc/sizing.md section 1 in one struct. An allotment
+// depends on every sibling's base, so a base that has to be measured cannot
+// become an allotment without laying the child out a second time; a declared
+// base can be turned into an allotment before the child is touched at all.
+//
+// The two are kept apart because a grow child takes ONLY the explicit basis -
+// never its own width, which is what CSS's flex-basis: auto would make it.
+// That is not a new decision: it is what this engine has always done, and
+// changing it would move every flexible child in every existing scene.
+struct DeclaredBase {
+  std::optional<int> from_basis;
+  std::optional<int> any;
+};
+
+DeclaredBase declared_base(const BoxStyle& box, const Axis& axis) {
+  DeclaredBase declared;
+  declared.from_basis = clamped_main(box, axis, box.basis);
+  declared.any = declared.from_basis.has_value()
+                     ? declared.from_basis
+                     : clamped_main(box, axis, axis.horizontal ? box.width : box.height);
+  return declared;
+}
+
+// Positive free space, handed to the grow weights. Prefix sums rather than a
+// per-child division, so the shares add up to exactly `pool` - 100 across
+// three equal weights is 33, 33, 34.
+void distribute_growth(std::vector<FlexItem>& items, int pool, int total_grow) {
+  if (total_grow <= 0) {
+    return;
+  }
+  int weight_so_far = 0;
+  int given = 0;
+  for (FlexItem& item : items) {
+    if (item.grow <= 0) {
+      continue;
+    }
+    weight_so_far += item.grow;
+    const int share = prefix_share(pool, weight_so_far, total_grow, given);
+    given += share;
+    item.allot = item.base + share;
+  }
+}
+
+// Negative free space, taken back from the shrink weights.
+//
+// The weight is `shrink * base`, CSS's scaled shrink factor and what design.md
+// section 5.4.3 asks for by name. Weighting by `shrink` alone would take the
+// same number of pixels from a 50 px child as from a 500 px one, so the small
+// one would reach zero while the large one was barely touched.
+//
+// A child with a grow weight is a grow child and is excluded: when there is a
+// deficit its share of positive free space is zero, so it already receives its
+// base and nothing more.
+//
+// THE REDUCTION is the one piece of arithmetic here that is not exact. A
+// weight is a product of two quantities each bounded at 2^24 by the property
+// boundary, so a total can exceed what `pool * units` may safely hold in 64
+// bits. Dividing every weight by one common divisor brings the total under
+// 2^31; the divisor is a pure function of the weights, so an incremental pass
+// and a full pass reduce identically, and in any scene anybody will build it
+// is 1 and nothing is perturbed.
+void distribute_deficit(std::vector<FlexItem>& items, int deficit) {
+  std::int64_t total_weight = 0;
+  for (FlexItem& item : items) {
+    if (!item.deferred || item.grow > 0 || item.shrink <= 0) {
+      continue;
+    }
+    item.shrink_weight = static_cast<std::int64_t>(item.shrink) * item.base;
+    total_weight += item.shrink_weight;
+  }
+  if (total_weight <= 0) {
+    return;
+  }
+
+  const std::int64_t divisor = (total_weight >> 31) + 1;
+  std::int64_t reduced_total = 0;
+  for (FlexItem& item : items) {
+    item.shrink_weight /= divisor;
+    reduced_total += item.shrink_weight;
+  }
+  if (reduced_total <= 0) {
+    return;
+  }
+
+  std::int64_t weight_so_far = 0;
+  std::int64_t given = 0;
+  for (FlexItem& item : items) {
+    if (item.shrink_weight <= 0) {
+      continue;
+    }
+    weight_so_far += item.shrink_weight;
+    const std::int64_t share = share_upto_wide(deficit, weight_so_far, reduced_total) - given;
+    given += share;
+
+    // A child that reaches its declared minimum stops absorbing, and the
+    // residual keeps the container overrunning - which the overrun diagnostic
+    // already reports. CSS re-runs the distribution over the children that did
+    // not freeze; that loop is pure arithmetic and would cost no measurement,
+    // but it is a second rule with its own semantics and it is left out until
+    // something needs it. doc/sizing.md section 1.8 records the deviation.
+    item.allot = std::max(item.floor_main, item.base - static_cast<int>(share));
+  }
 }
 
 // Where the first child of a run starts, and how much space is shared out
@@ -202,6 +430,13 @@ SizeLimits limits_for(const BoxStyle& box, const BoxConstraints& constraints) {
         limits.low_width, limits.high_width);
   merge(constraints.min_height, constraints.max_height, box.min_height, box.max_height,
         box.height, limits.low_height, limits.high_height);
+
+  // main_size first, then aspect_ratio: filling the main axis settles it, and
+  // a settled axis is what the ratio derives the other one from. The reverse
+  // order would let a ratio resolve against an extent main_size was about to
+  // change.
+  fill_main_axis(box, limits);
+  derive_from_aspect(box, limits);
   return limits;
 }
 
@@ -209,6 +444,25 @@ PixelSize LayoutTree::Impl::measure(std::uint32_t index, const BoxConstraints& c
   const BoxStyle& box = nodes[index].box;
   const SizeLimits limits = limits_for(box, constraints);
   const EdgeInsets insets = content_insets(box);
+
+  // The aspect-ratio cases that have no correct answer, both reported the same
+  // way because a caller can only act on the same fact: the node is settled on
+  // both axes at a shape the ratio does not describe. That happens when the
+  // parent fixed both - the constraints win, it has already reserved the space
+  // - and when the derived axis was then clamped by a bound of its own.
+  //
+  // Compared against the derived extent rather than reported whenever a ratio
+  // meets tight limits, so a ratio that AGREES stays quiet and a stretched
+  // square asking for 1:1 does not produce a message every frame.
+  if (box.aspect_ratio.has_value() && limits.tight_width() && limits.tight_height()) {
+    const int wanted = aspect_partner(limits.low_height, *box.aspect_ratio, false);
+    if (wanted != limits.low_width) {
+      report(index, "aspect_ratio cannot be honoured; this node is fixed at " +
+                        std::to_string(limits.low_width) + "x" +
+                        std::to_string(limits.low_height) + " and the ratio needs " +
+                        std::to_string(wanted) + "x" + std::to_string(limits.low_height));
+    }
+  }
 
   // A tightly sized node passes its minimum down too, so a child told to
   // stretch actually fills the box its parent has already committed to. A
@@ -234,7 +488,7 @@ PixelSize LayoutTree::Impl::measure(std::uint32_t index, const BoxConstraints& c
     case LayoutKind::kAbsolute:
       return measure_absolute(index, limits, inner);
   }
-  return border_box_size(limits, insets, PixelSize{});
+  return resolved_size(box, limits, insets, PixelSize{});
 }
 
 PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& limits,
@@ -254,7 +508,7 @@ PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& 
     content.width = std::max(content.width, size.width + margin.horizontal());
     content.height = std::max(content.height, size.height + margin.vertical());
   }
-  return border_box_size(limits, insets, content);
+  return resolved_size(nodes[index].box, limits, insets, content);
 }
 
 CrossAlign LayoutTree::Impl::cross_align_of(std::uint32_t container,
@@ -272,6 +526,34 @@ CrossAlign LayoutTree::Impl::cross_align_of(std::uint32_t container,
              : wanted;
 }
 
+void LayoutTree::Impl::classify_child(FlexItem& item, const BoxStyle& child_box,
+                                      const FlexRoom& room, const Axis& axis) {
+  const DeclaredBase declared = declared_base(child_box, axis);
+
+  if (item.grow > 0) {
+    item.base = declared.from_basis.value_or(0);
+    item.deferred = true;
+    return;
+  }
+  if (declared.any.has_value() && (child_box.basis.has_value() || item.shrink > 0)) {
+    item.base = *declared.any;
+    item.deferred = true;
+    return;
+  }
+
+  const PixelSize size =
+      layout_node(item.node, axis.constraints_of(0, shrink_bound(room.main, item.margin_main),
+                                                 item.min_cross, item.max_cross));
+  item.base = axis.main_of(size);
+  if (item.shrink > 0) {
+    report(item.node,
+           "shrink was not applied; this child's base main size is its measured natural "
+           "size, and shrinking from a measured base needs a second layout of its subtree "
+           "(invariant L3, design.md section 5.4.1). Give it a basis, or a definite size on "
+           "the container's main axis");
+  }
+}
+
 int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& room,
                                          const Axis& axis) {
   const std::vector<std::uint32_t>& children = nodes[index].children;
@@ -282,11 +564,6 @@ int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& ro
   for (const std::uint32_t child : children) {
     total_grow += std::max(0, nodes[child].box.grow);
   }
-  const bool flexible = total_grow > 0;
-
-  const auto cross_constraint = [&](const EdgeInsets& margin) {
-    return shrink_bound(room.cross, axis.cross_total(margin));
-  };
 
   // Per child rather than per container, which is what align_self buys: a
   // child that opted out of a stretching row must not receive the tight cross
@@ -296,41 +573,64 @@ int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& ro
     return is_bounded(room.cross) && cross_align_of(index, child) == CrossAlign::kStretch;
   };
 
+  // ONE walk in child order, sorting each child into measured, declared or
+  // grown. Both of the latter are entered only by a property that did not
+  // exist before this slice, so a tree that sets neither takes exactly the
+  // calls, in exactly the order, that it took before - which matters for
+  // diagnostics as well as for pixels, because report() appends to a vector
+  // whose order the property parity test compares.
+  std::vector<FlexItem> items;
+  items.reserve(children.size());
+
   int used = gaps;
+  int grow_base_total = 0;
+
   for (const std::uint32_t child : children) {
-    if (flexible && nodes[child].box.grow > 0) {
-      continue;
+    const BoxStyle& child_box = nodes[child].box;
+    const EdgeInsets margin = child_box.margin;
+
+    FlexItem item;
+    item.node = child;
+    item.margin_main = axis.main_total(margin);
+    item.max_cross = shrink_bound(room.cross, axis.cross_total(margin));
+    item.min_cross = stretches(child) ? item.max_cross : 0;
+    item.grow = std::max(0, child_box.grow);
+    item.shrink = std::max(0, child_box.shrink);
+    item.floor_main = std::max(0, axis.horizontal ? child_box.min_width : child_box.min_height);
+
+    classify_child(item, child_box, room, axis);
+    if (item.grow > 0) {
+      // A grow child's margin still comes out of its share rather than out of
+      // `used`, which is the split the engine already had; with a base of zero
+      // this line and the next reproduce it digit for digit.
+      grow_base_total += item.base;
+    } else {
+      used += item.base + item.margin_main;
     }
-    const EdgeInsets margin = nodes[child].box.margin;
-    const int cross = cross_constraint(margin);
-    const PixelSize size = layout_node(
-        child, axis.constraints_of(0, shrink_bound(room.main, axis.main_total(margin)),
-                                   stretches(child) ? cross : 0, cross));
-    used += axis.main_of(size) + axis.main_total(margin);
-  }
-  if (!flexible) {
-    return used;
+    item.allot = item.base;
+    items.push_back(item);
   }
 
-  const int free_space = std::max(0, room.main - used);
-  int weight_so_far = 0;
-  int given = 0;
-  for (const std::uint32_t child : children) {
-    const int weight = nodes[child].box.grow;
-    if (weight <= 0) {
+  const int free_space = room.main - used - grow_base_total;
+  if (free_space > 0) {
+    distribute_growth(items, free_space, total_grow);
+  } else if (free_space < 0) {
+    distribute_deficit(items, -free_space);
+  }
+
+  for (const FlexItem& item : items) {
+    if (!item.deferred) {
       continue;
     }
-    weight_so_far += weight;
-    const int share = prefix_share(free_space, weight_so_far, total_grow, given);
-    given += share;
-
-    const EdgeInsets margin = nodes[child].box.margin;
-    const int main_extent = std::max(0, share - axis.main_total(margin));
-    const int cross = cross_constraint(margin);
+    const int extent = item.grow > 0 ? std::max(0, item.allot - item.margin_main) : item.allot;
     const PixelSize size = layout_node(
-        child,
-        axis.constraints_of(main_extent, main_extent, stretches(child) ? cross : 0, cross));
-    used += axis.main_of(size) + axis.main_total(margin);
+        item.node, axis.constraints_of(extent, extent, item.min_cross, item.max_cross));
+
+    // A grow child never had its base or its margin counted, so it contributes
+    // both here. A declared child already contributed base + margin during the
+    // walk, so only the difference the distribution made is outstanding.
+    used +=
+        item.grow > 0 ? axis.main_of(size) + item.margin_main : axis.main_of(size) - item.base;
   }
   return used;
 }
@@ -421,7 +721,7 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
 
   const PixelSize content =
       axis.horizontal ? PixelSize{used, content_cross} : PixelSize{content_cross, used};
-  const PixelSize size = border_box_size(limits, insets, content);
+  const PixelSize size = resolved_size(nodes[index].box, limits, insets, content);
   place_flex_children(index, size, used, axis);
   return size;
 }
@@ -439,12 +739,15 @@ WrapLayout LayoutTree::Impl::size_wrap_children(std::uint32_t index, const FlexR
 
   bool any_grow = false;
   bool any_stretch = false;
+  bool any_flex_base = false;
 
   Run run;
   for (std::size_t slot = 0; slot < children.size(); ++slot) {
     const std::uint32_t child = children[slot];
     const EdgeInsets margin = nodes[child].box.margin;
     any_grow = any_grow || nodes[child].box.grow > 0;
+    any_flex_base =
+        any_flex_base || nodes[child].box.basis.has_value() || nodes[child].box.shrink > 0;
     any_stretch = any_stretch ||
                   nodes[child].box.align_self.value_or(container_align) == CrossAlign::kStretch;
 
@@ -492,6 +795,13 @@ WrapLayout LayoutTree::Impl::size_wrap_children(std::uint32_t index, const FlexR
            "grow is not distributed by a wrapping container; a weight would have to be "
            "resolved against the run the child lands in, which is not known until the run "
            "is closed (design.md section 5.4.4 excludes it)");
+  }
+  if (any_flex_base) {
+    report(index,
+           "basis and shrink are not resolved by a wrapping container; both describe a "
+           "child's share of ONE main axis, and a wrapping container hands out as many as "
+           "it has runs - which run a child lands in is not known until the run is closed "
+           "(the table lists both as consumed_by = flex, as it does grow)");
   }
   if (any_stretch) {
     report(index,
@@ -600,7 +910,7 @@ PixelSize LayoutTree::Impl::measure_wrap(std::uint32_t index, const SizeLimits& 
   const PixelSize content = axis.horizontal
                                 ? PixelSize{wrapped.content_main, wrapped.content_cross}
                                 : PixelSize{wrapped.content_cross, wrapped.content_main};
-  const PixelSize size = border_box_size(limits, insets, content);
+  const PixelSize size = resolved_size(nodes[index].box, limits, insets, content);
   place_wrap_children(index, size, wrapped, axis);
   return size;
 }
@@ -618,7 +928,7 @@ PixelSize LayoutTree::Impl::measure_absolute(std::uint32_t index, const SizeLimi
   // an overlay layer wants to cover what it overlays.
   const PixelSize content{is_bounded(inner.max_width) ? inner.max_width : inner.min_width,
                           is_bounded(inner.max_height) ? inner.max_height : inner.min_height};
-  const PixelSize size = border_box_size(limits, insets, content);
+  const PixelSize size = resolved_size(nodes[index].box, limits, insets, content);
 
   const int inner_width = std::max(0, size.width - insets.horizontal());
   const int inner_height = std::max(0, size.height - insets.vertical());
