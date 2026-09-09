@@ -30,6 +30,7 @@
 #include "drawgui/layout/box.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/widget/widget_set.h"
 
 namespace {
 
@@ -376,6 +377,40 @@ TEST_CASE("scrolling marks nothing dirty in the layout tree") {
   const dg::LayoutStats after_scroll = tree.layout();
   CHECK(after_scroll.nodes_visited == 0);
   CHECK(after_scroll.nodes_relaid_out == 0);
+}
+
+// --------------------------------------------------------------------------
+// WidgetSet::scroll_by ignores the axis it was not asked to move, even when
+// BOTH axes have room to move - built with deliberately mismatched content so
+// that a cross-axis bug cannot hide behind "there was nothing to scroll on
+// that axis anyway", which examples/10_scrolling's own scenes cannot rule
+// out on their own (their items fill the cross axis exactly, by design).
+// --------------------------------------------------------------------------
+
+TEST_CASE("scroll_by moves only its own axis, even when the other one has room too") {
+  RenderTree tree{spec_for()};
+  const NodeId viewport = tree.add_child(RenderTree::root(), PixelRect{0, 0, 100, 100},
+                                         styled(0xFF243040, Overflow::kClip));
+  // Content both taller AND wider than the viewport, unlike the demo's
+  // scenes - this is what gives a cross-axis-delta bug something to move.
+  const NodeId content =
+      tree.add_child(viewport, PixelRect{0, 0, 300, 300}, styled(0xFF35506E));
+
+  dg::WidgetSet widgets;
+  dg::Widget widget;
+  widget.kind = dg::WidgetKind::kScrollView;
+  widget.scroll_axis = dg::ScrollAxis::kVertical;
+  widget.scroll_content = content;
+  widgets.attach(viewport, widget);
+
+  const PixelRect viewport_content{0, 0, 100, 100};
+  const bool moved_x = widgets.scroll_by(tree, viewport, viewport_content, 50, 0);
+  CHECK_FALSE(moved_x);
+  CHECK(tree.scroll_offset(viewport) == PixelPoint{0, 0});
+
+  const bool moved_y = widgets.scroll_by(tree, viewport, viewport_content, 0, 50);
+  CHECK(moved_y);
+  CHECK(tree.scroll_offset(viewport) == PixelPoint{0, 50});
 }
 
 }  // namespace
