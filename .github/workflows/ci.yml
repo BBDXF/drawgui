@@ -336,7 +336,11 @@ jobs:
             examples/10_scrolling/main.cpp
             examples/10_scrolling/scroll_check.cpp
             examples/10_scrolling/scroll_scene.cpp
-            examples/10_scrolling/scroll_window.cpp"
+            examples/10_scrolling/scroll_window.cpp
+            examples/11_form_controls/main.cpp
+            examples/11_form_controls/form_check.cpp
+            examples/11_form_controls/form_scene.cpp
+            examples/11_form_controls/form_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
