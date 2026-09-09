@@ -300,10 +300,21 @@ PropWrite apply_max_height(Target& target, const PropValue& value) {
   return box_scalar(target, value, &BoxStyle::max_height, "max_height", false);
 }
 
-PropWrite apply_aspect_ratio(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "aspect_ratio",
-                     "layout would have to derive one axis from the other after the "
-                     "constraint resolves, which no arrangement in box_layout.cpp does");
+// A RATIO, so neither a length nor a fraction: zero and negative values have
+// no geometry, and a value near either end of the float range turns a modest
+// settled axis into an extent layout cannot add to. Bounded symmetrically so
+// that `w/h` and `h/w` are equally expressible - 1/16777216 through 16777216.
+PropWrite apply_aspect_ratio(Target& target, const PropValue& value) {
+  const float ratio = value.scalar();
+  if (!std::isfinite(ratio) || ratio <= 0.0F || ratio > kMaxLength ||
+      ratio < 1.0F / kMaxLength) {
+    return out_of_range(target,
+                        "aspect_ratio needs a finite, positive width/height ratio within "
+                        "1/16777216..16777216");
+  }
+  target.box.aspect_ratio = ratio;
+  target.box_changed = true;
+  return PropWrite{};
 }
 
 PropWrite apply_padding_l(Target& target, const PropValue& value) {
@@ -522,10 +533,24 @@ PropWrite apply_gap(Target& target, const PropValue& value) {
   return box_scalar(target, value, &BoxStyle::gap, "gap", false);
 }
 
-PropWrite apply_main_size(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "main_size",
-                     "a container here always shrinks to its content within its limits; "
-                     "filling the main axis instead is a second sizing rule");
+PropWrite apply_main_size(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = self_must_arrange(target, "main_size");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  switch (value.ordinal()) {
+    case DG_MAIN_SIZE_MIN:
+      target.box.main_size = MainSize::kMin;
+      break;
+    case DG_MAIN_SIZE_MAX:
+      target.box.main_size = MainSize::kMax;
+      break;
+    default:
+      return out_of_range(
+          target, "main_size has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.box_changed = true;
+  return PropWrite{};
 }
 
 PropWrite apply_run_gap(Target& target, const PropValue& value) {
@@ -594,16 +619,45 @@ PropWrite apply_grow(Target& target, const PropValue& value) {
   return PropWrite{};
 }
 
-PropWrite apply_shrink(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "shrink",
-                     "children that overrun the main axis are reported as a diagnostic and "
-                     "left overrunning; absorbing negative free space is a second pass");
+// A whole weight, refused rather than rounded, for the reason grow is: the
+// deficit split is exact integer division and a fractional weight has no
+// meaning that survives a re-layout.
+//
+// ACCEPTED EVEN WHEN IT CANNOT BE HONOURED, deliberately. shrink needs a
+// declared base - a `basis`, or a definite size on the container's main axis -
+// and whether the child has one depends on properties that may be written in
+// either order, so refusing here would make `shrink` then `basis` fail where
+// `basis` then `shrink` succeeded. The refusal belongs at layout time, where
+// the whole node is visible, and size_flex_children() reports it with the node
+// path. Same shape as align_self=stretch under a wrapping parent.
+PropWrite apply_shrink(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = parent_must_flex(target, "shrink");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  const float weight = value.scalar();
+  if (!std::isfinite(weight) || weight < 0.0F || weight > kMaxLength ||
+      weight != std::floor(weight)) {
+    return out_of_range(target,
+                        "shrink needs a whole, non-negative weight; the deficit split is "
+                        "exact integer division, so a fractional weight has no meaning "
+                        "that survives a re-layout");
+  }
+  target.box.shrink = static_cast<int>(weight);
+  target.box_changed = true;
+  return PropWrite{};
 }
 
-PropWrite apply_basis(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "basis",
-                     "a flexible child is measured under the share its weight earns, with "
-                     "no separate base size to start from");
+// Like `width`, this has no way to be cleared once written, because the table
+// carries no `auto` ordinal for it and inventing one here would be inventing
+// ABI. `align_self` can be cleared only because its `values` list has `auto` in
+// it. Recorded rather than worked around.
+PropWrite apply_basis(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = parent_must_flex(target, "basis");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  return box_optional(target, value, &BoxStyle::basis, "basis", false);
 }
 
 // `auto` is absence rather than a fifth alignment, which is why BoxStyle holds
