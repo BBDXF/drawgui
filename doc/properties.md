@@ -251,19 +251,20 @@ written for a different purpose.
 
 ## 4. The gap report
 
-45 properties: **32 implemented**, **10 partially implemented**, **3 not yet**.
+46 properties: **33 implemented**, **10 partially implemented**, **3 not yet**.
 
 A partially implemented property applies correctly for the values listed as
 supported and returns `kUnsupported` - naming the node - for the rest. Nothing
 in either column is silently ignored.
 
-The counts have moved four times since this report was first written: the
+The counts have moved five times since this report was first written: the
 wrapping slice built the pieces section 4.4 called 1 and 5
 (`doc/wrapping.md`), the clipping slice built piece 2 (`doc/clipping.md`), the
-compositing slice built piece 3 (`doc/compositing.md`), and the sizing slice
-built piece 4 (`doc/sizing.md`).
+compositing slice built piece 3 (`doc/compositing.md`), the sizing slice built
+piece 4 (`doc/sizing.md`), and the scrolling slice appended a 46th property,
+`scroll_axis` (`doc/scrolling.md`).
 
-### 4.1 Implemented (32)
+### 4.1 Implemented (33)
 
 | id | property | notes |
 | --- | --- | --- |
@@ -299,6 +300,7 @@ built piece 4 (`doc/sizing.md`).
 | 43 | `top` | |
 | 44 | `right` | |
 | 45 | `bottom` | |
+| 46 | `scroll_axis` | `kLeaf` only; hands the node's single child an UNBOUNDED constraint on the named axis instead of the node's own bound - the first unbounded constraint this engine ever constructs. Does not itself clip (`overflow` does that) or move anything (`RenderTree::set_scroll_offset`, runtime state, does) - `doc/scrolling.md` sections 1-2 |
 
 Lengths are float at the boundary and round to nearest, ties away from zero,
 because layout is integer device pixels. Non-finite values, magnitudes over

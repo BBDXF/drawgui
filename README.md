@@ -84,6 +84,27 @@ the argument, including the exponential the obvious two-pass design costs and
 why design.md section 5.4.6's cache is mandatory rather than advisory. 32
 properties are now fully implemented, 10 partially and 3 report `kUnsupported`.
 
+A leaf can now be a **scrolling viewport**, and a "list" turned out to be
+nothing new: it is a `kColumn`/`kRow` of ordinary children composed inside
+one. `scroll_axis` hands that single child an unbounded constraint on one
+axis instead of squeezing it to fit, `overflow` (unchanged) clips the
+overflow at the viewport's own bounds, and `RenderTree::set_scroll_offset`
+shifts the child without moving what it declared - the same shape a clip
+confines a descendant without confining its own paint. The offset itself is
+runtime state, not a property, for the reason hover and press already are:
+it accumulates across an unbounded stream of wheel notches and drag deltas
+rather than being declared once. Scrolling costs a repaint and never a
+relayout - `LayoutTree::layout()` visits zero nodes on a frame where only the
+offset changed, measured on the demo scene rather than assumed from the code
+that makes it true. Hit testing needed no new code at all: it already read
+the position the offset shifts, so a scrolled-out child stops answering and a
+scrolled-in one starts, for free. 33 properties are now fully implemented, 10
+partially and 3 report `kUnsupported`. `doc/scrolling.md` records why nested
+scrolling composes without new code, what design.md's own roadmap asks for
+that needs an animation clock this project does not have yet (fling,
+overscroll rebound - both declined and named), and why list virtualization
+belongs to a later phase's `List` control rather than to this viewport.
+
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
@@ -243,6 +264,23 @@ fills the main axis.
 ./build/examples/drawgui_sizing --dump-png out.png
 ```
 
+## The scrolling demo
+
+`examples/10_scrolling` draws two independent viewports out of the same
+mechanism: a vertical list of 24 chips inside a `scroll_axis: vertical` leaf,
+and a horizontal strip of 14 wider chips inside a `scroll_axis: horizontal`
+one. Both overflow their viewport - that is the point - and both clip through
+the same `overflow` this project already had. Wheel over either scrolls it;
+click-drag inside one grabs its content; both clamp at their content's edges
+rather than overscrolling past them.
+
+```sh
+./build/examples/drawgui_scrolling                       # wheel or drag either strip
+./build/examples/drawgui_scrolling --scroll-vertical 300  # open pre-scrolled (offscreen modes)
+./build/examples/drawgui_scrolling --verify-scrolling     # headless check
+./build/examples/drawgui_scrolling --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -306,4 +344,5 @@ Findings and decisions from each slice live beside it:
 | `doc/clipping.md` | `overflow`, and how a rounded clip composes with the anti-alias slack rule |
 | `doc/compositing.md` | `opacity` as group opacity, why a layer is not damage-atomic, and what `shadow` and `transform` still need |
 | `doc/sizing.md` | `basis`, `shrink`, `main_size`, `aspect_ratio`, and why a second sizing stage needed no second measurement |
+| `doc/scrolling.md` | `scroll_axis`, the runtime scroll offset, why scrolling costs a repaint and never a relayout, and what design.md's roadmap asks for that needs an animation clock this project does not have yet |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
