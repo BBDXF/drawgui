@@ -295,6 +295,88 @@ TEST_CASE("an absolute layer fills the room it is offered") {
   CHECK(tree.bounds(host) == PixelRect{0, 0, 400, 300});
 }
 
+TEST_CASE("a scrolling leaf hands its child an unbounded height, but stays clamped itself") {
+  LayoutTree tree{spec_of(400, 300)};
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+
+  BoxStyle viewport = stack_of(LayoutKind::kLeaf);
+  viewport.scroll_axis = dg::ScrollAxis::kVertical;
+  viewport.width = 200;
+  viewport.height = 100;
+  const NodeId host = tree.add_child(LayoutTree::root(), viewport, NodeStyle{});
+
+  BoxStyle column = stack_of(LayoutKind::kColumn);
+  const NodeId content = tree.add_child(host, column, NodeStyle{});
+  for (int i = 0; i < 10; ++i) {
+    tree.add_child(content, sized(150, 40), NodeStyle{});
+  }
+  tree.layout_full();
+
+  // The viewport is exactly what it declared - the huge child does not push
+  // it open - and the column is its FULL natural height, ten items at 40 px
+  // each, which is more than the viewport shows. That surplus is what
+  // overflow: kClip and RenderTree::set_scroll_offset act on.
+  CHECK(tree.bounds(host) == PixelRect{0, 0, 200, 100});
+  CHECK(tree.bounds(content).height == 400);
+  CHECK(tree.diagnostics().empty());
+}
+
+TEST_CASE("scroll_axis on a node whose own extent is unbounded is a diagnostic") {
+  LayoutTree tree{spec_of(400, 300)};
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+
+  // The root is tight to the viewport, and every rule before this slice
+  // derived a child's maximum from its parent's - so the ONLY way to reach a
+  // node whose own extent is genuinely unbounded is to nest it inside another
+  // scrolling viewport. That nesting is itself a free consequence of how
+  // scroll_axis composes (doc/scrolling.md section 5) and this is its
+  // misuse case: `host` asks to scroll vertically but never settles its own
+  // height, so there is nothing bounded to scroll it within.
+  BoxStyle outer = stack_of(LayoutKind::kLeaf);
+  outer.scroll_axis = dg::ScrollAxis::kVertical;
+  outer.width = 200;
+  outer.height = 100;
+  const NodeId outer_id = tree.add_child(LayoutTree::root(), outer, NodeStyle{});
+
+  BoxStyle host_box = stack_of(LayoutKind::kLeaf);
+  host_box.scroll_axis = dg::ScrollAxis::kVertical;
+  host_box.width = 150;
+  const NodeId host = tree.add_child(outer_id, host_box, NodeStyle{});
+  tree.add_child(host, sized(150, 40), NodeStyle{});
+  tree.layout_full();
+
+  REQUIRE_FALSE(tree.diagnostics().empty());
+  CHECK(tree.diagnostics().front().find("scroll_axis is vertical") != std::string::npos);
+}
+
+TEST_CASE("grow under an unbounded scrolling axis is diagnosed, not silently infinite") {
+  LayoutTree tree{spec_of(400, 300)};
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+
+  BoxStyle viewport = stack_of(LayoutKind::kLeaf);
+  viewport.scroll_axis = dg::ScrollAxis::kVertical;
+  viewport.width = 200;
+  viewport.height = 100;
+  const NodeId host = tree.add_child(LayoutTree::root(), viewport, NodeStyle{});
+
+  BoxStyle column = stack_of(LayoutKind::kColumn);
+  const NodeId content = tree.add_child(host, column, NodeStyle{});
+  tree.add_child(content, sized(150, 40), NodeStyle{});
+  const NodeId flexible = tree.add_child(content, grown(1), NodeStyle{});
+  tree.layout_full();
+
+  REQUIRE_FALSE(tree.diagnostics().empty());
+  CHECK(tree.diagnostics().front().find("grow is not distributed") != std::string::npos);
+
+  // Degrades to "grow ignored" rather than "collapses to zero" or "allocates
+  // billions of pixels": the flexible child is measured at its own natural
+  // size (nothing set - so zero, but not from being crushed by a bogus
+  // tight constraint) and the column still totals 40 (the sized sibling) +
+  // 0, not a number derived from an unbounded room.
+  CHECK(tree.bounds(flexible).height == 0);
+  CHECK(tree.bounds(content).height == 40);
+}
+
 TEST_CASE("a leaf shrinks to fit whatever it carries") {
   LayoutTree tree{spec_of(400, 300)};
   tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));

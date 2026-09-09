@@ -552,6 +552,34 @@ TEST_CASE("main_size is refused on a node that arranges nothing") {
                   PropStatus::kValueOutOfRange);
 }
 
+// Kept out of the test case for the same reason recognised_ids() is: the
+// three repeats plus doctest's own macro expansion push the loop over
+// clang-tidy's cognitive-complexity threshold once inlined.
+void check_scroll_axis_lands(Fixture& fixture, std::uint32_t ordinal, dg::ScrollAxis expected) {
+  CHECK(
+      dg::set_prop(fixture.tree, fixture.leaf, DG_PROP_SCROLL_AXIS, PropValue::option(ordinal))
+          .ok());
+  CHECK(fixture.tree.box(fixture.leaf).scroll_axis == expected);
+}
+
+// scroll_axis is applies_to = ["box"], which this table's "box" is the engine
+// side's kLeaf - the opposite gate main_size takes, since a leaf is exactly
+// the node that has no arrangement of its own to conflict with a scroll axis.
+TEST_CASE("scroll_axis reaches the box style on a leaf, and is refused where a node arranges") {
+  Fixture fixture;
+  for (const NodeId node : {fixture.row, fixture.wrap, fixture.absolute}) {
+    expect_rejected(fixture.tree, node, DG_PROP_SCROLL_AXIS,
+                    PropValue::option(DG_SCROLL_AXIS_VERTICAL), PropStatus::kNotApplicable);
+  }
+
+  check_scroll_axis_lands(fixture, DG_SCROLL_AXIS_VERTICAL, dg::ScrollAxis::kVertical);
+  check_scroll_axis_lands(fixture, DG_SCROLL_AXIS_HORIZONTAL, dg::ScrollAxis::kHorizontal);
+  check_scroll_axis_lands(fixture, DG_SCROLL_AXIS_NONE, dg::ScrollAxis::kNone);
+
+  expect_rejected(fixture.tree, fixture.leaf, DG_PROP_SCROLL_AXIS, PropValue::option(3),
+                  PropStatus::kValueOutOfRange);
+}
+
 // `opacity` moved out of the refusal list with this slice, so the value has to
 // be asserted to LAND rather than merely to stop being refused - "no longer
 // kUnsupported" is equally satisfied by a handler that writes the wrong
