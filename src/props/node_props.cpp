@@ -275,6 +275,20 @@ struct Target {
   return std::nullopt;
 }
 
+// `scroll_axis` changes the constraint a kLeaf hands its single child
+// (measure_leaf), which is meaningless on a node that arranges its OWN
+// children in a row, column or run - those already decide their children's
+// constraints a different way, and none of them has "one child" as a
+// precondition the way a leaf does.
+[[nodiscard]] std::optional<PropWrite> self_must_be_leaf(const Target& target,
+                                                         const std::string& what) {
+  if (target.kind != LayoutKind::kLeaf) {
+    return not_applicable(target, what,
+                          "this node to be a plain box (a leaf), not a row/column/wrap");
+  }
+  return std::nullopt;
+}
+
 // --------------------------------------------------------------------------
 // One applier per property field. The names are load-bearing: the generated
 // dispatch spells `apply_<field>` from the TOML's `field` key, so this list
@@ -588,6 +602,29 @@ PropWrite apply_align_content(Target& target, const PropValue& value) {
     default:
       return out_of_range(
           target, "align_content has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.box_changed = true;
+  return PropWrite{};
+}
+
+PropWrite apply_scroll_axis(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = self_must_be_leaf(target, "scroll_axis");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  switch (value.ordinal()) {
+    case DG_SCROLL_AXIS_NONE:
+      target.box.scroll_axis = ScrollAxis::kNone;
+      break;
+    case DG_SCROLL_AXIS_VERTICAL:
+      target.box.scroll_axis = ScrollAxis::kVertical;
+      break;
+    case DG_SCROLL_AXIS_HORIZONTAL:
+      target.box.scroll_axis = ScrollAxis::kHorizontal;
+      break;
+    default:
+      return out_of_range(
+          target, "scroll_axis has no value with ordinal " + std::to_string(value.ordinal()));
   }
   target.box_changed = true;
   return PropWrite{};
