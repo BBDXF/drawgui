@@ -336,6 +336,18 @@ TEST_CASE("a property-driven frame repaints partially the same as it does fully"
       {&Scene::last, DG_PROP_BORDER_WIDTH_T, PropValue::number(3)},
       {&Scene::first, DG_PROP_MARGIN_R, PropValue::number(24)},
       {&Scene::row, DG_PROP_GAP, PropValue::number(18)},
+
+      // The second sizing stage, composed with damage rather than checked on
+      // its own: a declared base, a deficit split between two children, a
+      // container that starts filling its main axis, and a ratio that derives
+      // one axis from the other. Each one moves several nodes at once, which
+      // is the shape a damage rectangle computed from a single node gets wrong.
+      {&Scene::first, DG_PROP_BASIS, PropValue::number(80)},
+      {&Scene::first, DG_PROP_SHRINK, PropValue::number(2)},
+      {&Scene::middle, DG_PROP_SHRINK, PropValue::number(1)},
+      {&Scene::row, DG_PROP_MAIN_SIZE, PropValue::option(DG_MAIN_SIZE_MAX)},
+      {&Scene::last, DG_PROP_ASPECT_RATIO, PropValue::number(1.5F)},
+
       {&Scene::row, DG_PROP_JUSTIFY, PropValue::option(DG_JUSTIFY_CENTER)},
       {&Scene::middle, DG_PROP_MIN_WIDTH, PropValue::length(40)},
       {&Scene::first, DG_PROP_WIDTH, PropValue::length(60)},

@@ -455,10 +455,6 @@ TEST_CASE("a property the engine does not implement says so") {
     expect_rejected(fixture.tree, node, prop, value, PropStatus::kUnsupported);
   };
 
-  refuse(fixture.leaf, DG_PROP_ASPECT_RATIO, PropValue::number(1.5F));
-  refuse(fixture.row, DG_PROP_MAIN_SIZE, PropValue::option(DG_MAIN_SIZE_MAX));
-  refuse(fixture.row_child, DG_PROP_SHRINK, PropValue::number(1));
-  refuse(fixture.row_child, DG_PROP_BASIS, PropValue::number(40));
   refuse(fixture.row_child, DG_PROP_ALIGN_SELF, PropValue::option(DG_ALIGN_SELF_BASELINE));
 
   // The three complex types cannot travel in the scalar union at all
@@ -467,6 +463,93 @@ TEST_CASE("a property the engine does not implement says so") {
   refuse(fixture.leaf, DG_PROP_BACKGROUND_GRADIENT, PropValue::number(0));
   refuse(fixture.leaf, DG_PROP_SHADOW, PropValue::number(0));
   refuse(fixture.leaf, DG_PROP_TRANSFORM, PropValue::number(0));
+}
+
+// The four that moved out of the refusal list above with this slice. Asserted
+// to LAND on the field they name rather than merely to stop being refused -
+// "no longer kUnsupported" is equally satisfied by a handler that writes the
+// wrong member, which is the trap the overflow case above already names.
+TEST_CASE("the second sizing stage's four properties reach the box style") {
+  Fixture fixture;
+
+  CHECK(dg::set_prop(fixture.tree, fixture.leaf, DG_PROP_ASPECT_RATIO, PropValue::number(1.5F))
+            .ok());
+  REQUIRE(fixture.tree.box(fixture.leaf).aspect_ratio.has_value());
+  CHECK(static_cast<double>(fixture.tree.box(fixture.leaf).aspect_ratio.value_or(0.0F)) ==
+        doctest::Approx(1.5));
+
+  CHECK(dg::set_prop(fixture.tree, fixture.row, DG_PROP_MAIN_SIZE,
+                     PropValue::option(DG_MAIN_SIZE_MAX))
+            .ok());
+  CHECK(fixture.tree.box(fixture.row).main_size == dg::MainSize::kMax);
+  CHECK(dg::set_prop(fixture.tree, fixture.row, DG_PROP_MAIN_SIZE,
+                     PropValue::option(DG_MAIN_SIZE_MIN))
+            .ok());
+  CHECK(fixture.tree.box(fixture.row).main_size == dg::MainSize::kMin);
+
+  CHECK(
+      dg::set_prop(fixture.tree, fixture.row_child, DG_PROP_SHRINK, PropValue::number(3)).ok());
+  CHECK(fixture.tree.box(fixture.row_child).shrink == 3);
+
+  CHECK(
+      dg::set_prop(fixture.tree, fixture.row_child, DG_PROP_BASIS, PropValue::number(40)).ok());
+  CHECK(fixture.tree.box(fixture.row_child).basis == 40);
+}
+
+// The ratio is neither a length nor a fraction, so it has a bound of its own
+// on BOTH sides - a ratio near zero derives an extent as unusable as one near
+// infinity does, and w/h and h/w have to be equally expressible.
+TEST_CASE("aspect_ratio refuses a ratio with no geometry") {
+  Fixture fixture;
+  for (const float bad : {0.0F, -1.5F, std::numeric_limits<float>::infinity(),
+                          std::numeric_limits<float>::quiet_NaN(), 1.0e30F, 1.0e-30F}) {
+    expect_rejected(fixture.tree, fixture.leaf, DG_PROP_ASPECT_RATIO, PropValue::number(bad),
+                    PropStatus::kValueOutOfRange);
+  }
+  CHECK(dg::set_prop(fixture.tree, fixture.leaf, DG_PROP_ASPECT_RATIO,
+                     PropValue::number(1.0F / 16777216.0F))
+            .ok());
+  CHECK(dg::set_prop(fixture.tree, fixture.leaf, DG_PROP_ASPECT_RATIO,
+                     PropValue::number(16777216.0F))
+            .ok());
+}
+
+// shrink is a weight, exactly as grow is, and a fractional one is refused for
+// the same reason: the deficit split is exact integer division.
+TEST_CASE("shrink refuses a fractional weight and a parent that hands out no space") {
+  Fixture fixture;
+  expect_rejected(fixture.tree, fixture.row_child, DG_PROP_SHRINK, PropValue::number(0.5F),
+                  PropStatus::kValueOutOfRange);
+  expect_rejected(fixture.tree, fixture.row_child, DG_PROP_SHRINK, PropValue::number(-1.0F),
+                  PropStatus::kValueOutOfRange);
+
+  // Both are consumed_by = ["flex"] in the table, exactly as grow is, so a
+  // wrapping parent refuses them at the boundary rather than at layout time.
+  for (const dg_prop_id prop : {DG_PROP_SHRINK, DG_PROP_BASIS}) {
+    expect_rejected(fixture.tree, fixture.wrap_child, prop, PropValue::number(1),
+                    PropStatus::kNotApplicable);
+    expect_rejected(fixture.tree, fixture.leaf_child, prop, PropValue::number(1),
+                    PropStatus::kNotApplicable);
+    expect_rejected(fixture.tree, fixture.absolute_child, prop, PropValue::number(1),
+                    PropStatus::kNotApplicable);
+    expect_rejected(fixture.tree, LayoutTree::root(), prop, PropValue::number(1),
+                    PropStatus::kNotApplicable);
+  }
+}
+
+// main_size is applies_to = ["flex", "wrap"], so it is the same gate `gap`
+// takes, and a node that arranges nothing refuses it.
+TEST_CASE("main_size is refused on a node that arranges nothing") {
+  Fixture fixture;
+  for (const NodeId node : {fixture.leaf, fixture.absolute}) {
+    expect_rejected(fixture.tree, node, DG_PROP_MAIN_SIZE, PropValue::option(DG_MAIN_SIZE_MAX),
+                    PropStatus::kNotApplicable);
+  }
+  CHECK(dg::set_prop(fixture.tree, fixture.wrap, DG_PROP_MAIN_SIZE,
+                     PropValue::option(DG_MAIN_SIZE_MAX))
+            .ok());
+  expect_rejected(fixture.tree, fixture.row, DG_PROP_MAIN_SIZE, PropValue::option(2),
+                  PropStatus::kValueOutOfRange);
 }
 
 // `opacity` moved out of the refusal list with this slice, so the value has to

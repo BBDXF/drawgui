@@ -133,6 +133,7 @@ Scene build_direct(LayoutTree& tree) {
   toolbar_box.gap = 8;
   toolbar_box.main_align = MainAlign::kSpaceBetween;
   toolbar_box.cross_align = CrossAlign::kCenter;
+  toolbar_box.main_size = dg::MainSize::kMax;
   NodeStyle toolbar_style;
   toolbar_style.fill = Color::from_argb(kPanelFill);
   toolbar_style.border_color = Color::from_argb(kBorder);
@@ -142,6 +143,8 @@ Scene build_direct(LayoutTree& tree) {
   BoxStyle spacer_box;
   spacer_box.width = 60;
   spacer_box.height = 20;
+  spacer_box.basis = 72;
+  spacer_box.shrink = 2;
   spacer_box.margin = EdgeInsets{2, 1, 4, 3};
   NodeStyle spacer_style;
   spacer_style.fill = Color::from_argb(kBadgeFill);
@@ -158,6 +161,13 @@ Scene build_direct(LayoutTree& tree) {
   card_style.fill = Color::from_argb(kCardFill);
   card_style.radii = dg::Radii{9, 9, 9, 9};
   const NodeId card = tree.add_child(LayoutTree::root(), card_box, card_style);
+
+  BoxStyle thumbnail_box;
+  thumbnail_box.width = 90;
+  thumbnail_box.aspect_ratio = 1.5F;
+  NodeStyle thumbnail_style;
+  thumbnail_style.fill = Color::from_argb(kBadgeFill);
+  tree.add_child(card, thumbnail_box, thumbnail_style);
 
   BoxStyle overlay_box;
   overlay_box.kind = LayoutKind::kAbsolute;
@@ -238,12 +248,15 @@ PropScene build_via_props(LayoutTree& tree) {
   write.set(toolbar, DG_PROP_GAP, PropValue::number(8));
   write.set(toolbar, DG_PROP_JUSTIFY, PropValue::option(DG_JUSTIFY_SPACE_BETWEEN));
   write.set(toolbar, DG_PROP_ALIGN, PropValue::option(DG_ALIGN_CENTER));
+  write.set(toolbar, DG_PROP_MAIN_SIZE, PropValue::option(DG_MAIN_SIZE_MAX));
   write.set(toolbar, DG_PROP_BACKGROUND_COLOR, PropValue::color(Color::from_argb(kPanelFill)));
   write.set(toolbar, DG_PROP_BORDER_COLOR, PropValue::color(Color::from_argb(kBorder)));
 
   const NodeId spacer = tree.add_child(toolbar, BoxStyle{}, NodeStyle{});
   write.set(spacer, DG_PROP_WIDTH, PropValue::length(60));
   write.set(spacer, DG_PROP_HEIGHT, PropValue::length(20));
+  write.set(spacer, DG_PROP_BASIS, PropValue::number(72));
+  write.set(spacer, DG_PROP_SHRINK, PropValue::number(2));
   write.set(spacer, DG_PROP_MARGIN_L, PropValue::number(2));
   write.set(spacer, DG_PROP_MARGIN_T, PropValue::number(1));
   write.set(spacer, DG_PROP_MARGIN_R, PropValue::number(4));
@@ -269,6 +282,12 @@ PropScene build_via_props(LayoutTree& tree) {
   write.set(card, DG_PROP_BORDER_RADIUS_TR, PropValue::number(9));
   write.set(card, DG_PROP_BORDER_RADIUS_BR, PropValue::number(9));
   write.set(card, DG_PROP_BORDER_RADIUS_BL, PropValue::number(9));
+
+  const NodeId thumbnail = tree.add_child(card, BoxStyle{}, NodeStyle{});
+  write.set(thumbnail, DG_PROP_WIDTH, PropValue::length(90));
+  write.set(thumbnail, DG_PROP_ASPECT_RATIO, PropValue::number(1.5F));
+  write.set(thumbnail, DG_PROP_BACKGROUND_COLOR,
+            PropValue::color(Color::from_argb(kBadgeFill)));
 
   BoxStyle absolute;
   absolute.kind = LayoutKind::kAbsolute;
