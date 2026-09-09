@@ -105,6 +105,27 @@ that needs an animation clock this project does not have yet (fling,
 overscroll rebound - both declined and named), and why list virtualization
 belongs to a later phase's `List` control rather than to this viewport.
 
+Checkbox, radio and slider are three form controls out of two mechanisms.
+Radio is not a new control at all: a checkbox gained one field, `group`, and
+selecting one option clears every other checkbox sharing its group id instead
+of toggling - "checkbox plus a group id", the same composition doc/scrolling.md
+found for scrolling rather than a fourth widget kind. Slider is a sixth
+`WidgetKind` - a track and a thumb, the thumb's position a paint-time function
+of its value, moved through the same `RenderTree::set_local_origin` a plain
+node move already used - satisfying design.md's own acceptance bar for this
+control head-on: no new RenderObject was needed. The value itself is runtime
+state, not a property, for the identical reason the scroll offset is: it
+accumulates across an unbounded stream of drag deltas rather than being
+declared once. Dropdown is declined outright rather than half-built: this
+engine's window layer has no popup-window concept whatsoever - no window
+kind, no `PopupHost`, nothing - and design.md calls that abstraction the
+single most critical decision in the whole design, naming the exact trap a
+naive in-window dropdown falls into. `doc/form-controls.md` records the
+scoping arguments in full, a real `LayoutTree` constraint found while sizing
+the slider's thumb (a leaf's child cannot exceed the leaf's own resolved
+size, even "loosened"), and a defect-injection campaign that found and fixed
+a genuine bug in its own first regression test.
+
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
@@ -281,6 +302,23 @@ rather than overscrolling past them.
 ./build/examples/drawgui_scrolling --dump-png out.png
 ```
 
+## The form controls demo
+
+`examples/11_form_controls` draws a checkbox, two independent radio groups
+(three options and two options, sharing group ids 1 and 2) and two sliders -
+one that widens with the window, one fixed-width and stepped. Clicking a
+radio option selects it and clears every other option in its own group,
+never the other group; dragging either slider's track moves its thumb
+continuously and clamps at both ends.
+
+```sh
+./build/examples/drawgui_form_controls                        # click/drag it
+./build/examples/drawgui_form_controls --preset-radio-a 1      # open with an option selected
+./build/examples/drawgui_form_controls --preset-volume 72      # open with a slider dragged
+./build/examples/drawgui_form_controls --verify-form-controls  # headless check
+./build/examples/drawgui_form_controls --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -345,4 +383,5 @@ Findings and decisions from each slice live beside it:
 | `doc/compositing.md` | `opacity` as group opacity, why a layer is not damage-atomic, and what `shadow` and `transform` still need |
 | `doc/sizing.md` | `basis`, `shrink`, `main_size`, `aspect_ratio`, and why a second sizing stage needed no second measurement |
 | `doc/scrolling.md` | `scroll_axis`, the runtime scroll offset, why scrolling costs a repaint and never a relayout, and what design.md's roadmap asks for that needs an animation clock this project does not have yet |
+| `doc/form-controls.md` | radio as a checkbox field, a slider needing no new RenderObject, why dropdown is declined and what its prerequisite is, and a real `LayoutTree` sizing constraint found while building it |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
