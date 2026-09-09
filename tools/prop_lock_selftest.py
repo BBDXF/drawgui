@@ -79,7 +79,7 @@ class Case:
 
 
 def bump_next_id(text: str, value: int) -> str:
-    return text.replace("next_id = 46", f"next_id = {value}")
+    return text.replace("next_id = 47", f"next_id = {value}")
 
 
 def append_property(text: str, prop_id: int) -> str:
@@ -121,7 +121,7 @@ def main() -> int:
         #    the constant, so the id ships unguarded.
         unrecorded_toml = tmp / "unrecorded.toml"
         unrecorded_lock = tmp / "unrecorded.lock"
-        unrecorded_toml.write_text(append_property(original_toml, 46), encoding="utf-8")
+        unrecorded_toml.write_text(append_property(original_toml, 47), encoding="utf-8")
         shutil.copyfile(LOCK_SOURCE, unrecorded_lock)
         check_case(Case("an append left unrecorded", must_fail=True), unrecorded_toml,
                    unrecorded_lock, failures)
@@ -167,7 +167,7 @@ def main() -> int:
         #    prop_lock.py is ever refactored.
         regression_toml = tmp / "regression.toml"
         regression_lock = tmp / "regression.lock"
-        regression_toml.write_text(append_property(original_toml, 46), encoding="utf-8")
+        regression_toml.write_text(append_property(original_toml, 47), encoding="utf-8")
         shutil.copyfile(LOCK_SOURCE, regression_lock)
 
         written = run_lock(regression_toml, regression_lock, "--write")
@@ -178,9 +178,9 @@ def main() -> int:
             check_case(Case("an append, once recorded", must_fail=False), regression_toml,
                        regression_lock, failures)
             regression_toml.write_text(
-                append_property(original_toml, 46)
-                .replace("id = 46", "id = 60")
-                .replace("next_id = 47", "next_id = 61"),
+                append_property(original_toml, 47)
+                .replace("id = 47", "id = 60")
+                .replace("next_id = 48", "next_id = 61"),
                 encoding="utf-8",
             )
             check_case(Case("a freshly recorded id then renumbered", must_fail=True),

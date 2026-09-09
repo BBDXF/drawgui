@@ -179,6 +179,10 @@ switch (prop_id) {
   case DG_PROP_BOTTOM:
     DG_PROP_ASSIGN(bottom, float);
     break;
+  // -- container -------------------------------------------------
+  case DG_PROP_SCROLL_AXIS:
+    DG_PROP_ASSIGN(scroll_axis, enum);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

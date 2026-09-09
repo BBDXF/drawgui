@@ -196,6 +196,12 @@ inline constexpr dg_prop_id DG_PROP_RIGHT = 44;
 // type=float optional; parentData scope=stack consumed_by=stack
 inline constexpr dg_prop_id DG_PROP_BOTTOM = 45;
 
+// -- container ---------------------------------------------------
+// Which axis, if any, this node hands its child an unbounded constraint on.
+// type=enum; applies_to=box
+// values: none | vertical | horizontal
+inline constexpr dg_prop_id DG_PROP_SCROLL_AXIS = 46;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -248,11 +254,15 @@ inline constexpr std::uint32_t DG_ALIGN_SELF_END = 2;
 inline constexpr std::uint32_t DG_ALIGN_SELF_CENTER = 3;
 inline constexpr std::uint32_t DG_ALIGN_SELF_STRETCH = 4;
 inline constexpr std::uint32_t DG_ALIGN_SELF_BASELINE = 5;
+// scroll_axis
+inline constexpr std::uint32_t DG_SCROLL_AXIS_NONE = 0;
+inline constexpr std::uint32_t DG_SCROLL_AXIS_VERTICAL = 1;
+inline constexpr std::uint32_t DG_SCROLL_AXIS_HORIZONTAL = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 45;
+inline constexpr std::uint16_t kDgPropMaxId = 46;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 45;
+inline constexpr std::uint16_t kDgPropCount = 46;

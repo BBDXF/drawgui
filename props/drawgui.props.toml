@@ -68,7 +68,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 46
+next_id = 47
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -543,3 +543,20 @@ parent_data_scope = "stack"
 consumed_by = ["stack"]
 optional = true
 summary = "Inset from the stack content box; setting it positions the child."
+
+# ---------------------------------------------------------------------------
+# Scrolling - the constraint half only. The offset itself is not here: it is
+# per-frame interaction state (like hover/press), not a declarative style, so
+# it lives in WidgetSet and on RenderTree::set_scroll_offset rather than in
+# this table. See doc/scrolling.md section 2.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "scroll_axis"
+id = 46
+type = "enum"
+values = ["none", "vertical", "horizontal"]
+group = "container"
+field = "scroll_axis"
+applies_to = ["box"]
+summary = "Which axis, if any, this node hands its child an unbounded constraint on."
