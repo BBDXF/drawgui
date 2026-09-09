@@ -1,5 +1,6 @@
 #include "drawgui/widget/widget_set.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <optional>
 
@@ -13,6 +14,7 @@ bool interactive(WidgetKind kind) {
       return true;
     case WidgetKind::kPanel:
     case WidgetKind::kLabel:
+    case WidgetKind::kScrollView:
       break;
   }
   return false;
@@ -102,6 +104,54 @@ std::optional<NodeId> WidgetSet::widget_at(const RenderTree& tree, PixelPoint po
     return std::nullopt;
   }
   return owner_of(tree, *node);
+}
+
+std::optional<NodeId> WidgetSet::scrollable_owner_of(const RenderTree& tree, NodeId id) const {
+  NodeId current = id;
+  while (true) {
+    const Widget* widget = find(current);
+    if (widget != nullptr && widget->kind == WidgetKind::kScrollView) {
+      return current;
+    }
+    const NodeId parent = tree.parent(current);
+    if (parent == current) {
+      return std::nullopt;
+    }
+    current = parent;
+  }
+}
+
+bool WidgetSet::scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport_content,
+                          int dx, int dy) const {
+  const Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kScrollView) {
+    return false;
+  }
+
+  // The clamp: the content child's full natural size, less the room the
+  // viewport itself offers, floored at zero so a child SMALLER than its
+  // viewport (nothing to scroll) clamps to exactly one position rather than a
+  // negative range.
+  const PixelRect content = tree.local_bounds(widget->scroll_content);
+  const int max_x = std::max(0, content.width - viewport_content.width);
+  const int max_y = std::max(0, content.height - viewport_content.height);
+
+  PixelPoint offset = tree.scroll_offset(id);
+  switch (widget->scroll_axis) {
+    case ScrollAxis::kNone:
+      return false;
+    case ScrollAxis::kVertical:
+      offset.y = std::clamp(offset.y + dy, 0, max_y);
+      break;
+    case ScrollAxis::kHorizontal:
+      offset.x = std::clamp(offset.x + dx, 0, max_x);
+      break;
+  }
+  if (offset == tree.scroll_offset(id)) {
+    return false;
+  }
+  tree.set_scroll_offset(id, offset);
+  return true;
 }
 
 void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {

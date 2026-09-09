@@ -118,6 +118,13 @@ enum class PointerAction : std::uint8_t {
   // be hit-testing the top-left corner and clearing hover for the wrong
   // reason, which is a bug that looks exactly like correct behaviour.
   kLeave,
+
+  // A mouse wheel or trackpad scroll. Carries a position - the pointer's, at
+  // the moment of the event - because design.md section 5.5 routes a wheel to
+  // "the scrollable ancestor under the pointer", not to whatever last had
+  // focus or hover; a caller hit-tests `x, y` to find it. `wheel_x`/`wheel_y`
+  // hold the scroll amount, which `x`/`y` do not.
+  kWheel,
 };
 
 // One thing the pointer did to one window.
@@ -133,6 +140,15 @@ struct PointerEvent {
   PointerAction action = PointerAction::kMove;
   int x = 0;
   int y = 0;
+
+  // kWheel only. Positive scrolls up / left, matching the platform's own sign
+  // convention (SDL3 already flips SDL_MOUSEWHEEL_FLIPPED for the backend, so
+  // a caller never sees that platform detail). FLOAT, unlike every other
+  // measurement in this library: a wheel amount is not a device pixel, it is
+  // an abstract "how many notches", and a trackpad reports fractional
+  // notches that rounding to an int would silently zero.
+  float wheel_x = 0.0F;
+  float wheel_y = 0.0F;
 };
 
 // Everything one pump() turned up, split by what the caller has to do about
@@ -207,6 +223,14 @@ class WindowManager {
   // one once queued, so everything downstream of pump() is exercised exactly
   // as it is for a user.
   void post_pointer_button(WindowId id, bool down, int x, int y);
+
+  // Puts a wheel scroll on the platform's own event queue, same route as
+  // post_pointer_button(). `dx`/`dy` are notches, matching
+  // PointerEvent::wheel_x/wheel_y; the position at which the wheel is
+  // reported to have happened is the window's LAST warped/real pointer
+  // position, which is what a real wheel event also does - a wheel has no
+  // position of its own, it reports wherever the cursor already is.
+  void post_wheel(WindowId id, float dx, float dy);
 
   // The size a frame for this window must be rasterized at, right now.
   //

@@ -218,6 +218,23 @@ struct WindowManager::Impl {
         }
         break;
       }
+      case SDL_EVENT_MOUSE_WHEEL: {
+        const auto entry = find(event.wheel.windowID);
+        if (entry != windows.end()) {
+          // SDL_MOUSEWHEEL_FLIPPED means "natural scrolling" is off at the
+          // OS level and the reported sign is already reversed from what a
+          // normal wheel would produce - flip it back once here rather than
+          // teach every consumer the platform's own convention.
+          const float sign = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0F : 1.0F;
+          const PixelPoint at =
+              to_physical(entry->window, event.wheel.mouse_x, event.wheel.mouse_y);
+          PointerEvent wheel{WindowId{entry->sdl_id}, PointerAction::kWheel, at.x, at.y};
+          wheel.wheel_x = sign * event.wheel.x;
+          wheel.wheel_y = sign * event.wheel.y;
+          result.pointer.push_back(wheel);
+        }
+        break;
+      }
       case SDL_EVENT_WINDOW_EXPOSED:
       case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
         const SDL_WindowID sdl_id = event.window.windowID;
@@ -325,6 +342,30 @@ void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y) {
   event.button.clicks = 1;
   event.button.x = static_cast<float>(x) / scale;
   event.button.y = static_cast<float>(y) / scale;
+  SDL_PushEvent(&event);
+}
+
+void WindowManager::post_wheel(WindowId id, float dx, float dy) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  // A real wheel event has no position of its own - it reports wherever the
+  // cursor already is - so this asks SDL for the same thing rather than
+  // inventing a position a caller would have to keep in step with
+  // warp_pointer().
+  float logical_x = 0.0F;
+  float logical_y = 0.0F;
+  SDL_GetMouseState(&logical_x, &logical_y);
+
+  SDL_Event event{};
+  event.wheel.type = SDL_EVENT_MOUSE_WHEEL;
+  event.wheel.windowID = id.value;
+  event.wheel.x = dx;
+  event.wheel.y = dy;
+  event.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+  event.wheel.mouse_x = logical_x;
+  event.wheel.mouse_y = logical_y;
   SDL_PushEvent(&event);
 }
 

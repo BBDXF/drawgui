@@ -163,6 +163,8 @@ const char* name_of(PointerAction action) {
       return "up";
     case PointerAction::kLeave:
       return "leave";
+    case PointerAction::kWheel:
+      return "wheel";
   }
   return "?";
 }

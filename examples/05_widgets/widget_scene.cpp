@@ -435,6 +435,9 @@ std::string describe(const Scene& scene, NodeId id) {
     case WidgetKind::kCheckbox:
       kind = "checkbox";
       break;
+    case WidgetKind::kScrollView:
+      kind = "scroll view";
+      break;
   }
 
   // A button's caption lives on its label child, so fall back to the first
@@ -498,6 +501,11 @@ dg::InteractionChange dispatch(Scene& scene, dg::Interaction& interaction,
       break;
     case dg::PointerAction::kLeave:
       change = interaction.left_window();
+      break;
+    case dg::PointerAction::kWheel:
+      // This scene has no scrollable widget, so a wheel changes nothing here
+      // - it is a no-op rather than an omission. examples/10_scrolling is
+      // where it is consumed.
       break;
   }
   react(scene, interaction, change);

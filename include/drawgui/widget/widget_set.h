@@ -31,6 +31,7 @@
 
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/types.h"
+#include "drawgui/layout/box.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/widget/interaction.h"
 
@@ -60,6 +61,14 @@ enum class WidgetKind : std::uint8_t {
   // everything that happened before, which is the case a design that stored
   // interaction state only in the Interaction machine would get wrong.
   kCheckbox,
+
+  // A clipping node (NodeStyle::overflow) whose single child is measured
+  // under an unbounded constraint (BoxStyle::scroll_axis) and whose position
+  // relative to that child is runtime state (RenderTree::set_scroll_offset) -
+  // three existing mechanisms composed, not a fourth one. Earns its place the
+  // same way kCheckbox did: the offset outlives the wheel or drag event that
+  // produced it, which the stateless Interaction machine cannot hold.
+  kScrollView,
 };
 
 // One widget's whole state. A plain struct of plain fields, for the reason
@@ -82,6 +91,16 @@ struct Widget {
   Color indicator_off;
 
   bool checked = false;
+
+  // kScrollView only. `scroll_axis` mirrors BoxStyle::scroll_axis - the same
+  // vocabulary, not a second one, so a caller cannot set the layout half to
+  // vertical and the widget half to horizontal by mistake. `scroll_content`
+  // is the single child laid out at its full, possibly viewport-exceeding
+  // size; its `local_bounds()` is what `scroll_by()` clamps the offset
+  // against. NOT the offset itself - RenderTree::scroll_offset() is the only
+  // copy of that, on purpose (doc/scrolling.md section 2).
+  ScrollAxis scroll_axis = ScrollAxis::kNone;
+  NodeId scroll_content;
 };
 
 class WidgetSet {
@@ -106,6 +125,33 @@ class WidgetSet {
 
   // Hit testing and that climb, together: the one call an event loop makes.
   [[nodiscard]] std::optional<NodeId> widget_at(const RenderTree& tree, PixelPoint point) const;
+
+  // The nearest ancestor-or-self of `id` that is a kScrollView, or nothing.
+  // This is design.md section 5.16.2's "the scrollable ancestor under the
+  // pointer" - a SEPARATE climb from owner_of(), not a shared one: a wheel
+  // over a button inside a scrolling list must still find the list, which a
+  // climb that stopped at the first interactive ancestor would miss.
+  [[nodiscard]] std::optional<NodeId> scrollable_owner_of(const RenderTree& tree,
+                                                          NodeId id) const;
+
+  // Moves a kScrollView's children by (dx, dy), clamped so its
+  // `scroll_content` child - laid out at its full, possibly
+  // viewport-exceeding size - never scrolls past its own edges in either
+  // direction. Only the axis `scroll_axis` names moves; the other delta is
+  // ignored, which is what keeps a horizontal wheel nudge from also nudging a
+  // vertical list.
+  //
+  // `viewport_content` is the box scrolling happens within. It is a parameter
+  // rather than something this file derives, because doing so would need a
+  // LayoutTree - content_bounds() is layout's, not the render tree's - and
+  // WidgetSet depends on RenderTree alone, matching every other method here.
+  //
+  // Returns false, and changes nothing, when `id` does not name a
+  // kScrollView or the clamped offset equals what RenderTree already has -
+  // the "was this worth a repaint" signal a caller uses before touching the
+  // screen.
+  bool scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport_content, int dx,
+                 int dy) const;
 
   // Writes the appearance `id` should have in `state`, and damages nothing
   // when that appearance is already on screen.
