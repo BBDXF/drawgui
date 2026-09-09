@@ -44,7 +44,8 @@ void RenderTree::Impl::reposition(std::uint32_t root_index) {
       node.clip_bounds.reset();
     } else {
       const Node& parent = nodes[node.parent];
-      node.absolute = node.local.offset_by(parent.absolute.x, parent.absolute.y);
+      node.absolute = node.local.offset_by(parent.absolute.x - parent.scroll_offset.x,
+                                           parent.absolute.y - parent.scroll_offset.y);
 
       // The clip a child inherits is everything its ancestors impose, and
       // this is where "nested clips intersect" is actually implemented: the
@@ -216,6 +217,30 @@ void RenderTree::set_local_bounds(NodeId id, const PixelRect& bounds) {
 void RenderTree::set_local_origin(NodeId id, int x, int y) {
   const PixelRect& local = impl_->nodes[id.value].local;
   set_local_bounds(id, PixelRect{x, y, local.width, local.height});
+}
+
+void RenderTree::set_scroll_offset(NodeId id, PixelPoint offset) {
+  Node& node = impl_->nodes[id.value];
+  if (node.scroll_offset == offset) {
+    // A caller re-asserting the offset it already has is the common case in
+    // an interaction loop that recomputes a clamp on every event, exactly as
+    // set_text() does for a label re-asserting its string.
+    return;
+  }
+  // Damage-then-move: the OLD positions of every descendant are damaged while
+  // `scroll_offset` still describes where they used to be, then the offset
+  // updates, `reposition()` recomputes `absolute` for the whole subtree, and
+  // `invalidate()` damages the NEW positions. Skipping the first half is what
+  // leaves a trail of the previous frame's content behind, the same defect
+  // set_local_bounds() exists to avoid for an ordinary move.
+  impl_->damage_subtree(id.value);
+  node.scroll_offset = offset;
+  impl_->reposition(id.value);
+  impl_->invalidate(id.value);
+}
+
+PixelPoint RenderTree::scroll_offset(NodeId id) const {
+  return impl_->nodes[id.value].scroll_offset;
 }
 
 void RenderTree::resize(PixelSize viewport) {

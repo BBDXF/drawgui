@@ -47,6 +47,15 @@ struct Node {
   // the measurement.
   bool clip_atomic = false;
 
+  // How far this node's CHILDREN are shifted from where their own `local`
+  // rectangles say they are - the mechanism `RenderTree::set_scroll_offset`
+  // is the public face of. Read only by `reposition()`, applied to a child's
+  // absolute position exactly once, at the level that owns it; a grandchild
+  // is shifted only by cascading through its own parent's already-shifted
+  // `absolute`, which is why nested scrolling composes for free without this
+  // field ever being read twice for one node.
+  PixelPoint scroll_offset;
+
   // The rectangle every ancestor clip together confines this node to, or
   // nothing when no ancestor clips.
   //

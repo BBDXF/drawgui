@@ -381,6 +381,35 @@ class RenderTree {
   void set_local_bounds(NodeId id, const PixelRect& bounds);
   void set_local_origin(NodeId id, int x, int y);
 
+  // Shifts `id`'s CHILDREN - not `id` itself - by `offset`, the same way
+  // margin is applied by a parent rather than by the child carrying it
+  // (design.md section 5.9.4) and a clip confines descendants rather than the
+  // clipping node's own paint (doc/clipping.md section 2). A child's
+  // `local_bounds()` never changes; only the absolute position `reposition()`
+  // derives from it does, exactly as it already does for an ordinary move.
+  //
+  // RUNTIME STATE, NOT A PROPERTY. `props/drawgui.props.toml` has no entry
+  // for this, on purpose: an offset is inherently the thing a wheel or a drag
+  // mutates every frame, which is the same shape hover and press already are
+  // in `WidgetSet` - interaction state that outlives one event, not a
+  // declarative style a caller writes once. `doc/scrolling.md` section 2 is
+  // the argument in full.
+  //
+  // NOT CLAMPED HERE. This tree has no notion of a scrollable child's full
+  // content extent - it only ever sees `local_bounds()`, which does not
+  // change - so an offset past what there is to scroll is the caller's
+  // mistake to prevent, exactly as this tree does not know what padding is
+  // (doc/clipping.md section 2). `WidgetSet::scroll_by()` is where the
+  // clamp lives.
+  //
+  // Damages the old positions of every descendant, then the new ones - the
+  // same damage-then-move shape `set_local_bounds()` already has, and NO
+  // layout pass runs: `reposition()` only recomputes `absolute` and
+  // `clip_bounds`, it never calls `measure()`, so a scroll costs a repaint,
+  // never a relayout. `doc/scrolling.md` section 4 measures this.
+  void set_scroll_offset(NodeId id, PixelPoint offset);
+  [[nodiscard]] PixelPoint scroll_offset(NodeId id) const;
+
   void resize(PixelSize viewport);
   void set_paint_mode(PaintMode mode);
   [[nodiscard]] PaintMode paint_mode() const;
