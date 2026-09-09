@@ -272,6 +272,46 @@ node's `local` rectangle is fixed by `layout()` once, at build time, and
 during THAT one measurement - never afterwards, and never as a function of
 the current offset.
 
+### 4.1 A finding the injection campaign forced, not predicted: damaging the OLD position is provably redundant for a CLIPPED scroll, and kept anyway
+
+`set_scroll_offset` damages the old positions, updates the offset,
+repositions, then damages the new ones - the same damage-then-move shape
+`set_local_bounds` needs, written by direct analogy with it before this was
+measured. Section 8's injection E removes the FIRST damage call, and it
+**survives every test in the suite**, including the byte-identity pair that
+exists specifically to catch a stale-pixel trail. That is not a test gap; it
+is provable, the same way section 3's rounded-clip and layer-extent findings
+in `doc/clipping.md`/`doc/compositing.md` were:
+
+`invalidate()` calls `damage_subtree(id)` where `id` is the SCROLLING NODE
+ITSELF, not merely its children - so the scrolling node's own
+`visible_bounds()` is always one of the rectangles added, and that rectangle
+is `intersect(node.absolute, node.clip_bounds)`, **neither half of which
+moves when only a child's offset changes**. For a clipped scroll viewport
+(`overflow: kClip`, which every scene this slice builds pairs with
+`scroll_axis`, and which is the only configuration a "window onto oversized
+content" means anything for), every child is confined inside that same
+unmoving rectangle both before and after the scroll. So "damage the new
+positions" already contains "damage the old positions" as a strict subset,
+for any node whose scrollable content is clipped to its own box - the old
+positions were never anywhere the new-position damage does not already
+reach.
+
+**Why it is kept rather than deleted, unlike `doc/compositing.md`'s
+symmetrical case (the anti-alias slack on a layer's extent, which WAS
+deleted once proven inert):** nothing in the type system stops a caller from
+attaching `WidgetKind::kScrollView` to a node whose `overflow` is
+`kVisible` - a misconfiguration, but not one this slice's boundary checks
+reject, because `scroll_axis` and `overflow` are two independent properties
+set independently. In that misconfigured case a scrolled child can move
+outside the node's own box, and the "damage old, then new" shape is exactly
+what keeps that case correct too. The redundant call costs one extra pass
+over a small subtree per scroll event, which this project's stated position
+on performance (not a gate) does not ask to be removed, and removing it
+would trade a real (if minor) defence for a saving nobody measured needing.
+Recorded here rather than silently kept, which is the same choice
+`doc/clipping.md` section 7 made for the empty-clip guard.
+
 ---
 
 ## 5. Nested scrolling composes for free, and why that is not a coincidence
@@ -350,67 +390,88 @@ the compiler will demand" - and it did, twice: once in
 
 ## 8. Proving the tests can fail
 
-Fourteen defects injected one at a time, each built, each run through the
-full CTest suite, each reverted and the source `touch`ed afterward (the
-fourth-recorded lesson about `tar`/`git checkout` leaving a stale mtime behind
-- doc/sizing.md section 5.5 - is now standing practice for this project's
-injection harness, not merely this slice's).
+Fourteen defects injected one at a time against the committed tree, each
+built, each run through the full CTest suite, each reverted with
+`git checkout --` and the source `touch`ed afterward (the standing lesson
+about `tar`/`git checkout` leaving a stale mtime behind - doc/sizing.md
+section 5.5 - applied from the start of this campaign rather than learned
+from it again).
 
-| # | injection | caught by |
+| # | injection | result |
 | --- | --- | --- |
-| A | `measure_leaf` ignores `scroll_axis` entirely (ordinary bounded child) | `test_layout.cpp`'s scroll_axis case, `scrolling.verify_demo_scene`'s composition check |
-| B | the WRONG axis is freed (`kVertical` frees `max_width` instead of `max_height`) | same two |
-| C | `reposition()` applies the offset to the node ITSELF, not only its children | `test_scroll.cpp`'s "does not move itself" case |
-| D | the offset is applied with the wrong sign (content moves the same way the pointer scrolls, not opposite) | `test_scroll.cpp`'s geometry case (exact expected coordinate) |
-| E | `set_scroll_offset` skips damaging the OLD position | `test_scroll.cpp`'s byte-identity pair (frame 1) |
-| F | `set_scroll_offset` is missing the no-op guard (re-asserting the same offset re-damages) | `test_scroll.cpp`'s "re-asserting is a no-op" case |
-| G | `descend()`'s clip check is skipped for a scrolled subtree (hit testing ignores the clip once an offset is nonzero) | `test_scroll.cpp`'s "click just outside the clip" case |
-| H | `WidgetSet::scroll_by` does not clamp at all | `scrolling.verify_demo_scene`'s overscroll check |
-| I | the clamp uses `<=` instead of `<`, admitting one extra pixel of overscroll | same, exact-value assertion |
-| J | `scroll_by` moves the axis IT WAS NOT ASKED to move (a vertical delta nudges a horizontal-only viewport) | `scrolling.verify_demo_scene`'s horizontal-axis case |
-| K | the `grow`-under-unbounded-axis diagnostic is silently dropped, `room.main` collapses to 0 instead (the pre-existing dead branch) | `test_layout.cpp`'s grow-diagnostic case - **and every plain no-grow list item collapses to zero height**, which the byte-identity pair on the demo scene also catches |
-| L | `total_grow`/`item.grow` are NOT zeroed under an unbounded axis (the dangerous half-fix) | `test_layout.cpp`'s grow case - the flexible child's height stops being 0 and starts being a multi-million-pixel number |
-| M | `scrollable_owner_of` climbs through `owner_of`'s interactive check instead of its own kind check (a click on a button inside a scrolling list finds the button, not the scroller, for wheel purposes) | **nothing - see below** |
-| N | `WidgetSet::scroll_by` reads a CACHED offset instead of `RenderTree::scroll_offset()` fresh each call | **nothing - see below**, then fixed by inspection |
+| A | `measure_leaf` ignores `scroll_axis` entirely (ordinary bounded child) | **caught** - `unit` and `scrolling.verify_demo_scene`'s composition/hit-testing checks |
+| B | the WRONG axis is freed (`kVertical` frees `max_width` instead of `max_height`) | **caught** - same two |
+| C | `reposition()` applies the offset to the node ITSELF, not only its children | **caught** - `scrolling.verify_demo_scene`'s hit-testing check (item 3 never appears where item 0 used to be) |
+| D | the offset is applied with the wrong sign | **caught** - same |
+| E | `set_scroll_offset` skips damaging the OLD position | **survived - provably, see section 4.1** |
+| F | the re-assert no-op guard is missing | **caught** - `unit` |
+| G | `descend()`'s clip check reads `node.local` instead of `node.absolute` (ignores the scroll shift) | **caught** - `unit` and `clipping.verify_demo_scene` (a general clip regression, not scroll-specific, since `descend()` is shared) |
+| H | `WidgetSet::scroll_by` does not clamp at all | rejected by `-Werror=unused-variable` first (the now-unused clamp bounds); rewritten with `(void)max_x/max_y` to isolate it from that trap - **then caught** by `scrolling.verify_demo_scene`'s overscroll check |
+| I | the clamp admits one extra pixel of overscroll (`max_y + 1`) | **caught** - exact-value assertion in the same check |
+| J | `scroll_by` moves both axes regardless of `scroll_axis` | **survived on the demo scene** - see below; **caught** after a new unit test closed the gap |
+| K | the `grow`-under-unbounded-axis diagnostic is dropped, `room.main` collapses to 0 again | **caught** - `unit`'s grow-diagnostic case, and the demo scene's every list item collapses to zero height, which the composition and hit-testing checks both catch too |
+| L | `total_grow`/`item.grow` are not zeroed under an unbounded axis | rejected by `-Werror=unused-variable` first (the now-unread `main_bounded`); rewritten with `(void)main_bounded` - **then caught** by `unit`'s grow case |
+| M | `scrollable_owner_of` climbs via `accepts_pointer` instead of its own `kind == kScrollView` check | **survived - provably, see below** |
+| N | `scroll_by` starts from a zero offset every call instead of reading `RenderTree::scroll_offset()` back | **caught** - `scrolling.verify_demo_scene`'s overscroll check (repeated small scrolls never reach the far clamp) |
+
+Nine were caught on the first attempt (A, B, C, D, F, G, I, K, N). Two (H, L)
+were rejected by `-Werror` before a single test ran - the compiler naming an
+now-unused clamp bound or an unread boolean, which this project has recorded
+twice already (doc/clipping.md, doc/sizing.md) as evidence about the
+compiler, not about the suite - and were rewritten into a form that
+compiles, at which point both were caught. One (J) genuinely survived on the
+scenes that existed at the time; the other two (E, M) survived and stay
+survived, each for a different, specific, argued reason.
+
+**J - the scene lacked the shape, and the demo's own scenes cannot supply
+it.** `examples/10_scrolling`'s two viewports both have content that fills
+the CROSS axis exactly - the vertical list's items are exactly as wide as
+its viewport, the horizontal strip's chips are exactly as tall as its
+viewport - which is an ordinary, realistic list layout, but it means
+`max_x`/`max_y` on the axis a viewport does NOT scroll is already zero
+before the injection does anything: `std::clamp(anything, 0, 0)` is 0
+regardless of whether the clamp is reached through the right axis or the
+wrong one. The bug had nothing to move even when it fired. The fix is
+`tests/unit/test_scroll.cpp`'s new case, built with content deliberately
+**larger than the viewport on BOTH axes** so a cross-axis delta has
+somewhere to go - the general form of the lesson this project has recorded
+before under a different name ("a diagnostic reachable only through a shape
+nothing builds is a diagnostic with no caller"), applied here to a test
+rather than to a diagnostic message.
+
+**E - no observable consequence, and provable rather than merely
+unobserved.** Section 4.1 above is the argument in full: `invalidate()`
+already damages the scrolling node's own (unmoving, clip-confined)
+`visible_bounds()`, which is a superset of anywhere a clipped child's old OR
+new position can be. The code is kept anyway, as defence against a
+misconfigured scene (`scroll_axis` set without a matching `overflow: kClip`)
+that nothing currently prevents - recorded rather than deleted, which is the
+opposite choice from `doc/compositing.md`'s symmetrical case (the anti-alias
+slack on a layer's extent) and the reason for the difference is written down
+in section 4.1 rather than asserted here.
 
 **M - the term has no observable consequence today, and that is provable
 rather than assumed.** No scene this slice built puts a clickable widget
 inside a scrolling viewport - every list item is a plain panel - so
 `scrollable_owner_of`'s climb and `owner_of`'s climb are asked about the SAME
-set of nodes (none of which is ever `accepts_pointer()`) and necessarily agree.
-The two functions are kept separate anyway, and the argument for keeping them
-separate despite no test distinguishing them yet is written into
-`doc/scrolling.md` section 6 above and into the function's own doc comment:
-the day a clickable item lands inside a scroller, the two climbs diverge, and
-sharing one would silently break wheel routing for that scene without a
-single existing test noticing. This is the second diagnosis this project's
-notepad already named - a term whose current single reader cannot
-distinguish it, not a coverage gap - so no test was invented to force a
-disagreement that does not exist yet; the separation is justified in the
-comment instead, matching `doc/layout.md`'s defect 6 precedent for the same
-shape of finding.
+set of nodes (none of which is ever `accepts_pointer()`) and necessarily
+agree. The two functions are kept separate anyway, and the argument for
+keeping them separate despite no test distinguishing them yet is written
+into section 6 above and into the function's own doc comment: the day a
+clickable item lands inside a scroller, the two climbs diverge, and sharing
+one would silently break wheel routing for that scene without a single
+existing test noticing. This is the same diagnosis as E, one section down -
+a term whose current single reader cannot distinguish it, not a coverage gap
+- so no test was invented to force a disagreement that does not exist yet.
 
-**N - caught by inspection before it reached a build, which is itself worth
-recording.** Deliberately trying this injection surfaced that `WidgetSet`
-holds no offset field to go stale in the first place (section 2 above records
-why) - there was no cache to inject a staleness bug into. The candidate
-injection was rewritten into "N: `scroll_by` computes the new offset from
-`Widget::scroll_axis` alone and forgets to read `RenderTree::scroll_offset()`
-as the STARTING point (always scrolls from zero)" and re-run; **this one WAS
-caught**, by `scrolling.verify_demo_scene`'s overscroll check, because a
-repeated small scroll would never reach the far clamp if every call started
-over from zero. Recorded because the near-miss is the useful part: an
-injection that cannot even be built because the bug's precondition does not
-exist is evidence the architecture removed the bug's precondition, which
-`doc/compositing.md`'s reasoning about `RepaintStats::layers` already
-established as worth stating explicitly rather than silently skipping.
-
-Twelve were caught immediately, one (N, in its corrected form) was caught
-after being rewritten to be buildable, and one (M) is the provable-inert
-case with the argument written down rather than a test invented for it -
-14 total, 13 with a positive verdict one way or the other, matching this
-project's now-five-times-established taxonomy of what a "did not catch it"
-result actually means before concluding the tests are missing something.
+In total: 9 caught immediately, 2 caught after being rewritten past a
+compiler rejection, 1 (J) exposed a real, now-closed coverage gap, and 2
+(E, M) are provably inert under every scene this slice builds, each with the
+argument written down rather than a test invented to manufacture a
+disagreement that does not exist. That is five distinct outcomes for
+fourteen injections, none of them "nothing happened and nobody knows why" -
+which is the standard this project's notepad has been holding injection
+campaigns to since the first one found stale-mtime false negatives.
 
 ---
 
