@@ -151,6 +151,62 @@ struct PointerEvent {
   float wheel_y = 0.0F;
 };
 
+// Which key changed. Not a full keyboard map - only the editing intents
+// design.md section 5.5.2 names as belonging to a text field rather than to
+// a shortcut table (`MoveCaretLineStart`, `DeleteWordBackward`, and this
+// slice's smaller set of them). Everything else is `kOther` and dropped
+// before it becomes a KeyEvent, the identical policy PointerAction already
+// has for a non-primary mouse button: an enumerator naming a key nothing
+// consumes would be a promise this engine does not keep, because there is no
+// intent-binding system (design.md section 5.5.1) to route it through yet.
+enum class Key : std::uint8_t {
+  kOther,
+  kLeft,
+  kRight,
+  kHome,
+  kEnd,
+  kBackspace,
+  kDelete,
+};
+
+enum class KeyAction : std::uint8_t {
+  kDown,
+  kUp,
+};
+
+// One key changing state on one window.
+//
+// `shift` is the only modifier carried, because it is the only one this
+// slice's editing intents consult (Shift+arrow/Home/End extends a
+// selection). Ctrl/Alt/Cmd are absent for the same reason `kOther` exists:
+// nothing here would read them, and a field nobody reads is a field nobody
+// can trust stayed correct.
+struct KeyEvent {
+  WindowId window;
+  KeyAction action = KeyAction::kDown;
+  Key key = Key::kOther;
+  bool shift = false;
+};
+
+// Committed text from the platform's text-input mechanism, UTF-8 as SDL
+// delivers it. This is ALSO design.md's IME hook point (line ~142-143's
+// `start_text_input`/`stop_text_input`) doing its ordinary ASCII job: SDL3
+// generates no SDL_EVENT_TEXT_INPUT at all until start_text_input() has been
+// called on the window, IME or not, so this plumbing is required for plain
+// ASCII typing to work in the first place - it is not a placeholder built
+// "just in case" for a later slice. What IS still absent, and is P7's job
+// per design.md line ~1719: SDL_EVENT_TEXT_EDITING (the in-progress
+// composition preview) is not read at all, so there is no candidate window
+// and no composition string ever reaches a caller. A composed, non-ASCII
+// character an IME commits still arrives here as ordinary committed text -
+// this library does not distinguish "typed" from "IME-committed" - and a
+// TextField widget drops it at the ASCII boundary exactly as it drops any
+// other non-ASCII byte (doc/text-input.md section 1).
+struct TextInputEvent {
+  WindowId window;
+  std::string text;
+};
+
 // Everything one pump() turned up, split by what the caller has to do about
 // it.
 struct PumpResult {
@@ -172,6 +228,13 @@ struct PumpResult {
   // every widget is, and a pointer event that arrived in the same pump would
   // otherwise be hit-tested against the layout the window no longer has.
   std::vector<PointerEvent> pointer;
+
+  // Keyboard and committed-text events, in the order they arrived. Routing
+  // either to a specific widget (which one has FOCUS) is the caller's job -
+  // this layer only reports that a window received them, the same
+  // window-scoped granularity every event above already has.
+  std::vector<KeyEvent> key;
+  std::vector<TextInputEvent> text_input;
 };
 
 class WindowManager {
@@ -231,6 +294,32 @@ class WindowManager {
   // position, which is what a real wheel event also does - a wheel has no
   // position of its own, it reports wherever the cursor already is.
   void post_wheel(WindowId id, float dx, float dy);
+
+  // design.md line ~142-143's IME hook point, `IWindow::start_text_input(rect)`
+  // / `stop_text_input()`, implemented here as a direct SDL3 passthrough -
+  // required for SDL_EVENT_TEXT_INPUT to be generated AT ALL (SDL3 gates it
+  // on this call regardless of whether an IME is active), so it is real
+  // plumbing this slice needs for plain ASCII typing, not a placeholder
+  // reserved for a later one. `rect` is the on-screen caret rectangle IMEs
+  // use to position a candidate window; carried through to
+  // SDL_SetTextInputArea even though nothing reads a candidate window yet,
+  // because the call already needs a rectangle argument and passing the
+  // caret's real position costs nothing today and saves a signature change
+  // the day P7 wires up composition. No composition handling of any kind
+  // happens here or anywhere else in this file - see TextInputEvent's own
+  // comment for exactly what is and is not built.
+  void start_text_input(WindowId id, const PixelRect& caret_rect);
+  void stop_text_input(WindowId id);
+
+  // Puts a real key event on the platform's own event queue, same route
+  // post_pointer_button() uses - so a scripted run exercises the actual
+  // SDL event queue and this manager's own dispatch(), not a shortcut around
+  // either.
+  void post_key(WindowId id, bool down, Key key, bool shift);
+
+  // Puts committed text on the platform's own event queue as a real
+  // SDL_EVENT_TEXT_INPUT, the same route post_key() uses.
+  void post_text_input(WindowId id, const std::string& text);
 
   // The size a frame for this window must be rasterized at, right now.
   //

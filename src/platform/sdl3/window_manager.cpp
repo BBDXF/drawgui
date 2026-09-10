@@ -32,6 +32,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <span>
 #include <string>
 #include <string_view>
@@ -132,6 +133,48 @@ PixelPoint to_physical(SDL_Window* window, float x, float y) {
   const float scale = density > 0.0F ? density : 1.0F;
   return PixelPoint{static_cast<int>(std::floor(x * scale)),
                     static_cast<int>(std::floor(y * scale))};
+}
+
+// Only the keys this engine's editing intents consume - see Key's own
+// comment for why an unrecognised key becomes kOther rather than a bespoke
+// enumerator.
+Key to_key(SDL_Keycode keycode) {
+  switch (keycode) {
+    case SDLK_LEFT:
+      return Key::kLeft;
+    case SDLK_RIGHT:
+      return Key::kRight;
+    case SDLK_HOME:
+      return Key::kHome;
+    case SDLK_END:
+      return Key::kEnd;
+    case SDLK_BACKSPACE:
+      return Key::kBackspace;
+    case SDLK_DELETE:
+      return Key::kDelete;
+    default:
+      return Key::kOther;
+  }
+}
+
+SDL_Keycode from_key(Key key) {
+  switch (key) {
+    case Key::kLeft:
+      return SDLK_LEFT;
+    case Key::kRight:
+      return SDLK_RIGHT;
+    case Key::kHome:
+      return SDLK_HOME;
+    case Key::kEnd:
+      return SDLK_END;
+    case Key::kBackspace:
+      return SDLK_BACKSPACE;
+    case Key::kDelete:
+      return SDLK_DELETE;
+    case Key::kOther:
+      break;
+  }
+  return SDLK_UNKNOWN;
 }
 
 }  // namespace
@@ -235,6 +278,15 @@ struct WindowManager::Impl {
         }
         break;
       }
+      case SDL_EVENT_KEY_DOWN:
+      case SDL_EVENT_KEY_UP:
+      case SDL_EVENT_TEXT_INPUT:
+        // Split out to keep dispatch()'s own branching within this
+        // project's cognitive-complexity budget - clang-tidy's
+        // readability-function-cognitive-complexity measured this switch at
+        // 31 against a threshold of 25 once these three cases joined it.
+        dispatch_keyboard(event, result);
+        break;
       case SDL_EVENT_WINDOW_EXPOSED:
       case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
         const SDL_WindowID sdl_id = event.window.windowID;
@@ -254,7 +306,43 @@ struct WindowManager::Impl {
     }
   }
 
+  // SDL_EVENT_KEY_DOWN/UP and SDL_EVENT_TEXT_INPUT, split out of dispatch()'s
+  // own switch - see the case's own comment for why.
+  void dispatch_keyboard(const SDL_Event& event, PumpResult& result) {
+    if (event.type == SDL_EVENT_TEXT_INPUT) {
+      const auto entry = find(event.text.windowID);
+      if (entry != windows.end() && event.text.text != nullptr) {
+        result.text_input.push_back(TextInputEvent{WindowId{entry->sdl_id}, event.text.text});
+      }
+      return;
+    }
+    const Key key = to_key(event.key.key);
+    // kOther is dropped, matching PointerAction's identical policy for a
+    // non-primary mouse button: nothing routes it, so reporting it would be
+    // a promise this engine does not keep.
+    if (key == Key::kOther) {
+      return;
+    }
+    const auto entry = find(event.key.windowID);
+    if (entry == windows.end()) {
+      return;
+    }
+    const KeyAction action =
+        event.key.type == SDL_EVENT_KEY_DOWN ? KeyAction::kDown : KeyAction::kUp;
+    const bool shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
+    result.key.push_back(KeyEvent{WindowId{entry->sdl_id}, action, key, shift});
+  }
+
   std::vector<OwnedWindow> windows;
+
+  // Backing storage for text this manager pushes onto the event queue
+  // itself (post_text_input()). SDL_TextInputEvent::text is a pointer, and
+  // SDL owns the string for a REAL SDL_EVENT_TEXT_INPUT it generates, but
+  // gives no such guarantee for one pushed via SDL_PushEvent - the memory a
+  // pushed event points to has to outlive the call and be freed by whoever
+  // allocated it. A deque, not a vector: push_back never invalidates a
+  // previously returned c_str(), which a vector's reallocation would.
+  std::deque<std::string> posted_text;
 };
 
 WindowManager::WindowManager(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -366,6 +454,57 @@ void WindowManager::post_wheel(WindowId id, float dx, float dy) {
   event.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
   event.wheel.mouse_x = logical_x;
   event.wheel.mouse_y = logical_y;
+  SDL_PushEvent(&event);
+}
+
+void WindowManager::start_text_input(WindowId id, const PixelRect& caret_rect) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  const SDL_Rect area{caret_rect.x, caret_rect.y, caret_rect.width, caret_rect.height};
+  SDL_SetTextInputArea(entry->window, &area, 0);
+  SDL_StartTextInput(entry->window);
+}
+
+void WindowManager::stop_text_input(WindowId id) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  SDL_StopTextInput(entry->window);
+}
+
+void WindowManager::post_key(WindowId id, bool down, Key key, bool shift) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  SDL_Event event{};
+  event.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+  event.key.windowID = id.value;
+  event.key.key = from_key(key);
+  event.key.mod = shift ? SDL_KMOD_SHIFT : SDL_KMOD_NONE;
+  event.key.down = down;
+  SDL_PushEvent(&event);
+}
+
+void WindowManager::post_text_input(WindowId id, const std::string& text) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  // SDL_TextInputEvent::text is a pointer, and SDL owns the string for a
+  // REAL SDL_EVENT_TEXT_INPUT it generates internally, but a manually
+  // SDL_PushEvent()'d one gives no such guarantee - the memory has to
+  // outlive the call and something has to own it. impl_->posted_text does,
+  // for the lifetime of this WindowManager, which is the same lifetime
+  // every other resource this Impl owns already has.
+  impl_->posted_text.push_back(text);
+  SDL_Event event{};
+  event.text.type = SDL_EVENT_TEXT_INPUT;
+  event.text.windowID = id.value;
+  event.text.text = impl_->posted_text.back().c_str();
   SDL_PushEvent(&event);
 }
 
