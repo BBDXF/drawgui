@@ -164,6 +164,38 @@ Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
 
+This phase closes on an audit, not a feature: `doc/completeness.md` checks the
+whole phase against design.md's own MVP-8 widget list (`Box` `Text` `Button`
+`TextField` `ScrollView` `List` `Image` `Row`/`Column`) rather than against
+this project's own prior claims about itself. Six of the eight are unambiguous
+- `Box` and `Row`/`Column` are `BoxStyle`/`LayoutKind`, not `WidgetKind`s, and
+that is by design, not a shortfall. `List` turns out to be present as
+mechanism (a `kColumn`/`kRow` composed inside a `kScrollView`, exactly what
+`examples/10_scrolling` already draws) but not as the control design.md
+itself defines: line 617 makes virtualization part of `List`'s definition,
+and none exists, so an honest reading calls this a proven substrate rather
+than a finished widget. `Image` is the one true gap: nothing in `NodeStyle`
+carries an image of any kind, and no decode/draw path exists anywhere the
+engine's own render tree can reach - the Skia gallery's image panel is a demo
+of Skia, not of this engine. Both gaps are named as the first tasks for
+whichever phase follows this one rather than papered over. Everything else
+checks out further than expected: the layer-3 primitive set that design.md's
+own acceptance bar asks Slider to validate (line 622) turns out to have
+needed zero new RenderObject kinds across every widget this phase built -
+checkbox, radio, slider, scrollview, textfield alike - and every invariant
+this phase established (exactly-once layout, damage correctness, zero
+`virtual`, zero SDL in `include/`, golden byte-stability, the ABI lock) still
+holds with all nine slices' work coexisting, each re-checked once rather than
+assumed. The verdict is a qualified TRUE: basic GUI components are complete
+for layout, CSS-like properties and the widget primitives that compose from
+what already exists, on Linux, CPU raster, ASCII text, with no theme system
+and no popups - a real boundary, stated exactly, not an unqualified claim
+papering over the two named holes. `doc/completeness.md` also finds and
+escalates the sharpest single gap between this project and design.md's own
+priorities: `PopupHost`, which design.md calls "the single most critical
+decision in the whole design" and requires to exist as of MVP, does not exist
+at all.
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -442,3 +474,4 @@ Findings and decisions from each slice live beside it:
 | `doc/form-controls.md` | radio as a checkbox field, a slider needing no new RenderObject, why dropdown is declined and what its prerequisite is, and a real `LayoutTree` sizing constraint found while building it |
 | `doc/text-input.md` | a single-line `TextField`, why ASCII scoping satisfies design.md's grapheme-cluster requirement by construction, the IME hook as real plumbing rather than a placeholder, and the exact condition under which typing would force a relayout |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
+| `doc/completeness.md` | the phase-closing audit against design.md's MVP-8 widget list, the acceptance-criterion re-check, the consolidated decline and contradiction tables, and the qualified completeness verdict |
