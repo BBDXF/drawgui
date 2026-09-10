@@ -342,7 +342,11 @@ jobs:
             examples/11_form_controls/main.cpp
             examples/11_form_controls/form_check.cpp
             examples/11_form_controls/form_scene.cpp
-            examples/11_form_controls/form_window.cpp"
+            examples/11_form_controls/form_window.cpp
+            examples/12_text_input/main.cpp
+            examples/12_text_input/text_field_check.cpp
+            examples/12_text_input/text_field_scene.cpp
+            examples/12_text_input/text_field_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
