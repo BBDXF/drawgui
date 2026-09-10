@@ -27,11 +27,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/box.h"
+#include "drawgui/render/font_catalog.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/widget/interaction.h"
 
@@ -79,6 +82,18 @@ enum class WidgetKind : std::uint8_t {
   // unbounded stream of pointer deltas, which the stateless Interaction
   // machine cannot hold - doc/form-controls.md section 2.
   kSlider,
+
+  // A single-line, ASCII-only text field. Composition, not a new primitive:
+  // `content` (a plain text-bearing child), `caret` and `selection_highlight`
+  // (plain fill-only children the widget positions) are exactly the shape
+  // kCheckbox's `indicator` and kSlider's `thumb` already are, and the
+  // field's own node is a kLeaf with `overflow: kClip` - the clip
+  // doc/clipping.md built, reused verbatim to confine all three children,
+  // the same way doc/scrolling.md reused it for a viewport. Earns a kind of
+  // its own over reusing kSlider or kCheckbox because it needs FOCUS
+  // (keyboard routing) and a MODEL string, neither of which any existing
+  // kind carries - doc/text-input.md section 3.
+  kTextField,
 };
 
 // One widget's whole state. A plain struct of plain fields, for the reason
@@ -145,6 +160,51 @@ struct Widget {
   float max_value = 1.0F;
   float step = 0.0F;
   float value = 0.0F;
+
+  // kTextField only. `content`, `caret` and `selection_highlight` are plain
+  // children this widget positions/sizes at paint time - the same shape
+  // `indicator` and `thumb` already are above. `content`'s OWN
+  // NodeStyle::text.text is a PAINT-TIME PROJECTION of `text` below, not a
+  // second copy of it: it may show an ellipsis-truncated prefix while
+  // unfocused, or the full string scrolled by `scroll_x` while focused - the
+  // same relationship `checked`/the indicator's fill and `value`/the thumb's
+  // position already have. doc/text-input.md section 3 is the argument.
+  NodeId content;
+  NodeId caret;
+  NodeId selection_highlight;
+
+  // The MODEL. RUNTIME STATE, not a property - the identical argument
+  // doc/scrolling.md section 2 and doc/form-controls.md section 1.3 already
+  // make for the scroll offset and the slider's value: this accumulates
+  // across an unbounded stream of keystrokes rather than being declared
+  // once. ASCII-only (bytes 0x20..0x7E) is this slice's declared content
+  // boundary - doc/text-input.md section 1 - which is what makes a byte
+  // offset into `text` also a codepoint offset AND a grapheme-cluster
+  // offset, honouring design.md's mandatory minimum edit unit (line ~1001)
+  // by construction rather than by a segmentation library.
+  std::string text;
+  int cursor = 0;                       // byte offset into `text`, in [0, text.size()]
+  std::optional<int> selection_anchor;  // set => a selection [min(anchor,cursor), max(...))
+  int scroll_x = 0;                     // device pixels; DERIVED, never declared
+};
+
+// A normalized [start, end) byte range into a kTextField's Widget::text.
+struct TextSelection {
+  int start = 0;
+  int end = 0;
+};
+
+// Editing-intent moves a kTextField registers on itself - design.md section
+// 5.5.2's "text-editing keys are not shortcuts, they are editing intents the
+// TextField itself registers" (line ~595), applied at the smallest scope
+// this slice needs rather than through the intent-binding system design.md
+// asks for, which does not exist yet (doc/scrolling.md section 1 already
+// named this precondition for keyboard scrolling; it is still absent).
+enum class TextFieldMove : std::uint8_t {
+  kCharLeft,
+  kCharRight,
+  kLineStart,
+  kLineEnd,
 };
 
 class WidgetSet {
@@ -282,6 +342,61 @@ class WidgetSet {
   // be a function of what the user can see, not of how often the loop asks.
   void refresh(RenderTree& tree, NodeId id, PointerState state) const;
 
+  // --- kTextField ---
+  //
+  // A click resolves to a kTextField the same way it resolves to any other
+  // interactive widget - through owner_of()/widget_at(), because kTextField
+  // IS accepts_pointer() (unlike kSlider/kScrollView). No separate climb is
+  // needed: nothing here has kTextField's children accepting pointer input
+  // themselves, so a click anywhere in the field's subtree already resolves
+  // to the field.
+
+  [[nodiscard]] const std::string& text_field_text(NodeId id) const;
+  [[nodiscard]] int text_field_cursor(NodeId id) const;
+  [[nodiscard]] std::optional<TextSelection> text_field_selection(NodeId id) const;
+
+  // Replaces the current selection (if any) or inserts at the cursor.
+  // `input` is filtered to printable ASCII (0x20-0x7E) - anything else,
+  // including a multi-byte UTF-8 sequence an IME might commit, is DROPPED
+  // rather than mis-split, matching design.md's own MVP concession (line
+  // ~547-548) - doc/text-input.md section 1. Returns false when nothing
+  // changed (an empty filtered input with no selection to delete).
+  bool text_field_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                         std::string_view input);
+
+  bool text_field_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+  bool text_field_delete_forward(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  // `extend_selection` is Shift+arrow/Home/End: the anchor is set (if not
+  // already) BEFORE the cursor moves, so the selection grows from a fixed
+  // point; false clears any selection, matching every desktop toolkit's
+  // plain-arrow behaviour.
+  bool text_field_move(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                       TextFieldMove move, bool extend_selection);
+
+  // Click-to-position: sets the cursor to the byte offset nearest
+  // `pointer_x` (ABSOLUTE device pixels - the same coordinate a
+  // PointerEvent carries). `extend_selection` is a shift-click or a drag
+  // continuation: the anchor is preserved rather than reset, so dragging
+  // from an initial click extends a selection one pointer-move event at a
+  // time - the same shape a slider's drag already has (doc/form-controls.md
+  // section 1.4), reused here for a text selection rather than a value.
+  bool text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id, int pointer_x,
+                        bool extend_selection);
+
+  // Applies the focused/unfocused display mode (doc/text-input.md section
+  // 5): focused shows the full string scrolled so the cursor stays visible
+  // and draws a steady (non-blinking - no animation clock exists, matching
+  // doc/scrolling.md's declined fling for the identical reason) caret;
+  // unfocused shows an ellipsis-truncated prefix when the string overflows
+  // the field's width, and hides the caret and any selection highlight.
+  // FOCUS ITSELF lives in the separate dg::Focus class, not here - the same
+  // separation dg::Interaction's hover/press state already has from
+  // WidgetSet, so this takes the answer as a parameter rather than storing
+  // a second copy of it.
+  void text_field_set_focus(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                            bool focused);
+
  private:
   // Null when `id` names no widget, including when it is past the end of the
   // table. Every accessor goes through these rather than testing has() and
@@ -297,6 +412,22 @@ class WidgetSet {
   // lets resync_sliders() call this for every kSlider in one pass without
   // re-deriving the NodeId -> Widget* lookup it already has.
   static void reposition_slider(RenderTree& tree, NodeId id, const Widget& widget);
+
+  // Replaces widget.text[lo:hi) with `replacement`, moves the cursor to just
+  // past the replacement, clears any selection, then re-derives the
+  // display - the one place all of insert/backspace/delete meet, so the
+  // projection logic (ellipsis vs scroll, caret and highlight geometry)
+  // exists in exactly one function rather than three copies of it.
+  static bool text_field_replace_range(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                       Widget& widget, int lo, int hi,
+                                       std::string_view replacement);
+
+  // Re-derives everything paint-time about a kTextField from its model
+  // (text/cursor/selection_anchor) and `focused`: the content child's
+  // displayed string (full+scrolled, or ellipsis-truncated), the caret's
+  // position and visibility, and the selection highlight's rectangle.
+  static void text_field_refresh_display(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                         Widget& widget, bool focused);
 
   std::vector<std::optional<Widget>> widgets_;
 };

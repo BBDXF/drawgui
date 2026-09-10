@@ -5,7 +5,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
+
+#include "drawgui/render/text_metrics.h"
 
 namespace dg {
 namespace {
@@ -14,6 +18,11 @@ bool interactive(WidgetKind kind) {
   switch (kind) {
     case WidgetKind::kButton:
     case WidgetKind::kCheckbox:
+    // kTextField accepts pointer input directly, unlike kSlider/kScrollView:
+    // a click has to resolve TO the field (to focus it and place the
+    // cursor), not merely to a plain child of it - doc/text-input.md
+    // section 3.
+    case WidgetKind::kTextField:
       return true;
     case WidgetKind::kPanel:
     case WidgetKind::kLabel:
@@ -22,6 +31,58 @@ bool interactive(WidgetKind kind) {
       break;
   }
   return false;
+}
+
+// Printable ASCII only (space through tilde). Everything else - control
+// characters, DEL, and every byte of a multi-byte UTF-8 sequence an IME or a
+// paste might commit - is dropped rather than mis-split, which is the
+// concrete mechanism behind doc/text-input.md section 1's scoping decision.
+bool is_editable_ascii(char byte) {
+  const auto value = static_cast<unsigned char>(byte);
+  return value >= 0x20 && value <= 0x7E;
+}
+
+std::string filter_ascii(std::string_view input) {
+  std::string filtered;
+  filtered.reserve(input.size());
+  for (const char byte : input) {
+    if (is_editable_ascii(byte)) {
+      filtered.push_back(byte);
+    }
+  }
+  return filtered;
+}
+
+TextSelection normalize_selection(int cursor, int anchor) {
+  return TextSelection{std::min(cursor, anchor), std::max(cursor, anchor)};
+}
+
+// Truncates `text` to the longest prefix such that PREFIX + "..." still fits
+// `visible_width` device pixels, appending the ellipsis - the unfocused
+// overflow treatment doc/text-input.md section 5 chose over scrolling an
+// unfocused field with no visible caret to justify it. Returns `text`
+// unchanged (no ellipsis) when it already fits.
+std::string ellipsize(const FontCatalog& fonts, FontId font, float size,
+                      const std::string& text, int visible_width) {
+  const auto width_of = [&](std::string_view candidate) {
+    return measure_ascii_width(fonts, font, size, candidate);
+  };
+  if (visible_width <= 0 || width_of(text) <= static_cast<float>(visible_width)) {
+    return text;
+  }
+  static constexpr std::string_view kEllipsis = "...";
+  std::size_t prefix = 0;
+  for (; prefix <= text.size(); ++prefix) {
+    std::string candidate = text.substr(0, prefix);
+    candidate += kEllipsis;
+    if (width_of(candidate) > static_cast<float>(visible_width)) {
+      break;
+    }
+  }
+  const std::size_t kept = prefix > 0 ? prefix - 1 : 0;
+  std::string result = text.substr(0, kept);
+  result += kEllipsis;
+  return result;
 }
 
 // [min_value, max_value], then snapped to the nearest `step` above
@@ -310,6 +371,294 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
   if (tree.style(widget.indicator).fill != mark) {
     tree.set_fill(widget.indicator, mark);
   }
+}
+
+namespace {
+constexpr int kCaretWidthPx = 2;
+}  // namespace
+
+const std::string& WidgetSet::text_field_text(NodeId id) const {
+  static const std::string kEmpty;
+  const Widget* widget = find(id);
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->text : kEmpty;
+}
+
+int WidgetSet::text_field_cursor(NodeId id) const {
+  const Widget* widget = find(id);
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->cursor : 0;
+}
+
+std::optional<TextSelection> WidgetSet::text_field_selection(NodeId id) const {
+  const Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField ||
+      !widget->selection_anchor.has_value() || *widget->selection_anchor == widget->cursor) {
+    return std::nullopt;
+  }
+  return normalize_selection(widget->cursor, *widget->selection_anchor);
+}
+
+void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& fonts,
+                                           NodeId id, Widget& widget, bool focused) {
+  const PixelRect field_bounds = tree.local_bounds(id);
+  const int visible_width = std::max(0, field_bounds.width);
+  const int inner_height = std::max(0, field_bounds.height);
+
+  TextStyle content_style = tree.style(widget.content).text;
+  const FontId font = content_style.font;
+  const float size = content_style.size;
+
+  if (!focused) {
+    widget.scroll_x = 0;
+    content_style.text = ellipsize(fonts, font, size, widget.text, visible_width);
+    tree.set_text(widget.content, content_style);
+    // The content child's own box must be wide enough to hold what it
+    // paints - paint_text() clips to ITS OWN NODE's bounds (doc/widgets.md
+    // section 3.2), which is a different clip than the field's `overflow:
+    // kClip` and runs regardless of it. A 1px placeholder box (this
+    // widget's construction-time default, never since resized) would clip
+    // away all but a sliver of the text before the field's own clip is ever
+    // consulted - visible_width is always enough because ellipsize()
+    // guarantees the truncated string fits inside it.
+    tree.set_local_bounds(widget.content,
+                          PixelRect{0, 0, std::max(1, visible_width), inner_height});
+    tree.set_local_bounds(widget.caret, PixelRect{0, 0, 0, inner_height});
+    tree.set_local_bounds(widget.selection_highlight, PixelRect{0, 0, 0, inner_height});
+    return;
+  }
+
+  content_style.text = widget.text;
+  const float cursor_x = measure_ascii_width(
+      fonts, font, size,
+      std::string_view{widget.text}.substr(0, static_cast<std::size_t>(widget.cursor)));
+  const float total_width = measure_ascii_width(fonts, font, size, widget.text);
+
+  int scroll_x = widget.scroll_x;
+  if (total_width <= static_cast<float>(visible_width)) {
+    scroll_x = 0;
+  } else {
+    const float cursor_px = cursor_x - static_cast<float>(scroll_x);
+    if (cursor_px < 0.0F) {
+      scroll_x = static_cast<int>(std::lround(static_cast<double>(cursor_x)));
+    } else if (cursor_px > static_cast<float>(visible_width)) {
+      scroll_x = static_cast<int>(std::lround(static_cast<double>(cursor_x))) - visible_width;
+    }
+    const int max_scroll = std::max(0, static_cast<int>(total_width) - visible_width);
+    scroll_x = std::clamp(scroll_x, 0, max_scroll);
+  }
+  widget.scroll_x = scroll_x;
+
+  tree.set_text(widget.content, content_style);
+  // The content child's box must hold the WHOLE string - unlike the
+  // unfocused branch, this text is not pre-truncated, so the field's own
+  // `overflow: kClip` is the ONLY thing confining an overflowing string;
+  // the content node's own paint_text() clip must not additionally cut it
+  // off before that happens.
+  const int content_width = std::max(
+      visible_width, static_cast<int>(std::lround(static_cast<double>(total_width))) + 1);
+  tree.set_local_bounds(widget.content, PixelRect{-scroll_x, 0, content_width, inner_height});
+
+  // Clamped so the caret's own width stays fully inside the field even when
+  // the cursor sits at the very last byte of an overflowing string -
+  // otherwise a caret exactly at the visible edge would be half-clipped by
+  // the field's own `overflow: kClip`, which is a cosmetic defect the clamp
+  // upper bound removes for free.
+  const int caret_x =
+      std::clamp(static_cast<int>(std::lround(static_cast<double>(cursor_x))) - scroll_x, 0,
+                 std::max(0, visible_width - kCaretWidthPx));
+  tree.set_local_bounds(widget.caret, PixelRect{caret_x, 0, kCaretWidthPx, inner_height});
+
+  const std::optional<int> anchor = widget.selection_anchor;
+  if (anchor.has_value() && *anchor != widget.cursor) {
+    const TextSelection selection = normalize_selection(widget.cursor, *anchor);
+    const float start_x = measure_ascii_width(
+        fonts, font, size,
+        std::string_view{widget.text}.substr(0, static_cast<std::size_t>(selection.start)));
+    const float end_x = measure_ascii_width(
+        fonts, font, size,
+        std::string_view{widget.text}.substr(0, static_cast<std::size_t>(selection.end)));
+    const int hl_x = static_cast<int>(std::lround(static_cast<double>(start_x))) - scroll_x;
+    const int hl_w =
+        std::max(0, static_cast<int>(std::lround(static_cast<double>(end_x - start_x))));
+    tree.set_local_bounds(widget.selection_highlight, PixelRect{hl_x, 0, hl_w, inner_height});
+  } else {
+    tree.set_local_bounds(widget.selection_highlight, PixelRect{0, 0, 0, inner_height});
+  }
+}
+
+bool WidgetSet::text_field_replace_range(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                         Widget& widget, int lo, int hi,
+                                         std::string_view replacement) {
+  const int size = static_cast<int>(widget.text.size());
+  const int start = std::clamp(std::min(lo, hi), 0, size);
+  const int end = std::clamp(std::max(lo, hi), 0, size);
+  if (start == end && replacement.empty()) {
+    return false;
+  }
+  widget.text.replace(static_cast<std::size_t>(start), static_cast<std::size_t>(end - start),
+                      replacement);
+  widget.cursor = start + static_cast<int>(replacement.size());
+  widget.selection_anchor.reset();
+  text_field_refresh_display(tree, fonts, id, widget, true);
+  return true;
+}
+
+bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                  std::string_view input) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return false;
+  }
+  const std::string filtered = filter_ascii(input);
+  if (widget->selection_anchor.has_value()) {
+    const TextSelection selection =
+        normalize_selection(widget->cursor, *widget->selection_anchor);
+    return text_field_replace_range(tree, fonts, id, *widget, selection.start, selection.end,
+                                    filtered);
+  }
+  if (filtered.empty()) {
+    return false;
+  }
+  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor, widget->cursor,
+                                  filtered);
+}
+
+bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return false;
+  }
+  if (widget->selection_anchor.has_value()) {
+    const TextSelection selection =
+        normalize_selection(widget->cursor, *widget->selection_anchor);
+    return text_field_replace_range(tree, fonts, id, *widget, selection.start, selection.end,
+                                    "");
+  }
+  if (widget->cursor <= 0) {
+    return false;
+  }
+  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor - 1, widget->cursor,
+                                  "");
+}
+
+bool WidgetSet::text_field_delete_forward(RenderTree& tree, const FontCatalog& fonts,
+                                          NodeId id) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return false;
+  }
+  if (widget->selection_anchor.has_value()) {
+    const TextSelection selection =
+        normalize_selection(widget->cursor, *widget->selection_anchor);
+    return text_field_replace_range(tree, fonts, id, *widget, selection.start, selection.end,
+                                    "");
+  }
+  const int size = static_cast<int>(widget->text.size());
+  if (widget->cursor >= size) {
+    return false;
+  }
+  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor, widget->cursor + 1,
+                                  "");
+}
+
+bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                TextFieldMove move, bool extend_selection) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return false;
+  }
+  const int size = static_cast<int>(widget->text.size());
+  const int old_cursor = widget->cursor;
+  const std::optional<int> old_anchor = widget->selection_anchor;
+
+  // Plain (non-extending) Left/Right with an active selection collapses to
+  // the selection's near edge rather than moving from the cursor - matching
+  // every desktop toolkit. Home/End always jump to the absolute ends
+  // regardless of a selection, which is why only kCharLeft/kCharRight below
+  // consult `collapsing`.
+  const bool collapsing = !extend_selection && old_anchor.has_value();
+  const TextSelection current = collapsing ? normalize_selection(old_cursor, *old_anchor)
+                                           : TextSelection{old_cursor, old_cursor};
+
+  // A returning switch inside an immediately-invoked lambda, rather than a
+  // single mutable local the switch assigns and `break`s out of: the
+  // earlier shape (one `int new_cursor;` assigned in every case) could not
+  // satisfy GCC and clang-tidy at once - GCC's `-O3` flow analysis wants an
+  // initializer (`cppcoreguidelines-init-variables` wants the same thing
+  // clang-tidy-side), but any initializer clang-tidy can see is never read
+  // is a dead store (`clang-analyzer-deadcode.DeadStores`) once every case
+  // below overwrites it. A `return` per case has no separate "initial
+  // value" for either check to disagree about.
+  const int new_cursor = [&] {
+    switch (move) {
+      case TextFieldMove::kCharLeft:
+        return collapsing ? current.start : std::max(0, old_cursor - 1);
+      case TextFieldMove::kCharRight:
+        return collapsing ? current.end : std::min(size, old_cursor + 1);
+      case TextFieldMove::kLineStart:
+        return 0;
+      case TextFieldMove::kLineEnd:
+        return size;
+    }
+    __builtin_unreachable();
+  }();
+
+  if (extend_selection) {
+    if (!old_anchor.has_value()) {
+      widget->selection_anchor = old_cursor;
+    }
+  } else {
+    widget->selection_anchor.reset();
+  }
+  widget->cursor = new_cursor;
+
+  if (new_cursor == old_cursor && widget->selection_anchor == old_anchor) {
+    return false;
+  }
+  text_field_refresh_display(tree, fonts, id, *widget, true);
+  return true;
+}
+
+bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                 int pointer_x, bool extend_selection) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return false;
+  }
+  const PixelRect field_bounds = tree.absolute_bounds(id);
+  const TextStyle& content_style = tree.style(widget->content).text;
+  const float local_x = static_cast<float>(pointer_x - field_bounds.x + widget->scroll_x);
+  const std::size_t offset =
+      ascii_offset_at_x(fonts, content_style.font, content_style.size, widget->text, local_x);
+
+  const int old_cursor = widget->cursor;
+  const std::optional<int> old_anchor = widget->selection_anchor;
+
+  if (extend_selection) {
+    if (!widget->selection_anchor.has_value()) {
+      widget->selection_anchor = old_cursor;
+    }
+  } else {
+    widget->selection_anchor.reset();
+  }
+  widget->cursor = static_cast<int>(offset);
+
+  if (widget->cursor == old_cursor && widget->selection_anchor == old_anchor) {
+    return false;
+  }
+  text_field_refresh_display(tree, fonts, id, *widget, true);
+  return true;
+}
+
+void WidgetSet::text_field_set_focus(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                     bool focused) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return;
+  }
+  if (!focused) {
+    widget->selection_anchor.reset();
+  }
+  text_field_refresh_display(tree, fonts, id, *widget, focused);
 }
 
 }  // namespace dg

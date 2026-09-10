@@ -176,7 +176,9 @@ add_library(drawgui STATIC
   src/render/hit_test.cpp
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
+  src/render/text_metrics.cpp
   src/render/tree_paint.cpp
+  src/widget/focus.cpp
   src/widget/interaction.cpp
   src/widget/widget_set.cpp)
 

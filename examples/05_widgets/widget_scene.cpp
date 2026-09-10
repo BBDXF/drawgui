@@ -441,6 +441,9 @@ std::string describe(const Scene& scene, NodeId id) {
     case WidgetKind::kSlider:
       kind = "slider";
       break;
+    case WidgetKind::kTextField:
+      kind = "text field";
+      break;
   }
 
   // A button's caption lives on its label child, so fall back to the first
