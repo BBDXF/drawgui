@@ -126,6 +126,40 @@ the slider's thumb (a leaf's child cannot exceed the leaf's own resolved
 size, even "loosened"), and a defect-injection campaign that found and fixed
 a genuine bug in its own first regression test.
 
+Text can now be **typed and edited**, in a single-line `TextField` scoped to
+design.md's own MVP concession: ASCII direct input and correct display of
+committed text, nothing more. `TextField` is a seventh `WidgetKind` built from
+the same primitives every widget here already stands on - a clipping leaf plus
+three plain children the widget positions - so the field needed no new
+RenderObject, echoing design.md's own acceptance bar for Slider. ASCII scoping
+is not a shortcut around design.md's grapheme-cluster requirement for cursor
+movement and selection, it satisfies that requirement by construction: for
+ASCII, a byte offset, a codepoint offset and a grapheme-cluster boundary are
+the same number, so no ICU or HarfBuzz is wired in, and no non-ASCII byte is
+ever mis-segmented - it is filtered at the model boundary instead. IME's
+interface hook, `start_text_input`/`stop_text_input`, is real SDL3 plumbing
+rather than a placeholder: SDL3 emits no committed-text event at all until it
+is called, so this slice needs it for plain ASCII typing to work, while the
+actual IME feature - reading the in-progress composition preview - stays
+future work exactly where design.md puts it. Unfocused, an overflowing field
+shows an ellipsis-truncated prefix; focused, it shows the full string scrolled
+to keep the caret visible - both built on the same `SkFont::measureText`
+primitive this project's text rendering already uses, not on `SkParagraph`,
+which appears nowhere in this codebase and stays out of scope for a
+single-line field. Text content, cursor and selection are runtime widget
+state, not properties, for the same reason the scroll offset and the slider's
+value already are: keystrokes and drag deltas are unbounded streams, not
+declared values. A `dg::Focus` concept - one optional node id, exclusive, no
+tab order - had to be introduced from nothing, this engine's first notion of
+which widget receives keyboard input. Typing costs a repaint and never a
+relayout in this slice specifically because every `TextField` here is
+fixed-width, exactly like a slider's track; a future shrink-to-fit field would
+need a real relayout on every edit, and that condition is named rather than
+glossed over. `doc/text-input.md` records every scoping decision in full, the
+relayout finding measured rather than assumed, and a defect-injection campaign
+that found a sixth project failure mode: a weak assertion that was satisfied
+by an entire family of wrong answers, not only the right one.
+
 Text now falls back across scripts: one named family draws any string, and a
 BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
 why that chain is built here rather than delegated to fontconfig.
@@ -319,6 +353,27 @@ continuously and clamps at both ends.
 ./build/examples/drawgui_form_controls --dump-png out.png
 ```
 
+## The text input demo
+
+`examples/12_text_input` draws two single-line `TextField`s: `field_a`
+pre-filled with a string wider than the field, showing an ellipsis-truncated
+prefix while unfocused and the full string scrolled to keep the caret visible
+while focused; `field_b` empty, for typing from scratch. Click a field to
+focus it and place the cursor there; type to insert; Left/Right/Home/End move
+the cursor and, held with Shift, extend a selection; drag to select with the
+pointer; Backspace/Delete edit; clicking the other field (or empty space)
+blurs the current one.
+
+```sh
+./build/examples/drawgui_text_input                          # click/type/select it
+./build/examples/drawgui_text_input --preset-field-b TEXT     # open field b pre-filled
+./build/examples/drawgui_text_input --preset-focus-a          # open with field a focused
+./build/examples/drawgui_text_input --preset-select-a         # open with a selection in field a
+./build/examples/drawgui_text_input --verify-text-input       # headless check
+./build/examples/drawgui_text_input --dump-png out.png
+./build/examples/drawgui_text_input --script                  # real click/type/key through SDL's queue
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -341,7 +396,8 @@ animates one.
 
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
-testing, interaction, UTF-8 decoding and font fallback. It can also be run directly for per-case output:
+testing, interaction, UTF-8 decoding, font fallback and text-field editing. It
+can also be run directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -384,4 +440,5 @@ Findings and decisions from each slice live beside it:
 | `doc/sizing.md` | `basis`, `shrink`, `main_size`, `aspect_ratio`, and why a second sizing stage needed no second measurement |
 | `doc/scrolling.md` | `scroll_axis`, the runtime scroll offset, why scrolling costs a repaint and never a relayout, and what design.md's roadmap asks for that needs an animation clock this project does not have yet |
 | `doc/form-controls.md` | radio as a checkbox field, a slider needing no new RenderObject, why dropdown is declined and what its prerequisite is, and a real `LayoutTree` sizing constraint found while building it |
+| `doc/text-input.md` | a single-line `TextField`, why ASCII scoping satisfies design.md's grapheme-cluster requirement by construction, the IME hook as real plumbing rather than a placeholder, and the exact condition under which typing would force a relayout |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
