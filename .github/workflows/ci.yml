@@ -283,6 +283,7 @@ jobs:
             tests/unit/test_sizing.cpp
             tests/unit/test_scroll.cpp
             tests/unit/test_form_controls.cpp
+            tests/unit/test_text_input.cpp
             tests/unit/test_border_paint.cpp
             tests/unit/test_props_parity.cpp
             tests/unit/test_props_boundary.cpp

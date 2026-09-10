@@ -72,6 +72,7 @@ add_executable(drawgui_unit_test
   unit/test_sizing.cpp
   unit/test_scroll.cpp
   unit/test_form_controls.cpp
+  unit/test_text_input.cpp
   unit/test_border_paint.cpp
   unit/test_props_parity.cpp
   unit/test_props_boundary.cpp
