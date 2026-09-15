@@ -22,7 +22,7 @@
 //   DG_PROP_ASSIGN_COMPLEX(field, type)
 //       Write the incoming descriptor into `field`. These types do not fit
 //       the scalar tagged union and arrive through a dedicated setter
-//       (design.md section 5.9.5): gradient, shadow, transform.
+//       (design.md section 5.9.5): gradient, shadow, transform, image.
 //   DG_PROP_UNKNOWN
 //       Handle an id this node does not accept. Object-like, and
 //       deliberately so: it takes no arguments, and a function-like
@@ -182,6 +182,16 @@ switch (prop_id) {
   // -- container -------------------------------------------------
   case DG_PROP_SCROLL_AXIS:
     DG_PROP_ASSIGN(scroll_axis, enum);
+    break;
+  // -- visual ----------------------------------------------------
+  case DG_PROP_IMAGE_SOURCE:
+    DG_PROP_ASSIGN_COMPLEX(image_source, image);
+    break;
+  case DG_PROP_IMAGE_FIT:
+    DG_PROP_ASSIGN(image_fit, enum);
+    break;
+  case DG_PROP_IMAGE_PLACEHOLDER_COLOR:
+    DG_PROP_ASSIGN(image_placeholder_color, color);
     break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:

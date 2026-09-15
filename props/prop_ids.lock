@@ -65,3 +65,6 @@
    44  right
    45  bottom
    46  scroll_axis
+   47  image_source
+   48  image_fit
+   49  image_placeholder_color

@@ -34,7 +34,8 @@
 #                       gradient  - NOT a scalar; dedicated setter
 #                       shadow    - NOT a scalar; dedicated setter
 #                       transform - NOT a scalar; dedicated setter
-#                     The three complex types cannot travel in the scalar
+#                       image     - NOT a scalar; dedicated setter
+#                     The four complex types cannot travel in the scalar
 #                     tagged union and take dg_node_set_* setters of their
 #                     own (section 5.9.5).
 #   values            required for type = "enum", forbidden otherwise.
@@ -68,7 +69,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 47
+next_id = 50
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -560,3 +561,43 @@ group = "container"
 field = "scroll_axis"
 applies_to = ["box"]
 summary = "Which axis, if any, this node hands its child an unbounded constraint on."
+
+# ---------------------------------------------------------------------------
+# Image - a decoded bitmap painted inside the node, alongside its fill/border/
+# text (design.md section 5.10.1's ImageSource, bitmap only - slice 5-1).
+# `image_source` cannot ride the scalar tagged union (it names a decoded
+# asset, not a number/colour/enum ordinal) and takes the dedicated setter
+# design.md section 5.9.5 specifies; `image_fit` and the placeholder colour
+# are plain enum/colour values and are implemented through the ordinary
+# scalar path.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "image_source"
+id = 47
+type = "image"
+group = "visual"
+field = "image_source"
+applies_to = ["box"]
+optional = true
+summary = "Which decoded ImageCatalog entry to paint; dedicated setter, not a scalar."
+
+[[property]]
+name = "image_fit"
+id = 48
+type = "enum"
+values = ["fill", "contain", "cover", "none"]
+group = "visual"
+field = "image_fit"
+applies_to = ["box"]
+summary = "How a decoded bitmap is scaled to the node's bounds."
+
+[[property]]
+name = "image_placeholder_color"
+id = 49
+type = "color"
+group = "visual"
+field = "image_placeholder_color"
+applies_to = ["box"]
+summary = "Painted in place of the image while none is decoded yet; never a hole."
+

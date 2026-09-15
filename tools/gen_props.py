@@ -39,7 +39,7 @@ NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 MAX_PROP_ID = 0xFFFF
 
 SCALAR_TYPES = ("float", "length", "color", "enum")
-COMPLEX_TYPES = ("gradient", "shadow", "transform")
+COMPLEX_TYPES = ("gradient", "shadow", "transform", "image")
 ALL_TYPES = SCALAR_TYPES + COMPLEX_TYPES
 
 PARENT_DATA_SCOPES = ("base", "flex", "stack")

@@ -451,6 +451,52 @@ PropWrite apply_transform(Target& target, const PropValue& /*value*/) {
                      "node has no damage rectangle to declare");
 }
 
+// The value names a decoded ImageCatalog entry, which does not fit the
+// scalar tagged union any more than a gradient or a shadow descriptor does -
+// design.md section 5.9.5's dg_node_set_image is the dedicated setter this
+// still needs. Unlike gradient/shadow/transform, this one already has a real
+// consumer (RenderTree::set_image(), src/render/render_tree.cpp) for a
+// caller reaching it directly in C++; what is missing is only the id-based
+// channel a host language would use, which slice 5-4 is scheduled to build
+// for gradient/shadow/transform and could equally make image its fourth
+// client - doc/image.md section on the property table records the decision
+// not to build that channel in this slice.
+PropWrite apply_image_source(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "image_source",
+                     "the value names a decoded ImageCatalog entry, which does not fit "
+                     "the scalar tagged union; it needs the dedicated setter design.md "
+                     "section 5.9.5 specifies (dg_node_set_image) - RenderTree::set_image() "
+                     "is the real C++ entry point until that channel exists");
+}
+
+PropWrite apply_image_fit(Target& target, const PropValue& value) {
+  switch (value.ordinal()) {
+    case DG_IMAGE_FIT_FILL:
+      target.style.image.fit = ImageFit::kFill;
+      break;
+    case DG_IMAGE_FIT_CONTAIN:
+      target.style.image.fit = ImageFit::kContain;
+      break;
+    case DG_IMAGE_FIT_COVER:
+      target.style.image.fit = ImageFit::kCover;
+      break;
+    case DG_IMAGE_FIT_NONE:
+      target.style.image.fit = ImageFit::kNone;
+      break;
+    default:
+      return out_of_range(
+          target, "image_fit has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.style_changed = true;
+  return PropWrite{};
+}
+
+PropWrite apply_image_placeholder_color(Target& target, const PropValue& value) {
+  target.style.image.placeholder = value.as_color();
+  target.style_changed = true;
+  return PropWrite{};
+}
+
 PropWrite apply_direction(Target& target, const PropValue& value) {
   const std::optional<PropWrite> gate = self_must_arrange(target, "direction");
   if (gate.has_value()) {

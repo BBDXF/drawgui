@@ -202,6 +202,18 @@ inline constexpr dg_prop_id DG_PROP_BOTTOM = 45;
 // values: none | vertical | horizontal
 inline constexpr dg_prop_id DG_PROP_SCROLL_AXIS = 46;
 
+// -- visual ------------------------------------------------------
+// Which decoded ImageCatalog entry to paint; dedicated setter, not a scalar.
+// type=image optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_IMAGE_SOURCE = 47;
+// How a decoded bitmap is scaled to the node's bounds.
+// type=enum; applies_to=box
+// values: fill | contain | cover | none
+inline constexpr dg_prop_id DG_PROP_IMAGE_FIT = 48;
+// Painted in place of the image while none is decoded yet; never a hole.
+// type=color; applies_to=box
+inline constexpr dg_prop_id DG_PROP_IMAGE_PLACEHOLDER_COLOR = 49;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -258,11 +270,16 @@ inline constexpr std::uint32_t DG_ALIGN_SELF_BASELINE = 5;
 inline constexpr std::uint32_t DG_SCROLL_AXIS_NONE = 0;
 inline constexpr std::uint32_t DG_SCROLL_AXIS_VERTICAL = 1;
 inline constexpr std::uint32_t DG_SCROLL_AXIS_HORIZONTAL = 2;
+// image_fit
+inline constexpr std::uint32_t DG_IMAGE_FIT_FILL = 0;
+inline constexpr std::uint32_t DG_IMAGE_FIT_CONTAIN = 1;
+inline constexpr std::uint32_t DG_IMAGE_FIT_COVER = 2;
+inline constexpr std::uint32_t DG_IMAGE_FIT_NONE = 3;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 46;
+inline constexpr std::uint16_t kDgPropMaxId = 49;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 46;
+inline constexpr std::uint16_t kDgPropCount = 49;

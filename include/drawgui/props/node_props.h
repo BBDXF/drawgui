@@ -69,6 +69,7 @@ enum class PropType : std::uint8_t {
   k_gradient,
   k_shadow,
   k_transform,
+  k_image,
 };
 
 // The declared type of `prop_id`, or nothing when no property has that id.
