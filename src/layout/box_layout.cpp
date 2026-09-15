@@ -464,6 +464,29 @@ PixelSize LayoutTree::Impl::measure(std::uint32_t index, const BoxConstraints& c
     }
   }
 
+  // design.md section 5.10.3's mandatory rule, checked at the one point in
+  // this file that already knows whether BOTH axes are settled independent of
+  // content: width/height, aspect_ratio (both folded into `limits` above by
+  // limits_for()) and a parent constraint that arrives tight (grow, stretch,
+  // main_size: max) all converge on tight_width() && tight_height() being
+  // true here, before a single child is measured or a decoded pixel is asked
+  // for. An image node that reaches this point NOT settled has no legal size
+  // to report - decoding it now, to size the box from its content, is
+  // exactly the reflow-on-every-load design.md forbids by name. Reported as
+  // a diagnostic and left to resolve to whatever the ordinary (contentless)
+  // path below produces, matching every other constraint conflict in this
+  // file: collected, not asserted, not silently defaulted to an intrinsic
+  // size (design.md section 5.4.7).
+  if (carries_image(render.style(NodeId{index}).image) &&
+      !(limits.tight_width() && limits.tight_height())) {
+    report(index,
+           "image has no determinate size before decode; give it width/height, "
+           "aspect_ratio, or a parent constraint that settles both axes (grow, "
+           "align_self: stretch, main_size: max) - design.md section 5.10.3 forbids "
+           "sizing an image from its decoded content, because every load would then "
+           "trigger a reflow");
+  }
+
   // A tightly sized node passes its minimum down too, so a child told to
   // stretch actually fills the box its parent has already committed to. A
   // node that is free to shrink hands down a zero minimum, which is what
