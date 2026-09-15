@@ -26,6 +26,29 @@ class SkPicture;
 
 namespace dg {
 
+// How far a shadow's paint reaches beyond the node's own declared box, in
+// device pixels, on every side - 0 when there is no shadow. Symmetric and
+// therefore a conservative superset of the true (offset-skewed) footprint:
+// this is a damage bound, not a paint bound, so overshooting costs pixels
+// repainted for nothing and undershooting would corrupt a partial repaint,
+// which is the one direction this project's invariant does not tolerate.
+// Defined in render_tree.cpp beside clips_atomically(), which this mirrors.
+// Declared here, ahead of Node, because Node::visible_bounds() calls it.
+[[nodiscard]] int shadow_reach(const NodeStyle& style);
+
+// The rectangle a node's OWN paint step may put a pixel in, before any
+// ancestor clip is applied - `absolute` outset by shadow_reach() on every
+// side, or `absolute` itself when there is no shadow. This is what
+// Node::visible_bounds() intersects with the inherited clip, and what the
+// damage-growth loop in tree_paint.cpp joins into a halo, so a shadow's
+// outset reaches every reader through this one function rather than through
+// three private copies of "how far does this node's paint extend".
+[[nodiscard]] inline PixelRect declared_paint_bounds(const PixelRect& box,
+                                                     const NodeStyle& style) {
+  const int reach = shadow_reach(style);
+  return reach > 0 ? box.inflated_by(reach) : box;
+}
+
 // Children hold indices rather than pointers: nothing is ever removed, so an
 // index stays valid for the life of the tree, and the whole tree is one
 // contiguous allocation that a repaint walks in order.
@@ -73,10 +96,12 @@ struct Node {
   // itself is applied by the canvas and by clip_contains().
   std::optional<PixelRect> clip_bounds;
 
-  // Where this node may put pixels: its own box, minus whatever its ancestors
-  // clip away. Empty means it is entirely hidden and paints nothing.
+  // Where this node may put pixels: its own box (grown by any shadow's
+  // reach), minus whatever its ancestors clip away. Empty means it is
+  // entirely hidden and paints nothing.
   [[nodiscard]] PixelRect visible_bounds() const {
-    return clip_bounds.has_value() ? intersect(absolute, *clip_bounds) : absolute;
+    const PixelRect painted = declared_paint_bounds(absolute, style);
+    return clip_bounds.has_value() ? intersect(painted, *clip_bounds) : painted;
   }
 };
 
@@ -87,6 +112,15 @@ struct Node {
 // point of the slice.
 [[nodiscard]] constexpr bool clips_subtree(const NodeStyle& style) {
   return style.overflow == Overflow::kClip;
+}
+
+// Whether this node's shadow forces it to be repainted whole or not at all -
+// the shadow analogue of a rounded node's clip_atomic, for the identical
+// reason: a Gaussian blur reads neighbouring pixels, so cutting one with a
+// damage rectangle changes the pixels inside the cut, exactly as slice 3-1
+// measured for anti-aliased rounded corners.
+[[nodiscard]] constexpr bool shadow_atomic(const NodeStyle& style) {
+  return style.shadow.has_value();
 }
 
 // Whether this node's subtree has to be composited offscreen before it is

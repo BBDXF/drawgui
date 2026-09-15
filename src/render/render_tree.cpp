@@ -1,5 +1,7 @@
 #include "drawgui/render/render_tree.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -31,6 +33,24 @@ bool clips_atomically(const NodeStyle& style) {
   // rectangle laid across a run of glyphs - because the interaction scene
   // never cuts a label and so cannot see this either way.
   return !style.radii.is_zero();
+}
+
+int shadow_reach(const NodeStyle& style) {
+  if (!style.shadow.has_value()) {
+    return 0;
+  }
+  const ShadowStyle& shadow = *style.shadow;
+
+  // Three sigma covers 99.7% of a Gaussian's energy, which is the same
+  // convention Skia's own docs use when they describe a blur's practical
+  // extent. A tighter bound would need to read the exact tail Skia's box-blur
+  // approximation produces; this one only has to be a SAFE superset (see
+  // declared_paint_bounds's own comment), and the gap costs a few repainted
+  // pixels nobody can see rather than a damage rectangle that is too small.
+  const float blur_extent = shadow.blur_radius * 3.0F;
+  const float offset_extent = std::max(std::abs(shadow.offset_x), std::abs(shadow.offset_y));
+  const float spread_extent = std::max(0.0F, shadow.spread);
+  return static_cast<int>(std::ceil(blur_extent + offset_extent + spread_extent));
 }
 
 void RenderTree::Impl::reposition(std::uint32_t root_index) {
@@ -178,7 +198,18 @@ void RenderTree::set_style(NodeId id, const NodeStyle& style) {
   // set_local_bounds()'s damage-then-move, and the same class of bug.
   const bool clip_changed = clips_subtree(node.style) != clips_subtree(style) ||
                             (clips_subtree(style) && node.style.radii != style.radii);
-  if (clip_changed) {
+
+  // A shadow's reach is the same class of bug one field over: shrinking or
+  // removing a shadow uncovers pixels that were only ever reachable through
+  // the OLD, wider outset - shadow_reach(node.style) still reads the value
+  // about to be replaced, so damaging now (before the assignment below)
+  // reaches them. Growing a shadow needs no such care (invalidate() below
+  // damages the new, larger extent regardless), but the two directions are
+  // one comparison rather than two branches, so it is not worth telling them
+  // apart.
+  const bool shadow_changed = shadow_reach(node.style) != shadow_reach(style);
+
+  if (clip_changed || shadow_changed) {
     impl_->damage_subtree(id.value);
   }
 

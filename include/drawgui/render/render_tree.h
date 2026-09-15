@@ -192,6 +192,81 @@ struct ImageStyle {
   return image.source.is_valid() || image.placeholder.alpha() != 0;
 }
 
+// One colour stop of a linear gradient, at `offset` along the gradient axis
+// (0 = the line's start, 1 = its end). `LinearGradientStyle::stops` is an
+// ABI-contract ORDER exactly the way an enum property's `values` list is
+// (prop_ids.generated.h) - a consumer paints the list in the order it was
+// given, not a re-sorted one - except a gradient descriptor never crosses the
+// dispatch that orders those, because it is not a scalar (see below).
+struct GradientStop {
+  float offset = 0.0F;
+  Color color;
+
+  friend bool operator==(const GradientStop&, const GradientStop&) = default;
+};
+
+// A linear gradient fill, replacing `NodeStyle::fill` for the border box it
+// paints rather than layering over it - design.md section 5.9.5 lists
+// `background_gradient` as its own decoration layer, and this slice keeps the
+// two mutually exclusive rather than building the compositing this project
+// has never needed for two background layers at once (section 5.9.5 also
+// states "不支持多重背景" - no multiple backgrounds - for the analogous
+// background_image case).
+//
+// LINEAR ONLY. design.md section 5.9.6 names radial and sweep too;
+// doc/complex-properties.md declines both by name - a linear axis is the one
+// case whose damage story is trivial (paints strictly inside the node's own
+// box, exactly like a flat fill), and CSS's own linear-gradient direction
+// convention (`angle_deg`: 0 = left-to-right, 90 = top-to-bottom, clockwise)
+// is what `angle_deg` spells out, matching the CSS-name-means-CSS-behaviour
+// rule (design.md section 5.9.3).
+//
+// NOT A SCALAR PropValue - a stop list has no fixed size, so it cannot fit
+// PropType's tagged union any more than an ImageId does for a different
+// reason. It travels through the dedicated `dg::set_gradient()` channel
+// (design.md section 5.9.5), not through `dg::set_prop()`.
+struct LinearGradientStyle {
+  float angle_deg = 0.0F;
+  std::vector<GradientStop> stops;
+
+  friend bool operator==(const LinearGradientStyle&, const LinearGradientStyle&) = default;
+};
+
+// An outer drop shadow, painted BEHIND everything else the node paints -
+// design.md section 5.9.5's decoration order puts `shadow` first, underneath
+// the background colour/gradient/border.
+//
+// BUDGETED, not free. doc/cpu-raster-findings.md measured blur and drop
+// shadow at 52% of a dense scene's raster time - the single most expensive
+// thing this engine can be asked to paint - so `blur_radius` is capped by the
+// dedicated setter (`dg::set_shadow()`, doc/complex-properties.md) rather than
+// left open, and it is why this is a per-node OPT-IN field (`std::optional`,
+// absent by default) rather than a primitive every node carries the cost of.
+//
+// PAINTS OUTSIDE THE NODE'S DECLARED BOUNDS BY DEFINITION - the one property
+// in this table that does, alongside `transform` (still not implemented).
+// `render_tree.cpp`'s `shadow_reach()`/`declared_paint_bounds()` are what
+// teach damage tracking about the outset; doc/complex-properties.md section
+// 3 is the argument for why that is safe rather than a hazard.
+struct ShadowStyle {
+  float offset_x = 0.0F;
+  float offset_y = 0.0F;
+
+  // Gaussian sigma, not a CSS blur-radius (Skia's own unit; CSS multiplies by
+  // roughly 2 to get a comparable visual size). Budgeted - see above.
+  float blur_radius = 0.0F;
+
+  // Grows the shadow's own shape before blurring, CSS's `spread` term.
+  // Negative shrinks it. Applied via `SkRect::makeOutset`, so a spread large
+  // enough to invert the rectangle collapses it to nothing rather than
+  // producing a negative-area shape.
+  float spread = 0.0F;
+
+  Color color;
+
+  friend bool operator==(const ShadowStyle&, const ShadowStyle&) = default;
+};
+
 // Whether a node confines its descendants to its own rectangle.
 //
 // The two ordinals of the property table's `overflow` (id 29), and the
@@ -221,9 +296,13 @@ enum class Overflow : std::uint8_t {
 
 // Everything a node paints.
 //
-// Fills, borders, one run of text and one decoded image. Blur is still absent
-// deliberately - it is 52% of a frame's raster time and belongs in a
-// budgeted feature rather than in the primitive every node carries.
+// Fills, borders, one run of text, one decoded image, one linear gradient and
+// one budgeted drop shadow. Blur - the shadow's own blur, and any general
+// background blur - is deliberately still not an unconditional primitive: it
+// is 52% of a frame's raster time (doc/cpu-raster-findings.md), so it exists
+// here only behind an opt-in `std::optional` field with a capped radius
+// (`ShadowStyle::blur_radius`, validated by `dg::set_shadow()`), never as
+// something every node pays for by default.
 struct NodeStyle {
   Color fill;
 
@@ -303,6 +382,36 @@ struct NodeStyle {
   // exactly like the fill is - src/render/skia_paint.cpp's paint_image()
   // reuses apply_clip() rather than a second radius arithmetic.
   ImageStyle image;
+
+  // Painted INSTEAD OF `fill` when present with at least two stops, in the
+  // node's own paint step (before `image`, matching design.md section
+  // 5.9.5's decoration order: colour/gradient share one slot). Absent by
+  // default, so every scene built before this slice is byte-for-byte
+  // unaffected - `set_prop()`'s scalar `background_color` path is completely
+  // untouched by this field's existence. Set only through the dedicated
+  // `dg::set_gradient()` channel (doc/complex-properties.md), never through
+  // `dg::set_prop()` - a multi-stop list does not fit `PropValue`'s scalar
+  // tagged union any more than an `ImageId` does for a different reason.
+  std::optional<LinearGradientStyle> background_gradient;
+
+  // Painted BEFORE everything else (`fill`/`background_gradient`/`image`/
+  // border), extending OUTSIDE the node's own declared bounds by definition -
+  // design.md section 5.9.5's decoration order puts `shadow` first for
+  // exactly this reason: it sits behind and around the shape, not on top of
+  // it. Absent by default; `dg::set_shadow()` is the only writer
+  // (doc/complex-properties.md), and it caps `blur_radius` because
+  // doc/cpu-raster-findings.md measured blur at 52% of a frame's raster time.
+  //
+  // TEACHES DAMAGE TRACKING A NEW FACT: a node's painted pixels are no longer
+  // always contained in its own `absolute` rectangle. `shadow_reach()` and
+  // `declared_paint_bounds()` (src/render/tree_impl.h) are the two places
+  // that know it, and `Node::visible_bounds()` is where the outset actually
+  // reaches every reader (damage, the opacity layer's subtree extent, the
+  // "wanted" test in `paint_node_and_children`) through one shared rule
+  // rather than a private one - the same argument doc/clipping.md section 6
+  // and doc/compositing.md section 5 already made for `overflow` and
+  // `opacity`.
+  std::optional<ShadowStyle> shadow;
 };
 
 // How a repaint turns nodes into draw calls.

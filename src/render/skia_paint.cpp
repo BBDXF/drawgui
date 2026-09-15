@@ -1,6 +1,7 @@
 #include "render/skia_paint.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -16,7 +17,10 @@
 #include "include/core/SkRRect.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSamplingOptions.h"
+#include "include/core/SkTileMode.h"
 #include "include/core/SkTypeface.h"
+#include "include/effects/SkGradient.h"
+#include "include/effects/SkImageFilters.h"
 
 #include "render/clip_shape.h"
 #include "render/font_access.h"
@@ -78,6 +82,79 @@ void fill_shape(SkCanvas& canvas, const SkRect& rect, const Radii& radii, SkPain
     return;
   }
   canvas.drawRRect(to_sk_rrect(rect, radii), paint);
+}
+
+// Painted BEFORE `fill`/`background_gradient`, so it sits behind everything
+// else the node paints - design.md section 5.9.5's decoration order.
+//
+// `DropShadowOnly` rather than `DropShadow`: the latter also draws the shape
+// it is given, in the paint's own colour, which here would double-paint the
+// node's border box before `fill` gets to it. `DropShadowOnly` produces only
+// the blurred, offset, coloured shadow - the shape drawn to carry the filter
+// (an opaque fill, `SK_ColorBLACK`) never reaches the canvas itself, only its
+// COVERAGE does, which is what the filter reads to know where the shadow is
+// dense.
+//
+// `spread` grows the shape BEFORE the blur is applied - `SkRect::makeOutset`,
+// CSS's own spread semantics - and a spread negative enough to invert the
+// rectangle collapses it to an empty one rather than a shape with negative
+// area, which `fill_shape` would hand Skia as undefined input.
+void paint_shadow(SkCanvas& canvas, const SkRect& rect, const Radii& radii,
+                  const std::optional<ShadowStyle>& shadow) {
+  if (!shadow.has_value() || shadow->color.alpha() == 0) {
+    return;
+  }
+  const SkRect spread_rect = rect.makeOutset(shadow->spread, shadow->spread);
+  if (spread_rect.isEmpty()) {
+    return;
+  }
+  SkPaint paint;
+  paint.setAntiAlias(true);
+  paint.setStyle(SkPaint::kFill_Style);
+  paint.setColor(SK_ColorBLACK);
+  paint.setImageFilter(SkImageFilters::DropShadowOnly(shadow->offset_x, shadow->offset_y,
+                                                      shadow->blur_radius, shadow->blur_radius,
+                                                      to_sk_color(shadow->color), nullptr));
+  fill_shape(canvas, spread_rect, radii, paint);
+}
+
+// The gradient AXIS: CSS's own `linear-gradient(<angle>, ...)` convention
+// (0deg = bottom-to-top is CSS's own choice; this project instead follows
+// the more common "0 = left-to-right, clockwise" convention already
+// documented on LinearGradientStyle::angle_deg, so the two must not be
+// confused) turned into two points long enough that the gradient line spans
+// the whole box regardless of which corner it exits through - the standard
+// "gradient line length" formula: project the half-width and half-height
+// onto the axis and sum their magnitudes.
+sk_sp<SkShader> gradient_shader(const SkRect& rect, const LinearGradientStyle& gradient) {
+  std::vector<SkColor4f> colors;
+  std::vector<float> positions;
+  colors.reserve(gradient.stops.size());
+  positions.reserve(gradient.stops.size());
+  for (const GradientStop& stop : gradient.stops) {
+    colors.push_back(SkColor4f::FromColor(to_sk_color(stop.color)));
+    positions.push_back(stop.offset);
+  }
+
+  constexpr float kDegToRad = 3.14159265358979323846F / 180.0F;
+  const float angle = gradient.angle_deg * kDegToRad;
+  const float dx = std::cos(angle);
+  const float dy = std::sin(angle);
+  const float half_w = rect.width() * 0.5F;
+  const float half_h = rect.height() * 0.5F;
+  const float half_extent = (std::abs(dx) * half_w) + (std::abs(dy) * half_h);
+  const SkPoint centre{rect.centerX(), rect.centerY()};
+  const SkPoint points[2] = {
+      {centre.x() - (dx * half_extent), centre.y() - (dy * half_extent)},
+      {centre.x() + (dx * half_extent), centre.y() + (dy * half_extent)},
+  };
+
+  const SkGradient description{
+      SkGradient::Colors{SkSpan<const SkColor4f>{colors.data(), colors.size()},
+                         SkSpan<const float>{positions.data(), positions.size()},
+                         SkTileMode::kClamp},
+      SkGradient::Interpolation{}};
+  return SkShaders::LinearGradient(points, description);
 }
 
 // Where the run starts, given how wide it turned out to be. `inset` keeps
@@ -370,10 +447,23 @@ void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& styl
   }
   const SkRect rect = to_sk_rect(bounds);
 
+  paint_shadow(canvas, rect, style.radii, style.shadow);
+
   SkPaint paint;
   paint.setAntiAlias(true);
 
-  if (style.fill.alpha() != 0) {
+  // A gradient REPLACES the flat fill rather than layering over it - one
+  // background-colour decoration layer, matching design.md section 5.9.5's
+  // own "不支持多重背景" (no multiple backgrounds) stance for the analogous
+  // background_image property. `>= 2` mirrors dg::set_gradient()'s own
+  // validation (doc/complex-properties.md); a style built by hand rather
+  // than through the setter still cannot paint an under-specified gradient.
+  if (style.background_gradient.has_value() && style.background_gradient->stops.size() >= 2) {
+    paint.setStyle(SkPaint::kFill_Style);
+    paint.setShader(gradient_shader(rect, *style.background_gradient));
+    fill_shape(canvas, rect, style.radii, paint);
+    paint.setShader(nullptr);
+  } else if (style.fill.alpha() != 0) {
     paint.setStyle(SkPaint::kFill_Style);
     paint.setColor(to_sk_color(style.fill));
     fill_shape(canvas, rect, style.radii, paint);

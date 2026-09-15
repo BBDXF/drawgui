@@ -166,8 +166,14 @@ namespace {
 // it can be cut by a damage rectangle and it must not drag one wider. Without
 // this a rounded node scrolled far outside its clipping container would keep
 // forcing its own area into every damage rectangle that reached it.
+//
+// SHADOW-ATOMIC NODES ARE THE SAME QUESTION, not a second one: a blurred
+// shadow reads neighbouring pixels exactly as a rounded rectangle's analytic
+// anti-aliasing does (doc/damage-repaint.md), so cutting either with a damage
+// rectangle changes the pixels inside the cut. shadow_atomic() is therefore
+// ORed alongside clip_atomic here rather than given its own growth loop.
 [[nodiscard]] bool can_be_cut(const Node& node) {
-  return node.clip_atomic && !node.visible_bounds().is_empty();
+  return (node.clip_atomic || shadow_atomic(node.style)) && !node.visible_bounds().is_empty();
 }
 
 }  // namespace
@@ -177,8 +183,15 @@ PixelRect RenderTree::Impl::expand_to_whole_nodes(PixelRect region) const {
   while (grew) {
     grew = false;
     for (const Node& node : nodes) {
-      const PixelRect halo = node.absolute.inflated_by(kAntiAliasSlack);
-      if (can_be_cut(node) && intersects(node.absolute, region) && !contains(region, halo)) {
+      // declared_paint_bounds(), not node.absolute directly: a shadow paints
+      // outside the node's own box by definition, so the region a damage
+      // rectangle must swallow whole is the OUTSET box for a shadowed node
+      // and node.absolute unchanged for every node this project already had
+      // (shadow_reach() is 0 without a shadow, so this is byte-for-byte the
+      // prior behaviour for every scene built before this slice).
+      const PixelRect declared = declared_paint_bounds(node.absolute, node.style);
+      const PixelRect halo = declared.inflated_by(kAntiAliasSlack);
+      if (can_be_cut(node) && intersects(declared, region) && !contains(region, halo)) {
         region = join(region, halo);
         grew = true;
       }
