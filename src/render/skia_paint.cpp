@@ -10,14 +10,17 @@
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontTypes.h"
+#include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkSamplingOptions.h"
 #include "include/core/SkTypeface.h"
 
 #include "render/clip_shape.h"
 #include "render/font_access.h"
+#include "render/image_access.h"
 
 namespace dg::detail {
 namespace {
@@ -207,6 +210,94 @@ void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text
   canvas.restore();
 }
 
+// Where the decoded bitmap lands inside `bounds`, given its own pixel size
+// and the requested fit - the arithmetic examples/13_image's oracle checks by
+// hand, so it lives here rather than inline where only pixels could verify
+// it (doc/clipping.md's fit_radii() precedent: two consumers that both
+// degrade a bad answer the same way cannot disagree with it, so the bug has
+// no test).
+SkRect image_dst_rect(const SkRect& bounds, float source_width, float source_height,
+                      ImageFit fit) {
+  switch (fit) {
+    case ImageFit::kFill:
+      return bounds;
+    case ImageFit::kNone: {
+      const float x = bounds.fLeft + ((bounds.width() - source_width) * 0.5F);
+      const float y = bounds.fTop + ((bounds.height() - source_height) * 0.5F);
+      return SkRect::MakeXYWH(x, y, source_width, source_height);
+    }
+    case ImageFit::kContain:
+    case ImageFit::kCover: {
+      const float scale_x = bounds.width() / source_width;
+      const float scale_y = bounds.height() / source_height;
+      const float scale =
+          fit == ImageFit::kContain ? std::min(scale_x, scale_y) : std::max(scale_x, scale_y);
+      const float width = source_width * scale;
+      const float height = source_height * scale;
+      const float x = bounds.fLeft + ((bounds.width() - width) * 0.5F);
+      const float y = bounds.fTop + ((bounds.height() - height) * 0.5F);
+      return SkRect::MakeXYWH(x, y, width, height);
+    }
+  }
+  return bounds;
+}
+
+// The placeholder colour, filling the whole node the same way a background
+// fill does - design.md section 5.10.3's "占位色，不留空洞" (a placeholder
+// colour, never a hole).
+void draw_placeholder(SkCanvas& canvas, const SkRect& rect, Color placeholder) {
+  SkPaint paint;
+  paint.setAntiAlias(true);
+  paint.setStyle(SkPaint::kFill_Style);
+  paint.setColor(to_sk_color(placeholder));
+  canvas.drawRect(rect, paint);
+}
+
+// Clipped to `bounds` and `radii` exactly like the fill is (apply_clip() is
+// shared with the overflow clip below), so an image respects rounded corners
+// the same way a background colour already does.
+//
+// NOT a fit-mode "does the whole image show" question at the DECODE side:
+// this only ever runs after LayoutTree has already settled `bounds` (design.md
+// section 5.10.3's mandatory sizing rule, enforced in
+// LayoutTree::Impl::measure(), src/layout/box_layout.cpp) - fit only decides
+// what is drawn inside a box whose size was never in question.
+void paint_image(SkCanvas& canvas, const PixelRect& bounds, const ImageStyle& image,
+                 const Radii& radii, const ImageCatalog* images) {
+  if (!carries_image(image) || bounds.is_empty()) {
+    return;
+  }
+  const SkRect rect = to_sk_rect(bounds);
+
+  sk_sp<SkImage> decoded = (image.source.is_valid() && images != nullptr)
+                               ? ImageAccess::image(*images, image.source)
+                               : nullptr;
+  if (!decoded) {
+    if (image.placeholder.alpha() == 0) {
+      return;
+    }
+    canvas.save();
+    apply_clip(canvas, bounds, radii);
+    draw_placeholder(canvas, rect, image.placeholder);
+    canvas.restore();
+    return;
+  }
+
+  const auto source_width = static_cast<float>(decoded->width());
+  const auto source_height = static_cast<float>(decoded->height());
+  if (source_width <= 0.0F || source_height <= 0.0F) {
+    return;
+  }
+
+  canvas.save();
+  apply_clip(canvas, bounds, radii);
+  SkPaint paint;
+  paint.setAntiAlias(true);
+  canvas.drawImageRect(decoded, image_dst_rect(rect, source_width, source_height, image.fit),
+                       SkSamplingOptions{}, &paint);
+  canvas.restore();
+}
+
 // Two routes, chosen by whether the four widths agree.
 //
 // UNIFORM is the original one, kept byte for byte: Skia centres a stroke on
@@ -273,7 +364,7 @@ void apply_clip(SkCanvas& canvas, const PixelRect& bounds, const Radii& radii) {
 }
 
 void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style,
-                const FontCatalog* fonts) {
+                const FontCatalog* fonts, const ImageCatalog* images) {
   if (bounds.is_empty()) {
     return;
   }
@@ -287,6 +378,8 @@ void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& styl
     paint.setColor(to_sk_color(style.fill));
     fill_shape(canvas, rect, style.radii, paint);
   }
+
+  paint_image(canvas, bounds, style.image, style.radii, images);
 
   if (style.border_width.is_zero() || style.border_color.alpha() == 0) {
     paint_text(canvas, bounds, style.text, fonts);

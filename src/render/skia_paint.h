@@ -30,8 +30,12 @@ namespace dg::detail {
 // which is the same visible outcome as naming a family the machine does not
 // have - deliberately, because with no fallback chain those two failures have
 // the same cause and the same fix.
+//
+// `images` may be null the same way `fonts` may: a tree built before this
+// slice names no image, so a null catalog and an invalid ImageId produce the
+// identical visible outcome - the placeholder colour, or nothing.
 void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style,
-                const FontCatalog* fonts);
+                const FontCatalog* fonts, const ImageCatalog* images);
 
 // Confines everything drawn until the matching restore() to `bounds` rounded
 // by `radii`.

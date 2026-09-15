@@ -34,6 +34,7 @@
 #include "drawgui/graphics/types.h"
 #include "drawgui/render/damage.h"
 #include "drawgui/render/font_catalog.h"
+#include "drawgui/render/image_catalog.h"
 
 namespace dg {
 
@@ -109,6 +110,88 @@ struct TextStyle {
   friend bool operator==(const TextStyle&, const TextStyle&) = default;
 };
 
+// How a decoded bitmap is scaled to fill the box it was given.
+//
+// design.md section 5.10.1 names ImageSource but never enumerates fit modes;
+// this is this slice's own decision, scoped to the four CSS `object-fit`
+// values that examples/13_image can actually exercise with a hand-derived
+// pixel oracle rather than to every mode a later slice might invent. All four
+// keep the box's own SIZE untouched - fit only changes what is drawn INSIDE
+// it, never what LayoutTree computed, which is the whole point of settling
+// size before decode (ImageStyle below).
+enum class ImageFit : std::uint8_t {
+  // Stretches the source to exactly the node's bounds, independently on each
+  // axis. Ignores the source's own aspect ratio, which is what makes this the
+  // cheapest mode to verify: at a 1:1 node/source size it is pixel-identical
+  // to drawing the bitmap unscaled.
+  kFill,
+
+  // Scales uniformly (one factor for both axes) so the WHOLE source fits
+  // inside the bounds, centred, without stretching - letterboxed on the axis
+  // that has spare room, never cropped.
+  kContain,
+
+  // Scales uniformly so the source COVERS the whole bounds, centred, without
+  // stretching - cropped on the axis that overshoots, never letterboxed.
+  kCover,
+
+  // No scaling at all: drawn at its own decoded pixel size, centred. The
+  // mode a caller reaches for when the source was already prepared at
+  // exactly the size it should appear.
+  kNone,
+};
+
+// One decoded bitmap, painted inside the node that carries it.
+//
+// THIS IS CONTENT, NOT A NEW NODE KIND - the same shape TextStyle already is
+// one field over, and the argument is the identical one doc/clipping.md
+// section 6 and doc/compositing.md section 5 already made for `overflow` and
+// `opacity`: a clip, a fade and now an image all need painting, hit testing
+// and (for image, uniquely) layout to agree on ONE rule, and the only shape
+// that guarantees agreement is a field every reader already sees, not a
+// second node kind a reader would have to be taught about separately.
+// doc/image.md records the decision in full, including why `Image` being
+// named in design.md's MVP-8 does not automatically make it a `WidgetKind`
+// the way `Box`/`Row`/`Column` are correctly not ones either.
+struct ImageStyle {
+  // Which ImageCatalog entry to paint. Invalid (the default) means either
+  // "no image at all" or "requested but not decoded yet" - see `placeholder`
+  // below for how those two are told apart, and design.md section 5.10.3 for
+  // why a synchronous decode still needs the distinction: nothing about a
+  // future async decode would have to change this field or its meaning, only
+  // WHEN it flips from invalid to valid.
+  ImageId source;
+
+  ImageFit fit = ImageFit::kFill;
+
+  // Painted in place of a real image whenever `source` is invalid AND this
+  // colour is not fully transparent - design.md section 5.10.3's "未就绪时
+  // 绘制主题 token 指定的占位色，不留空洞" ("paint the theme-token placeholder
+  // colour while not ready, never a hole"), with a plain configurable colour
+  // standing in for the theme-token system this project does not have
+  // (design.md section 5.7 is out of every phase through this one). A fully
+  // transparent placeholder (the default) is how an ordinary node with no
+  // image at all stays inert: `carries_image()` below is false for it, so
+  // every scene built before this slice is unaffected byte for byte.
+  Color placeholder;
+
+  friend bool operator==(const ImageStyle&, const ImageStyle&) = default;
+};
+
+// Whether this node has image semantics at all - a real source, or a
+// placeholder standing in for one not yet assigned. False for a
+// default-constructed ImageStyle, which is what every node had implicitly
+// before this field existed, so an ordinary Box/Panel/Label is unaffected.
+//
+// Read by three places, and reading the same predicate is what keeps them
+// from disagreeing the way three private copies of "does this count as an
+// image" could: LayoutTree::Impl::measure() (the size-before-decode
+// diagnostic, box_layout.cpp), skia_paint.cpp's paint_node() (whether to call
+// paint_image() at all) and doc/image.md's own description of the rule.
+[[nodiscard]] constexpr bool carries_image(const ImageStyle& image) {
+  return image.source.is_valid() || image.placeholder.alpha() != 0;
+}
+
 // Whether a node confines its descendants to its own rectangle.
 //
 // The two ordinals of the property table's `overflow` (id 29), and the
@@ -138,9 +221,9 @@ enum class Overflow : std::uint8_t {
 
 // Everything a node paints.
 //
-// Fills, borders and one run of text. Blur is still absent deliberately - it
-// is 52% of a frame's raster time and belongs in a budgeted feature rather
-// than in the primitive every node carries.
+// Fills, borders, one run of text and one decoded image. Blur is still absent
+// deliberately - it is 52% of a frame's raster time and belongs in a
+// budgeted feature rather than in the primitive every node carries.
 struct NodeStyle {
   Color fill;
 
@@ -212,6 +295,14 @@ struct NodeStyle {
   float opacity = 1.0F;
 
   TextStyle text;
+
+  // Painted after `fill`/`radii` and before the border, so a border frames an
+  // image the same way it already frames a flat colour, and after any of
+  // this node's positioned children (measure_leaf lays those out at the
+  // content origin; paint order there is unaffected). Clipped to `radii`
+  // exactly like the fill is - src/render/skia_paint.cpp's paint_image()
+  // reuses apply_clip() rather than a second radius arithmetic.
+  ImageStyle image;
 };
 
 // How a repaint turns nodes into draw calls.
@@ -281,6 +372,13 @@ struct TreeSpec {
   // sub-step 3, and is why this is an optional rather than a required
   // argument that existing callers would have to invent a value for.
   std::optional<FontCatalog> fonts;
+
+  // The decoded images every image node in this tree may name - the same
+  // "absent means no consumer" shape `fonts` already has, for the identical
+  // reason: every tree built before this slice draws no image, and an
+  // optional is what leaves that unchanged rather than inventing an empty
+  // catalog nobody asked for.
+  std::optional<ImageCatalog> images;
 
   std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
   PaintMode paint_mode = PaintMode::kDirect;
@@ -374,6 +472,15 @@ class RenderTree {
   // repainting for it would make the damage a function of the loop rather
   // than of the change.
   void set_text(NodeId id, const TextStyle& text);
+
+  // Same "damages nothing when unchanged" shape as set_text(), for the same
+  // reason: this is the call design.md section 5.10.3's async decode would
+  // land through (source id changes once the future thread pool's result
+  // arrives), and swapping which decoded bitmap paints here must not disturb
+  // anything set_local_bounds()/layout() already decided - proven in
+  // tests/unit/test_image.cpp by re-laying-out after a swap and checking
+  // LayoutStats::nodes_relaid_out stayed zero.
+  void set_image(NodeId id, const ImageStyle& image);
 
   // Both damage the node's old subtree extent and its new one. Damaging only
   // the new extent leaves the pixels it vacated showing last frame's paint,

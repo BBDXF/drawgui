@@ -115,7 +115,7 @@ void RenderTree::Impl::paint_node_and_children(const PaintPass& pass,
 
   const bool wanted = !pass.region.has_value() || intersects(visible, *pass.region);
   if (wanted) {
-    detail::paint_node(*pass.canvas, node.absolute, node.style, pass.fonts);
+    detail::paint_node(*pass.canvas, node.absolute, node.style, pass.fonts, pass.images);
     ++pass.stats->nodes_drawn;
   }
 
@@ -215,6 +215,7 @@ void RenderTree::Impl::record() {
   PaintPass pass;
   pass.canvas = canvas;
   pass.fonts = fonts.has_value() ? &*fonts : nullptr;
+  pass.images = images.has_value() ? &*images : nullptr;
   pass.stats = &discarded;
   paint_subtree(pass, 0);
   picture = recorder.finishRecordingAsPicture();
@@ -253,6 +254,7 @@ void RenderTree::Impl::paint_region(SkCanvas& canvas, const PixelRect& region,
       PaintPass pass;
       pass.canvas = &canvas;
       pass.fonts = fonts.has_value() ? &*fonts : nullptr;
+      pass.images = images.has_value() ? &*images : nullptr;
       pass.region = region;
       pass.stats = &stats;
       paint_subtree(pass, 0);

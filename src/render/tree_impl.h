@@ -115,6 +115,7 @@ struct Node {
 struct PaintPass {
   SkCanvas* canvas = nullptr;
   const FontCatalog* fonts = nullptr;
+  const ImageCatalog* images = nullptr;
   std::optional<PixelRect> region;
   RepaintStats* stats = nullptr;
 };
@@ -122,6 +123,7 @@ struct PaintPass {
 struct RenderTree::Impl {
   PixelSize viewport;
   std::optional<FontCatalog> fonts;
+  std::optional<ImageCatalog> images;
   PaintMode paint_mode = PaintMode::kDirect;
   std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
   std::vector<Node> nodes;

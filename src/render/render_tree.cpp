@@ -98,6 +98,7 @@ void RenderTree::Impl::retire_damage(DamageRegion just_painted) {
 RenderTree::RenderTree(const TreeSpec& spec) : impl_(std::make_unique<Impl>()) {
   impl_->viewport = spec.viewport;
   impl_->fonts = spec.fonts;
+  impl_->images = spec.images;
   impl_->paint_mode = spec.paint_mode;
   impl_->max_damage_rects = spec.max_damage_rects;
   impl_->damage = DamageRegion{spec.max_damage_rects};
@@ -201,6 +202,15 @@ void RenderTree::set_text(NodeId id, const TextStyle& text) {
   }
   style.text = text;
   impl_->nodes[id.value].clip_atomic = clips_atomically(style);
+  impl_->invalidate(id.value);
+}
+
+void RenderTree::set_image(NodeId id, const ImageStyle& image) {
+  NodeStyle& style = impl_->nodes[id.value].style;
+  if (style.image == image) {
+    return;
+  }
+  style.image = image;
   impl_->invalidate(id.value);
 }
 
