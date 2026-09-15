@@ -184,7 +184,9 @@ add_library(drawgui STATIC
   src/widget/widget_set.cpp)
 
 if(DRAWGUI_HAVE_SDL3)
-  target_sources(drawgui PRIVATE src/platform/sdl3/window_manager.cpp)
+  target_sources(drawgui PRIVATE
+    src/platform/sdl3/window_manager.cpp
+    src/window/popup_host.cpp)
 
   # PRIVATE for the same reason Skia is: include/drawgui/window/window_manager.h
   # names no SDL type, and linking SDL3 PUBLIC would let every consumer include
