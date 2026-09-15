@@ -283,6 +283,7 @@ jobs:
             tests/unit/test_wrap.cpp
             tests/unit/test_sizing.cpp
             tests/unit/test_scroll.cpp
+            tests/unit/test_list.cpp
             tests/unit/test_form_controls.cpp
             tests/unit/test_text_input.cpp
             tests/unit/test_border_paint.cpp
@@ -358,7 +359,11 @@ jobs:
             examples/14_popup/main.cpp
             examples/14_popup/popup_check.cpp
             examples/14_popup/popup_scene.cpp
-            examples/14_popup/popup_window.cpp"
+            examples/14_popup/popup_window.cpp
+            examples/15_list/main.cpp
+            examples/15_list/list_check.cpp
+            examples/15_list/list_scene.cpp
+            examples/15_list/list_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
