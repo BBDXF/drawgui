@@ -1,0 +1,65 @@
+# ============================================================================
+# drawgui C ABI stability lock - an ABI contract, not a cache.
+#
+# Written by `python3 tools/abi_lock.py --write` and verified by
+# `python3 tools/abi_lock.py --check`. See this tool's own module docstring for
+# exactly what each of the four sections below guards.
+#
+# NEVER hand-edit this file to make a failing check pass. The check is
+# reporting that abi/drawgui.def.toml broke its own ABI contract; editing the
+# ledger does not repair the break, it only hides it from the next reviewer.
+# A genuinely intended break is a reviewed MAJOR version change that says so
+# out loud (design.md section 5.8 decision 4), never a quiet edit here.
+# ============================================================================
+
+[opaque_type]
+dg_app_t
+dg_window_t
+dg_node_t
+
+[struct]
+dg_value: size:uint32_t,type:uint32_t,number:float,bits:uint32_t
+dg_app_opts: size:uint32_t
+dg_window_opts: size:uint32_t,title:const char*,width:int32_t,height:int32_t,background_argb:uint32_t
+dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t
+
+[constant_group]
+node_type.BOX=1
+node_type.BUTTON=2
+value_type.FLOAT=1
+value_type.LENGTH=2
+value_type.COLOR=3
+value_type.ENUM=4
+event_kind.WINDOW_CLOSED=1
+event_kind.CLICK=2
+error.OK=0
+error.OOM=-1
+error.INTERNAL=-2
+error.INVALID_ARGUMENT=-3
+error.INVALID_HANDLE=-4
+error.UNKNOWN_ID=-5
+error.TYPE_MISMATCH=-6
+error.VALUE_OUT_OF_RANGE=-7
+error.NOT_APPLICABLE=-8
+error.UNSUPPORTED=-9
+error.ALREADY_ATTACHED=-10
+error.NO_WINDOW=-11
+
+[function]
+dg_abi_version: uint32_t()
+dg_app_create: dg_app_t*(const dg_app_opts*)
+dg_app_destroy: void(dg_app_t*)
+dg_window_create: dg_window_t*(dg_app_t*,const dg_window_opts*)
+dg_window_set_root: int32_t(dg_window_t*,dg_node_t*)
+dg_node_create: dg_node_t*(dg_app_t*,uint16_t)
+dg_node_set_prop: int32_t(dg_node_t*,uint16_t,const dg_value*)
+dg_node_insert_before: int32_t(dg_node_t*,dg_node_t*,dg_node_t*)
+dg_node_remove: int32_t(dg_node_t*)
+dg_wait_events: int32_t(dg_app_t*,int32_t)
+dg_poll_events: int32_t(dg_app_t*,dg_event*,int32_t)
+dg_last_error: const char*()
+dg_dump_layout_tree: const char*(dg_node_t*)
+dg_debug_warp_pointer: int32_t(dg_window_t*,int32_t,int32_t)
+dg_debug_post_pointer_button: int32_t(dg_window_t*,int32_t,int32_t,int32_t)
+dg_debug_trigger_exception: int32_t(int32_t)
+

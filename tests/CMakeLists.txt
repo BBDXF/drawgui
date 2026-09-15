@@ -288,6 +288,18 @@ add_test(NAME theme.abi_lock
 add_test(NAME theme.consistency
   COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_theme_consistency)
 
+# The C ABI family's own two gates, mirroring props.no_drift/props.abi_lock
+# exactly (cmake/GenerateAbi.cmake, design.md section 5.8 decision 5).
+add_test(NAME abi.no_drift
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_abi_check)
+
+# abi.no_drift only proves the generated files match abi/drawgui.def.toml; it
+# regenerates just as happily after a function is re-signed or a struct field
+# reordered. This one guards the definitions themselves against
+# abi/drawgui_abi.lock (design.md section 5.8 decision 4).
+add_test(NAME abi.abi_lock
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_abi_lock_check)
+
 # Convenience target for deliberately refreshing baselines. Never invoked by
 # CTest: a suite that can rewrite its own expectations proves nothing.
 add_custom_target(golden_update

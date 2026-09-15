@@ -1,0 +1,361 @@
+# =============================================================================
+# drawgui.def.toml - the single source of truth for the C ABI (design.md
+# section 5.8 decision 5).
+#
+# tools/gen_abi.py turns this file into:
+#
+#   include/drawgui/abi/drawgui.h        a pure C header - no C++, no Skia
+#   src/abi/drawgui_abi.generated.cpp    the extern "C" trampolines: every one
+#                                        wraps its call in the SAME try/catch
+#                                        shape (design.md section 5.17.1) so
+#                                        that wrapping cannot be forgotten for
+#                                        a newly added function
+#   abi/drawgui.d.ts                     TypeScript ambient declarations for a
+#                                        future Bun/Node FFI binding (P6)
+#
+# "Hand-writing any one of them causes drift" (design.md section 5.8 decision
+# 5) - so none of the three above is hand-written. What IS hand-written is
+# src/abi/*.cpp: for every [[function]] below, `impl` names a plain C++
+# function (namespace dg::abi, declared in src/abi/abi_impl.h) with the
+# IDENTICAL C signature, free to throw, that the generated trampoline calls
+# inside its try block. The generator produces the boundary; a person writes
+# what happens on the C++ side of it - the same split node_props.h documents
+# for prop_dispatch.generated.inc (the generator produces the switch, a
+# person writes what each case assigns).
+#
+# THIS FILE MODELS ITSELF ON THE TWO WORKING PRECEDENTS,
+# props/drawgui.props.toml and themes/schema.toml, and tools/gen_abi.py
+# imports both of THEIR loaders directly (tools/gen_props.py's and
+# tools/gen_theme.py's load_definitions()) rather than re-parsing
+# props/drawgui.props.toml or themes/schema.toml a second time - the
+# prop_id/token_id constants this file's generated header re-emits in
+# C-compatible #define form come from the SAME validated Definitions objects
+# those two tools already produce, so there is exactly one parser and one set
+# of validation rules per source table, never two.
+#
+# ABI STABILITY (design.md section 5.8 decision 4), enforced MECHANICALLY by
+# tools/abi_lock.py against abi/drawgui_abi.lock, not by discipline:
+#
+#   functions   locked by (name, normalized signature). A name may only be
+#               ADDED, never removed or re-signed.
+#   structs     locked by (name, ordered field list). A struct's locked
+#               fields must remain an unchanged PREFIX of its current field
+#               list - new fields may only be APPENDED at the end. Every
+#               struct below carries `size` as its first field for exactly
+#               this reason (a caller passing an old, shorter struct is
+#               detected rather than read out of bounds).
+#   constants   (node_type / value_type / event_kind / error), locked by
+#               (name, value) exactly like props/prop_ids.lock and
+#               themes/token_ids.lock. A value may only be ADDED, never
+#               renumbered or reused.
+#   opaque_type locked by name only - a type may be added, never removed or
+#               renamed (renaming is observable at the ABI: the mangled
+#               struct tag changes).
+#
+# WHAT IS DELIBERATELY NOT HERE, named rather than silently absent -
+# doc/abi.md section 6 has the full reasoning for each:
+#
+#   dg_set_event_callback     - decision 2's QuickJS/native-embedding mode.
+#                               No host in this project embeds QuickJS yet,
+#                               so there is no working caller to extract the
+#                               interface from - the exact situation design.md
+#                               itself already names as this project's
+#                               standing mistake to avoid (the twelve deleted
+#                               platform headers).
+#   dg_custom_paint_set_cmds  - decision 3's escape hatch. Not on the
+#                               two-window-plus-click acceptance path.
+#   dg_animate /
+#   dg_node_set_transition    - section 5.16.1's animation ABI. The C++ shape
+#                               (dg::AnimationEngine) exists since 6-1, but
+#                               nothing in this slice's own acceptance
+#                               criterion needs it, and wiring an
+#                               AnimationEngine per window into the trampoline
+#                               layer ahead of a caller is the same mistake.
+#   dg_theme_load_dir /
+#   dg_theme_load_memory /
+#   dg_theme_set_variant /
+#   dg_theme_override /
+#   dg_app_set_theme          - decision 6's theme ABI. dg::load_theme() and
+#                               dg::ThemeBindings are real and working in
+#                               C++ (6-2), but no C client in this slice binds
+#                               a token through the ABI, so there is nothing
+#                               this slice's own acceptance criterion can use
+#                               to prove the wrapper is right rather than
+#                               merely plausible.
+#   QuickJS binding stubs     - P6. Described in design.md decision 5 as a
+#                               fourth generated artifact; there is no QuickJS
+#                               embedding anywhere in this project to bind.
+#
+# DEBUG-ONLY FUNCTIONS (dg_debug_*) are a deliberate, narrow, named exception
+# to "只导出必要面" (design.md section 5.8's own design principle): they exist
+# ONLY so that examples/19_c_client's own CTest oracle can drive a REAL click
+# through the REAL SDL event queue without a display, mirroring the exact
+# mechanism (WindowManager::warp_pointer / post_pointer_button) every other
+# example's own --script mode already uses in C++. They are not part of the
+# production surface a real host embeds against, and doc/abi.md says so.
+# =============================================================================
+
+schema_version = 1
+
+[meta]
+abi_major = 0
+abi_minor = 1
+
+# --- Opaque handle types -----------------------------------------------------
+#
+# Every one of these is a pointer to a small, NEVER-FREED wrapper allocated
+# once by the function that hands it out ({index, generation} - 8 bytes),
+# never the resource itself. "Never freed" is load-bearing, not sloppy: a
+# host dereferencing a handle after dg_node_remove()/dg_app_destroy() reads
+# two ordinary, still-allocated integers rather than freed memory, so a
+# stale-handle bug is an ordinary, ASan-silent DG_ERR_INVALID_HANDLE return
+# instead of a real use-after-free - see doc/abi.md section 4 (the handle-
+# validation design) for the full argument, and 6-1's AnimHandle{index,
+# generation} for the precedent this generalises from one resource kind
+# (animation slots) to four (apps, windows, nodes, and node-arena entries).
+
+[[opaque_type]]
+name = "dg_app_t"
+summary = "One drawgui application: the window manager and every window/node arena it owns."
+
+[[opaque_type]]
+name = "dg_window_t"
+summary = "One OS window and the layout/render/widget state painted into it."
+
+[[opaque_type]]
+name = "dg_node_t"
+summary = "One layout/render node - pending (not yet in a tree) or live (attached under a window)."
+
+# --- Structs -----------------------------------------------------------------
+#
+# Every struct's FIRST field is `size` (design.md section 5.8 decision 4):
+# sizeof(the struct) as the caller's build understands it, so a future
+# MINOR version that appends a field can tell an old, shorter caller-built
+# struct from a current one instead of reading past the end of it.
+
+[[struct]]
+name = "dg_value"
+summary = "One property value, tagged - the ABI's dg::PropValue (node_props.h)."
+fields = [
+  { name = "size", type = "uint32_t", summary = "sizeof(dg_value)." },
+  { name = "type", type = "uint32_t", summary = "DG_VALUE_* - which field below is meaningful." },
+  { name = "number", type = "float", summary = "meaningful for DG_VALUE_FLOAT / DG_VALUE_LENGTH." },
+  { name = "bits", type = "uint32_t", summary = "ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM." },
+]
+
+[[struct]]
+name = "dg_app_opts"
+summary = "Reserved for future app-level options. Empty today; `size` alone makes it extensible."
+fields = [
+  { name = "size", type = "uint32_t", summary = "sizeof(dg_app_opts)." },
+]
+
+[[struct]]
+name = "dg_window_opts"
+summary = "What a window should be when it appears - dg::WindowSpec at the ABI boundary."
+fields = [
+  { name = "size", type = "uint32_t", summary = "sizeof(dg_window_opts)." },
+  { name = "title", type = "const char*", summary = "copied at dg_window_create() time; not retained." },
+  { name = "width", type = "int32_t", summary = "initial width in device pixels." },
+  { name = "height", type = "int32_t", summary = "initial height in device pixels." },
+  { name = "background_argb", type = "uint32_t", summary = "0xAARRGGBB fill until the first frame paints." },
+]
+
+[[struct]]
+name = "dg_event"
+summary = "One entry of dg_poll_events() - the C shape of dg::PumpResult, flattened to one kind at a time."
+fields = [
+  { name = "size", type = "uint32_t", summary = "sizeof(dg_event)." },
+  { name = "kind", type = "uint32_t", summary = "DG_EVENT_*." },
+  { name = "window", type = "dg_window_t*", summary = "which window this event is about." },
+  { name = "node", type = "dg_node_t*", summary = "DG_EVENT_CLICK only; null otherwise." },
+  { name = "x", type = "int32_t", summary = "DG_EVENT_CLICK only: the pointer position, device pixels." },
+  { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK only: the pointer position, device pixels." },
+]
+
+# --- Constant groups -----------------------------------------------------------
+#
+# Every group emits plain `#define NAME value` constants, matching this
+# project's own prop_id/token_id convention (never an enum: a value crossing
+# the ABI arrives from outside the process, so the set it may hold is every
+# value the underlying integer type can carry, not the set spelled out
+# below - prop_ids.generated.h's own comment records the clang-tidy findings
+# that made this the house rule, and the same reasoning applies unchanged
+# here). Locked by tools/abi_lock.py exactly like props/prop_ids.lock:
+# append-only, never renumbered, never reused.
+
+[[constant_group]]
+name = "node_type"
+prefix = "DG_NODE_TYPE_"
+c_type = "uint16_t"
+summary = "dg_node_create()'s type_id - the minimum vocabulary the acceptance criterion needs."
+values = [
+  { name = "BOX", id = 1, summary = "A plain, non-interactive leaf (WidgetKind::kPanel)." },
+  { name = "BUTTON", id = 2, summary = "A clickable leaf (WidgetKind::kButton): hover/press/click, three fills." },
+]
+
+[[constant_group]]
+name = "value_type"
+prefix = "DG_VALUE_"
+c_type = "uint32_t"
+summary = "dg_value::type."
+values = [
+  { name = "FLOAT", id = 1, summary = "PropType::k_float." },
+  { name = "LENGTH", id = 2, summary = "PropType::k_length." },
+  { name = "COLOR", id = 3, summary = "PropType::k_color." },
+  { name = "ENUM", id = 4, summary = "PropType::k_enum." },
+]
+
+[[constant_group]]
+name = "event_kind"
+prefix = "DG_EVENT_"
+c_type = "uint32_t"
+summary = "dg_event::kind."
+values = [
+  { name = "WINDOW_CLOSED", id = 1, summary = "The window closed (user or dg_debug_ script); the dg_window_t handle is now stale." },
+  { name = "CLICK", id = 2, summary = "A press and its release landed on the same node - dg::InteractionChange::clicked." },
+]
+
+[[constant_group]]
+name = "error"
+prefix = "DG_ERR_"
+c_type = "int32_t"
+summary = "Every dg_*() status-returning function's result."
+values = [
+  { name = "OK", id = 0, summary = "Success." },
+  { name = "OOM", id = -1, summary = "std::bad_alloc crossed the boundary; caught, never propagated (design.md section 5.17.1)." },
+  { name = "INTERNAL", id = -2, summary = "Any other C++ exception crossed the boundary; caught, never propagated. dg_last_error() names it." },
+  { name = "INVALID_ARGUMENT", id = -3, summary = "A required pointer argument was null, or an out-param buffer size was invalid." },
+  { name = "INVALID_HANDLE", id = -4, summary = "The handle names no live resource - never attached, already removed/destroyed, or wrong app (design.md section 5.17.2)." },
+  { name = "UNKNOWN_ID", id = -5, summary = "prop_id/type_id names nothing the generated table defines - dg::PropStatus::kUnknownId." },
+  { name = "TYPE_MISMATCH", id = -6, summary = "dg_value::type disagrees with the property's declared type - dg::PropStatus::kTypeMismatch." },
+  { name = "VALUE_OUT_OF_RANGE", id = -7, summary = "dg::PropStatus::kValueOutOfRange." },
+  { name = "NOT_APPLICABLE", id = -8, summary = "dg::PropStatus::kNotApplicable (design.md section 5.8 decision 7's parentData case included)." },
+  { name = "UNSUPPORTED", id = -9, summary = "dg::PropStatus::kUnsupported, or an ABI operation this slice never implemented (a non-null dg_node_insert_before ref)." },
+  { name = "ALREADY_ATTACHED", id = -10, summary = "dg_node_insert_before()/dg_window_set_root() on a node that is already live in a tree." },
+  { name = "NO_WINDOW", id = -11, summary = "An operation needs a node to be live under a window, and it is still pending." },
+]
+
+# --- Functions ---------------------------------------------------------------
+#
+# `impl` is the dg::abi::<impl> C++ function (src/abi/abi_impl.h/.cpp) the
+# generated trampoline calls inside its try block. Every trampoline's catch
+# clauses are IDENTICAL in shape and differ only in the value they return on
+# failure, which tools/gen_abi.py derives from `ret` alone (void -> nothing;
+# a pointer type -> nullptr; "int32_t" -> DG_ERR_OOM/DG_ERR_INTERNAL;
+# "uint32_t" -> 0) - see tools/gen_abi.py's RETURN_CLASSES for the
+# classification, and doc/abi.md section 3 for why classifying by `ret`
+# rather than adding a per-function on_error field is the stronger
+# uniformity guarantee: there is no field to leave blank.
+
+[[function]]
+name = "dg_abi_version"
+ret = "uint32_t"
+impl = "abi_version"
+params = []
+summary = "MAJOR<<16 | MINOR - design.md section 5.8's own dg_abi_version() line."
+
+[[function]]
+name = "dg_app_create"
+ret = "dg_app_t*"
+impl = "app_create"
+params = [{ name = "opts", type = "const dg_app_opts*" }]
+summary = "Starts the window manager. `opts` may be null (defaults)."
+
+[[function]]
+name = "dg_app_destroy"
+ret = "void"
+impl = "app_destroy"
+params = [{ name = "app", type = "dg_app_t*" }]
+summary = "Closes every open window and shuts the platform down. `app` is stale afterwards."
+
+[[function]]
+name = "dg_window_create"
+ret = "dg_window_t*"
+impl = "window_create"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "opts", type = "const dg_window_opts*" }]
+summary = "Opens one window immediately, filled with opts->background_argb until the first frame paints."
+
+[[function]]
+name = "dg_window_set_root"
+ret = "int32_t"
+impl = "window_set_root"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "node", type = "dg_node_t*" }]
+summary = "Attaches `node` (must be pending) under window's tree as its sole content root."
+
+[[function]]
+name = "dg_node_create"
+ret = "dg_node_t*"
+impl = "node_create"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "type_id", type = "uint16_t" }]
+summary = "Allocates a PENDING node - not yet part of any window's tree. See DG_NODE_TYPE_*."
+
+[[function]]
+name = "dg_node_set_prop"
+ret = "int32_t"
+impl = "node_set_prop"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "prop_id", type = "uint16_t" }, { name = "value", type = "const dg_value*" }]
+summary = "dg::set_prop() at the ABI boundary. Works on pending or live nodes."
+
+[[function]]
+name = "dg_node_insert_before"
+ret = "int32_t"
+impl = "node_insert_before"
+params = [{ name = "parent", type = "dg_node_t*" }, { name = "child", type = "dg_node_t*" }, { name = "ref", type = "dg_node_t*" }]
+summary = "Attaches pending `child` under live `parent`. `ref` must be null this slice (append-only; see doc/abi.md section 5)."
+
+[[function]]
+name = "dg_node_remove"
+ret = "int32_t"
+impl = "node_remove"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not detach a live node's tree structure - see doc/abi.md section 5."
+
+[[function]]
+name = "dg_wait_events"
+ret = "int32_t"
+impl = "wait_events"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "timeout_ms", type = "int32_t" }]
+summary = "Blocks up to timeout_ms (negative: forever), pumps every window, returns the number of events now pollable."
+
+[[function]]
+name = "dg_poll_events"
+ret = "int32_t"
+impl = "poll_events"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "out", type = "dg_event*" }, { name = "max", type = "int32_t" }]
+summary = "Dequeues up to max events into out[]. Never blocks. Returns the number copied."
+
+[[function]]
+name = "dg_last_error"
+ret = "const char*"
+impl = "last_error"
+params = []
+summary = "The message from the most recent failing call on this thread. Valid until the next drawgui call on it."
+
+[[function]]
+name = "dg_dump_layout_tree"
+ret = "const char*"
+impl = "dump_layout_tree"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "This node's subtree as JSON (type/bounds/parentData). See doc/abi.md section 7 for exactly what is and is not included."
+
+[[function]]
+name = "dg_debug_warp_pointer"
+ret = "int32_t"
+impl = "debug_warp_pointer"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }]
+summary = "TEST-ONLY. WindowManager::warp_pointer() at the ABI boundary - see the file header."
+
+[[function]]
+name = "dg_debug_post_pointer_button"
+ret = "int32_t"
+impl = "debug_post_pointer_button"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "down", type = "int32_t" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }]
+summary = "TEST-ONLY. WindowManager::post_pointer_button() at the ABI boundary - see the file header."
+
+[[function]]
+name = "dg_debug_trigger_exception"
+ret = "int32_t"
+impl = "debug_trigger_exception"
+params = [{ name = "kind", type = "int32_t" }]
+summary = "TEST-ONLY. Unconditionally throws (1=bad_alloc, 2=runtime_error, else an int) - the exception-boundary test's own fault injector."

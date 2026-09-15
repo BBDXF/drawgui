@@ -43,6 +43,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateProps.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateTheme.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateAbi.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/FetchSkia.cmake)
 
 # --- Warning configuration --------------------------------------------------
@@ -194,7 +195,13 @@ add_library(drawgui STATIC
 if(DRAWGUI_HAVE_SDL3)
   target_sources(drawgui PRIVATE
     src/platform/sdl3/window_manager.cpp
-    src/window/popup_host.cpp)
+    src/window/popup_host.cpp
+
+    # The C ABI (design.md section 5.8): dg_app_t wraps dg::WindowManager,
+    # so nothing here can exist without a real windowing backend. A build
+    # without SDL3 has no C ABI at all - see doc/abi.md's own note on this.
+    src/abi/abi_impl.cpp
+    src/abi/drawgui_abi.generated.cpp)
 
   # PRIVATE for the same reason Skia is: include/drawgui/window/window_manager.h
   # names no SDL type, and linking SDL3 PUBLIC would let every consumer include
@@ -227,6 +234,9 @@ add_dependencies(drawgui drawgui_props_generate)
 
 # Likewise for the theme token header - see cmake/GenerateTheme.cmake.
 add_dependencies(drawgui drawgui_theme_generate)
+
+# Likewise for drawgui.h / drawgui_abi.generated.cpp - see cmake/GenerateAbi.cmake.
+add_dependencies(drawgui drawgui_abi_generate)
 
 set_target_properties(drawgui PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
