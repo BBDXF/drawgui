@@ -359,6 +359,47 @@ theme-package security limits, an expression evaluator for token alpha, and
 the `.d.ts`/ABI-constant-table generation deferred to 6-3), in
 `doc/theme.md`.
 
+Phase 6 closes on the piece its own opening paragraph named as the point of
+the whole exercise: a **C ABI**, closing this section's own opening claim
+("no C ABI") four phases later. `abi/drawgui.def.toml` is a third instance of
+the same TOML-to-generator-to-lock family `props/drawgui.props.toml` and
+`themes/schema.toml` already are, importing the props generator's own
+validated table directly rather than re-parsing it, and producing a real,
+C89-compilable `drawgui.h` alongside the try/catch trampolines design.md's
+own risk register names as mandatory (a C++ exception crossing a C boundary
+is undefined behaviour) - generated uniformly, with no per-function opt-out,
+so a hand-written export is structurally impossible rather than merely
+discouraged. `examples/19_c_client` is a genuinely pure C program, compiled
+by a C front end and linking nothing else, that opens two windows and
+responds to clicks - design.md's own acceptance bar for this piece, met
+literally rather than approximated: a click on either window's button is
+delivered as an event naming both the window and the node, and the host
+program uses it to set the OTHER window's colour through the same ABI,
+proving the round trip rather than merely a callback firing. Handle
+validity is generation-free by design, not by omission: an app/window/node
+arena here only ever appends, unlike an animation slot's pool, so there is
+no ABA problem index reuse would reopen, and a removed handle's own tiny
+wrapper is never freed (only marked dead) - a real defect the first draft
+had (freeing it, which would have turned a stale handle into an actual
+use-after-free) was found and fixed before this slice landed, and the
+opposite mistake (allocating it and never accounting for the memory at all)
+was caught immediately by LeakSanitizer. Two real engine gaps the abstract
+ABI sketch does not admit to are named rather than quietly worked around:
+`LayoutTree`/`RenderTree` have never grown an insertion-order primitive
+(only append) or a removal primitive at all, so `dg_node_insert_before`'s
+`ref` argument only accepts null and `dg_node_remove` only invalidates a
+handle without detaching the node's tree structure - both are honestly
+reported as future engine-layer work, not invented here ungrounded in a
+working caller. `dg_dump_layout_tree`, P2's own missed acceptance item,
+landed alongside the ABI it was always meant to expose. The theme ABI, the
+animation ABI, a callback event mode and QuickJS binding stubs are all
+declined by name for the identical reason: no working caller in this
+project's own build exercises any of them yet. `doc/abi.md` records every
+decision in full, including a defect-injection experiment against the
+generated try/catch wrapping itself (removing it crashes the process
+instead of silently doing nothing, closing the "provably inert code" defect
+mode by construction rather than by argument).
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -655,6 +696,20 @@ every switch) zero relayout for this scene's colour-only bindings.
 ./build/examples/drawgui_theme --dump-png out.png
 ```
 
+## The C client demo
+
+`examples/19_c_client` is a genuinely pure C program (compiled by a C front
+end, not a C++ one told to accept `.c` files) against `drawgui.h` alone -
+design.md's own acceptance bar for the C ABI, met literally: it opens two
+windows, each with a clickable button, and clicking either sets the OTHER
+window's background colour through `dg_node_set_prop`, driven by the
+`DG_EVENT_CLICK` event the click itself produced.
+
+```sh
+./build/examples/drawgui_c_client                     # click either button; close both to exit
+./build/examples/drawgui_c_client --verify-c-client   # headless check (SDL_VIDEODRIVER=dummy)
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -729,3 +784,4 @@ Findings and decisions from each slice live beside it:
 | `doc/complex-properties.md` | the dedicated-setter channel (`dg::set_gradient`/`set_shadow`/`set_image`/`set_transform`), why `image_source` was built first as the prototype rather than last, the damage-atomicity argument that lets `shadow` paint outside a node's declared bounds without breaking partial repaint, and the `transform` decline with its three named blockers |
 | `doc/animation.md` | `dg::AnimationEngine` - the clock's value-based seam and why it needed no `virtual`, why `curve_id` is a plain constant set rather than generator-backed, the generation-counter handle lifetime and why 5-3's "never free" precedent does not transfer, the retarget-mid-transition proof, the measured idle-CPU number, and the honest §5.15.2 three-level-invalidation gap report |
 | `doc/theme.md` | The theme token system - `themes/schema.toml`'s generator family reused from `props/`, the JSON-parser decision (hand-rolled vs. nlohmann/json), `$token` live references as a `WidgetSet`-shaped side table rather than a generation-counter handle, the measured colour-only-vs-int-token relayout cost, `dg::Expected`-based load errors naming the exact JSON key path, and what CI's `tools/check_consistency.py` verifies |
+| `doc/abi.md` | The C ABI - `abi/drawgui.def.toml`'s generator family (reusing the props generator directly), how the generated try/catch wrapping is made provably uniform and how its removal was shown to crash rather than silently do nothing, why handle validation is append-only rather than AnimHandle's generation-counter shape, the two real engine gaps (no insertion-order or removal primitive) the ABI sketch does not admit to, and everything declined by name (theme ABI, animation ABI, callback events, QuickJS stubs) |

@@ -141,6 +141,21 @@ painting outside its own declared bounds and the design.md section 5.9.5
 gap analysis section 6 below cross-references; this paragraph is left
 appended rather than rewriting the audit above it.
 
+**Cross-reference, not a rewrite (added by slice 6-3, phase 6):** this
+section's own quoted design.md snippet is §5.9.5's C signatures, part of the
+larger C ABI design.md §5.8 specifies; that ABI itself - `dg_app_t`/
+`dg_window_t`/`dg_node_t`, `dg_node_set_prop`, event polling, the generated
+try/catch wrapping - now exists (`abi/drawgui.def.toml` + `tools/gen_abi.py`).
+Named honestly rather than overstated: 6-3's own minimum surface does NOT
+include `dg_node_set_gradient`/`dg_node_set_shadow`/`dg_node_set_image` -
+those three signatures, quoted above, are still C++-only
+(`dg::set_gradient()`/`dg::set_shadow()`/`dg::set_image()`, 5-4), reachable
+from the C ABI only through the ordinary scalar `dg_node_set_prop()` door for
+properties that fit it. Extending the ABI to the dedicated-setter channel
+itself is unbuilt, undecided, and not claimed here - see `doc/abi.md` section
+6 for what 6-3 declines by name and why. This paragraph is left appended
+rather than rewriting the audit above it.
+
 ## 4. Invariants, re-checked once each
 
 | Invariant | Check run | Result |
@@ -437,6 +452,20 @@ qualification" list above, which is left exactly as this audit wrote it.
 finding that §5.11.2's animation-triggered repaint-boundary promotion (named
 absent in section 6, row 5, above) is still absent with a working clock
 behind it as it was without one.
+
+**Update (slice 6-3, phase 6), cross-reference:** this verdict's own scope
+(P3, widgets) never claimed the C ABI as part of it, so nothing above is
+retroactively edited - but the wider, phase-spanning gap README.md's own
+"Current status" narrative named at the very start of this project ("no
+layout, no widget, no theming and no C ABI") is now closed on its fourth and
+final item. `abi/drawgui.def.toml` + `tools/gen_abi.py` + the generated
+try/catch trampolines are the C ABI; `examples/19_c_client` is a genuinely
+pure C program meeting design.md's own two-windows-plus-click acceptance bar
+for it literally. See `doc/abi.md` for the full record, including two real
+engine gaps (no insertion-order or removal primitive under `LayoutTree`/
+`RenderTree`) the ABI honestly reports rather than works around, and
+everything the ABI itself still declines by name (the theme ABI, the
+animation ABI, a callback event mode, QuickJS stubs).
 
 ## 8. Verification run for this slice
 
