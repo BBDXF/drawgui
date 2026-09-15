@@ -80,6 +80,7 @@ add_executable(drawgui_unit_test
   unit/test_props_damage.cpp
   unit/test_complex_props.cpp
   unit/test_image.cpp
+  unit/test_animation.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
