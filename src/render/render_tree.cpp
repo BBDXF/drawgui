@@ -171,6 +171,16 @@ NodeId RenderTree::parent(NodeId id) const {
   return NodeId{impl_->nodes[id.value].parent};
 }
 
+std::vector<NodeId> RenderTree::children(NodeId id) const {
+  const std::vector<std::uint32_t>& raw = impl_->nodes[id.value].children;
+  std::vector<NodeId> result;
+  result.reserve(raw.size());
+  for (const std::uint32_t index : raw) {
+    result.push_back(NodeId{index});
+  }
+  return result;
+}
+
 std::optional<NodeId> RenderTree::hit_test(PixelPoint point) const {
   const std::uint32_t index = impl_->hit_test(point);
   if (index >= impl_->nodes.size()) {

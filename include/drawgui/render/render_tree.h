@@ -28,6 +28,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
@@ -518,6 +519,16 @@ class RenderTree {
   // lets a caller climbing towards the root stop on `id == parent(id)` without
   // a sentinel value that could be confused with a real node.
   [[nodiscard]] NodeId parent(NodeId id) const;
+
+  // `id`'s children, in paint order (the same order add_child() was called
+  // in) - the storage tree_impl.h's Node::children already keeps, exposed
+  // rather than re-derived by scanning every node for parent() == id. Added
+  // for 6-3's dg_dump_layout_tree, whose whole job is to walk a subtree; no
+  // earlier slice needed a public "list my children" primitive because
+  // painting and hit testing both walk from the OTHER direction (parent
+  // pushing its own bounds down), so this is new surface rather than an
+  // existing private detail promoted to public.
+  [[nodiscard]] std::vector<NodeId> children(NodeId id) const;
 
   // The topmost node covering `point`, or nothing when the point is outside
   // the viewport entirely.
