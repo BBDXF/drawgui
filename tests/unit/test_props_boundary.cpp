@@ -449,6 +449,10 @@ TEST_CASE("a parentData property whose parent does not consume it is refused") {
 // it is separated from kNotApplicable for that reason: the same write becomes
 // kApplied when a later slice lands the capability, whereas `gap` on a leaf
 // will always be wrong. doc/properties.md is the list.
+//
+// `transform` is the one complex type still in this bucket after slice 5-4:
+// its dedicated setter (dg::set_transform()) exists and reports the
+// identical status, but the CAPABILITY behind it does not.
 TEST_CASE("a property the engine does not implement says so") {
   Fixture fixture;
   const auto refuse = [&fixture](NodeId node, dg_prop_id prop, const PropValue& value) {
@@ -456,13 +460,27 @@ TEST_CASE("a property the engine does not implement says so") {
   };
 
   refuse(fixture.row_child, DG_PROP_ALIGN_SELF, PropValue::option(DG_ALIGN_SELF_BASELINE));
-
-  // The three complex types cannot travel in the scalar union at all
-  // (design.md section 5.9.5), and none of the three has a dedicated setter
-  // yet because none is implemented.
-  refuse(fixture.leaf, DG_PROP_BACKGROUND_GRADIENT, PropValue::number(0));
-  refuse(fixture.leaf, DG_PROP_SHADOW, PropValue::number(0));
   refuse(fixture.leaf, DG_PROP_TRANSFORM, PropValue::number(0));
+}
+
+// background_gradient, shadow and image_source moved out of the bucket above
+// with slice 5-4: all three ARE implemented now, through the dedicated
+// setters doc/complex-properties.md records (dg::set_gradient(),
+// dg::set_shadow(), dg::set_image()). A scalar PropValue is simply the wrong
+// type for any of them - none can ever be built with PropType::k_gradient/
+// k_shadow/k_image, since PropValue has no factory for those - so the
+// correct, precise status through THIS door is kTypeMismatch, distinct from
+// "drawgui does not have this" (kUnsupported).
+TEST_CASE(
+    "a complex-typed property implemented only through its dedicated setter refuses "
+    "a scalar value") {
+  Fixture fixture;
+  expect_rejected(fixture.tree, fixture.leaf, DG_PROP_BACKGROUND_GRADIENT, PropValue::number(0),
+                  PropStatus::kTypeMismatch);
+  expect_rejected(fixture.tree, fixture.leaf, DG_PROP_SHADOW, PropValue::number(0),
+                  PropStatus::kTypeMismatch);
+  expect_rejected(fixture.tree, fixture.leaf, DG_PROP_IMAGE_SOURCE, PropValue::number(0),
+                  PropStatus::kTypeMismatch);
 }
 
 // The four that moved out of the refusal list above with this slice. Asserted
