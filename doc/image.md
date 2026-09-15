@@ -49,6 +49,20 @@ answers all four.
   when a theme system arrives, its default value for whichever token owns
   this colour becomes the caller's *default*, not a different code path.
 
+  **This link is now closed (slice 6-2, phase 6):** `image_placeholder_color`
+  is an ordinary scalar property (`DG_PROP_IMAGE_PLACEHOLDER_COLOR`, the
+  scalar `dg::set_prop()` path, unchanged) and is therefore bindable to a
+  colour token through `dg::bind_token()` by the exact same rule
+  `background_color`/`border_color` already are (any `k_color`-typed
+  property is bindable - `theme_bindings.cpp`'s `resolve_and_write()`
+  dispatches on the property's TYPE, not its identity) - no new code path
+  was needed, confirming the prediction above rather than requiring a
+  different mechanism. `examples/18_theme` does not happen to bind THIS
+  particular property, only `background_color`/`border_color`/
+  `border_radius_*`, but nothing about it is special-cased against binding.
+  `doc/theme.md` has the full record; this paragraph is left as 5-1 wrote
+  it rather than rewritten.
+
 ### Explicitly declined, by name (do not start these)
 
 | Declined | Why |

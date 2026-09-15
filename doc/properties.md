@@ -448,3 +448,18 @@ middle child is flexible, so every main-axis change is absorbed by a RESIZE, and
 a node that changes size damages its new box for that reason alone. Taking the
 weight off first is what makes "the vacated pixels were damaged" the only reason
 the assertion can pass.
+
+## 7. A sibling generator family (added by slice 6-2, appended - not a rewrite)
+
+`themes/schema.toml` + `tools/gen_theme.py` + `tools/theme_lock.py` reuse
+this file's own generator/lock shape for a second numeric-id family,
+`token_id`, rather than extending `tools/gen_props.py` itself - the two
+source-of-truth shapes genuinely differ (a token has no `parent_data`/
+`applies_to`/enum `values`, and carries a dotted namespace a property name
+does not), so a second small generator stayed simpler than one generator
+serving two purposes. `dg_token_id` is a plain `uint16_t` constant set for
+the identical reason `dg_prop_id` is (this file's own section above; a
+value that arrives from outside the process is not the enumeration
+clang-tidy would otherwise ask it to be). `doc/theme.md` records the full
+decision, including what was reused verbatim and what was rebuilt
+separately and why.

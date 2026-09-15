@@ -32,6 +32,45 @@ about a property is hand-written anywhere else.
    `props/prop_ids.lock` - and the two belong in one commit. A checkout must
    always pass `--check` on both tools.
 
+## Adding a theme token
+
+`themes/schema.toml` is the identical shape one level over, for `token_id`
+instead of `prop_id` (doc/theme.md has the full reasoning for why this is a
+second small tool rather than an extension of `gen_props.py`).
+
+1. Append a `[[token]]` table at the end of the file, dotted name
+   (`color.something`, `radius.something`), `id` from `meta.next_id`, bumped.
+2. Regenerate:
+
+   ```sh
+   python3 tools/gen_theme.py
+   ```
+
+   This rewrites `include/drawgui/theme/token_ids.generated.h`,
+   `src/theme/token_table.generated.inc` and `doc/theme-tokens.generated.md`.
+3. Record the id:
+
+   ```sh
+   python3 tools/theme_lock.py --write
+   ```
+
+   Appends one line to `themes/token_ids.lock`; `--check` fails while it is
+   missing, for the identical reason `prop_lock.py --check` does.
+4. Add the new token's value(s) to `themes/builtin/theme.json` - an `int`
+   token goes in `"base"`, a `color` token in both `"variants.light"` and
+   `"variants.dark"` - then verify coverage:
+
+   ```sh
+   python3 tools/check_consistency.py
+   ```
+
+   This is the gate CI runs; a schema token the builtin theme does not
+   supply a value for fails it.
+5. Commit the schema TOML, the three generated files, the lock, the updated
+   `theme.json` and `gen_theme.py`'s builtin-theme-embedding regeneration
+   (`include/drawgui/theme/builtin_theme.generated.h`, rewritten by the same
+   `python3 tools/gen_theme.py` call in step 2) together.
+
 ## Why ids are never reused
 
 A `prop_id` is a `uint16_t` that crosses the C ABI. Consumers compile it into

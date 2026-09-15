@@ -347,3 +347,56 @@ TEST_CASE(
   CHECK(stats.nodes_visited > 0);
   CHECK(stats.nodes_relaid_out > 0);
 }
+
+TEST_CASE(
+    "ThemeBindings::bind: rebinding the same (node, prop_id) REPLACES, "
+    "never accumulates a second entry") {
+  // A real defect-injection gap this slice's own campaign found: removing
+  // the "find and replace an existing entry" branch from bind() and pushing
+  // a fresh TokenBinding unconditionally instead survived the whole suite
+  // above, because nothing had ever bound the SAME (node, prop_id) pair
+  // twice. bindings_for() is what makes the duplicate directly observable.
+  LayoutTree tree{spec_for(PixelSize{100, 100})};
+  const NodeId node = tree.add_child(LayoutTree::root(), BoxStyle{}, NodeStyle{});
+  ThemeBindings bindings;
+  const Theme theme = dg::load_builtin_theme().value();
+
+  REQUIRE(dg::bind_token(tree, bindings, node, DG_PROP_BACKGROUND_COLOR, theme,
+                         ThemeVariant::kLight, DG_TOKEN_COLOR_SURFACE)
+              .ok());
+  REQUIRE(dg::bind_token(tree, bindings, node, DG_PROP_BACKGROUND_COLOR, theme,
+                         ThemeVariant::kLight, DG_TOKEN_COLOR_PRIMARY)
+              .ok());
+
+  const std::vector<dg::TokenBinding> for_node = bindings.bindings_for(node);
+  CHECK(for_node.size() == 1);
+  CHECK(bindings.token_for(node, DG_PROP_BACKGROUND_COLOR) == DG_TOKEN_COLOR_PRIMARY);
+}
+
+TEST_CASE(
+    "load_theme: a color token used inside 'base' is a type mismatch too - "
+    "the OTHER direction of the base/variants swap") {
+  // The defect-injection campaign's own gap: the existing "int token under
+  // variants" case above exercises load_variant()'s type check but not
+  // load_base()'s SYMMETRIC one - dropping load_base()'s type check
+  // entirely survived the whole suite until this case was added.
+  const std::string json = R"({
+    "schema_version": 1,
+    "base": {"radius.md": 8, "radius.sm": 4, "space.sm": 4, "space.md": 8,
+             "color.surface": 1},
+    "variants": {
+      "light": {"color.surface": "#FFFFFFFF",
+                "color.on-surface": "#000000FF", "color.border": "#000000FF",
+                "color.primary": "#000000FF", "color.on-primary": "#000000FF",
+                "color.primary-hover": "#000000FF", "color.primary-pressed": "#000000FF"},
+      "dark": {"color.surface": "#000000FF", "color.on-surface": "#FFFFFFFF",
+               "color.border": "#FFFFFFFF", "color.primary": "#FFFFFFFF",
+               "color.on-primary": "#000000FF", "color.primary-hover": "#FFFFFFFF",
+               "color.primary-pressed": "#FFFFFFFF"}
+    }
+  })";
+  const dg::Expected<Theme, dg::ThemeLoadError> loaded = dg::load_theme(json);
+  REQUIRE_FALSE(loaded.has_value());
+  CHECK(loaded.error().status == ThemeLoadStatus::kTypeMismatch);
+  CHECK(loaded.error().message.find("base.color.surface") != std::string::npos);
+}

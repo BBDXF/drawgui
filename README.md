@@ -322,6 +322,43 @@ this slice does NOT close: §5.15.2's three-level invalidation model is not
 implemented as a cost model, so an animated `opacity` write costs exactly
 what a hand-written one already did, not a cheaper recomposite-only path.
 
+Phase 6 closes its second slice on the half of P3 the completeness audit
+found at zero: a **theme token system**. `themes/schema.toml` is a
+compile-time contract - which tokens exist, `color.surface`/`radius.md`/
+11 total - generated exactly like `props/drawgui.props.toml` already is,
+by a sibling tool (`tools/gen_theme.py` + `tools/theme_lock.py`) rather than
+an extension of the property generator, because the two source-of-truth
+shapes genuinely differ. `themes/builtin/theme.json` is the one shipped
+instance of what each token EQUALS under light/dark, loaded by a
+purpose-built ~300-line JSON parser rather than a third-party library - this
+project's first new dependency decision since Skia/SDL3/FreeType, argued
+and declined in `doc/theme.md` section 3 on the grounds that `theme.json`'s
+own grammar is closed and small enough that a general-purpose parser buys
+nothing this slice needs. `$token` live references - a theme switch that
+updates a bound node without touching the widget tree - are a side table,
+`ThemeBindings`, keyed by `NodeId` exactly the way `WidgetSet` already is,
+and deliberately NOT a generation-counter handle the way `AnimationEngine`'s
+slots are: a token binding's lifetime is tied one-to-one to a node's, and
+nodes here never get removed, so there is no reuse and no ABA problem to
+guard against - the opposite precedent applies for the opposite reason.
+Resolving a binding reuses `dg::set_prop()` unchanged, which is what lets
+"which invalidation a theme switch costs" fall out of a rule this project
+already had rather than needing a new one: measured on a real `LayoutTree`,
+a colour-only variant switch costs zero relayout (`nodes_visited == 0`),
+while an int-token (spacing/radius) value change through the identical path
+costs a real one. Unknown token names and type mismatches are both
+`dg::Expected` failures naming the exact JSON key path, and
+`tools/check_consistency.py` verifies in CI that the shipped theme covers
+every schema token in both directions. Zero new node/`RenderObject`/
+`WidgetKind` kinds were needed - a fourteenth consecutive slice - and a
+defect-injection campaign (three caught immediately, including a
+demo-oracle-only bug a unit-test-only campaign could not have found, and
+two real coverage gaps closed) is recorded in full, along with everything
+this slice explicitly declines (external theme packages, hot reload,
+theme-package security limits, an expression evaluator for token alpha, and
+the `.d.ts`/ABI-constant-table generation deferred to 6-3), in
+`doc/theme.md`.
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -603,6 +640,21 @@ measured answer to design.md's "wait_events() blocks, CPU 0%" claim.
 ./build/examples/drawgui_animation --dump-png out.png
 ```
 
+## The theme demo
+
+`examples/18_theme` draws four panels, none carrying a literal colour or
+radius: every fill, border and corner radius is a `dg::bind_token()` binding
+against the shipped `themes/builtin/theme.json`. Click anywhere to switch
+light/dark at runtime - `dg::ThemeBindings::apply()` re-resolves every
+binding and repaints, with no widget tree rebuild and (measured, printed on
+every switch) zero relayout for this scene's colour-only bindings.
+
+```sh
+./build/examples/drawgui_theme                      # click to switch light/dark
+./build/examples/drawgui_theme --verify-theme        # headless check
+./build/examples/drawgui_theme --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -676,3 +728,4 @@ Findings and decisions from each slice live beside it:
 | `doc/list.md` | the `List` virtualization decision (`kList`, an 8th `WidgetKind`, a fixed recycled pool rather than a new node kind), why node removal was evaluated and not added, the data-source seam that needed no interface, the measured no-relayout property extended to recycling, and the 1000-item measurement against a real pre-virtualization baseline |
 | `doc/complex-properties.md` | the dedicated-setter channel (`dg::set_gradient`/`set_shadow`/`set_image`/`set_transform`), why `image_source` was built first as the prototype rather than last, the damage-atomicity argument that lets `shadow` paint outside a node's declared bounds without breaking partial repaint, and the `transform` decline with its three named blockers |
 | `doc/animation.md` | `dg::AnimationEngine` - the clock's value-based seam and why it needed no `virtual`, why `curve_id` is a plain constant set rather than generator-backed, the generation-counter handle lifetime and why 5-3's "never free" precedent does not transfer, the retarget-mid-transition proof, the measured idle-CPU number, and the honest §5.15.2 three-level-invalidation gap report |
+| `doc/theme.md` | The theme token system - `themes/schema.toml`'s generator family reused from `props/`, the JSON-parser decision (hand-rolled vs. nlohmann/json), `$token` live references as a `WidgetSet`-shaped side table rather than a generation-counter handle, the measured colour-only-vs-int-token relayout cost, `dg::Expected`-based load errors naming the exact JSON key path, and what CI's `tools/check_consistency.py` verifies |

@@ -409,6 +409,14 @@ What is NOT true without qualification, named exactly:
   asked to settle) should not conclude P3 itself is closed. It is not; **this
   phase is a proper subset of P3**, and that subset is what is complete.
 
+  **Cross-reference, not a rewrite (added by slice 6-2, phase 6):** this
+  bullet's finding stood as written above through phase 5. Slice 6-2 closes
+  it - `themes/schema.toml`, a JSON loader, `$token` live references, and
+  the light/dark runtime switch this bullet names by name all now exist.
+  See `doc/theme.md` for the full record; this paragraph is left exactly as
+  the phase-5 audit wrote it, a snapshot of what was true then, not
+  retroactively edited to look prescient.
+
 **Stated scope of the TRUE verdict**: basic GUI components are complete for
 *layout + CSS-like properties + the widget primitives that compose from
 existing RenderObjects without needing a new one* — six of the MVP-8 fully,
