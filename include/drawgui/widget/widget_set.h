@@ -94,6 +94,19 @@ enum class WidgetKind : std::uint8_t {
   // (keyboard routing) and a MODEL string, neither of which any existing
   // kind carries - doc/text-input.md section 3.
   kTextField,
+
+  // A virtualized, fixed-extent list: a clipping node (NodeStyle::overflow,
+  // reused verbatim) whose children are a small, PERMANENT pool of item
+  // nodes - never one node per logical item. `list_pool.size()` is bounded
+  // by the VIEWPORT, not by `list_item_count`, and stays that way at 1000
+  // items exactly as it is at 10; the recycling doc/list.md section 2
+  // argues for is what makes that true. Earns a kind of its own over
+  // extending kScrollView because it needs RUNTIME BOOKKEEPING no existing
+  // kind carries (`list_assigned` - which logical index each pool slot
+  // currently shows) and because a kScrollView's `scroll_content` is one
+  // already-measured child, which is exactly the thing a virtualized list
+  // cannot have (doc/list.md section 1).
+  kList,
 };
 
 // One widget's whole state. A plain struct of plain fields, for the reason
@@ -186,12 +199,47 @@ struct Widget {
   int cursor = 0;                       // byte offset into `text`, in [0, text.size()]
   std::optional<int> selection_anchor;  // set => a selection [min(anchor,cursor), max(...))
   int scroll_x = 0;                     // device pixels; DERIVED, never declared
+
+  // kList only. `list_pool` is the PERMANENT pool of item nodes - built once,
+  // never grown or shrunk (this engine has no node-removal path at all;
+  // doc/list.md section 1 is the argument for why a fixed pool sidesteps
+  // that question rather than answering it). `list_assigned` is a parallel
+  // array, one entry per pool slot: which LOGICAL item index that slot
+  // currently displays, or -1 for "not yet assigned" (the state right after
+  // `attach()`, before the first `list_sync()`). The pool-slot a logical
+  // index L is assigned to is always `L % list_pool.size()` (never searched
+  // for) - doc/list.md section 2 is the ring-buffer argument in full.
+  // `list_item_count`/`list_item_extent` are the FIXED-EXTENT content model
+  // this slice declines to generalize (doc/list.md section 3): every item is
+  // exactly `list_item_extent` device pixels along `list_axis`, which is
+  // what lets the scrollable extent be `list_item_count * list_item_extent`
+  // - arithmetic, never a measured child, because there is no real "content"
+  // node here to measure.
+  ScrollAxis list_axis = ScrollAxis::kNone;
+  std::vector<NodeId> list_pool;
+  std::vector<int> list_assigned;
+  int list_item_count = 0;
+  int list_item_extent = 0;
 };
 
 // A normalized [start, end) byte range into a kTextField's Widget::text.
 struct TextSelection {
   int start = 0;
   int end = 0;
+};
+
+// One pool slot's new identity after `WidgetSet::list_sync()`/
+// `list_scroll_by()` reassigned it. `node` never changes once the pool is
+// built (doc/list.md section 1); `logical_index` is what the caller must now
+// paint there - the whole of the data-source seam this slice needed
+// (doc/list.md section 4): the engine reports WHICH node needs WHICH item's
+// content, and the caller writes that content through the exact same
+// `RenderTree::set_fill`/`set_text`/`set_image` calls an unrecycled node
+// would use. No callback, no interface, `virtual`-free by construction
+// because there is nothing here for either side to implement against.
+struct ListSlot {
+  NodeId node;
+  int logical_index = 0;
 };
 
 // Editing-intent moves a kTextField registers on itself - design.md section
@@ -280,6 +328,41 @@ class WidgetSet {
   // screen.
   bool scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport_content, int dx,
                  int dy) const;
+
+  // The nearest ancestor-or-self of `id` that is a kList, or nothing - the
+  // same shape scrollable_owner_of() has, one control over: a wheel event
+  // over a recycled item node must still find the kList that owns it.
+  [[nodiscard]] std::optional<NodeId> list_owner_of(const RenderTree& tree, NodeId id) const;
+
+  // Re-derives every kList pool slot's assigned logical index from
+  // `top_index` (the item that should sit at the content-origin edge of the
+  // viewport) and repositions - via RenderTree::set_local_bounds, never
+  // LayoutTree::set_box - any slot whose assignment actually changed.
+  // Returns exactly those slots, in no particular order, so the caller
+  // refreshes only what changed; an unaffected slot is not returned, which
+  // is how a caller doing the minimum necessary work avoids re-deriving
+  // "did this change" itself.
+  //
+  // The one call site both `attach()`-time initial fill (top_index == 0)
+  // and a post-layout resync (doc/list.md section 6 - a kLeaf's children
+  // are re-placed at its content origin on every relayout, exactly like a
+  // slider's thumb, so a caller must call this again after any layout()
+  // that touched this node) and list_scroll_by() (below) route through -
+  // one recycling primitive, not three.
+  std::vector<ListSlot> list_sync(RenderTree& tree, NodeId id, int top_index);
+
+  // Moves a kList's pixel offset by (dx, dy) on `list_axis`, clamped to
+  // [0, list_item_count * list_item_extent - viewport_extent], then calls
+  // list_sync() with the new top_index. `viewport_extent` is a parameter for
+  // the identical reason scroll_by()'s `viewport_content` is: this file
+  // depends on RenderTree alone, never LayoutTree.
+  //
+  // Returns list_sync()'s vector verbatim - empty both when the offset did
+  // not move at all (already clamped) AND when it moved by less than one
+  // item's extent (an ordinary sub-item wheel notch, which set_scroll_offset
+  // alone already paints correctly - doc/list.md section 5).
+  std::vector<ListSlot> list_scroll_by(RenderTree& tree, NodeId id, int viewport_extent, int dx,
+                                       int dy);
 
   // The nearest ancestor-or-self of `id` that is a kSlider, or nothing - the
   // same shape scrollable_owner_of() has, one control over: a drag starting

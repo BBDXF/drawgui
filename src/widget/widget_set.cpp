@@ -28,6 +28,7 @@ bool interactive(WidgetKind kind) {
     case WidgetKind::kLabel:
     case WidgetKind::kScrollView:
     case WidgetKind::kSlider:
+    case WidgetKind::kList:
       break;
   }
   return false;
@@ -269,6 +270,87 @@ bool WidgetSet::scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport
   }
   tree.set_scroll_offset(id, offset);
   return true;
+}
+
+std::optional<NodeId> WidgetSet::list_owner_of(const RenderTree& tree, NodeId id) const {
+  NodeId current = id;
+  while (true) {
+    const Widget* widget = find(current);
+    if (widget != nullptr && widget->kind == WidgetKind::kList) {
+      return current;
+    }
+    const NodeId parent = tree.parent(current);
+    if (parent == current) {
+      return std::nullopt;
+    }
+    current = parent;
+  }
+}
+
+std::vector<ListSlot> WidgetSet::list_sync(RenderTree& tree, NodeId id, int top_index) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kList) {
+    return {};
+  }
+  const auto pool_size = static_cast<int>(widget->list_pool.size());
+  if (pool_size == 0) {
+    return {};
+  }
+  // Defensive rather than assumed: a caller that forgot to size
+  // `list_assigned` to match `list_pool` would otherwise read/write past the
+  // end below. Idempotent once the sizes already agree.
+  if (widget->list_assigned.size() != widget->list_pool.size()) {
+    widget->list_assigned.assign(widget->list_pool.size(), -1);
+  }
+
+  std::vector<ListSlot> changed;
+  for (int row = 0; row < pool_size; ++row) {
+    const int logical = top_index + row;
+    if (logical < 0 || logical >= widget->list_item_count) {
+      continue;
+    }
+    const int slot = logical % pool_size;
+    if (widget->list_assigned[static_cast<std::size_t>(slot)] == logical) {
+      continue;
+    }
+    widget->list_assigned[static_cast<std::size_t>(slot)] = logical;
+
+    const NodeId node = widget->list_pool[static_cast<std::size_t>(slot)];
+    const PixelRect current = tree.local_bounds(node);
+    const int main = logical * widget->list_item_extent;
+    const PixelRect placed = widget->list_axis == ScrollAxis::kHorizontal
+                                 ? PixelRect{main, 0, current.width, current.height}
+                                 : PixelRect{0, main, current.width, current.height};
+    tree.set_local_bounds(node, placed);
+    changed.push_back(ListSlot{node, logical});
+  }
+  return changed;
+}
+
+std::vector<ListSlot> WidgetSet::list_scroll_by(RenderTree& tree, NodeId id,
+                                                int viewport_extent, int dx, int dy) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kList ||
+      widget->list_axis == ScrollAxis::kNone) {
+    return {};
+  }
+
+  const int content_extent = widget->list_item_count * widget->list_item_extent;
+  const int max_offset = std::max(0, content_extent - viewport_extent);
+
+  PixelPoint offset = tree.scroll_offset(id);
+  int& moved = widget->list_axis == ScrollAxis::kVertical ? offset.y : offset.x;
+  const int delta = widget->list_axis == ScrollAxis::kVertical ? dy : dx;
+  const int next = std::clamp(moved + delta, 0, max_offset);
+  if (next == moved) {
+    return {};
+  }
+  moved = next;
+  tree.set_scroll_offset(id, offset);
+
+  const int extent = widget->list_item_extent;
+  const int top_index = extent > 0 ? next / extent : 0;
+  return list_sync(tree, id, top_index);
 }
 
 std::optional<NodeId> WidgetSet::slidable_owner_of(const RenderTree& tree, NodeId id) const {
