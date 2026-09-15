@@ -246,6 +246,9 @@ jobs:
           files="
             src/graphics/canvas.cpp
             src/graphics/raster_surface.cpp
+            src/anim/animation_engine.cpp
+            src/anim/clock.cpp
+            src/anim/curve.cpp
             src/layout/box_layout.cpp
             src/layout/layout_tree.cpp
             src/props/node_props.cpp
@@ -292,6 +295,7 @@ jobs:
             tests/unit/test_props_damage.cpp
             tests/unit/test_complex_props.cpp
             tests/unit/test_image.cpp
+            tests/unit/test_animation.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
@@ -368,7 +372,11 @@ jobs:
             examples/16_complex_properties/main.cpp
             examples/16_complex_properties/cprops_check.cpp
             examples/16_complex_properties/cprops_scene.cpp
-            examples/16_complex_properties/cprops_window.cpp"
+            examples/16_complex_properties/cprops_window.cpp
+            examples/17_animation/main.cpp
+            examples/17_animation/anim_check.cpp
+            examples/17_animation/anim_scene.cpp
+            examples/17_animation/anim_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
