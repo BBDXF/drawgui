@@ -1,0 +1,22 @@
+# ============================================================================
+# drawgui theme token id lock - an ABI contract, not a cache.
+#
+# One line per locked token, "<id>  <name>", in ascending id order.
+# Written by `python3 tools/theme_lock.py --write` and verified by
+# `python3 tools/theme_lock.py --check`. Same contract as props/prop_ids.lock,
+# applied to the token_id family (design.md section 5.7.7).
+#
+# NEVER hand-edit this file to make a failing check pass. Fix
+# themes/schema.toml instead.
+# ============================================================================
+    1  color.surface
+    2  color.on-surface
+    3  color.border
+    4  color.primary
+    5  color.on-primary
+    6  color.primary-hover
+    7  color.primary-pressed
+    8  radius.sm
+    9  radius.md
+   10  space.sm
+   11  space.md

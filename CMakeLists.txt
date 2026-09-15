@@ -42,6 +42,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateProps.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateTheme.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/FetchSkia.cmake)
 
 # --- Warning configuration --------------------------------------------------
@@ -182,6 +183,10 @@ add_library(drawgui STATIC
   src/render/skia_paint.cpp
   src/render/text_metrics.cpp
   src/render/tree_paint.cpp
+  src/theme/mini_json.cpp
+  src/theme/theme.cpp
+  src/theme/theme_bindings.cpp
+  src/theme/theme_loader.cpp
   src/widget/focus.cpp
   src/widget/interaction.cpp
   src/widget/widget_set.cpp)
@@ -219,6 +224,9 @@ target_link_libraries(drawgui
 # The generated property header is committed but regenerated every build, so
 # a stale copy cannot survive. See cmake/GenerateProps.cmake.
 add_dependencies(drawgui drawgui_props_generate)
+
+# Likewise for the theme token header - see cmake/GenerateTheme.cmake.
+add_dependencies(drawgui drawgui_theme_generate)
 
 set_target_properties(drawgui PROPERTIES
   POSITION_INDEPENDENT_CODE ON)

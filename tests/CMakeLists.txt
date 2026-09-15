@@ -81,6 +81,7 @@ add_executable(drawgui_unit_test
   unit/test_complex_props.cpp
   unit/test_image.cpp
   unit/test_animation.cpp
+  unit/test_theme.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
@@ -272,6 +273,20 @@ add_test(NAME props.abi_lock
 # including the exact case that silently passed before commit c5ce347.
 add_test(NAME props.lock_selftest
   COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_props_lock_selftest)
+
+# The theme token family's own three gates, mirroring props.no_drift/
+# props.abi_lock/consistency exactly (cmake/GenerateTheme.cmake,
+# design.md section 5.7.7).
+add_test(NAME theme.no_drift
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_theme_check)
+
+add_test(NAME theme.abi_lock
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_theme_lock_check)
+
+# design.md section 5.7.7 (C4): the builtin theme must cover every schema
+# token - the gate this slice's task names by name (tools/check_consistency.py).
+add_test(NAME theme.consistency
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_theme_consistency)
 
 # Convenience target for deliberately refreshing baselines. Never invoked by
 # CTest: a suite that can rewrite its own expectations proves nothing.

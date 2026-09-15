@@ -262,6 +262,10 @@ jobs:
             src/render/skia_paint.cpp
             src/render/text_metrics.cpp
             src/render/tree_paint.cpp
+            src/theme/mini_json.cpp
+            src/theme/theme.cpp
+            src/theme/theme_bindings.cpp
+            src/theme/theme_loader.cpp
             src/widget/focus.cpp
             src/widget/interaction.cpp
             src/widget/widget_set.cpp
@@ -296,6 +300,7 @@ jobs:
             tests/unit/test_complex_props.cpp
             tests/unit/test_image.cpp
             tests/unit/test_animation.cpp
+            tests/unit/test_theme.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
@@ -376,7 +381,11 @@ jobs:
             examples/17_animation/main.cpp
             examples/17_animation/anim_check.cpp
             examples/17_animation/anim_scene.cpp
-            examples/17_animation/anim_window.cpp"
+            examples/17_animation/anim_window.cpp
+            examples/18_theme/main.cpp
+            examples/18_theme/theme_check.cpp
+            examples/18_theme/theme_scene.cpp
+            examples/18_theme/theme_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
