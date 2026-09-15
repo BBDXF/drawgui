@@ -393,6 +393,25 @@ it is already expressible as `set_local_origin`, and adding it as a
 The property is worth implementing only for the cases that are not that, which
 is to say for the ones that break `PixelRect`.
 
+**Update (slice 5-4, phase 5): `shadow` built, `transform` declined.**
+`shadow`'s dedicated setter (`dg::set_shadow()`) and its damage-atomicity
+turned out NOT to need this section's own predicted route through
+`needs_layer`/`saveLayerAlphaf` at all: `SkImageFilters::DropShadowOnly` is a
+single-draw-call image filter, not a subtree composite, so no layer opens for
+a shadow the way one does for `opacity`. The damage-atomicity half was built
+as this section predicted in shape (a `shadow_atomic()` flag alongside
+`clip_atomic`, and an outset folded into `Node::visible_bounds()` via
+`declared_paint_bounds()`/`shadow_reach()`) though not literally through
+`subtree_extent()` - the outset is a NODE-level fact, not a subtree one,
+since `shadow` (unlike `opacity`) does not composite its descendants. `transform`
+was evaluated and declined outright, with the three blockers this section
+already named (damage-atomicity, non-axis-aligned geometry, inverse-transform
+hit testing) all still open, plus a fourth this section did not anticipate -
+whether transform affects parent layout at all, unresolved even for the
+axis-aligned subset. `doc/complex-properties.md` is the full record for both;
+this paragraph and the two tables above it are left as this slice originally
+wrote them, a snapshot of what was predicted before 5-4, not rewritten.
+
 ---
 
 ## 7. Proving the tests can fail

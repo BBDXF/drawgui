@@ -257,6 +257,33 @@ stale content structurally impossible rather than merely checked for, and a
 defect-injection campaign that found two real coverage gaps and closed both
 with new regression tests.
 
+Phase 5 closes on the property table's last three gaps. `background_gradient`,
+`shadow` and `image_source` all needed a shape design.md itself specifies but
+this project had never built: a dedicated setter, separate from the ordinary
+scalar `dg::set_prop()` door, for a value too large or too variable to fit a
+tagged union. `image_source` was built first and proven working - its
+decode/paint/layout path already existed from the prior slice - and the
+shared id-validation shape was extracted from that working code afterward,
+never written ahead of it. `background_gradient` and `shadow` then reused the
+same shape for real new work: a linear gradient shader, and a drop shadow
+that is this project's first property to paint OUTSIDE the pixels a node
+declares as its own. That is a fact damage tracking's whole design assumes
+never happens, so the node's own damage rule was generalised rather than
+bypassed - a shadowed node forces whole-node repaint growth for the same
+mechanical reason a rounded node already does (both are unsafe to cut with a
+damage rectangle), just outset by the shadow's own reach - budgeted, per a
+prior slice's measurement that blur is over half a dense frame's raster
+time. `transform`, the table's fourth complex-typed property, is declined:
+its dedicated setter exists and answers consistently, but every rectangle
+this engine tracks - damage, hit testing, clipping - is axis-aligned integer
+pixels, and a general 2D transform breaks that in three places at once
+rather than one at a time. 49 properties: 38 fully implemented, 10 partially,
+1 not yet - down from 4. Zero new node kinds were needed, extending the
+streak through a twelfth consecutive slice. `doc/complex-properties.md`
+records the decision in full, including a defect-injection campaign that
+found one genuinely inert guard and root-caused why, rather than merely
+noting it survived.
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -499,6 +526,25 @@ jumping and scrolling back all recycle the same pool.
 ./build/examples/drawgui_list --dump-png out.png
 ```
 
+## The complex properties demo
+
+`examples/16_complex_properties` draws three panels, each built through the
+dedicated-setter channel rather than by writing node style fields directly:
+a linear gradient (three stops, red/green/blue); a hard-edged drop shadow
+(no blur, so the sliver it casts past the panel's own right and bottom edges
+is one solid colour rather than a soft one, byte-exact and hand-derivable);
+and a decoded two-colour image attached through the channel's id-based
+`dg::set_image()` rather than the plain C++ call a prior slice already
+proved. A fourth call, `dg::set_transform()`, is made once and its declined
+result printed - there is no fourth panel, because there is nothing yet to
+paint.
+
+```sh
+./build/examples/drawgui_complex_properties                          # resize it
+./build/examples/drawgui_complex_properties --verify-complex-properties  # headless check
+./build/examples/drawgui_complex_properties --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -570,3 +616,4 @@ Findings and decisions from each slice live beside it:
 | `doc/completeness.md` | the phase-closing audit against design.md's MVP-8 widget list, the acceptance-criterion re-check, the consolidated decline and contradiction tables, and the qualified completeness verdict |
 | `doc/image.md` | the `Image` node-model decision (a `NodeStyle` field, not a new kind), the mandatory size-before-decode rule and its measured no-relayout property, the synthesized-source solution to the golden-test problem, and what a future async decode would and would not change |
 | `doc/list.md` | the `List` virtualization decision (`kList`, an 8th `WidgetKind`, a fixed recycled pool rather than a new node kind), why node removal was evaluated and not added, the data-source seam that needed no interface, the measured no-relayout property extended to recycling, and the 1000-item measurement against a real pre-virtualization baseline |
+| `doc/complex-properties.md` | the dedicated-setter channel (`dg::set_gradient`/`set_shadow`/`set_image`/`set_transform`), why `image_source` was built first as the prototype rather than last, the damage-atomicity argument that lets `shadow` paint outside a node's declared bounds without breaking partial repaint, and the `transform` decline with its three named blockers |

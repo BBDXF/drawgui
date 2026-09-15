@@ -126,6 +126,21 @@ plan was ever built.
 Property counts, unchanged by this slice: **46 total, 33 implemented, 10
 partial, 3 not-yet.** `doc/properties.md` needs no edit; it is already current.
 
+**Update (slice 5-4, phase 5): the dedicated-setter gap this section found is
+closed for three of its four properties.** `dg::set_gradient()`,
+`dg::set_shadow()` and `dg::set_image()` now exist, sharing one id-validation
+prelude; `background_gradient` (17), `shadow` (28) and `image_source` (47,
+appended by slice 5-1 after this section's audit pass) moved from not-yet to
+implemented. `transform` (30) remains not-yet - its setter (`dg::set_transform()`)
+exists and validates its id through the same channel, but always reports
+`kUnsupported`, with the specific blocker named. Current counts (49 properties,
+the three appended by 5-1 already counted in this section's own 46):
+**38 implemented / 10 partial / 1 not-yet.** See `doc/complex-properties.md`
+for the full record, including the damage-atomicity argument for `shadow`
+painting outside its own declared bounds and the design.md section 5.9.5
+gap analysis section 6 below cross-references; this paragraph is left
+appended rather than rewriting the audit above it.
+
 ## 4. Invariants, re-checked once each
 
 | Invariant | Check run | Result |
@@ -244,12 +259,23 @@ backlog.
 | 9 | §5.4.6/§5.4.1's intrinsic-size cache is asserted **mandatory**, stronger than §5.4.6's own hedge-free wording states explicitly | sizing.md §1.4 | §5.4.6, and §5.4.1 line 334 ("L3 的唯一例外是内在尺寸查询…因此它必须缓存") | Not a contradiction of behavior (no intrinsic query exists in this codebase to cache or not) but of *emphasis*: §5.4.1 does use "必须" (must) at line 334, which this audit independently confirms — so sizing.md's "mandatory, not advisory" reading is textually supported once §5.4.1 is read alongside §5.4.6, not an overreach. |
 | 10 | **`PopupHost` does not exist at all, contradicting design.md's explicit MVP mandate** | form-controls.md §2 (decline), escalated by this audit | §5.2 lines 196-208, specifically line 207: "**这个抽象必须在 MVP 就存在**" ("this abstraction must exist as of MVP") | **Newly escalated by this audit, not previously framed as a contradiction.** Every other item in this table is a considered deviation the implementing slice weighed and accepted. This one is different in kind: design.md does not merely prefer `PopupHost` exist by MVP, it calls the abstraction "本设计最关键的一处" (the single most critical decision in the whole design) and names the exact failure mode of building without it first (rewriting the entire menu/dropdown/tooltip subsystem later, the stonegui-postmortem trap). `Dropdown` is not one of the MVP-8 (§5.6 line 615), so its absence does not weaken the MVP-8 verdict directly — but design.md's own words make the missing abstraction underneath it a bigger gap than "one control not built," because every future popup-shaped control (`Dropdown`, `Menu`, `Tooltip`, `Dialog`) inherits the same missing prerequisite. Recorded here rather than only in the decline table because design.md's language ("must", "most critical") reads as a stronger claim than an ordinary roadmap item, and a reader of this audit deserves to see that severity distinction made explicit. |
 | 11 | Text rendering uses none of `textlayout`/SkParagraph/HarfBuzz/ICU that design.md commits to across §3.2, §5.3, §5.10.4, §5.10.5, §5.13.6, §5.13.7 | font-fallback.md, text-input.md §1.4 | multiple (listed) | Confirmed independently for this audit: `grep -rn "SkParagraph\|hb_\|icu" include/ src/` finds nothing. design.md's own roadmap does not force this before P3's text-widget landing (icudtl.dat decision due then, design.md line ~1770-1771), so this is a scoped, named gap rather than a broken promise — but it is real and load-bearing for anything beyond ASCII single-line text. |
+| 12 | §5.9.5's dedicated-setter code block lists only three complex-typed properties (gradient, shadow, image) — `transform` is a fourth complex type in the same table with no `dg_node_set_transform` signature anywhere in the section | complex-properties.md §6 (added by slice 5-4) | §5.9.5's code block (three `dg_node_set_*` signatures) | Textual omission in design.md itself, not an implementation deviation: `transform`'s `type = "transform"` in `props/drawgui.props.toml` needs the identical "cannot travel in the scalar union" treatment the other three get, and §5.9.5 simply never states its ABI shape. Settled rather than left as 4-10 found it: `TransformDesc` (translate/scale/rotate + origin, matching §5.9.6's own decomposition) is the shape a future design.md revision should add; `dg::set_transform()` implements the validation half of that shape today and always reports `kUnsupported` for the capability half, naming three blockers that must move together (non-axis-aligned damage bounds, an inverse-transform hit test, whether transform affects parent layout). |
 
-11 distinct contradictions, one of them (#10) escalated by this audit beyond
+12 distinct contradictions, one of them (#10) escalated by this audit beyond
 how the originating slice framed it, because design.md's own wording for that
 one item is categorically stronger ("must", "the single most critical
 decision") than the "declined, named, deferred" register every other item in
 this table shares.
+
+**Update (slice 5-4, phase 5): row #12 added.** This is a worklist item for
+design.md's own next revision, not a fix applied to design.md's prose by this
+slice — `doc/complex-properties.md` section 6 is the full argument, including
+why an axis-aligned translate+scale subset was evaluated and still declined
+(integer translation is already fully expressible via
+`RenderTree::set_local_origin()`, and scale raises a layout question this
+slice does not answer). This paragraph is appended rather than rewriting the
+"11 distinct contradictions" count above it, which is left as this audit
+originally computed it.
 
 ## 7. Verdict
 

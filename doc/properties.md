@@ -251,22 +251,25 @@ written for a different purpose.
 
 ## 4. The gap report
 
-49 properties: **35 implemented**, **10 partially implemented**, **4 not yet**.
+49 properties: **38 implemented**, **10 partially implemented**, **1 not yet**.
 
 A partially implemented property applies correctly for the values listed as
 supported and returns `kUnsupported` - naming the node - for the rest. Nothing
 in either column is silently ignored.
 
-The counts have moved six times since this report was first written: the
+The counts have moved seven times since this report was first written: the
 wrapping slice built the pieces section 4.4 called 1 and 5
 (`doc/wrapping.md`), the clipping slice built piece 2 (`doc/clipping.md`), the
 compositing slice built piece 3 (`doc/compositing.md`), the sizing slice built
 piece 4 (`doc/sizing.md`), the scrolling slice appended a 46th property,
-`scroll_axis` (`doc/scrolling.md`), and slice 5-1 appended three more -
+`scroll_axis` (`doc/scrolling.md`), slice 5-1 appended three more -
 `image_source` (47), `image_fit` (48), `image_placeholder_color` (49) -
-`doc/image.md`.
+`doc/image.md`, and slice 5-4 built the dedicated-setter channel and moved
+`background_gradient` (17), `shadow` (28) and `image_source` (47) from
+not-yet to implemented, leaving only `transform` (30) not yet implemented -
+`doc/complex-properties.md`.
 
-### 4.1 Implemented (35)
+### 4.1 Implemented (38)
 
 | id | property | notes |
 | --- | --- | --- |
@@ -282,6 +285,7 @@ piece 4 (`doc/sizing.md`), the scrolling slice appended a 46th property,
 | 10 | `padding_r` | |
 | 11 | `padding_b` | |
 | 16 | `background_color` | `NodeStyle::fill`; paint only, no relayout |
+| 17 | `background_gradient` | `NodeStyle::background_gradient`; linear only, replaces `fill` rather than layering over it, at least 2 stops with finite offsets strictly increasing in 0..1 - dedicated setter (`dg::set_gradient()`), paints strictly inside the node's own box - `doc/complex-properties.md` section 3 |
 | 18 | `border_width_l` | reserves layout space AND paints, per side |
 | 19 | `border_width_t` | |
 | 20 | `border_width_r` | |
@@ -292,6 +296,7 @@ piece 4 (`doc/sizing.md`), the scrolling slice appended a 46th property,
 | 25 | `border_radius_br` | |
 | 26 | `border_radius_bl` | |
 | 27 | `opacity` | GROUP opacity through a `saveLayer`, not per-object alpha; the whole of 0..1, with anything outside it refused rather than clamped. Hit testing deliberately ignores it, including at 0 - `doc/compositing.md` section 4 |
+| 28 | `shadow` | `NodeStyle::shadow`; budgeted (blur_radius capped at 48, doc/cpu-raster-findings.md's measured 52%-of-raster-time cost), paints OUTSIDE the node's declared bounds via `SkImageFilters::DropShadowOnly` - the node's own damage-atomic rule extends to cover the outset (`shadow_reach()`/`declared_paint_bounds()`), dedicated setter (`dg::set_shadow()`) - `doc/complex-properties.md` section 4 |
 | 29 | `overflow` | both values; paint, hit testing and damage all read the one field. Clips at the BORDER box, which is a deliberate deviation from CSS - `doc/clipping.md` section 2 |
 | 34 | `gap` | flex and wrap containers; stacks with margins, does not collapse |
 | 35 | `main_size` | both values, on flex and wrap containers. Resolved in `limits_for`, which is also what decides relayout boundaries, so a filled container becomes one without declaring it |
@@ -303,6 +308,7 @@ piece 4 (`doc/sizing.md`), the scrolling slice appended a 46th property,
 | 44 | `right` | |
 | 45 | `bottom` | |
 | 46 | `scroll_axis` | `kLeaf` only; hands the node's single child an UNBOUNDED constraint on the named axis instead of the node's own bound - the first unbounded constraint this engine ever constructs. Does not itself clip (`overflow` does that) or move anything (`RenderTree::set_scroll_offset`, runtime state, does) - `doc/scrolling.md` sections 1-2 |
+| 47 | `image_source` | `NodeStyle::image.source`; which decoded `ImageCatalog` entry to paint - dedicated setter (`dg::set_image()`), the channel's PROTOTYPE client (built first, its decode/paint/layout path already proven by slice 5-1) - `doc/complex-properties.md` section 2 |
 | 48 | `image_fit` | `NodeStyle::image.fit`; all four values (`fill`/`contain`/`cover`/`none`) - paint only, no relayout. `tile` is declined by name, it is a `background_image` concept design.md's own table assigns elsewhere, not `RenderImage`'s - `doc/image.md` section 6 |
 | 49 | `image_placeholder_color` | `NodeStyle::image.placeholder`; a plain configurable colour standing in for the theme-token system design.md section 5.10.3 asks for and this project does not have - `doc/image.md` section 8 |
 
@@ -326,14 +332,14 @@ behaviour, so that test is load-bearing rather than tidy.
 | 39 | `shrink` | whole non-negative weights, under a flex parent, on a child whose base main size is DECLARED - it has a `basis`, or a definite size on the container's main axis | a child whose base is its measured natural size is left at that size and reported by name. Shrinking from a measured base needs a second layout of that subtree, and nesting that makes a pass exponential rather than linear unless the base is measured under an unbounded main axis and cached - which is a slice of its own, costed in `doc/sizing.md` section 1.4. There is also no freeze-and-redistribute loop: a child that floors at its `min_*` stops absorbing and the residual overrun is reported |
 | 41 | `align_self` | `auto`, `start`, `end`, `center`, `stretch` | `baseline`, for the same reason `align=baseline` is unavailable. `stretch` under a wrapping parent degrades exactly as `align=stretch` does |
 
-### 4.3 Not yet implemented (4)
+### 4.3 Not yet implemented (1)
 
 | id | property | what it needs |
 | --- | --- | --- |
-| 17 | `background_gradient` | an `SkShader` in the painter, plus the dedicated `dg_node_set_gradient`-shaped setter design.md section 5.9.5 specifies - it cannot travel in the scalar union |
-| 28 | `shadow` | the LAYER now exists and the same `saveLayer` call takes an image filter. What is still missing: painting OUTSIDE the node's declared bounds, which `subtree_extent` and `visible_bounds` would both have to learn; and making a layer damage-atomic, which a scalar alpha turned out NOT to need - `doc/compositing.md` sections 2 and 6. Also a dedicated setter |
-| 30 | `transform` | the layer exists; non-axis-aligned geometry does not. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare and `contains(rect, point)` is not its hit test. A layer under a transform IS damage-atomic, unlike one under a scalar alpha. Also a dedicated setter |
-| 47 | `image_source` | unlike the other three, the PAINT and LAYOUT machinery already exist and are proven (`ImageCatalog`, `carries_image()`, the section 5.10.3 sizing rule, `RenderTree::set_image()`) - only the id-based dedicated setter (`dg_node_set_image`, design.md section 5.9.5) is missing, deferred to slice 5-4 by name - `doc/image.md` section 7 |
+| 30 | `transform` | the layer exists; non-axis-aligned geometry does not. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare and `contains(rect, point)` is not its hit test. A layer under a transform IS damage-atomic, unlike one under a scalar alpha. The dedicated setter (`dg::set_transform()`) now exists and validates its id correctly, but always reports `kUnsupported` - `doc/complex-properties.md` section 6 names the three blockers (non-axis-aligned damage bounds, an inverse-transform hit test, and an unanswered question about whether transform affects parent layout) and settles design.md section 5.9.5's own omission of this setter's shape |
+
+`background_gradient` (17), `shadow` (28) and `image_source` (47) moved to
+section 4.1 in slice 5-4; `doc/complex-properties.md` is their full record.
 
 ### 4.4 Suggested grouping for the next slice
 
@@ -377,20 +383,21 @@ remaining two are unchanged.
 5. ~~**Per-child overrides and per-side painting**~~ - done. `align_self`, and
    the paint half of `border_width_*`.
 
-The three complex-typed properties (`background_gradient`, `shadow`,
-`transform`) additionally need the dedicated-setter shape from design.md section
-5.9.5, which does not exist yet because none of the three is implemented.
-`doc/compositing.md` section 6 lists, per property, which of the pieces
-`shadow` and `transform` need are now in place and which are not.
-
-Slice 5-1 added a **fourth** complex type, `image` (`image_source`, id 47),
-whose paint and layout machinery are already built and proven - unlike the
-other three, this one is not blocked on any remaining engine work, only on
-the dedicated-setter CHANNEL itself. `doc/image.md` section 7 names it as a
-candidate for either role in the setter-shape slice: the fourth client
-(built after gradient/shadow/transform establish the pattern) or the first
-prototype (built first, since it is the only one of the four already fully
-working beneath the setter).
+The three complex-typed properties `background_gradient`, `shadow` and
+`image_source` needed the dedicated-setter shape from design.md section
+5.9.5, and slice 5-4 built it: `dg::set_gradient()`, `dg::set_shadow()` and
+`dg::set_image()`, sharing one id-validation prelude
+(`complex_prop_prelude()`). `image_source` was the channel's PROTOTYPE - its
+paint/layout machinery was already proven by slice 5-1, so it isolated the
+channel's own design from a new visual feature - and gradient/shadow were
+built after, reusing the prelude the prototype's own working code produced.
+`transform` is the channel's fourth client but remains not-yet: the setter
+exists, validates its id correctly, and always reports `kUnsupported`, naming
+the specific blocker. `doc/complex-properties.md` is the full record,
+including design.md section 5.9.5's own omission of `dg_node_set_transform`'s
+shape (settled by this slice rather than left as 4-10 found it) and the
+damage-atomicity argument that generalises the rounded-rect rule to a shadow
+that paints outside its own declared bounds.
 
 ---
 

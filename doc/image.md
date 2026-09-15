@@ -379,11 +379,29 @@ before there is anything for a setter to configure). That choice belongs to
 5-4, not to this slice; it is named here so 5-4's own scoping does not have
 to rediscover it.
 
+**Update (slice 5-4, phase 5): closed, and the choice was PROTOTYPE.**
+`dg::set_image()` was built and proven first - `complex_prop_prelude()` (the
+shared id-validation shape now common to all four dedicated setters) was
+extracted from its working code, not written ahead of it. `image_source` (47)
+moved from not-yet to implemented; `background_gradient` (17) and `shadow`
+(28) followed through the same channel, built after, with real new
+painting/damage work of their own. `transform` (30) remains not-yet - the
+channel's fourth client, always declining. `doc/complex-properties.md` is the
+full record; this paragraph is left as slice 5-1 originally wrote it, a
+snapshot of the open choice at the time, not rewritten.
+
 **Counts, exactly**: 49 properties (was 46) - **35 implemented** (was 33, +2:
 `image_fit`, `image_placeholder_color`), **10 partially implemented**
 (unchanged), **4 not yet** (was 3, +1: `image_source`).
 `doc/properties.md` section 4 is updated to match; `props.no_drift`,
 `props.abi_lock` and `props.lock_selftest` all still pass (section 10).
+
+**Update (slice 5-4, phase 5): counts moved again.** `image_source` (47) is
+now implemented (dedicated setter built); overall counts are 49 properties -
+**38 implemented / 10 partial / 1 not-yet** (`transform` alone). See
+`doc/complex-properties.md`. This paragraph is appended rather than rewriting
+the counts slice 5-1 recorded above, which describe what was true at the time
+this document was written.
 
 ---
 
@@ -566,6 +584,9 @@ Everything section 1 already named, plus:
   `FontCatalog` already has.
 - No `dg_node_set_image` C ABI entry point - `RenderTree::set_image()` is the
   real C++ call; the id-based channel is 5-4's to build (section 7).
+  **Update (slice 5-4): built** - `dg::set_image()`, the channel's prototype.
+  See `doc/complex-properties.md` section 2. This bullet is left as slice 5-1
+  originally wrote it, a snapshot of what was true before slice 5-4.
 - No `background_image` property (section 6) - a Box's decoration-layer
   image is a different, still-entirely-absent property from the one this
   slice builds.
