@@ -165,6 +165,12 @@ jobs:
 
       # Generated files are excluded: their formatting is the generator's
       # responsibility, and props.no_drift already guards their content.
+      # drawgui.h/drawgui_abi.generated.cpp have no "generated" infix on the
+      # HEADER's own name (it is the ABI deliverable a real host includes,
+      # <drawgui/abi/drawgui.h>, not an internal generated-file convention),
+      # but both still pass this check unmodified: tools/gen_abi.py's own
+      # output is written to already match .clang-format (verified against
+      # a real clang-format run, not assumed), so nothing needed excluding.
       - name: Check formatting
         run: |
           files=$(find include src tests examples -name '*.cpp' -o -name '*.h' \
@@ -316,6 +322,8 @@ jobs:
             files="$files
             src/platform/sdl3/window_manager.cpp
             src/window/popup_host.cpp
+            src/abi/abi_impl.cpp
+            src/abi/drawgui_abi.generated.cpp
             examples/01_sdl3_multi_window/main.cpp
             examples/02_skia_cpu_gallery/main.cpp
             examples/02_skia_cpu_gallery/bench.cpp
@@ -385,7 +393,8 @@ jobs:
             examples/18_theme/main.cpp
             examples/18_theme/theme_check.cpp
             examples/18_theme/theme_scene.cpp
-            examples/18_theme/theme_window.cpp"
+            examples/18_theme/theme_window.cpp
+            examples/19_c_client/main.c"
           fi
           echo "$files"
           clang-tidy -p build $files

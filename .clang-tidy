@@ -12,14 +12,32 @@
 #   *-magic-numbers
 #       Golden-image scenes and geometry are full of literal coordinates,
 #       which is the point of them.
+#   cppcoreguidelines-macro-usage
+#       6-3's drawgui.h is the ABI: design.md section 5.8 requires it to
+#       compile as plain C, so its constants (DG_ERR_*, DG_NODE_TYPE_*, ...)
+#       cannot be this check's own remedy - `constexpr` and `enum class` are
+#       both C++-only. #define is the correct, idiomatic C mechanism SDL,
+#       Vulkan and every other C ABI in existence already uses for exactly
+#       this; this check has no C-compatible alternative to suggest, so it is
+#       disabled project-wide rather than fought file by file.
+#   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+#       Fires on memset()/fprintf() in examples/19_c_client/main.c (6-3's
+#       pure C example) and recommends memset_s()/fprintf_s() - the C11
+#       Annex K bounds-checking interfaces, which glibc (this project's own
+#       target libc, per doc/development.md) does not implement at all. The
+#       suggested fix does not compile here, which is a different situation
+#       than "unwanted advice" and the reason this one check is disabled
+#       rather than its call sites rewritten around it.
 Checks: >
   bugprone-*,
   cppcoreguidelines-*,
   performance-*,
   readability-*,
   -bugprone-easily-swappable-parameters,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -cppcoreguidelines-avoid-c-arrays,
   -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-macro-usage,
   -cppcoreguidelines-non-private-member-variables-in-classes,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -cppcoreguidelines-pro-bounds-constant-array-index,
