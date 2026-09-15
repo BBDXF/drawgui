@@ -324,6 +324,18 @@ What is NOT true without qualification, named exactly:
   this project's current state and design.md's own stated priorities, and is
   named here at full severity rather than folded quietly into the decline
   table.
+
+  **Update (slice 5-2, phase 5): closed.** `PopupHost::show()` now exists,
+  branching on `PlatformCaps::native_popup` between a real
+  `SDL_CreatePopupWindow` window and an appended, clipped overlay subtree of
+  the caller's own `RenderTree` - both branches real and exercised every
+  CTest run, zero new node/RenderObject kinds (extending this document's own
+  section 2 finding through a tenth slice). `Dropdown` itself is still not
+  built - the prerequisite this section named is satisfied, and building the
+  widget is the next slice's task, named by `doc/form-controls.md` §2.4 and
+  now by `doc/popup.md` §6. See `doc/popup.md` for the full record; this
+  paragraph is left as the audit originally wrote it, a snapshot of what was
+  true before slice 5-2, not rewritten.
 - Text rendering has no HarfBuzz/ICU/BiDi/line-breaking/`SkParagraph` — real,
   named, and scoped by design.md's own roadmap to no later than P3's text
   widgets landing, which already happened in 4-9 for the ASCII case. Anything
