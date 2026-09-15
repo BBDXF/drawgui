@@ -161,6 +161,17 @@ visible extent using exactly the geometry this slice already exposes
 (`local_bounds()` of the content child, `content_bounds()` of the viewport,
 `scroll_offset()`) - none of which needs to change to add windowing on top.
 
+**Update (slice 5-3, phase 5): closed.** `WidgetKind::kList` recycles a
+fixed pool of nodes rather than windowing `local_bounds()`/`content_bounds()`
+of a real, measured `kColumn` as this paragraph anticipated - a virtualized
+list has no such column to window, which is exactly why it needed its own
+mechanism rather than a policy layered on this slice's viewport. This
+slice's own claims are otherwise unchanged by 5-3: `nodes_visited == 0` for
+a plain offset (section 4 below) still holds exactly as measured here, and
+5-3 both re-measures it and extends it to cover recycling too. See
+`doc/list.md` for the full record; this paragraph is left as it was
+written, not rewritten.
+
 ---
 
 ## 2. Why the offset is state, and `scroll_axis` is a property

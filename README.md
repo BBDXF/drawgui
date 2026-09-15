@@ -225,6 +225,38 @@ decision in full, including why zero new node/RenderObject kinds were needed
 had found absent - and what a future asynchronous decode would and would not
 have to change about any of this.
 
+`List` can now be **virtualized**, which closes the other of the two gaps
+4-10's audit named. A `kList` is an 8th `WidgetKind`: a fixed, permanently-
+allocated pool of item nodes - never one node per logical item - recycled as
+the visible range moves, so a 1000-item list costs 14 real nodes rather than
+1000. Node removal was evaluated and correctly not added: the pool sidesteps
+the question rather than needing an answer to it, so a recycled `NodeId`
+never dangles anywhere - it is restyled and repositioned, never destroyed.
+Recycling routes entirely through `RenderTree::set_local_bounds()`/
+`set_style()`, the same primitives a slider's thumb or a checkbox's indicator
+already move through, so it costs a repaint and never a relayout - measured,
+not assumed, extending 4-7's `nodes_visited == 0` finding to cover recycling
+as well as a plain offset. The data-source seam needed no interface at all:
+`WidgetSet` reports which pool node now represents which logical item (a
+plain `NodeId, int` pair), and the caller writes that item's content through
+the exact same `RenderTree::set_style()` an unrecycled node already uses.
+Only fixed-extent rows are built; variable-height rows are declined by name,
+because the two usual techniques (measuring every off-screen item, or
+estimate-then-correct) either defeat virtualization outright or introduce
+visible scrollbar jitter. Measured against design.md's own "1000 项列表
+60fps" bar with a real pre-virtualization baseline (1000 permanently-
+allocated real nodes): both clear 60fps comfortably at 1000 items on this
+CPU-raster engine, and the decisive difference - the virtualized pool's cost
+staying flat as item count grows, against the baseline's cost growing with
+node count - shows up further out, where `doc/list.md` measures it crossing
+the 60fps line on this host somewhere past 100,000 items. Zero new node/
+RenderObject kinds were needed, extending `doc/completeness.md`'s streak
+through an 11th consecutive slice. `doc/list.md` records the decision in
+full, including the residue-correctness design that makes a recycled node's
+stale content structurally impossible rather than merely checked for, and a
+defect-injection campaign that found two real coverage gaps and closed both
+with new regression tests.
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -450,6 +482,23 @@ configured placeholder colour instead - never a hole.
 ./build/examples/drawgui_image --dump-png out.png
 ```
 
+## The list demo
+
+`examples/15_list` draws a virtualized, 1000-item vertical list behind a
+fixed pool of 14 real nodes. Every item's fill, label and image cycle on
+three independent periods (12/none/3), so a recycling bug that leaves a
+node's previous content behind is visible rather than invisible; scrolling,
+jumping and scrolling back all recycle the same pool.
+
+```sh
+./build/examples/drawgui_list                      # wheel or click-drag the panel
+./build/examples/drawgui_list --jump 500            # open pre-scrolled to item 500
+./build/examples/drawgui_list --verify-list        # headless check
+./build/examples/drawgui_list --bench [N]          # measured against the pre-virtualization
+                                                    # baseline at N items (default 1000)
+./build/examples/drawgui_list --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -520,3 +569,4 @@ Findings and decisions from each slice live beside it:
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
 | `doc/completeness.md` | the phase-closing audit against design.md's MVP-8 widget list, the acceptance-criterion re-check, the consolidated decline and contradiction tables, and the qualified completeness verdict |
 | `doc/image.md` | the `Image` node-model decision (a `NodeStyle` field, not a new kind), the mandatory size-before-decode rule and its measured no-relayout property, the synthesized-source solution to the golden-test problem, and what a future async decode would and would not change |
+| `doc/list.md` | the `List` virtualization decision (`kList`, an 8th `WidgetKind`, a fixed recycled pool rather than a new node kind), why node removal was evaluated and not added, the data-source seam that needed no interface, the measured no-relayout property extended to recycling, and the 1000-item measurement against a real pre-virtualization baseline |
