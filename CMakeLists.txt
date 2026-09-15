@@ -8,10 +8,13 @@
 
 cmake_minimum_required(VERSION 3.24)
 
+# C, alongside CXX, as of 6-3: examples/19_c_client is compiled by a real C
+# compiler, not a C++ one told to accept .c files - that distinction is the
+# whole of what proves drawgui.h is C-compilable rather than merely C-shaped.
 project(drawgui
   VERSION 0.1.0
   DESCRIPTION "A self-drawn GUI kernel embeddable through a C ABI"
-  LANGUAGES CXX)
+  LANGUAGES CXX C)
 
 # design.md section 3.1: C++20 is the baseline, chosen for cross-platform
 # determinism. C++23 library features are deliberately unused - Android NDK
