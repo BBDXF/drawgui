@@ -164,6 +164,9 @@ endif()
 # --- The library ------------------------------------------------------------
 
 add_library(drawgui STATIC
+  src/anim/animation_engine.cpp
+  src/anim/clock.cpp
+  src/anim/curve.cpp
   src/graphics/canvas.cpp
   src/graphics/raster_surface.cpp
   src/layout/box_layout.cpp
