@@ -254,6 +254,7 @@ jobs:
             src/render/font_fallback.cpp
             src/render/clip_shape.cpp
             src/render/hit_test.cpp
+            src/render/image_catalog.cpp
             src/render/render_tree.cpp
             src/render/skia_paint.cpp
             src/render/text_metrics.cpp
@@ -288,6 +289,7 @@ jobs:
             tests/unit/test_props_parity.cpp
             tests/unit/test_props_boundary.cpp
             tests/unit/test_props_damage.cpp
+            tests/unit/test_image.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
@@ -347,7 +349,11 @@ jobs:
             examples/12_text_input/main.cpp
             examples/12_text_input/text_field_check.cpp
             examples/12_text_input/text_field_scene.cpp
-            examples/12_text_input/text_field_window.cpp"
+            examples/12_text_input/text_field_window.cpp
+            examples/13_image/main.cpp
+            examples/13_image/image_check.cpp
+            examples/13_image/image_scene.cpp
+            examples/13_image/image_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
