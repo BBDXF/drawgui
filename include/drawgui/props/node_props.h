@@ -130,9 +130,18 @@ struct PropWrite {
 
 // One property value, tagged with the type it was built as.
 //
-// A tagged scalar, matching design.md section 5.9.5's split: gradient, shadow
-// and transform are NOT representable here and take dedicated setters, none of
-// which exists yet because none of the three is implemented.
+// A tagged scalar, matching design.md section 5.9.5's split: gradient, shadow,
+// transform and image are NOT representable here and take dedicated setters
+// below - `dg::set_gradient()`, `dg::set_shadow()`, `dg::set_transform()`,
+// `dg::set_image()`. PropValue has no factory that could ever build a value
+// of type `k_gradient`/`k_shadow`/`k_transform`/`k_image` - only `number()`,
+// `length()`, `color()` and `option()` exist - so a scalar write against one
+// of those four ids always names the wrong entry point. node_props.cpp
+// reports `background_gradient`/`shadow`/`image_source` as `kTypeMismatch`
+// through this door specifically, because each IS implemented, just not
+// here; `transform` still reports `kUnsupported`, because no door yet paints
+// one at all - the sentence "which door" only applies once there is a
+// working destination behind it.
 //
 // `length` carries an absolute value only. The table's third length mode - a
 // percentage of the incoming max_* constraint - has no constructor here
@@ -208,5 +217,124 @@ class PropValue {
 // NodeStyle and only commits them once it has succeeded, so a rejected value
 // cannot leave a node half-configured.
 PropWrite set_prop(LayoutTree& tree, NodeId node, dg_prop_id prop_id, const PropValue& value);
+
+// --------------------------------------------------------------------------
+// The dedicated-setter channel (design.md section 5.9.5).
+// --------------------------------------------------------------------------
+//
+// Four functions, one per complex-typed property, mirroring the shape design
+// eventually exports as a C ABI (`dg_node_set_gradient`/`_shadow`/`_image`,
+// all three already spelled out in design.md; `_transform` is the omission
+// slice 4-10 found and this slice's own verdict is below):
+//
+//   int dg_node_set_gradient(dg_node_t*, uint16_t prop_id, const dg_gradient_desc*);
+//   int dg_node_set_shadow  (dg_node_t*, uint16_t prop_id, const dg_shadow_desc*);
+//   int dg_node_set_image   (dg_node_t*, uint16_t prop_id, const dg_image_desc*);
+//
+// `dg_node_t*` is `LayoutTree&, NodeId` here (the ABI does not exist yet -
+// that is phase P5, explicitly out of this slice's scope), and each
+// `const dg_..._desc*` is the C++ descriptor type the field beside it already
+// carries on `NodeStyle` (`LinearGradientStyle`, `ShadowStyle`) or, for
+// `image`, the same `ImageStyle` `RenderTree::set_image()` already accepts
+// (slice 5-1). Nothing here invents a SECOND descriptor shape to convert into
+// the first - `set_gradient()`/`set_shadow()` write the caller's struct
+// straight onto `NodeStyle` after validating it, exactly as the eventual ABI
+// wrapper would after copying `*desc` out of C.
+//
+// WHY FOUR SEPARATE FUNCTIONS RATHER THAN ONE `PropValue` VARIANT: this is
+// design.md's own choice, not an invention of this slice - `dg_node_set_*`
+// are top-level ABI entry points beside `dg_node_set_prop`, not another
+// tagged case inside `dg_value`. A gradient's stop list and a shadow's four
+// scalars have no common size, so cramming them into one tagged union would
+// need a heap-allocated variant `dg_value` never otherwise carries.
+//
+// HOW THE ABI LOCK STAYS UNWEAKENED: every one of these four still takes the
+// SAME `dg_prop_id` the scalar path does, generated from the SAME
+// props/drawgui.props.toml entry, checked here against the SAME
+// `dg::prop_type()` the scalar dispatch reads (see complex_prop_prelude() in
+// node_props.cpp). No new id, no new lock entry, and no parallel numbering
+// scheme was created for this channel - a caller who sends
+// `DG_PROP_BACKGROUND_GRADIENT` to `set_shadow()` is rejected by exactly the
+// mechanism that already rejects `DG_PROP_WIDTH` sent as a colour.
+//
+// THE FIRST PROTOTYPE, BUILT BEFORE THE SHAPE WAS EXTRACTED: `set_image()`.
+// doc/image.md section 7 named `image_source` as a candidate for either the
+// channel's fourth client or its first prototype; this slice picked
+// PROTOTYPE, because slice 5-1 had already built and proven the entire
+// decode/paint/layout path underneath it (`ImageCatalog`, `carries_image()`,
+// `RenderTree::set_image()`) - the only missing piece was the id-based entry
+// point itself, which isolates the channel's OWN design (id validation,
+// status vocabulary, commit-on-success) from the difficulty of a new visual
+// feature. `set_gradient()`/`set_shadow()` were then built AFTER, reusing
+// `complex_prop_prelude()` extracted from `set_image()`'s own working code -
+// obeying this project's standing rule that an interface is written after at
+// least one working implementation, never ahead of one.
+//
+// `set_transform()` EXISTS AS A FOURTH ENTRY POINT BUT ALWAYS REFUSES.
+// design.md section 5.9.5 lists only three dedicated setters - gradient,
+// shadow, image - and never states `dg_node_set_transform`'s shape at all,
+// which is a genuine gap in the design document itself (4-10 found it; this
+// slice is the one instructed to settle it). The verdict: `TransformDesc`
+// below IS that shape, decomposed exactly as design.md section 5.9.6 already
+// specifies for `transform` ("translate/scale/rotate + origin, for
+// interpolation"), so the ABI's eventual signature can be read straight off
+// it. What is NOT built is the capability behind it: every rectangle this
+// engine tracks is axis-aligned integer device pixels (damage, hit testing,
+// clipping all speak `PixelRect`), so a general 2D transform would turn every
+// one of those into a quad or a non-invertible-without-care matrix multiply -
+// three subsystems that would all have to change together, not one at a
+// time. `set_transform()` therefore validates its `prop_id` through the same
+// prelude as the other three (so a caller gets a real, consistent answer
+// rather than a missing symbol) and then reports `kUnsupported` naming the
+// specific blocker, exactly as `dg::set_prop()`'s own `apply_transform` case
+// already does for the scalar door. doc/complex-properties.md section 4 is
+// the full argument for why this is a decline rather than a half-built
+// feature.
+
+// The ABI shape design.md section 5.9.6 already specifies for `transform`:
+// translate/scale/rotate decomposed rather than a raw 2x3 matrix, "便于动画
+// 插值" (so each component can be interpolated independently once an
+// animation clock exists - design.md section 5.16.1, which this project does
+// not have). `origin_x`/`origin_y` is the pivot scale and rotate are applied
+// around, relative to the node's own content origin.
+//
+// This struct is NEVER converted into node state: no `NodeStyle` field reads
+// it, because `set_transform()` always refuses (see above). It exists so the
+// dedicated setter's SIGNATURE - the thing 4-10 found missing from design.md
+// - has one concrete, citable shape rather than remaining an unresolved
+// question mark.
+struct TransformDesc {
+  float translate_x = 0.0F;
+  float translate_y = 0.0F;
+  float scale_x = 1.0F;
+  float scale_y = 1.0F;
+  float rotate_deg = 0.0F;
+  float origin_x = 0.0F;
+  float origin_y = 0.0F;
+};
+
+// The prototype (see above): a decoded ImageCatalog entry, by id validation
+// alone - `image_fit`/`image_placeholder_color` already ride the ordinary
+// scalar path (slice 5-1), so only the source itself needs this door.
+[[nodiscard]] PropWrite set_image(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                                  const ImageStyle& image);
+
+// A linear gradient, at least two stops with finite offsets in 0..1 strictly
+// increasing (Skia's own `SkGradient::Colors` contract) - doc/complex-
+// properties.md section 2 is the validation argument in full.
+[[nodiscard]] PropWrite set_gradient(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                                     const LinearGradientStyle& gradient);
+
+// An outer drop shadow. `blur_radius` is capped - BUDGETED, not merely
+// bounds-checked - because doc/cpu-raster-findings.md measured blur at 52% of
+// a frame's raster time; doc/complex-properties.md section 3 names the
+// number and the reasoning behind it.
+[[nodiscard]] PropWrite set_shadow(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                                   const ShadowStyle& shadow);
+
+// Always reports kUnsupported, naming the specific blocker - see the
+// channel-level comment above and doc/complex-properties.md section 4.
+[[nodiscard]] PropWrite set_transform(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                                      const TransformDesc& transform);
 
 }  // namespace dg

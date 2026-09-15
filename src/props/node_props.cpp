@@ -26,10 +26,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/box.h"
@@ -371,9 +373,11 @@ PropWrite apply_background_color(Target& target, const PropValue& value) {
 }
 
 PropWrite apply_background_gradient(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "background_gradient",
-                     "the painter fills one flat colour; a gradient needs an SkShader and "
-                     "the dedicated setter design.md section 5.9.5 specifies");
+  return reject(target, PropStatus::kTypeMismatch,
+                "property: background_gradient IS implemented, through the dedicated "
+                "dg::set_gradient() channel (design.md section 5.9.5) rather than through "
+                "this scalar entry point - a multi-stop gradient descriptor does not fit "
+                "PropValue's tagged union");
 }
 
 PropWrite apply_border_width_l(Target& target, const PropValue& value) {
@@ -424,9 +428,11 @@ PropWrite apply_opacity(Target& target, const PropValue& value) {
 }
 
 PropWrite apply_shadow(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "shadow",
-                     "an outer shadow paints outside the node's bounds, which damage "
-                     "tracking would have to be taught about first");
+  return reject(target, PropStatus::kTypeMismatch,
+                "property: shadow IS implemented, through the dedicated dg::set_shadow() "
+                "channel (design.md section 5.9.5) rather than through this scalar entry "
+                "point - an offset/blur/spread/colour descriptor does not fit PropValue's "
+                "tagged union");
 }
 
 PropWrite apply_overflow(Target& target, const PropValue& value) {
@@ -448,7 +454,9 @@ PropWrite apply_overflow(Target& target, const PropValue& value) {
 PropWrite apply_transform(Target& target, const PropValue& /*value*/) {
   return unsupported(target, "transform",
                      "every rectangle here is axis-aligned integer pixels, so a rotated "
-                     "node has no damage rectangle to declare");
+                     "node has no damage rectangle to declare; dg::set_transform() (the "
+                     "dedicated setter's fourth client, added this slice) reports the "
+                     "identical status through the id-based channel");
 }
 
 // The value names a decoded ImageCatalog entry, which does not fit the
@@ -462,11 +470,12 @@ PropWrite apply_transform(Target& target, const PropValue& /*value*/) {
 // client - doc/image.md section on the property table records the decision
 // not to build that channel in this slice.
 PropWrite apply_image_source(Target& target, const PropValue& /*value*/) {
-  return unsupported(target, "image_source",
-                     "the value names a decoded ImageCatalog entry, which does not fit "
-                     "the scalar tagged union; it needs the dedicated setter design.md "
-                     "section 5.9.5 specifies (dg_node_set_image) - RenderTree::set_image() "
-                     "is the real C++ entry point until that channel exists");
+  return reject(target, PropStatus::kTypeMismatch,
+                "property: image_source IS implemented, through the dedicated "
+                "dg::set_image() channel (design.md section 5.9.5) or "
+                "RenderTree::set_image() directly, rather than through this scalar entry "
+                "point - the value names a decoded ImageCatalog entry, which does not fit "
+                "PropValue's tagged union");
 }
 
 PropWrite apply_image_fit(Target& target, const PropValue& value) {
@@ -913,6 +922,174 @@ PropWrite set_prop(LayoutTree& tree, NodeId node, dg_prop_id prop_id, const Prop
     tree.render().set_style(node, target.style);
   }
   return out;
+}
+
+// --------------------------------------------------------------------------
+// The dedicated-setter channel (design.md section 5.9.5). node_props.h has
+// the full design; this is the shared prelude every one of the four
+// functions there opens with, extracted from set_image() once it worked.
+// --------------------------------------------------------------------------
+
+namespace {
+
+// Validates `prop_id` against the type the CALLER's C++ signature already
+// commits to - the complex-channel equivalent of checked()'s scalar type
+// check above, and deliberately built the same shape: kUnknownId when the id
+// names nothing, kTypeMismatch when it names a property of a DIFFERENT
+// complex type (dg::set_shadow() called with DG_PROP_BACKGROUND_GRADIENT,
+// say). Returns nullopt to mean "go ahead".
+[[nodiscard]] std::optional<PropWrite> complex_prop_prelude(const LayoutTree& tree, NodeId node,
+                                                            dg_prop_id prop_id,
+                                                            PropType expected) {
+  const std::optional<PropType> declared = prop_type(prop_id);
+  if (!declared.has_value()) {
+    return PropWrite{PropStatus::kUnknownId, "property: no property has id " +
+                                                 std::to_string(prop_id) + "; ids run 1.." +
+                                                 std::to_string(kDgPropMaxId) + "\n    at " +
+                                                 tree.path_of(node)};
+  }
+  if (*declared != expected) {
+    return PropWrite{PropStatus::kTypeMismatch,
+                     "property: id " + std::to_string(prop_id) +
+                         " does not name a property of this dedicated setter's complex "
+                         "type\n    at " +
+                         tree.path_of(node)};
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] PropWrite complex_out_of_range(const LayoutTree& tree, NodeId node,
+                                             const std::string& reason) {
+  return PropWrite{PropStatus::kValueOutOfRange,
+                   "property: " + reason + "\n    at " + tree.path_of(node)};
+}
+
+// Skia's own `SkGradient::Colors` contract (include/effects/SkGradient.h):
+// positions must be finite, lie in 0..1 and be STRICTLY increasing. 32 is not
+// a measured limit, only a sanity bound against an unbounded allocation from
+// an untrusted caller - nothing in this slice's example needs more than four.
+constexpr std::size_t kMaxGradientStops = 32;
+
+[[nodiscard]] bool valid_gradient_stops(const std::vector<GradientStop>& stops) {
+  if (stops.size() < 2 || stops.size() > kMaxGradientStops) {
+    return false;
+  }
+  float previous = -1.0F;
+  for (const GradientStop& stop : stops) {
+    if (!std::isfinite(stop.offset) || stop.offset < 0.0F || stop.offset > 1.0F) {
+      return false;
+    }
+    if (stop.offset <= previous) {
+      return false;
+    }
+    previous = stop.offset;
+  }
+  return true;
+}
+
+// The shadow budget. doc/cpu-raster-findings.md measured blur (including drop
+// shadow) at 52% of a dense scene's raster time - the single most expensive
+// thing this engine can be asked to paint - so blur_radius is capped rather
+// than left open the way an ordinary length is. The other three bounds are
+// sanity limits against a hostile or buggy caller, not measurements: nothing
+// about this engine's damage system breaks above them, they simply stop
+// answers that could not be a real design intent (a shadow offset wider than
+// a 4K display, say).
+constexpr float kMaxShadowBlur = 48.0F;
+constexpr float kMaxShadowSpread = 64.0F;
+constexpr float kMaxShadowOffset = 512.0F;
+
+[[nodiscard]] bool valid_shadow(const ShadowStyle& shadow) {
+  return std::isfinite(shadow.offset_x) && std::isfinite(shadow.offset_y) &&
+         std::isfinite(shadow.blur_radius) && std::isfinite(shadow.spread) &&
+         shadow.blur_radius >= 0.0F && shadow.blur_radius <= kMaxShadowBlur &&
+         std::abs(shadow.spread) <= kMaxShadowSpread &&
+         std::abs(shadow.offset_x) <= kMaxShadowOffset &&
+         std::abs(shadow.offset_y) <= kMaxShadowOffset;
+}
+
+}  // namespace
+
+// THE PROTOTYPE. Built and proven before any of the other three, then
+// complex_prop_prelude() above was extracted from what worked here - node_
+// props.h records why image_source, specifically, was the right thing to
+// build first rather than last.
+PropWrite set_image(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                    const ImageStyle& image) {
+  const std::optional<PropWrite> rejected =
+      complex_prop_prelude(tree, node, prop_id, PropType::k_image);
+  if (rejected.has_value()) {
+    return *rejected;
+  }
+  // RenderTree::set_image() already damages correctly and already dedupes an
+  // unchanged value (slice 5-1) - this door adds only the id check above, not
+  // a second copy of what that function already does.
+  tree.render().set_image(node, image);
+  return PropWrite{};
+}
+
+PropWrite set_gradient(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                       const LinearGradientStyle& gradient) {
+  const std::optional<PropWrite> rejected =
+      complex_prop_prelude(tree, node, prop_id, PropType::k_gradient);
+  if (rejected.has_value()) {
+    return *rejected;
+  }
+  if (!std::isfinite(gradient.angle_deg)) {
+    return complex_out_of_range(tree, node, "background_gradient needs a finite angle_deg");
+  }
+  if (!valid_gradient_stops(gradient.stops)) {
+    return complex_out_of_range(tree, node,
+                                "background_gradient needs 2.." +
+                                    std::to_string(kMaxGradientStops) +
+                                    " stops with finite, strictly increasing offsets in 0..1");
+  }
+  NodeStyle style = tree.render().style(node);
+  style.background_gradient = gradient;
+  tree.render().set_style(node, style);
+  return PropWrite{};
+}
+
+PropWrite set_shadow(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                     const ShadowStyle& shadow) {
+  const std::optional<PropWrite> rejected =
+      complex_prop_prelude(tree, node, prop_id, PropType::k_shadow);
+  if (rejected.has_value()) {
+    return *rejected;
+  }
+  if (!valid_shadow(shadow)) {
+    return complex_out_of_range(
+        tree, node,
+        "shadow needs a finite offset/spread within +/-" +
+            std::to_string(static_cast<int>(kMaxShadowOffset)) +
+            " and a blur_radius in "
+            "0.." +
+            std::to_string(static_cast<int>(kMaxShadowBlur)) +
+            " - budgeted per doc/cpu-raster-findings.md's measured blur cost");
+  }
+  NodeStyle style = tree.render().style(node);
+  style.shadow = shadow;
+  tree.render().set_style(node, style);
+  return PropWrite{};
+}
+
+// The fourth client, and the one that always refuses. node_props.h has the
+// full argument; this is only the mechanical half of it.
+PropWrite set_transform(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                        const TransformDesc& /*transform*/) {
+  const std::optional<PropWrite> rejected =
+      complex_prop_prelude(tree, node, prop_id, PropType::k_transform);
+  if (rejected.has_value()) {
+    return *rejected;
+  }
+  return PropWrite{PropStatus::kUnsupported,
+                   "property: transform is not implemented - every rectangle this engine "
+                   "tracks is axis-aligned integer pixels (damage, hit testing and "
+                   "clipping all speak PixelRect), so a general 2D transform needs "
+                   "non-axis-aligned damage bounds, an inverse-transform hit test and a "
+                   "decision about whether it affects parent layout, none of which exists "
+                   "yet\n    at " +
+                       tree.path_of(node)};
 }
 
 }  // namespace dg
