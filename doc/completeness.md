@@ -277,6 +277,26 @@ slice does not answer). This paragraph is appended rather than rewriting the
 "11 distinct contradictions" count above it, which is left as this audit
 originally computed it.
 
+**Update (slice 6-1, phase 6), cross-reference rather than a rewrite: row #5's
+contradiction still holds.** Section 5's declines "Fling/inertia",
+"Overscroll rebound animation" and "Caret blink" (rows citing "needs an
+animation clock (design.md 5.16.1) that does not exist") named a prerequisite
+that no longer holds - `dg::AnimationEngine` exists as of slice 6-1
+(`doc/animation.md`). That does NOT retroactively un-decline any of the
+three: fling still needs a gesture-derived velocity source this slice did not
+build, overscroll rebound's PLATFORM-SPECIFIC behaviour is still absent (only
+its motion primitive exists now), and caret blink is unblocked only as a
+standalone demo, not wired into the real `TextField` widget -
+`doc/animation.md` section 8 is the row-by-row accounting. Row #5 in THIS
+section (no repaint-boundary promotion during animation) is a separate,
+STILL-open contradiction even with the clock built: `doc/animation.md`
+section 7 measured, rather than assumed, that this slice's animated writes
+go through the same `dg::set_prop()` path an ordinary write already did, with
+no automatic promotion to a repaint boundary and no demotion afterward -
+§5.11.2's own promotion/demotion clause remains unimplemented, now with a
+running clock behind it rather than without one. Neither original finding is
+edited; both are still accurate as written.
+
 ## 7. Verdict
 
 **"基础 GUI 组件完备" (basic GUI components are complete) is TRUE, under a
@@ -399,6 +419,16 @@ literal, unqualified P3 row design.md's roadmap table describes. The two
 gaps that keep it from being unqualified (`Image`, `List` virtualization) are
 both explicitly named as the first tasks for whichever phase follows this one,
 rather than being silently absorbed into "basically done."
+
+**Update (slice 6-1, phase 6), cross-reference:** this verdict's scope
+boundary was scoped to P3 (widgets); the animation clock is P4.5, a separate
+row on design.md's own roadmap, and was out of scope for the phase this
+verdict describes - it is not retroactively added to the "true without
+qualification" list above, which is left exactly as this audit wrote it.
+`doc/animation.md` records phase 6's own opening slice, including the honest
+finding that §5.11.2's animation-triggered repaint-boundary promotion (named
+absent in section 6, row 5, above) is still absent with a working clock
+behind it as it was without one.
 
 ## 8. Verification run for this slice
 

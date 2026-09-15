@@ -284,6 +284,44 @@ records the decision in full, including a defect-injection campaign that
 found one genuinely inert guard and root-caused why, rather than merely
 noting it survived.
 
+Phase 6 opens with the piece design.md's own roadmap named as the shared
+blocker for five separate features: an **animation clock**. `dg::AnimationEngine`
+owns it, C++-side, exactly as design.md section 5.16.1 requires - a host
+declares a `from`, a `to`, a duration and a curve, and interpolation never
+leaves C++. The clock's own seam is a value, not a `virtual` interface:
+`AnimTime` is a plain integer-millisecond struct passed into `tick()` as an
+ordinary argument, the same technique every prior seam in this project used
+for a varying input (`WindowManager::warp_pointer`'s `x, y`,
+`RenderTree::set_scroll_offset`'s offset) rather than a new one invented for
+testability - so every assertion in `tests/unit/test_animation.cpp` advances
+time by an exact, hand-chosen amount and never sleeps. Two APIs, both
+over the property table this project already had: `animate()` returns a
+handle that can be paused, reversed or cancelled, and `set_transition()` +
+`set_value()` give any subsequent write to a declared property the CSS
+transition model - including the subtle case where a property changes again
+before its first transition finished, which retargets from the CURRENT
+interpolated value rather than restarting from the original (a defect
+injection confirmed this is load-bearing, not merely asserted). A handle's
+lifetime problem is new, not 5-3's list-pool answer reapplied: an animation's
+count is unbounded over a session the way a render node's is not, so a
+finished slot's storage IS reused, and a generation counter (the mechanism
+`doc/widgets.md` already named as what a future removal path would need) is
+what keeps a stale handle from ever controlling the wrong animation. The
+on-demand frame loop design.md section 5.15.1 asks for - block indefinitely
+while idle, run a short frame-pacer interval while animating, return to
+blocking once nothing is - is built on `WindowManager::pump()`'s existing
+timeout shape and measured, not assumed: blocking for a genuine two-second
+idle span consumes 0.009% of a CPU core. Two real clients prove the system:
+an implicit `background_color` transition on hover, and a text-cursor blink
+built from four chained explicit animations - unblocking 4-9's caret-blink
+decline and 4-7/5-2's animation-shaped declines at the mechanism level, while
+naming plainly what each still needs (a gesture-arena velocity source for
+fling, in particular, stays out of scope). Zero new node kinds were needed -
+a thirteenth consecutive slice - and `doc/animation.md` records an honest gap
+this slice does NOT close: §5.15.2's three-level invalidation model is not
+implemented as a cost model, so an animated `opacity` write costs exactly
+what a hand-written one already did, not a cheaper recomposite-only path.
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -545,6 +583,26 @@ paint.
 ./build/examples/drawgui_complex_properties --dump-png out.png
 ```
 
+## The animation demo
+
+`examples/17_animation` draws three panels, each a real client of
+`dg::AnimationEngine`: `slide` explicitly animates a chip's `left` back and
+forth, pausable/reversible/cancellable through its returned handle; `hover`
+declares an implicit transition on `background_color` and retargets smoothly
+if the pointer leaves mid-fade; `caret` blinks a text cursor through four
+chained one-shot animations, launched off each other's completion events.
+`--idle-probe-ms N` blocks in the window loop for `N` milliseconds with
+nothing animating and reports the process CPU time actually consumed - the
+measured answer to design.md's "wait_events() blocks, CPU 0%" claim.
+
+```sh
+./build/examples/drawgui_animation                       # resize it; hover the middle panel
+./build/examples/drawgui_animation --reduced-motion       # the slide finishes in one frame; the caret freezes solid
+./build/examples/drawgui_animation --idle-probe-ms 2000   # measure idle CPU over a real block
+./build/examples/drawgui_animation --verify-animation     # headless check
+./build/examples/drawgui_animation --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -617,3 +675,4 @@ Findings and decisions from each slice live beside it:
 | `doc/image.md` | the `Image` node-model decision (a `NodeStyle` field, not a new kind), the mandatory size-before-decode rule and its measured no-relayout property, the synthesized-source solution to the golden-test problem, and what a future async decode would and would not change |
 | `doc/list.md` | the `List` virtualization decision (`kList`, an 8th `WidgetKind`, a fixed recycled pool rather than a new node kind), why node removal was evaluated and not added, the data-source seam that needed no interface, the measured no-relayout property extended to recycling, and the 1000-item measurement against a real pre-virtualization baseline |
 | `doc/complex-properties.md` | the dedicated-setter channel (`dg::set_gradient`/`set_shadow`/`set_image`/`set_transform`), why `image_source` was built first as the prototype rather than last, the damage-atomicity argument that lets `shadow` paint outside a node's declared bounds without breaking partial repaint, and the `transform` decline with its three named blockers |
+| `doc/animation.md` | `dg::AnimationEngine` - the clock's value-based seam and why it needed no `virtual`, why `curve_id` is a plain constant set rather than generator-backed, the generation-counter handle lifetime and why 5-3's "never free" precedent does not transfer, the retarget-mid-transition proof, the measured idle-CPU number, and the honest §5.15.2 three-level-invalidation gap report |
