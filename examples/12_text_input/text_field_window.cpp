@@ -210,6 +210,7 @@ void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& even
       scene.widgets.text_field_delete_forward(tree, fonts, field);
       break;
     case dg::Key::kOther:
+    case dg::Key::kEscape:
       break;
   }
 }
