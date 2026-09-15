@@ -68,6 +68,26 @@ struct WindowSpec {
   Color fill;
 };
 
+// What this platform can do, so a layer above never has to assume.
+//
+// design.md section 5.1 defines PlatformCaps as several fields
+// (multi_window/native_popup/native_menubar/system_tray/window_transparency/
+// file_dialog); this slice's actual consumer is PopupHost, which reads only
+// `native_popup`, so only that one is here - the same "an interface no
+// implementation has ever contradicted is a guess with a build rule" policy
+// window_manager.h's own top comment already states. The other five are
+// unclaimed by any caller and are not speculatively added.
+struct PlatformCaps {
+  // True on this SDL3/Linux desktop backend: doc/platform-notes.md's P1
+  // spike measured SDL_CreatePopupWindow producing a real, bounds-escaping
+  // OS window on both x11 and wayland. A mobile backend would report false
+  // here, which is the whole reason PopupHost takes this as a value rather
+  // than querying it implicitly - see PopupHost's own header for why a
+  // caller can also override it to exercise the overlay branch on a desktop
+  // that does have native popups.
+  bool native_popup = false;
+};
+
 // How the bytes of one pixel are arranged in memory.
 //
 // One enumerator, because one is what has been measured. A window surface on
@@ -167,6 +187,12 @@ enum class Key : std::uint8_t {
   kEnd,
   kBackspace,
   kDelete,
+
+  // PopupHost's own dismissal key (design.md section 5.2's Popup window
+  // kind: "click outside or Escape"). Not a text-field editing intent like
+  // the six above it, but the same "only what has a real consumer" policy
+  // this enum's own comment states applies to it too.
+  kEscape,
 };
 
 enum class KeyAction : std::uint8_t {
@@ -253,6 +279,34 @@ class WindowManager {
   // Opens a window immediately. Windows already open are unaffected, and the
   // new one is filled with spec.fill before this returns.
   [[nodiscard]] Expected<WindowId, WindowError> open(const WindowSpec& spec);
+
+  // What this backend can do, queried rather than assumed. See PlatformCaps.
+  [[nodiscard]] static PlatformCaps platform_caps();
+
+  // Opens a real popup window owned by `parent`, positioned `offset_x`,
+  // `offset_y` from parent's own top-left - SDL_CreatePopupWindow's own
+  // coordinate system, verified by doc/platform-notes.md's P1 spike to place
+  // and size the popup exactly as asked and to let it overhang parent's
+  // bounds on both the x11 and wayland drivers. `parent` must already be
+  // open; an id naming no window, or one that is itself a popup's ancestor
+  // beyond what SDL accepts, fails through the ordinary WindowError path
+  // rather than asserting.
+  //
+  // The window this returns can gain keyboard focus (SDL_WINDOW_POPUP_MENU),
+  // which is what lets Escape reach it - the tooltip variant
+  // (SDL_WINDOW_TOOLTIP, no input at all) is a real, different SDL flag this
+  // slice does not expose, named in doc/popup.md as declined.
+  [[nodiscard]] Expected<WindowId, WindowError> open_popup(WindowId parent, int offset_x,
+                                                           int offset_y, int width, int height);
+
+  // Destroys a popup window immediately, synchronously, unlike
+  // request_close(). A popup has no title bar and no user-driven close
+  // button, so there is no "same route a user takes" to imitate; the
+  // decision to dismiss it is the caller's (PopupHost's), made in response to
+  // a click outside or an Escape key, and it must take effect before the next
+  // frame is drawn rather than round-tripping through pump(). An id naming no
+  // open window is ignored, matching request_close()'s idempotence.
+  void close_popup(WindowId id);
 
   [[nodiscard]] std::size_t open_window_count() const;
 

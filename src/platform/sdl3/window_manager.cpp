@@ -152,6 +152,8 @@ Key to_key(SDL_Keycode keycode) {
       return Key::kBackspace;
     case SDLK_DELETE:
       return Key::kDelete;
+    case SDLK_ESCAPE:
+      return Key::kEscape;
     default:
       return Key::kOther;
   }
@@ -171,6 +173,8 @@ SDL_Keycode from_key(Key key) {
       return SDLK_BACKSPACE;
     case Key::kDelete:
       return SDLK_DELETE;
+    case Key::kEscape:
+      return SDLK_ESCAPE;
     case Key::kOther:
       break;
   }
@@ -380,6 +384,65 @@ Expected<WindowId, WindowError> WindowManager::open(const WindowSpec& spec) {
   impl_->windows.push_back(OwnedWindow{sdl_id, window, spec.fill});
   paint(impl_->windows.back());
   return WindowId{sdl_id};
+}
+
+PlatformCaps WindowManager::platform_caps() {
+  // Measured, not assumed: doc/platform-notes.md's P1 spike ran
+  // SDL_CreatePopupWindow on both the x11 and wayland SDL video drivers and
+  // found a real OS window that escapes its parent's bounds on both. This
+  // backend is compiled only for SDL3/Linux desktop (no #ifdef, per this
+  // file's own top comment), so the answer is a constant here rather than a
+  // runtime probe - the day a backend exists where it varies, THAT backend
+  // measures its own answer.
+  return PlatformCaps{.native_popup = true};
+}
+
+Expected<WindowId, WindowError> WindowManager::open_popup(WindowId parent, int offset_x,
+                                                          int offset_y, int width, int height) {
+  const auto parent_entry = impl_->find(parent.value);
+  if (parent_entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"open_popup: no such parent window"}};
+  }
+
+  // Offsets and size are logical, matching what SDL_CreateWindow already
+  // takes for width/height (see open() above) and what SDL_CreatePopupWindow
+  // documents: "relative to the origin of the parent". Divided by the same
+  // density warp_pointer() already divides by, so a popup anchored at a
+  // physical-pixel rectangle this library computed lands where it was asked
+  // to at any DPI, not only at density 1.
+  const float density = SDL_GetWindowPixelDensity(parent_entry->window);
+  const float scale = density > 0.0F ? density : 1.0F;
+  const auto to_logical = [scale](int value) {
+    return static_cast<int>(static_cast<float>(value) / scale);
+  };
+
+  // SDL_WINDOW_POPUP_MENU (not SDL_WINDOW_TOOLTIP): this slice's popup can
+  // gain keyboard focus, which is the only way an Escape key reaches it -
+  // see this file's own header comment on open_popup() for why the
+  // no-input tooltip variant is a separate, undecided SDL flag.
+  SDL_Window* popup =
+      SDL_CreatePopupWindow(parent_entry->window, to_logical(offset_x), to_logical(offset_y),
+                            to_logical(width), to_logical(height), SDL_WINDOW_POPUP_MENU);
+  if (popup == nullptr) {
+    return Unexpected{WindowError{sdl_failure("SDL_CreatePopupWindow")}};
+  }
+
+  const SDL_WindowID sdl_id = SDL_GetWindowID(popup);
+  if (sdl_id == 0) {
+    SDL_DestroyWindow(popup);
+    return Unexpected{WindowError{sdl_failure("SDL_GetWindowID")}};
+  }
+
+  impl_->windows.push_back(OwnedWindow{sdl_id, popup, Color{}});
+  return WindowId{sdl_id};
+}
+
+void WindowManager::close_popup(WindowId id) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  impl_->close(entry);
 }
 
 std::size_t WindowManager::open_window_count() const {
