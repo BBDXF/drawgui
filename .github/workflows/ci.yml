@@ -304,6 +304,7 @@ jobs:
           if pkg-config --exists sdl3; then
             files="$files
             src/platform/sdl3/window_manager.cpp
+            src/window/popup_host.cpp
             examples/01_sdl3_multi_window/main.cpp
             examples/02_skia_cpu_gallery/main.cpp
             examples/02_skia_cpu_gallery/bench.cpp
@@ -353,7 +354,11 @@ jobs:
             examples/13_image/main.cpp
             examples/13_image/image_check.cpp
             examples/13_image/image_scene.cpp
-            examples/13_image/image_window.cpp"
+            examples/13_image/image_window.cpp
+            examples/14_popup/main.cpp
+            examples/14_popup/popup_check.cpp
+            examples/14_popup/popup_scene.cpp
+            examples/14_popup/popup_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
