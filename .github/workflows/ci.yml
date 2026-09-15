@@ -290,6 +290,7 @@ jobs:
             tests/unit/test_props_parity.cpp
             tests/unit/test_props_boundary.cpp
             tests/unit/test_props_damage.cpp
+            tests/unit/test_complex_props.cpp
             tests/unit/test_image.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
@@ -363,7 +364,11 @@ jobs:
             examples/15_list/main.cpp
             examples/15_list/list_check.cpp
             examples/15_list/list_scene.cpp
-            examples/15_list/list_window.cpp"
+            examples/15_list/list_window.cpp
+            examples/16_complex_properties/main.cpp
+            examples/16_complex_properties/cprops_check.cpp
+            examples/16_complex_properties/cprops_scene.cpp
+            examples/16_complex_properties/cprops_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
