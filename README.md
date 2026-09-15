@@ -196,6 +196,35 @@ priorities: `PopupHost`, which design.md calls "the single most critical
 decision in the whole design" and requires to exist as of MVP, does not exist
 at all.
 
+Phase 5 opened by closing the sharper of that audit's two named gaps:
+`Image` can now be **decoded and painted**, as one more field on the same
+`NodeStyle` every node already carries - `ImageStyle`, sitting beside
+`TextStyle` rather than becoming a new node kind, for the identical reason
+`overflow` and `opacity` are fields rather than kinds. A decoded bitmap comes
+through the real `SkCodec` path (`ImageCatalog`), scaled into its node's box
+by one of four fit modes (`fill`/`contain`/`cover`/`none`), with a plain
+configurable colour standing in for the theme-token placeholder design.md
+asks for. The one rule that made this safe to build at all is a layout
+constraint stated as a hard requirement, not a suggestion: an image node
+must know its own size **before** decoding finishes - through an explicit
+size, an `aspect_ratio`, or a parent constraint that settles both axes -
+because sizing from decoded content would turn every finished image load
+into a visible reflow. The fourth, illegal case (none of the three) is a real
+diagnostic through this project's existing layout-error channel, never a
+silent fallback and never an assert. The property the rule exists to buy was
+measured, not assumed: swapping a node's decoded 64x64 source for a 512x512
+one moves nothing, `LayoutStats` reporting zero nodes visited and zero
+relaid out on that frame. An image golden test had no precedent in this
+project - every prior golden scene is vector fills, borders and text - so
+`examples/13_image` synthesizes its own source in-process from a documented
+pixel formula, encodes it with this project's own PNG writer, and decodes it
+back through the real codec, leaving the existing byte-exact golden suite
+(`f635028e...`, unchanged since 4-6) untouched. `doc/image.md` records the
+decision in full, including why zero new node/RenderObject kinds were needed
+- extending `doc/completeness.md`'s own streak through the one MVP-8 item it
+had found absent - and what a future asynchronous decode would and would not
+have to change about any of this.
+
 There is also no platform abstraction, on purpose. An earlier attempt wrote
 twelve abstract platform headers before any backend existed; they were removed
 because nothing had ever tested whether they described the machine. The rule
@@ -406,6 +435,21 @@ blurs the current one.
 ./build/examples/drawgui_text_input --script                  # real click/type/key through SDL's queue
 ```
 
+## The image demo
+
+`examples/13_image` draws five panels, static: `fill`/`contain`/`cover`/`none`
+each paint the same synthesized 64x64 source (four flat quadrants, generated
+in-process and PNG-encoded/decoded through the real codec path - no checked-in
+image asset) at a box shaped so that fit mode's own arithmetic is visibly
+distinct from the others; the fifth carries no source at all and paints the
+configured placeholder colour instead - never a hole.
+
+```sh
+./build/examples/drawgui_image                     # resize it
+./build/examples/drawgui_image --verify-image      # headless check
+./build/examples/drawgui_image --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -475,3 +519,4 @@ Findings and decisions from each slice live beside it:
 | `doc/text-input.md` | a single-line `TextField`, why ASCII scoping satisfies design.md's grapheme-cluster requirement by construction, the IME hook as real plumbing rather than a placeholder, and the exact condition under which typing would force a relayout |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
 | `doc/completeness.md` | the phase-closing audit against design.md's MVP-8 widget list, the acceptance-criterion re-check, the consolidated decline and contradiction tables, and the qualified completeness verdict |
+| `doc/image.md` | the `Image` node-model decision (a `NodeStyle` field, not a new kind), the mandatory size-before-decode rule and its measured no-relayout property, the synthesized-source solution to the golden-test problem, and what a future async decode would and would not change |

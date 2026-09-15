@@ -251,20 +251,22 @@ written for a different purpose.
 
 ## 4. The gap report
 
-46 properties: **33 implemented**, **10 partially implemented**, **3 not yet**.
+49 properties: **35 implemented**, **10 partially implemented**, **4 not yet**.
 
 A partially implemented property applies correctly for the values listed as
 supported and returns `kUnsupported` - naming the node - for the rest. Nothing
 in either column is silently ignored.
 
-The counts have moved five times since this report was first written: the
+The counts have moved six times since this report was first written: the
 wrapping slice built the pieces section 4.4 called 1 and 5
 (`doc/wrapping.md`), the clipping slice built piece 2 (`doc/clipping.md`), the
 compositing slice built piece 3 (`doc/compositing.md`), the sizing slice built
-piece 4 (`doc/sizing.md`), and the scrolling slice appended a 46th property,
-`scroll_axis` (`doc/scrolling.md`).
+piece 4 (`doc/sizing.md`), the scrolling slice appended a 46th property,
+`scroll_axis` (`doc/scrolling.md`), and slice 5-1 appended three more -
+`image_source` (47), `image_fit` (48), `image_placeholder_color` (49) -
+`doc/image.md`.
 
-### 4.1 Implemented (33)
+### 4.1 Implemented (35)
 
 | id | property | notes |
 | --- | --- | --- |
@@ -301,6 +303,8 @@ piece 4 (`doc/sizing.md`), and the scrolling slice appended a 46th property,
 | 44 | `right` | |
 | 45 | `bottom` | |
 | 46 | `scroll_axis` | `kLeaf` only; hands the node's single child an UNBOUNDED constraint on the named axis instead of the node's own bound - the first unbounded constraint this engine ever constructs. Does not itself clip (`overflow` does that) or move anything (`RenderTree::set_scroll_offset`, runtime state, does) - `doc/scrolling.md` sections 1-2 |
+| 48 | `image_fit` | `NodeStyle::image.fit`; all four values (`fill`/`contain`/`cover`/`none`) - paint only, no relayout. `tile` is declined by name, it is a `background_image` concept design.md's own table assigns elsewhere, not `RenderImage`'s - `doc/image.md` section 6 |
+| 49 | `image_placeholder_color` | `NodeStyle::image.placeholder`; a plain configurable colour standing in for the theme-token system design.md section 5.10.3 asks for and this project does not have - `doc/image.md` section 8 |
 
 Lengths are float at the boundary and round to nearest, ties away from zero,
 because layout is integer device pixels. Non-finite values, magnitudes over
@@ -322,13 +326,14 @@ behaviour, so that test is load-bearing rather than tidy.
 | 39 | `shrink` | whole non-negative weights, under a flex parent, on a child whose base main size is DECLARED - it has a `basis`, or a definite size on the container's main axis | a child whose base is its measured natural size is left at that size and reported by name. Shrinking from a measured base needs a second layout of that subtree, and nesting that makes a pass exponential rather than linear unless the base is measured under an unbounded main axis and cached - which is a slice of its own, costed in `doc/sizing.md` section 1.4. There is also no freeze-and-redistribute loop: a child that floors at its `min_*` stops absorbing and the residual overrun is reported |
 | 41 | `align_self` | `auto`, `start`, `end`, `center`, `stretch` | `baseline`, for the same reason `align=baseline` is unavailable. `stretch` under a wrapping parent degrades exactly as `align=stretch` does |
 
-### 4.3 Not yet implemented (3)
+### 4.3 Not yet implemented (4)
 
 | id | property | what it needs |
 | --- | --- | --- |
 | 17 | `background_gradient` | an `SkShader` in the painter, plus the dedicated `dg_node_set_gradient`-shaped setter design.md section 5.9.5 specifies - it cannot travel in the scalar union |
 | 28 | `shadow` | the LAYER now exists and the same `saveLayer` call takes an image filter. What is still missing: painting OUTSIDE the node's declared bounds, which `subtree_extent` and `visible_bounds` would both have to learn; and making a layer damage-atomic, which a scalar alpha turned out NOT to need - `doc/compositing.md` sections 2 and 6. Also a dedicated setter |
 | 30 | `transform` | the layer exists; non-axis-aligned geometry does not. Every rectangle here is axis-aligned integer pixels, so a rotated node has no damage rectangle to declare and `contains(rect, point)` is not its hit test. A layer under a transform IS damage-atomic, unlike one under a scalar alpha. Also a dedicated setter |
+| 47 | `image_source` | unlike the other three, the PAINT and LAYOUT machinery already exist and are proven (`ImageCatalog`, `carries_image()`, the section 5.10.3 sizing rule, `RenderTree::set_image()`) - only the id-based dedicated setter (`dg_node_set_image`, design.md section 5.9.5) is missing, deferred to slice 5-4 by name - `doc/image.md` section 7 |
 
 ### 4.4 Suggested grouping for the next slice
 
@@ -378,6 +383,15 @@ The three complex-typed properties (`background_gradient`, `shadow`,
 `doc/compositing.md` section 6 lists, per property, which of the pieces
 `shadow` and `transform` need are now in place and which are not.
 
+Slice 5-1 added a **fourth** complex type, `image` (`image_source`, id 47),
+whose paint and layout machinery are already built and proven - unlike the
+other three, this one is not blocked on any remaining engine work, only on
+the dedicated-setter CHANNEL itself. `doc/image.md` section 7 names it as a
+candidate for either role in the setter-shape slice: the fourth client
+(built after gradient/shadow/transform establish the pattern) or the first
+prototype (built first, since it is the only one of the four already fully
+working beneath the setter).
+
 ---
 
 ## 5. What a rejected write does
@@ -387,7 +401,7 @@ Six outcomes, all observable, none silent:
 | status | meaning |
 | --- | --- |
 | `kApplied` | written, and the right invalidation was raised |
-| `kUnknownId` | no property has this id - includes 0 and everything above 45 |
+| `kUnknownId` | no property has this id - includes 0 and everything above the current max id (`kDgPropMaxId`, 49 as of this slice) |
 | `kTypeMismatch` | real id, wrong value type. `length` and `float` are kept distinct |
 | `kValueOutOfRange` | non-finite, too large, negative where meaningless, fractional `grow`, or an enum ordinal past the list |
 | `kNotApplicable` | real property, wrong node - `gap` on a leaf, `grow` under a non-flex parent |

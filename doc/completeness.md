@@ -25,7 +25,8 @@ separately in section 2.
 | `ScrollView` | Yes, as `WidgetKind::kScrollView` (5th kind) | clipping node + unbounded-axis child + runtime scroll offset, three existing mechanisms composed | `widget_set.h:68-73`, `examples/10_scrolling`, `doc/scrolling.md` |
 | `Row`/`Column` | Yes, as **`LayoutKind`**, not a `WidgetKind` | `kRow`/`kColumn` (plus `kWrapRow`/`kWrapColumn`), direction folded into the enumerator | `include/drawgui/layout/box.h:180-195`, every example from `04_layout` onward |
 | `List` | **Qualified partial** | Functionally present as *composition* — a `kColumn`/`kRow` of ordinary children inside a `kScrollView` leaf is exactly what `examples/10_scrolling`'s 24-chip vertical strip is. **Not present** as design.md's own `List` control: line 617 defines virtualization as part of the control's DEFINITION, and no object pool / recycling / visible-range-only node creation exists anywhere in this codebase — every chip in the scrolling demo is a real, permanently-allocated node whether on-screen or not. | `doc/scrolling.md` section 1 ("List virtualization: checked against the phase table, and declined by that check"), `examples/10_scrolling` (24 real nodes, none recycled) |
-| `Image` | **Absent** | Zero image-drawing capability anywhere in the engine. `NodeStyle` (render_tree.h:144-215) has fields for fill, radii, border, overflow, opacity and one text run — no image/bitmap/`SkImage` field, no fit-mode, nothing. `grep -rn "SkImage\|kImage\|ImageStyle" include/ src/` finds exactly one match, in `src/graphics/raster_surface.cpp`, and that is the PNG-encode path for the *offscreen framebuffer itself* (`SkImageInfo::MakeN32Premul`, `SkImage::encodeToData`) — nothing to do with drawing a decoded image as node content. `examples/02_skia_cpu_gallery` does decode and draw an image, but directly against Skia as a demo of what Skia can do; it does not go through `RenderTree`/`NodeStyle` at all, so it is not evidence for the engine. | `include/drawgui/render/render_tree.h:144-215` (full `NodeStyle` field list, no image field), `grep` above, `examples/02_skia_cpu_gallery/*.cpp` (Skia-direct, not engine) |
+| `Image` | **Absent** | Zero image-drawing capability anywhere in the engine. `NodeStyle` (render_tree.h:144-215) has fields for fill, radii, border, overflow, opacity and one text run — no image/bitmap/`SkImage` field, no fit-mode, nothing. `grep -rn "SkImage\|kImage\|ImageStyle" include/ src/` finds exactly one match, in `src/graphics/raster_surface.cpp`, and that is the PNG-encode path for the *offscreen framebuffer itself* (`SkImageInfo::MakeN32Premul`, `SkImage::encodeToData`) — nothing to do with drawing a decoded image as node content. `examples/02_skia_cpu_gallery` does decode and draw an image, but directly against Skia as a demo of what Skia can do; it does not go through `RenderTree`/`NodeStyle` at all, so it is not evidence for the engine. **Closed by slice 5-1** — `ImageStyle` is now a field on `NodeStyle` (the same shape `TextStyle` already occupies, argued against this document's own section 6/7 precedent for why `overflow`/`opacity` are fields rather than node kinds), decoded through the real `SkCodec` path, sized before decode per design.md section 5.10.3's mandatory rule. Zero new node/RenderObject kinds were needed, extending this document's section 2 finding through the one MVP-8 item it had found absent. See `doc/image.md` for the full record; this row is a historical snapshot of what section 1 measured at the time of this audit and is left unchanged below. | `include/drawgui/render/render_tree.h:144-215` (full `NodeStyle` field list, no image field), `grep` above, `examples/02_skia_cpu_gallery/*.cpp` (Skia-direct, not engine) |
+
 
 **Headline finding**: of the MVP-8, six are unambiguously done (`Box`, `Text`,
 `Button`, `TextField`, `ScrollView`, `Row`/`Column`), one is done as mechanism
@@ -301,6 +302,21 @@ What is NOT true without qualification, named exactly:
   PopupHost, IME, HarfBuzz) — not "one function," a small subsystem with its
   own decisions doc worth of argument. **Declined by name, first task named
   for the next phase**, alongside `List` virtualization.
+
+  **Update (slice 5-1, phase 5): closed.** Every sub-problem this paragraph
+  named was resolved — ownership/lifecycle (`ImageCatalog`, an append-only
+  table of `sk_sp<SkImage>` behind a pimpl, the same shape `FontCatalog`
+  already has), fit-mode (`fill`/`contain`/`cover`/`none`; `tile` and
+  nine-patch declined by name, both belonging to `background_image` rather
+  than to `RenderImage`), the field-vs-leaf-vs-`WidgetKind` question (a field,
+  defended against this exact document's section 6/7 precedent for
+  `overflow`/`opacity`), and the golden-test problem (a synthesized,
+  in-process PNG source decoded through the real `SkCodec` path, leaving the
+  existing byte-exact golden suite this section's own table cites — sha256
+  `f635028e6e1e92349d23f0575f1e39e7ca8b05e5974492641ee610fe520df12e` —
+  untouched). `doc/image.md` is the full record; this paragraph is left as
+  the audit originally wrote it, a snapshot of what was true before slice
+  5-1, not rewritten.
 - **`PopupHost` does not exist**, and design.md's own words (§5.2 line 207)
   call this "the single most critical decision in the whole design," to be in
   place "as of MVP." `Dropdown` itself is not one of the MVP-8, so this does
