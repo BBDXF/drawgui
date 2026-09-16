@@ -332,7 +332,76 @@ static int run_verify(void) {
   printf(
       "  (process is still alive after three injected exceptions - the point of this check)\n");
 
-  /* 9. Teardown safety: dg_app_destroy must not crash even though window_a/
+  /* 9. The theme ABI (7-6, design.md section 5.8 decision 6, declined by
+   * name in 6-3): dg_theme_load_memory/dg_theme_set_variant/
+   * dg_theme_override/dg_app_set_theme, and DG_VALUE_TOKEN - the value kind
+   * dg_node_set_prop() gained so binding a $token reuses the SAME door a
+   * literal write already uses, rather than a second, bind-shaped
+   * function. */
+  {
+    static const char kThemeJson[] =
+        "{\"schema_version\":1,\"name\":\"c-client-theme\","
+        "\"base\":{\"radius.sm\":2,\"radius.md\":4,\"space.sm\":2,\"space.md\":4},"
+        "\"variants\":{"
+        "\"light\":{\"color.surface\":\"#FFFFFFFF\",\"color.on-surface\":\"#111111FF\","
+        "\"color.border\":\"#AAAAAAFF\",\"color.primary\":\"#3366CCFF\","
+        "\"color.on-primary\":\"#FFFFFFFF\",\"color.primary-hover\":\"#4A78D6FF\","
+        "\"color.primary-pressed\":\"#2952A3FF\",\"color.focus-ring\":\"#FF8800FF\"},"
+        "\"dark\":{\"color.surface\":\"#1E1E1EFF\",\"color.on-surface\":\"#E8E8E8FF\","
+        "\"color.border\":\"#3A3F45FF\",\"color.primary\":\"#6699FFFF\","
+        "\"color.on-primary\":\"#0D1117FF\",\"color.primary-hover\":\"#7FAAFFFF\","
+        "\"color.primary-pressed\":\"#5580D9FF\",\"color.focus-ring\":\"#FFA733FF\"}"
+        "}}";
+    dg_theme_err err;
+    dg_theme_t* theme = NULL;
+    dg_value token_value;
+
+    memset(&err, 0, sizeof(err));
+    err.size = sizeof(err);
+
+    theme = dg_theme_load_dir(app, "/nonexistent/drawgui/theme/package", &err);
+    check(theme == NULL && err.status == DG_THEME_ERR_IO_ERROR,
+          "dg_theme_load_dir on a missing directory fails with DG_THEME_ERR_IO_ERROR, not a crash");
+
+    theme = dg_theme_load_memory(app, kThemeJson, (uint32_t)strlen(kThemeJson), NULL, &err);
+    check(theme != NULL, "dg_theme_load_memory loads a valid in-memory theme");
+
+    token_value.size = sizeof(token_value);
+    token_value.type = DG_VALUE_TOKEN;
+    token_value.number = 0.0F;
+    token_value.bits = DG_TOKEN_COLOR_PRIMARY;
+    status = dg_node_set_prop(button_a, DG_PROP_BACKGROUND_COLOR, &token_value);
+    check(status == DG_ERR_NO_ACTIVE_THEME,
+          "binding a token before dg_app_set_theme() is DG_ERR_NO_ACTIVE_THEME, not a crash");
+
+    status = dg_app_set_theme(app, theme);
+    check(status == DG_ERR_OK, "dg_app_set_theme makes the loaded theme active");
+
+    status = dg_node_set_prop(button_a, DG_PROP_BACKGROUND_COLOR, &token_value);
+    check(status == DG_ERR_OK,
+          "dg_node_set_prop(DG_VALUE_TOKEN) binds a node's property to a live theme");
+
+    token_value.bits = 60000; /* not a real token_id */
+    status = dg_node_set_prop(button_b, DG_PROP_BACKGROUND_COLOR, &token_value);
+    check(status == DG_ERR_UNKNOWN_ID, "binding an unassigned token_id is DG_ERR_UNKNOWN_ID");
+
+    status = dg_theme_set_variant(theme, "dark");
+    check(status == DG_ERR_OK, "dg_theme_set_variant('dark') succeeds and re-applies live");
+
+    token_value.type = DG_VALUE_FLOAT;
+    token_value.number = 42.0F;
+    token_value.bits = 0;
+    status = dg_theme_override(theme, DG_TOKEN_RADIUS_MD, &token_value);
+    check(status == DG_ERR_OK, "dg_theme_override patches an int token's value");
+
+    token_value.type = DG_VALUE_COLOR;
+    token_value.bits = 0xFF000000U;
+    status = dg_theme_override(theme, DG_TOKEN_RADIUS_MD, &token_value);
+    check(status == DG_ERR_TYPE_MISMATCH,
+          "dg_theme_override with a colour value for an int token is DG_ERR_TYPE_MISMATCH");
+  }
+
+  /* 10. Teardown safety: dg_app_destroy must not crash even though window_a/
    * window_b/button_a/button_b/stray_child handles are all still held by
    * this function, and a handle used AFTER destroy must report
    * DG_ERR_INVALID_HANDLE exactly like an individually removed node does
