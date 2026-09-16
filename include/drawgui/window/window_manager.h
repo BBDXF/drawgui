@@ -220,17 +220,56 @@ struct KeyEvent {
 // generates no SDL_EVENT_TEXT_INPUT at all until start_text_input() has been
 // called on the window, IME or not, so this plumbing is required for plain
 // ASCII typing to work in the first place - it is not a placeholder built
-// "just in case" for a later slice. What IS still absent, and is P7's job
-// per design.md line ~1719: SDL_EVENT_TEXT_EDITING (the in-progress
-// composition preview) is not read at all, so there is no candidate window
-// and no composition string ever reaches a caller. A composed, non-ASCII
-// character an IME commits still arrives here as ordinary committed text -
-// this library does not distinguish "typed" from "IME-committed" - and a
-// TextField widget drops it at the ASCII boundary exactly as it drops any
-// other non-ASCII byte (doc/text-input.md section 1).
+// "just in case" for a later slice. A composed, non-ASCII character an IME
+// commits still arrives here as ordinary committed text - this library does
+// not distinguish "typed" from "IME-committed", and a TextField widget's
+// text_field_insert() (doc/text-input.md, doc/ime.md) is the single place
+// either kind lands, unchanged by which one it was.
+//
+// 7-3 (doc/ime.md) is what now also reads TextEditingEvent below for the
+// PREVIEW half of composition - this struct's own job (the COMMIT half) is
+// untouched by that: a real IME still delivers a TextInputEvent exactly like
+// this at the moment it commits, whether or not any TextEditingEvent ever
+// preceded it.
 struct TextInputEvent {
   WindowId window;
   std::string text;
+};
+
+// The IME's in-progress, NOT YET COMMITTED composition/preedit string -
+// SDL_EVENT_TEXT_EDITING, unread by 4-9 and named there as P7's own job
+// (design.md line ~1719); this is 7-3 reading it. doc/ime.md section 2 is
+// the full investigation; the short version:
+//
+// `text` is UTF-8, exactly like TextInputEvent::text - empty means
+// composition just ended WITHOUT committing anything (SDL's own convention:
+// a real commit is a SEPARATE, later TextInputEvent, never folded into this
+// one).
+//
+// `start`/`length` are SDL's OWN documented unit, quoted verbatim because it
+// is a THIRD offset convention this project had not measured before this
+// slice: "the start cursor is the position, in UTF-8 CHARACTERS, where new
+// typing will be inserted... length is the number of UTF-8 characters that
+// will be replaced by new typing" (SDL3's own SDL_events.h). This is neither
+// of the two units 7-2b already measured for Skia's own editing surface
+// (UTF-8-byte-native, the API this project actually calls; UTF-16, the
+// legacy API it never calls) - "UTF-8 characters" reads as a codepoint
+// count, not a byte offset, which is exactly the trigger 7-2b's own
+// cross-reference said to watch for. `-1` is SDL's documented sentinel for
+// "not set" on either field. doc/ime.md records plainly that this could NOT
+// be verified against a genuine composition sequence on this project's own
+// development machine - every real IME probed here never delivers this
+// event at all (section 2) - so WidgetSet::text_field_composition_update()
+// converts these units to a byte offset by walking codepoints (the only
+// literal reading of SDL's own words available), clamped defensively
+// against exactly the "absurd offset from an untrusted source" case
+// `-DDG_SANITIZE=ON` is meant to catch, but the conversion itself is
+// unverified against a live IME - named, not hidden.
+struct TextEditingEvent {
+  WindowId window;
+  std::string text;
+  int start = -1;
+  int length = -1;
 };
 
 // Everything one pump() turned up, split by what the caller has to do about
@@ -261,6 +300,14 @@ struct PumpResult {
   // window-scoped granularity every event above already has.
   std::vector<KeyEvent> key;
   std::vector<TextInputEvent> text_input;
+
+  // Composition-preview events (7-3, doc/ime.md) - SDL_EVENT_TEXT_EDITING.
+  // Ordinary on every platform this project has measured; on the one it
+  // develops on, doc/ime.md section 2 records that a real IME never
+  // produces one at all (it draws its own composition window instead), so
+  // this vector is empty in every real run so far and is exercised by
+  // WindowManager::post_text_editing()'s synthetic injection instead.
+  std::vector<TextEditingEvent> text_editing;
 };
 
 class WindowManager {
@@ -355,15 +402,24 @@ class WindowManager {
   // on this call regardless of whether an IME is active), so it is real
   // plumbing this slice needs for plain ASCII typing, not a placeholder
   // reserved for a later one. `rect` is the on-screen caret rectangle IMEs
-  // use to position a candidate window; carried through to
-  // SDL_SetTextInputArea even though nothing reads a candidate window yet,
-  // because the call already needs a rectangle argument and passing the
-  // caret's real position costs nothing today and saves a signature change
-  // the day P7 wires up composition. No composition handling of any kind
-  // happens here or anywhere else in this file - see TextInputEvent's own
-  // comment for exactly what is and is not built.
+  // use to position a candidate window - doc/ime.md section 3 confirms,
+  // empirically, on this project's own development machine, that this rect
+  // is exactly what the real IME (fcitx5) reads to place its OWN, real X11
+  // composition window: moving `caret_rect` moves that window one-for-one.
+  // No composition PREVIEW is read here - see TextEditingEvent's own
+  // comment (doc/ime.md) for that half, which 7-3 built as a separate
+  // pump()-reported event rather than folding it into this call.
   void start_text_input(WindowId id, const PixelRect& caret_rect);
   void stop_text_input(WindowId id);
+
+  // SDL_ClearComposition - tells the platform's own IME to abandon whatever
+  // it is composing, without committing it. 7-3's own cancellation path
+  // (Escape mid-composition, doc/ime.md section 6) calls this alongside
+  // WidgetSet::text_field_cancel_composition() so both halves - this
+  // engine's model and the platform's own IME state - agree; calling only
+  // one would leave the other one ahead, showing (or expecting) a
+  // composition the other side has already forgotten.
+  void clear_composition(WindowId id);
 
   // Puts a real key event on the platform's own event queue, same route
   // post_pointer_button() uses - so a scripted run exercises the actual
@@ -374,6 +430,21 @@ class WindowManager {
   // Puts committed text on the platform's own event queue as a real
   // SDL_EVENT_TEXT_INPUT, the same route post_key() uses.
   void post_text_input(WindowId id, const std::string& text);
+
+  // Puts a synthetic SDL_EVENT_TEXT_EDITING on the platform's own event
+  // queue - the SAME precedent post_text_input()/post_pointer_button()
+  // already establish for driving a real event through the real queue and
+  // this manager's own dispatch() deterministically. This is 7-3's answer
+  // to the testing problem doc/ime.md section 5 states plainly: a real IME
+  // on this development machine never produces a genuine
+  // SDL_EVENT_TEXT_EDITING at all (section 2), so this is the only
+  // deterministic way this project has to exercise the composition-preview
+  // code path in a CTest entry - a synthesized event, observed from
+  // pump() exactly like a user-initiated one, but NOT a substitute for
+  // verifying against a live composing IME. `start`/`length` are passed
+  // through verbatim as SDL's own ints - TextEditingEvent's own comment is
+  // where the unit question is recorded.
+  void post_text_editing(WindowId id, const std::string& text, int start, int length);
 
   // The size a frame for this window must be rasterized at, right now.
   //

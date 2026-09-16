@@ -285,11 +285,23 @@ struct WindowManager::Impl {
       case SDL_EVENT_KEY_DOWN:
       case SDL_EVENT_KEY_UP:
       case SDL_EVENT_TEXT_INPUT:
+      case SDL_EVENT_TEXT_EDITING:
         // Split out to keep dispatch()'s own branching within this
         // project's cognitive-complexity budget - clang-tidy's
         // readability-function-cognitive-complexity measured this switch at
         // 31 against a threshold of 25 once these three cases joined it.
         dispatch_keyboard(event, result);
+        break;
+      case SDL_EVENT_TEXT_EDITING_CANDIDATES:
+        // Read and dropped, named rather than silently falling to
+        // `default:` below - doc/ime.md section 4 records why: on this
+        // project's own measured platform, a real IME never sends this
+        // event at all (it draws its own candidate window), and nothing
+        // else in this codebase has ever needed a second, redundant
+        // candidate-list UI to build against - the same "an enumerator/
+        // event nothing consumes is a promise this engine does not keep"
+        // policy PointerAction's own comment already states for a
+        // non-primary mouse button.
         break;
       case SDL_EVENT_WINDOW_EXPOSED:
       case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
@@ -317,6 +329,15 @@ struct WindowManager::Impl {
       const auto entry = find(event.text.windowID);
       if (entry != windows.end() && event.text.text != nullptr) {
         result.text_input.push_back(TextInputEvent{WindowId{entry->sdl_id}, event.text.text});
+      }
+      return;
+    }
+    if (event.type == SDL_EVENT_TEXT_EDITING) {
+      const auto entry = find(event.edit.windowID);
+      if (entry != windows.end()) {
+        const std::string text = event.edit.text != nullptr ? event.edit.text : std::string{};
+        result.text_editing.push_back(TextEditingEvent{WindowId{entry->sdl_id}, text,
+                                                       event.edit.start, event.edit.length});
       }
       return;
     }
@@ -538,6 +559,14 @@ void WindowManager::stop_text_input(WindowId id) {
   SDL_StopTextInput(entry->window);
 }
 
+void WindowManager::clear_composition(WindowId id) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  SDL_ClearComposition(entry->window);
+}
+
 void WindowManager::post_key(WindowId id, bool down, Key key, bool shift) {
   const auto entry = impl_->find(id.value);
   if (entry == impl_->windows.end()) {
@@ -568,6 +597,25 @@ void WindowManager::post_text_input(WindowId id, const std::string& text) {
   event.text.type = SDL_EVENT_TEXT_INPUT;
   event.text.windowID = id.value;
   event.text.text = impl_->posted_text.back().c_str();
+  SDL_PushEvent(&event);
+}
+
+void WindowManager::post_text_editing(WindowId id, const std::string& text, int start,
+                                      int length) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  // Same backing-storage requirement as post_text_input() above, and the
+  // same deque - a real SDL_EVENT_TEXT_EDITING's `text` pointer has the
+  // identical ownership shape as SDL_EVENT_TEXT_INPUT's.
+  impl_->posted_text.push_back(text);
+  SDL_Event event{};
+  event.edit.type = SDL_EVENT_TEXT_EDITING;
+  event.edit.windowID = id.value;
+  event.edit.text = impl_->posted_text.back().c_str();
+  event.edit.start = start;
+  event.edit.length = length;
   SDL_PushEvent(&event);
 }
 
