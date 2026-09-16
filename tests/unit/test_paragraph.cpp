@@ -199,3 +199,36 @@ TEST_CASE(
   CHECK(runs[1].begin == 2);
   CHECK(runs[1].end == 5);
 }
+
+TEST_CASE("paragraph_runs: a valid byte immediately beside an invalid one, both "
+         "resolving to the same (primary) family, does NOT merge into a single "
+         "run marked valid") {
+  // Defect-injection finding: the merge condition once compared only
+  // `family`, not `invalid` too. Because an invalid step's family defaults to
+  // the PRIMARY (the same family "A" already resolves to), "A" followed by a
+  // lone continuation byte merged into ONE run whose `invalid` flag was
+  // whatever the FIRST character set - false - so build_paragraph() handed
+  // the raw invalid byte straight to SkParagraph and hung (see doc/text-
+  // layout.md section 5). This is the direct, function-level regression test
+  // for that boundary; the malformed-UTF-8 Paragraph::build() test above
+  // caught the SAME defect only through the hang it causes two layers up.
+  FontCatalog fonts = make_catalog();
+  dg::Expected<FontId, dg::FontError> latin = fonts.add("DgTest Latin", false);
+  REQUIRE(latin.has_value());
+
+  TextStyle style;
+  style.font = latin.value();
+  style.text = std::string{"A\x80" "B"};
+
+  const std::vector<dg::detail::ParagraphRun> runs = dg::detail::paragraph_runs(fonts, style);
+  REQUIRE(runs.size() == 3);
+  CHECK_FALSE(runs[0].invalid);
+  CHECK(runs[0].begin == 0);
+  CHECK(runs[0].end == 1);
+  CHECK(runs[1].invalid);
+  CHECK(runs[1].begin == 1);
+  CHECK(runs[1].end == 2);
+  CHECK_FALSE(runs[2].invalid);
+  CHECK(runs[2].begin == 2);
+  CHECK(runs[2].end == 3);
+}
