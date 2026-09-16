@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace dg {
@@ -94,6 +95,39 @@ constexpr bool is_continuation(unsigned char byte) {
     return Utf8Step{0, 1, false};
   }
   return Utf8Step{value, length, true};
+}
+
+// Repairs `text` to well-formed UTF-8: every byte range this file's own
+// utf8_decode() already rejects (a lone continuation byte, a truncated
+// multi-byte lead, an overlong encoding, a surrogate codepoint, anything past
+// U+10FFFF) is replaced, one FAILED DECODE STEP at a time, with the
+// well-formed 3-byte encoding of U+FFFD (`\xEF\xBF\xBD`) - never left as raw
+// bytes.
+//
+// This is 7-2's own substitution (src/render/paragraph_build.cpp, doc/
+// text-layout.md section 3: handing SkParagraph::addText() an ill-formed
+// byte range hangs the process rather than crashing it), promoted here so
+// 7-2b's TextField-editing boundary (WidgetSet::text_field_insert(),
+// doc/text-input.md's cross-reference to this slice) calls the SAME
+// function rather than a second hand-rolled copy of the identical loop -
+// design.md section 5.13.3's "no silent U+FFFD rewrite" rule is about an ABI
+// caller with an error channel waiting on a return value; neither of this
+// function's two callers is that boundary, matching each caller's own
+// comment for why a substitution is safe specifically there.
+[[nodiscard]] inline std::string sanitize_utf8(std::string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  std::size_t offset = 0;
+  while (offset < text.size()) {
+    const Utf8Step step = utf8_decode(text, offset);
+    if (step.valid) {
+      out.append(text.substr(offset, step.length));
+    } else {
+      out.append("\xEF\xBF\xBD");
+    }
+    offset += step.length;
+  }
+  return out;
 }
 
 }  // namespace dg

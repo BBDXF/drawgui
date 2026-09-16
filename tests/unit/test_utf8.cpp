@@ -116,3 +116,32 @@ TEST_CASE("a valid sequence after an invalid one is still decoded") {
   CHECK(decoded.valid[1]);
   CHECK(decoded.codepoints[1] == 0x4E2D);
 }
+
+// dg::sanitize_utf8() (7-2b): the ONE substitution policy this codebase has
+// for turning ill-formed bytes into well-formed ones - src/render/
+// paragraph_build.cpp's SkParagraph::addText() boundary and
+// WidgetSet::text_field_insert()'s editing boundary both call this same
+// function rather than each hand-rolling their own loop (doc/text-input.md's
+// cross-reference to doc/text-layout.md section 3).
+TEST_CASE("sanitize_utf8 leaves well-formed text untouched") {
+  CHECK(dg::sanitize_utf8("") == "");
+  CHECK(dg::sanitize_utf8("Ab~") == "Ab~");
+  CHECK(dg::sanitize_utf8("\xE4\xB8\xAD\xE6\x96\x87") == "\xE4\xB8\xAD\xE6\x96\x87");
+}
+
+TEST_CASE("sanitize_utf8 replaces exactly the failed decode steps with U+FFFD") {
+  // "A" + a lone continuation byte + "B": one failed step (length 1) between
+  // two valid ones, so exactly one U+FFFD (3 bytes) is substituted.
+  CHECK(dg::sanitize_utf8(std::string{"A\x80"
+                                      "B"}) ==
+        "A\xEF\xBF\xBD"
+        "B");
+  // A truncated three-byte lead with nothing after it: one failed step, one
+  // U+FFFD, nothing appended for the (absent) continuation bytes.
+  CHECK(dg::sanitize_utf8(std::string{"A\xE0"}) == "A\xEF\xBF\xBD");
+  // An overlong two-byte encoding of NUL, rejected as one failed 1-byte step
+  // each (utf8_decode's own failure length), so TWO bytes produce TWO
+  // U+FFFD, not one - the identical "per failed step, not per maximal
+  // invalid run" policy paragraph_build.cpp's own substitution already had.
+  CHECK(dg::sanitize_utf8(std::string{"\xC0\x80"}) == "\xEF\xBF\xBD\xEF\xBF\xBD");
+}
