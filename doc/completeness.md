@@ -647,3 +647,25 @@ scope mechanism plus `WindowManager::open_dialog()`/`cancellable_close`
 this section's own audit measured through 7-5 (a twentieth consecutive
 slice) extends to a **twenty-first**. `doc/menus.md` section 12 has the
 full record.
+
+## Cross-reference: 7-6 landed — external theme packages, hot reload, the theme ABI (append-only, phase 7's last slice)
+
+The theme system section 5's own audit found empty ("no theme system") was
+closed by 6-2 for the ONE compiled-in builtin theme; 6-2's own closing
+table named external packages, hot reload, resource directories, security
+limits, and the theme ABI as explicitly not built. 7-6
+(`.omo/plans/drawgui-phase7.md`, `doc/theme-packages.md`) closes all five
+in one slice: `dg::ThemePackage` (path-traversal-safe, size/count-bounded
+untrusted-directory loading), `dg::reload_theme_package()` (hot reload,
+settling design.md section 12's own open question that neither a
+whole-tree rebuild nor a new incremental-patch mechanism was needed - 6-2's
+`ThemeBindings::apply()` already was the finest grain), a raster-only
+resource-read primitive (SVG declined by name, matching `doc/image.md`'s
+own precedent on the decode side), and the theme ABI (`dg_theme_load_dir`/
+`load_memory`/`set_variant`/`override`, `dg_app_set_theme`, `dg_theme_t` a
+fifth opaque handle, `DG_VALUE_TOKEN` reusing `dg_node_set_prop()` rather
+than a second bind-shaped function) - 6-3's own declined-by-name theme ABI
+row. Zero new `RenderObject`/node/`WidgetKind` kinds - the streak this
+section's own audit measured through 7-5b (a twenty-first consecutive
+slice) extends to a **twenty-second**, and phase 7 closes here.
+`doc/theme-packages.md` has the full record.

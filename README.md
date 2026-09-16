@@ -659,7 +659,79 @@ twenty-first consecutive slice. `doc/menus.md` section 12 records the full
 decision set; `doc/popup.md` and `doc/focus.md` each carry an append-only
 cross-reference.
 
+Phase 7 closes on its fourth stated priority and 6-2's own named gap:
+external theme packages are now **untrusted input, treated as such
+throughout** rather than a convenience wrapper with security bolted on
+afterward. `dg::ThemePackage` canonicalizes a third-party directory's root
+once and resolves every resource read against it - a `../`, an absolute
+path, and a symlink INSIDE the package pointing OUTSIDE it are all caught
+by the SAME check, because it compares the fully RESOLVED path against the
+resolved root rather than scanning the original string, and a symlink LOOP
+is a clean, immediate error rather than a hang; removing that one guard
+was confirmed, once and reverted, to fail three tests immediately, not
+zero. The resource tree gained bounds a single JSON document cannot have -
+file count and aggregate size, checked by `stat()` alone before any
+content is read - alongside `theme.json`'s own pre-existing depth/size
+limits, now re-verified to hold for a package rather than assumed carried
+over. Hot reload turned out to need no new invalidation mechanism at all:
+6-2's `ThemeBindings::apply()` already re-resolves and re-writes every
+binding, so "reload" is exactly "produce a fresh `dg::Theme` from
+`theme.json`'s current bytes and call the same `apply()` again" -
+settling design.md's own open question (whole-tree rebuild vs incremental
+patch) as neither, and re-confirming, on a theme genuinely reloaded from
+disk, 6-2's own finding that a colour-only change costs zero relayout
+while a bound integer token costs a real one, this time requiring TWO
+scene instances to isolate one claim from the other rather than one.
+File-change detection is a deliberate non-decision: an explicit reload
+call, never a background watcher or a poll interval threading through the
+frame loop, which is what makes the idle-CPU cost of a package that COULD
+hot-reload structurally zero rather than merely small - measured against
+the same dummy-driver floor 7-5b already established for an unrelated
+mechanism. SVG icons are declined by name (a second, larger untrusted
+parser this slice's own scope does not cover, matching `doc/image.md`'s
+own precedent for the decode side); resources are raster bytes reached
+through a path-traversal-safe primitive instead. The theme ABI 6-3
+declined by name for lacking a real caller now has one: `dg_theme_
+load_dir`/`load_memory`/`set_variant`/`override` and `dg_app_set_theme`,
+through 6-3's own generator, with token binding reusing `dg_node_set_prop()`
+unchanged via a new `DG_VALUE_TOKEN` value kind rather than a second,
+bind-shaped exported function - `examples/19_c_client`'s extended pure-C
+oracle is what proves the new surface compiles and runs as C, the same
+bar the original ABI slice set. Zero new `RenderObject`/node/`WidgetKind`
+kinds were needed - a twenty-second consecutive slice, and phase 7's own
+last one. `doc/theme-packages.md` records the full decision set,
+including the fuzz pass (2000 fixed-seed random-byte mutations of a valid
+`theme.json`, clean under `-DDG_SANITIZE=ON`) and everything explicitly
+declined (a new schema token type for images/fonts, a standalone bind-
+shaped ABI function, `IPlatform::watch_files`, Windows/macOS); `doc/
+theme.md`, `doc/abi.md` and `doc/completeness.md` each carry an
+append-only cross-reference, and design.md section 12 records both of
+its own theme-related open questions (`schema_version` migration,
+hot-reload granularity) resolved in place.
 
+**Phase 7 as a whole is now closed.** All four of the owner's stated
+priorities landed in order: multi-line text/CJK/IME (7-1 through 7-3),
+Tab order and the focus tree (7-4), the missing controls (7-5/7-5b), and
+theme completion (7-6, this paragraph). The line-622 acceptance bar (no
+new `RenderObject`/node kind needed to build a control) held across all
+nine of this phase's slices without exception - the streak now spans
+twenty-two consecutive slices since 4-8 first stated it, `WidgetKind`
+grew by exactly one (`kDropdown`, 7-5) across the entire phase, and every
+other control (multi-line text, IME composition, Tab/focus, context menu,
+tooltip, dialog, theme packages) needed zero. What phase 7 leaves for
+whichever phase follows, named rather than silently deferred: the gesture
+arena and the four-level shortcut/intent routing system (§5.16.3/§5.5,
+touched only at the edges by focus's own bubble-up target), `Table`/
+`RenderGrid` (settled as "not needed yet, re-evaluate Taffy the day a
+caller needs auto column-width agreement," 7-5), window-position/size/
+scroll persistence (design.md §12's own remaining open question, still
+unresolved), the JS/Bun/Node FFI framework layer (P6, `abi/drawgui.d.ts`
+is a settled target, not a consumer, for either `prop_id` or the theme
+ABI's now-completed `token_id` table), QuickJS binding stubs, a real
+`RenderTree`/`LayoutTree` node-removal primitive (named as a gap by 6-3,
+still the one thing `dg_node_remove()` cannot do), GPU/Ganesh-GL
+rendering (still CPU raster only), `transform`, and Windows/macOS
+verification of anything built across this entire phase.
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
 deferred. Only Linux is wired into the build, and the window manager is SDL3
@@ -1085,6 +1157,29 @@ skipped).
 ./build/examples/drawgui_menu_tooltip_dialog --dump-png out.png
 ```
 
+## The theme package demo
+
+`examples/24_theme_package` loads `fixtures/mytheme/` - a real, checked-in
+directory containing its own `theme.json` and an `icons/` resource - through
+`dg::ThemePackage`, exactly the way a real, untrusted third-party theme
+package would be loaded, rather than the compiled-in builtin theme
+`examples/18_theme` binds against. Two panels are `$token`-bound; click
+either to switch light/dark. `--verify-theme-package` is where the
+interesting claims are checked: editing the package's own `theme.json` on
+disk and calling this engine's reload takes effect immediately with no
+widget-tree rebuild, a colour-only edit costs zero relayout while an
+int-token (`space.md`) edit relayouts the bound row and visibly moves a
+sibling panel, a legitimate resource read succeeds, and a path-traversal
+attempt against the same live package is rejected.
+
+```sh
+./build/examples/drawgui_theme_package                                # click to switch light/dark
+./build/examples/drawgui_theme_package --package-dir DIR              # load a different external package
+./build/examples/drawgui_theme_package --verify-theme-package         # headless check: hot reload cost split + security
+./build/examples/drawgui_theme_package --idle-probe-ms 2000           # measure idle CPU with the package loaded, nothing reloading
+./build/examples/drawgui_theme_package --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -1109,8 +1204,9 @@ animates one.
 the golden-image comparator, damage, layout, clipping, compositing, hit
 testing, interaction, UTF-8 decoding, font fallback, text-field editing,
 multi-line paragraph layout, focus (Tab order, scopes, modal refusal, the
-ring), dropdown selection/option-list clamping, and the tooltip
-hover-delay timer. It
+ring), dropdown selection/option-list clamping, the tooltip hover-delay
+timer, and external theme package loading (path traversal, symlink
+escapes/loops, resource-tree bounds, and a fixed-seed fuzz pass). It
 can also be run directly for per-case output:
 
 ```sh
@@ -1168,3 +1264,4 @@ Findings and decisions from each slice live beside it:
 | `doc/ime.md` | IME composition (P7 7-3) - what SDL3 3.x actually delivers (`SDL_TextEditingEvent`/`SDL_TextEditingCandidatesEvent`) versus what design.md/4-9 assumed; the empirical finding, on this project's own development machine with a real running IME (fcitx5+rime), that the candidate/composition window is drawn by the platform itself and positioned using the caret rectangle 4-9 already reports (measured causally, twice); why a candidate-list UI is declined by name rather than duplicated; the synthetic-event testing answer (`WindowManager::post_text_editing()`) and the honest, explicit gap between it and a genuine composing IME; the one narrow byte-offset-unit conversion SDL's own "UTF-8 characters" convention forced, and why it did not reopen design.md §5.13.2's general type-index-space question; the re-measured relayout verdict under a preedit that changes length on every keystroke; and a defect-injection campaign that found one injection causes an actual crash rather than merely a wrong answer; section 14 (7-4, append-only) records that a window-level focus change now ends an in-progress composition, satisfying section 11's own named dependency |
 | `doc/focus.md` | Tab order and the focus tree (P7 7-4) - why no third tree was needed (`RenderTree`'s own `children()`/`parent()` already are the tree Tab order and a popup's own focus boundary walk, so the only new state is one optional scope-root `NodeId`); `dg::focus_order()`'s DOM-shaped default and the deliberate `Widget::tab_index` override (HTML's own tabindex semantics); which `WidgetKind`s are focusable and why `kScrollView`/`kList` are declined by name rather than overlooked; why Tab reaching a zero-opacity widget is the CONSISTENT reading of 4-5's own hit-test divergence, not a second one; `enter_scope()`/`exit_scope()` as the smallest mechanism that serves a popup's Tab boundary without being `Dialog`'s modal trap (7-5's own job); why crossing into a popup needed no `NodeId`-plus-`window_id` struct (a native popup gets its own separate `Focus` for its own separate `RenderTree`; an overlay popup shares the host's, scoped); the list-recycling and mid-composition-Tab-away hazards, both handled and tested rather than assumed already safe; the ring's four-strips-outside-the-bounds geometry and why a single rectangle would have silently made a focused widget unclickable; the measured zero-relayout finding; and two real bugs this slice's own build caught (an overlay popup's buttons needing the HOST's `WidgetSet`, and a double-`set()` call that silently skipped every focus-change side effect) |
 | `doc/menus.md` | Dropdown, the 9th `WidgetKind` (P7 7-5) - design.md §12 question 6 settled (`Table` composes from Flex for caller-declared column widths, genuinely needs 2D layout only for auto column-width agreement no working caller needs yet); why `kList` was evaluated and not reused for the option rows (its pool nodes carry no `Widget`, so they cannot be focused or clicked); why keyboard Up/Down is `dg::Focus::focus_next()`/`focus_previous()` unchanged, reused rather than reimplemented; `doc/form-controls.md` §2.4's three named prerequisites confirmed satisfied one at a time; and why Context menu (no button identity anywhere in the pointer plumbing), Tooltip (an unplumbed `SDL_WINDOW_TOOLTIP` flag) and `Dialog` (a genuinely new modal-focus-trap mechanism) were each checked and declined by name with their own real prerequisite, split into follow-up 7-5b; section 12 (7-5b, append-only) records all three landing - a `PointerButton` field on `PointerEvent` (not a new `PointerAction` case), `PopupWindowKind`/`SDL_WINDOW_TOOLTIP` plus a new `HoverTimer` value type, and `dg::Focus::set_guarded()` composed onto 7-4's own scope mechanism plus `WindowManager::open_dialog()`/`cancellable_close` |
+| `doc/theme-packages.md` | External theme packages, hot reload, and the theme ABI (P7 7-6, phase 7's last slice) - `dg::ThemePackage`'s path-traversal defence (resolve-then-compare, not scan-then-join, so a symlink escaping the root is caught the same way a literal `../` is, and a symlink loop is a clean error rather than a hang), the resource-tree's own file-count/aggregate-size bounds, design.md §12's `schema_version`-migration and hot-reload-granularity questions both settled in place, the measured two-scene-instance cost split (colour-only reload costs zero relayout, an int-token reload costs a real one), the explicit-call file-change-detection decision and its near-zero measured idle-CPU cost, the raster-only (not SVG) resource scope decision, and the theme ABI (`dg_theme_load_dir`/`load_memory`/`set_variant`/`override`, `dg_app_set_theme`, `DG_VALUE_TOKEN` reusing `dg_node_set_prop()` rather than a second bind-shaped function) exercised as pure C |

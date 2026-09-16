@@ -568,3 +568,27 @@ the shape design.md section 5.7.7 already anticipated for `prop_id`/
 unchanged, **8**. CTest entries: **26** (+4: `theme.no_drift`,
 `theme.abi_lock`, `theme.consistency`, `theme.verify_demo_scene`).
 Examples: **18** (+1, `examples/18_theme`).
+
+---
+
+## 10. (7-6, append-only) External theme packages, hot reload, and the theme ABI landed
+
+Everything section 9 above named as explicitly NOT built here - external
+theme packages, hot reload, resources/icons inside a theme package, theme-
+package security limits (path traversal, resource bounds), the theme ABI,
+and `schema_version` migration - has now landed in P7 slice 7-6. This
+section is a pointer, not a restatement: `doc/theme-packages.md` carries
+the full record, and this file's own text above is left exactly as 6-2
+wrote it.
+
+The one thing worth stating here, in this file, because it is a direct
+extension of section 5's own finding rather than a new one: 7-6's
+`examples/24_theme_package` re-confirms, on a theme reloaded from DISK
+rather than swapped in-process, that `ThemeBindings::apply()` re-resolves
+and re-writes EVERY recorded binding unconditionally (this section's own
+"a finding worth naming plainly" paragraph above) - which is why 7-6's own
+hot-reload measurement needed TWO separate scene instances (one with no
+bound int property, one with exactly one) to isolate "a colour-only edit
+costs zero relayout" from "an int-token edit costs a real one," rather than
+one scene proving both. `doc/theme-packages.md` section 4 has the full
+argument and the measured numbers.

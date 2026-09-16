@@ -487,3 +487,30 @@ CTest entries (26 before this slice + `abi.no_drift` + `abi.abi_lock` +
 `-Werror` all green; `-DDG_SANITIZE=ON` green (zero leaks, zero UB);
 clang-tidy and clang-format both exit 0 with zero `NOLINT` anywhere in this
 slice's own new code.
+
+## 12. (7-6, append-only) The theme ABI, declined here by name, lands
+
+Section 6's own table names `dg_theme_load_dir`/`load_memory`/
+`set_variant`/`override`, `dg_app_set_theme` as declined - "no C client in
+this slice binds a token through the ABI, so there is nothing this slice's
+own acceptance criterion can use to prove the wrapper is right rather than
+merely plausible." P7 slice 7-6 is that C client: all five functions land
+through this SAME generator (`tools/gen_abi.py`, extended to import
+`tools/gen_theme.py`'s `load_definitions()` alongside `tools/gen_props.py`'s,
+re-emitting `DG_TOKEN_*` constants the identical way `DG_PROP_*` already
+is), a new opaque type (`dg_theme_t`, a fifth handle, same never-freed
+arena shape as the other four), and one new `dg_value` kind
+(`DG_VALUE_TOKEN`) rather than a second, `bind_token()`-shaped exported
+function - `dg_node_set_prop()` is reused unchanged, exactly the way this
+document's own section 3 already describes `dg::set_prop()` being reused
+for every ordinary property write. `doc/theme-packages.md` section 7 has
+the full record, including why `dg_theme_load_memory`'s `len` is
+`uint32_t` rather than design.md's own literal `size_t` sketch (this ABI's
+generator has never had a `size_t` primitive, and this slice matches the
+existing convention rather than introducing one), the `DG_ERR_NO_ACTIVE_
+THEME` addition, and the 36-check pure-C exercise
+(`examples/19_c_client`, extended rather than duplicated) that proves the
+new surface compiles as C the same way the original acceptance criterion
+did. `abi.abi_lock` (this document's own section 1) correctly flagged the
+unrecorded append before `--write` was run - the mechanical proof this
+slice did not silently widen the ABI surface.
