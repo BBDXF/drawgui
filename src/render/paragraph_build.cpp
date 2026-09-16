@@ -1,6 +1,9 @@
 #include "render/paragraph_build.h"
 
+#include <string>
 #include <utility>
+
+#include "drawgui/base/utf8.h"
 
 #include "include/core/SkColor.h"
 #include "include/core/SkFontMgr.h"
@@ -93,21 +96,23 @@ std::unique_ptr<skia::textlayout::Paragraph> build_paragraph(const FontCatalog& 
     run_style.setFontFamilies({SkString(run.family)});
     builder->pushStyle(run_style);
     if (run.invalid) {
-      // One U+FFFD (the well-formed 3-byte UTF-8 encoding \xEF\xBF\xBD) per
-      // invalid byte, never the raw bytes themselves - see ParagraphRun::
-      // invalid's comment for why the raw bytes are not safe to hand
-      // SkParagraph. This is an internal substitution to keep a third-party
-      // shaping library from hanging on ill-formed input, not the ABI-level
+      // dg::sanitize_utf8() (include/drawgui/base/utf8.h) is what does the
+      // substitution now - one U+FFFD (the well-formed 3-byte UTF-8
+      // encoding \xEF\xBF\xBD) per invalid byte, never the raw bytes
+      // themselves, see ParagraphRun::invalid's comment for why the raw
+      // bytes are not safe to hand SkParagraph. 7-2b promoted this from an
+      // inline loop here into that shared function so its OWN new boundary
+      // (WidgetSet::text_field_insert(), doc/text-input.md's cross-
+      // reference) calls the identical policy rather than a second one -
+      // this is an internal substitution to keep a third-party shaping
+      // library from hanging on ill-formed input, not the ABI-level
       // "silently rewritten to U+FFFD" design.md section 5.13.3 forbids:
       // nothing here reports back to a caller, because nothing in this
       // measurement/paint path has an error channel to report through - the
       // plain SkFont path already draws a comparable stand-in (the primary's
       // .notdef box) for the identical input.
-      std::string replacement;
-      replacement.reserve((run.end - run.begin) * 3);
-      for (std::size_t i = run.begin; i < run.end; ++i) {
-        replacement.append("\xEF\xBF\xBD");
-      }
+      const std::string replacement =
+          sanitize_utf8(std::string_view{text.text}.substr(run.begin, run.end - run.begin));
       builder->addText(replacement.data(), replacement.size());
     } else {
       builder->addText(text.text.data() + run.begin, run.end - run.begin);
