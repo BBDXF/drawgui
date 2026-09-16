@@ -210,6 +210,68 @@ TEST_SUITE("focus") {
   }
 
   TEST_CASE(
+      "enter_scope(root, /*modal=*/true) + set_guarded() refuses a target outside the scope "
+      "(7-5b's modal focus trap)") {
+    Scene scene = build_scene();
+    Focus focus;
+    focus.enter_scope(scene.container2, /*modal=*/true);
+    CHECK(focus.scope_is_modal());
+    focus.set(scene.slider_c);
+
+    const dg::FocusChange refused = focus.set_guarded(scene.tree, scene.button_a);
+    CHECK_FALSE(refused.any());
+    CHECK(focus.current() == scene.slider_c);
+
+    // A target INSIDE the scope is unaffected - set_guarded() behaves
+    // exactly like set() there.
+    const dg::FocusChange allowed = focus.set_guarded(scene.tree, scene.textfield_d);
+    CHECK(allowed.focused == scene.textfield_d);
+    CHECK(focus.current() == scene.textfield_d);
+
+    // Blurring to nothing is NOT refused - only a target naming something
+    // OUTSIDE the scope is.
+    const dg::FocusChange blurred = focus.set_guarded(scene.tree, std::nullopt);
+    CHECK(blurred.blurred == scene.textfield_d);
+    CHECK_FALSE(focus.current().has_value());
+  }
+
+  TEST_CASE(
+      "a non-modal scope leaves set_guarded() identical to set() - 7-4's own meaning "
+      "unchanged") {
+    Scene scene = build_scene();
+    Focus focus;
+    focus.enter_scope(scene.container2);  // modal defaults to false
+    CHECK_FALSE(focus.scope_is_modal());
+
+    const dg::FocusChange change = focus.set_guarded(scene.tree, scene.button_a);
+    CHECK(change.focused == scene.button_a);
+    CHECK(focus.current() == scene.button_a);
+  }
+
+  TEST_CASE(
+      "the UNGUARDED set() still moves focus anywhere unconditionally, even under an "
+      "active modal scope - set_guarded() is a genuinely separate entry point") {
+    Scene scene = build_scene();
+    Focus focus;
+    focus.enter_scope(scene.container2, /*modal=*/true);
+    focus.set(scene.slider_c);
+
+    const dg::FocusChange change = focus.set(scene.button_a);
+    CHECK(change.focused == scene.button_a);
+    CHECK(focus.current() == scene.button_a);
+  }
+
+  TEST_CASE("exit_scope() clears the modal flag along with the scope root") {
+    Scene scene = build_scene();
+    Focus focus;
+    focus.enter_scope(scene.container2, /*modal=*/true);
+    focus.exit_scope(scene.tree);
+    CHECK_FALSE(focus.scope_is_modal());
+
+    focus.enter_scope(scene.container2);
+    CHECK_FALSE(focus.scope_is_modal());
+  }
+  TEST_CASE(
       "exit_scope() blurs a focused widget still inside the closing scope - the popup-close "
       "hazard") {
     Scene scene = build_scene();

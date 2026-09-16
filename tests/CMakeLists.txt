@@ -87,6 +87,7 @@ add_executable(drawgui_unit_test
   unit/test_grapheme.cpp
   unit/test_focus.cpp
   unit/test_dropdown.cpp
+  unit/test_tooltip.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
