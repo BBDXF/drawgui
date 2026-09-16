@@ -12,6 +12,7 @@
 // happens to produce.
 
 #include <cstddef>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -89,6 +90,7 @@ FieldScene build_field(int width, int height, const std::string& initial) {
       tree.add_child(RenderTree::root(), PixelRect{0, 0, width, height}, field_style);
 
   const NodeId highlight = tree.add_child(field, PixelRect{0, 0, 0, height}, NodeStyle{});
+  const NodeId underline = tree.add_child(field, PixelRect{0, 0, 0, height}, NodeStyle{});
 
   NodeStyle content_style;
   content_style.text.font = font;
@@ -107,6 +109,7 @@ FieldScene build_field(int width, int height, const std::string& initial) {
   widget.content = content;
   widget.caret = caret;
   widget.selection_highlight = highlight;
+  widget.composition_underline = underline;
   widget.text = initial;
   widget.cursor = static_cast<int>(initial.size());
   widgets.attach(field, widget);
@@ -735,6 +738,233 @@ TEST_CASE("blurring a field with a selection clears it, so refocusing does not r
   const PixelRect highlight =
       scene.tree.local_bounds(scene.widgets.at(scene.field).selection_highlight);
   CHECK(highlight.width == 0);
+}
+
+// ----------------------------------------------------------------------------
+// 7-3: IME composition preview (doc/ime.md) - hand-derived against the same
+// DgTest Latin font/geometry every earlier case in this file already uses
+// (12px/glyph at size 20).
+// ----------------------------------------------------------------------------
+
+TEST_CASE("composition preview inserts inline without touching the committed model") {
+  FieldScene scene = build_field(200, 30, "");
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "ni", 2, 0);
+
+  CHECK(scene.widgets.text_field_is_composing(scene.field));
+  CHECK(scene.widgets.text_field_composition_text(scene.field) == "ni");
+  // The committed model is untouched by a preview - doc/ime.md's own
+  // argument, checked directly rather than only inferred from the display.
+  CHECK(scene.widgets.text_field_text(scene.field) == "");
+  CHECK(scene.widgets.text_field_cursor(scene.field) == 0);
+
+  const std::string displayed =
+      scene.tree.style(scene.widgets.at(scene.field).content).text.text;
+  CHECK(displayed == "ni");
+  // start=2 (SDL's own "UTF-8 characters" unit, 2 ASCII bytes) places the
+  // caret after both glyphs: 2 * 12 = 24px.
+  const PixelRect caret = scene.tree.local_bounds(scene.widgets.at(scene.field).caret);
+  CHECK(caret.x == 24);
+  CHECK(caret.width == 2);
+  // The underline spans the WHOLE preedit, byte [0, 2): 0px to 24px, 24px
+  // wide.
+  const PixelRect underline =
+      scene.tree.local_bounds(scene.widgets.at(scene.field).composition_underline);
+  CHECK(underline.x == 0);
+  CHECK(underline.width == 24);
+}
+
+TEST_CASE("composition's focused-clause range highlights exactly [start, start+length)") {
+  FieldScene scene = build_field(200, 30, "");
+  // start=1, length=1: SDL's own convention for "the middle glyph of the
+  // preedit is the clause currently being edited" - byte [1, 2), "Y".
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "XYZ", 1,
+                                              1);
+
+  const PixelRect highlight =
+      scene.tree.local_bounds(scene.widgets.at(scene.field).selection_highlight);
+  CHECK(highlight.x == 12);
+  CHECK(highlight.width == 12);
+}
+
+TEST_CASE("a length of 0 (or SDL's -1 sentinel) shows no clause highlight, only a caret") {
+  FieldScene scene = build_field(200, 30, "");
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "XYZ", 2,
+                                              0);
+  CHECK(scene.tree.local_bounds(scene.widgets.at(scene.field).selection_highlight).width == 0);
+
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "XYZ", -1,
+                                              -1);
+  CHECK(scene.tree.local_bounds(scene.widgets.at(scene.field).selection_highlight).width == 0);
+}
+
+TEST_CASE("composition commits through text_field_insert() unchanged - no parallel path") {
+  FieldScene scene = build_field(200, 30, "");
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "XYZ", 3,
+                                              0);
+  REQUIRE(scene.widgets.text_field_is_composing(scene.field));
+
+  // SDL delivers a REAL, separate SDL_EVENT_TEXT_INPUT at the moment the
+  // IME commits - modelled here as an ordinary text_field_insert() call,
+  // the exact same one every other insert in this file already uses.
+  CHECK(scene.widgets.text_field_insert(scene.tree, scene.fonts, scene.field, "XYZ"));
+  CHECK_FALSE(scene.widgets.text_field_is_composing(scene.field));
+  CHECK(scene.widgets.text_field_composition_text(scene.field).empty());
+  CHECK(scene.widgets.text_field_text(scene.field) == "XYZ");
+  CHECK(scene.widgets.text_field_cursor(scene.field) == 3);
+}
+
+TEST_CASE("Escape (text_field_cancel_composition) discards the preview, committing nothing") {
+  FieldScene scene = build_field(200, 30, "AB");
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "X", 1, 0);
+  REQUIRE(scene.widgets.text_field_is_composing(scene.field));
+
+  scene.widgets.text_field_cancel_composition(scene.tree, scene.fonts, scene.field);
+  CHECK_FALSE(scene.widgets.text_field_is_composing(scene.field));
+  CHECK(scene.widgets.text_field_composition_text(scene.field).empty());
+  CHECK(scene.widgets.text_field_text(scene.field) == "AB");
+  CHECK(scene.widgets.text_field_cursor(scene.field) == 2);
+  const std::string displayed =
+      scene.tree.style(scene.widgets.at(scene.field).content).text.text;
+  CHECK(displayed == "AB");
+  CHECK(scene.tree.local_bounds(scene.widgets.at(scene.field).composition_underline).width ==
+        0);
+}
+
+TEST_CASE("losing focus mid-composition ends it without committing") {
+  FieldScene scene = build_field(200, 30, "AB");
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "X", 1, 0);
+  REQUIRE(scene.widgets.text_field_is_composing(scene.field));
+
+  scene.widgets.text_field_set_focus(scene.tree, scene.fonts, scene.field, false);
+  CHECK_FALSE(scene.widgets.text_field_is_composing(scene.field));
+  CHECK(scene.widgets.text_field_text(scene.field) == "AB");
+}
+
+TEST_CASE(
+    "a click mid-composition ends it without committing, then still positions the cursor") {
+  FieldScene scene = build_field(200, 30, "AB");
+  move_cursor_to(scene, 0);
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "X", 1, 0);
+  REQUIRE(scene.widgets.text_field_is_composing(scene.field));
+
+  // Click at x=26, past the midpoint of glyph index 2 (24px) - resolves to
+  // the field's own end, offset 2, the same hand-derived midpoint math
+  // every earlier click test in this file already uses.
+  CHECK(scene.widgets.text_field_click(scene.tree, scene.fonts, scene.field, 26, false));
+  CHECK_FALSE(scene.widgets.text_field_is_composing(scene.field));
+  CHECK(scene.widgets.text_field_text(scene.field) == "AB");
+  CHECK(scene.widgets.text_field_cursor(scene.field) == 2);
+}
+
+TEST_CASE("backspace/delete/move are suppressed while composing, not applied underneath it") {
+  FieldScene scene = build_field(200, 30, "AB");
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "X", 1, 0);
+  REQUIRE(scene.widgets.text_field_is_composing(scene.field));
+
+  CHECK_FALSE(scene.widgets.text_field_backspace(scene.tree, scene.fonts, scene.field));
+  CHECK_FALSE(scene.widgets.text_field_delete_forward(scene.tree, scene.fonts, scene.field));
+  CHECK_FALSE(scene.widgets.text_field_move(scene.tree, scene.fonts, scene.field,
+                                            TextFieldMove::kCharLeft, false));
+  CHECK(scene.widgets.text_field_is_composing(scene.field));
+  CHECK(scene.widgets.text_field_text(scene.field) == "AB");
+}
+
+// Composition over an active selection (7-3's own named edge case): the
+// selection is never touched by the PREVIEW - it is exactly what the
+// eventual commit replaces, which is what lets the preview be nothing more
+// than a display-time splice.
+TEST_CASE(
+    "composition over an active selection previews the splice, then replaces it on commit") {
+  FieldScene scene = build_field(200, 30, "ABCDE");
+  move_cursor_to(scene, 1);
+  scene.widgets.text_field_move(scene.tree, scene.fonts, scene.field, TextFieldMove::kCharRight,
+                                true);
+  scene.widgets.text_field_move(scene.tree, scene.fonts, scene.field, TextFieldMove::kCharRight,
+                                true);
+  const TextSelection selected = require_selection(scene.widgets, scene.field);
+  CHECK(selected.start == 1);
+  CHECK(selected.end == 3);  // "BC"
+
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "XY", 2, 0);
+  // The model is untouched while composing - "BC" is still there, not
+  // deleted ahead of a commit that has not happened yet.
+  CHECK(scene.widgets.text_field_text(scene.field) == "ABCDE");
+  const std::string previewed =
+      scene.tree.style(scene.widgets.at(scene.field).content).text.text;
+  CHECK(previewed == "AXYDE");
+
+  CHECK(scene.widgets.text_field_insert(scene.tree, scene.fonts, scene.field, "XY"));
+  CHECK(scene.widgets.text_field_text(scene.field) == "AXYDE");
+  CHECK(scene.widgets.text_field_cursor(scene.field) == 3);
+}
+
+TEST_CASE(
+    "composition preview repairs malformed UTF-8 the same sanitize_utf8() insert() uses") {
+  FieldScene scene = build_field(200, 30, "");
+  // A lone continuation byte - the same hostile shape
+  // "insert repairs malformed UTF-8 to U+FFFD" above already pins.
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field,
+                                              "A\x80"
+                                              "B",
+                                              0, 0);
+  require_well_formed(scene.widgets.text_field_composition_text(scene.field));
+  CHECK(scene.widgets.text_field_composition_text(scene.field) ==
+        "A\xEF\xBF\xBD"
+        "B");
+}
+
+TEST_CASE("composition preview strips ASCII control characters, matching insert()'s policy") {
+  FieldScene scene = build_field(200, 30, "");
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "A\nB", 0,
+                                              0);
+  CHECK(scene.widgets.text_field_composition_text(scene.field) == "AB");
+}
+
+// DG_SANITIZE-relevant: an absurd/hostile start or length must never read or
+// write out of bounds - clamped by the byte-walk itself reaching the end of
+// the string, not by trusting the caller's arithmetic.
+TEST_CASE("an absurd start/length from a hostile or buggy IME clamps to the string's own end") {
+  FieldScene scene = build_field(200, 30, "");
+  const int huge = std::numeric_limits<int>::max();
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "XYZ", huge,
+                                              huge);
+  CHECK(scene.widgets.text_field_is_composing(scene.field));
+  const PixelRect highlight =
+      scene.tree.local_bounds(scene.widgets.at(scene.field).selection_highlight);
+  // Both start and start+length clamp to the same point (the string's own
+  // end, 3 bytes) - an empty range, so no clause highlight is shown.
+  CHECK(highlight.width == 0);
+  const PixelRect caret = scene.tree.local_bounds(scene.widgets.at(scene.field).caret);
+  CHECK(caret.x == 36);  // 3 glyphs * 12px, the whole preedit's own width
+
+  // A negative-but-not-(-1) value is exactly as hostile - clamps to 0, the
+  // same way SDL's own "-1, not set" sentinel already does.
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "XYZ", -7,
+                                              -7);
+  CHECK(scene.tree.local_bounds(scene.widgets.at(scene.field).caret).x == 0);
+}
+
+TEST_CASE("composition previews CJK text inline, byte-correct, without corrupting the model") {
+  FieldScene scene = build_field(400, 30, "AB");
+  move_cursor_to(scene, 1);  // between A and B
+  // "\xE4\xB8\xAD" is U+4E2D ("中"), not covered by DgTest Latin - this
+  // checks byte-level model correctness, not glyph pixel geometry (the same
+  // split the ZWJ-emoji tests above already draw for this font).
+  const std::string cjk = "\xE4\xB8\xAD";
+  scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, cjk, 1, 0);
+  CHECK(scene.widgets.text_field_is_composing(scene.field));
+  CHECK(scene.widgets.text_field_text(scene.field) == "AB");  // untouched
+  const std::string previewed =
+      scene.tree.style(scene.widgets.at(scene.field).content).text.text;
+  CHECK(previewed ==
+        "A\xE4\xB8\xAD"
+        "B");
+  require_well_formed(previewed);
+
+  CHECK(scene.widgets.text_field_insert(scene.tree, scene.fonts, scene.field, cjk));
+  CHECK(scene.widgets.text_field_text(scene.field) ==
+        "A\xE4\xB8\xAD"
+        "B");
 }
 
 // ----------------------------------------------------------------------------
