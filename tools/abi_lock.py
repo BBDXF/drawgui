@@ -48,6 +48,7 @@ from gen_abi import (  # noqa: E402  (needs the sys.path line above)
     load_definitions,
 )
 import gen_props  # noqa: E402
+import gen_theme  # noqa: E402
 
 TOOL_NAME = "tools/abi_lock.py"
 LOCK_NAME = "abi/drawgui_abi.lock"
@@ -265,9 +266,10 @@ def main(argv: list[str]) -> int:
     toml_path = (args.toml if args.toml is not None else root / TOML_RELPATH).resolve()
     lock_path = (args.lock if args.lock is not None else root / LOCK_RELPATH).resolve()
     props_toml_path = root / gen_props.TOML_RELPATH
+    theme_toml_path = root / gen_theme.TOML_RELPATH
 
     try:
-        defs = load_definitions(toml_path, props_toml_path)
+        defs = load_definitions(toml_path, props_toml_path, theme_toml_path)
         locked = load_lock(lock_path, root)
     except GenError as exc:
         print(f"error: {exc}", file=sys.stderr)

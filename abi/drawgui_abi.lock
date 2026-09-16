@@ -16,12 +16,14 @@
 dg_app_t
 dg_window_t
 dg_node_t
+dg_theme_t
 
 [struct]
 dg_value: size:uint32_t,type:uint32_t,number:float,bits:uint32_t
 dg_app_opts: size:uint32_t
 dg_window_opts: size:uint32_t,title:const char*,width:int32_t,height:int32_t,background_argb:uint32_t
 dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t
+dg_theme_err: size:uint32_t,status:uint32_t
 
 [constant_group]
 node_type.BOX=1
@@ -30,6 +32,7 @@ value_type.FLOAT=1
 value_type.LENGTH=2
 value_type.COLOR=3
 value_type.ENUM=4
+value_type.TOKEN=5
 event_kind.WINDOW_CLOSED=1
 event_kind.CLICK=2
 error.OK=0
@@ -44,6 +47,16 @@ error.NOT_APPLICABLE=-8
 error.UNSUPPORTED=-9
 error.ALREADY_ATTACHED=-10
 error.NO_WINDOW=-11
+error.NO_ACTIVE_THEME=-12
+theme_err.PARSE_ERROR=1
+theme_err.MISSING_FIELD=2
+theme_err.UNKNOWN_TOKEN=3
+theme_err.TYPE_MISMATCH=4
+theme_err.UNSUPPORTED_SCHEMA_VERSION=5
+theme_err.IO_ERROR=6
+theme_err.PATH_TRAVERSAL=7
+theme_err.RESOURCE_TOO_LARGE=8
+theme_err.TOO_MANY_RESOURCES=9
 
 [function]
 dg_abi_version: uint32_t()
@@ -59,6 +72,11 @@ dg_wait_events: int32_t(dg_app_t*,int32_t)
 dg_poll_events: int32_t(dg_app_t*,dg_event*,int32_t)
 dg_last_error: const char*()
 dg_dump_layout_tree: const char*(dg_node_t*)
+dg_theme_load_dir: dg_theme_t*(dg_app_t*,const char*,dg_theme_err*)
+dg_theme_load_memory: dg_theme_t*(dg_app_t*,const char*,uint32_t,const char*,dg_theme_err*)
+dg_theme_set_variant: int32_t(dg_theme_t*,const char*)
+dg_theme_override: int32_t(dg_theme_t*,uint16_t,const dg_value*)
+dg_app_set_theme: int32_t(dg_app_t*,dg_theme_t*)
 dg_debug_warp_pointer: int32_t(dg_window_t*,int32_t,int32_t)
 dg_debug_post_pointer_button: int32_t(dg_window_t*,int32_t,int32_t,int32_t)
 dg_debug_trigger_exception: int32_t(int32_t)

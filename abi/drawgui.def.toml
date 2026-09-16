@@ -75,13 +75,17 @@
 #   dg_theme_load_memory /
 #   dg_theme_set_variant /
 #   dg_theme_override /
-#   dg_app_set_theme          - decision 6's theme ABI. dg::load_theme() and
-#                               dg::ThemeBindings are real and working in
-#                               C++ (6-2), but no C client in this slice binds
-#                               a token through the ABI, so there is nothing
-#                               this slice's own acceptance criterion can use
-#                               to prove the wrapper is right rather than
-#                               merely plausible.
+#   dg_app_set_theme          - 7-6 LANDS THIS (see [[opaque_type]] dg_theme_t
+#                               and the [[function]] entries below): a real
+#                               C caller (examples/24_theme_package) now
+#                               loads an external, untrusted theme package
+#                               directory, binds a node's property to a
+#                               token via dg_node_set_prop()'s own new
+#                               DG_VALUE_TOKEN value kind (reusing the
+#                               EXISTING door rather than adding a second
+#                               bind_token()-shaped function), and switches
+#                               variant/reloads live - see
+#                               doc/theme-packages.md.
 #   QuickJS binding stubs     - P6. Described in design.md decision 5 as a
 #                               fourth generated artifact; there is no QuickJS
 #                               embedding anywhere in this project to bind.
@@ -125,6 +129,10 @@ summary = "One OS window and the layout/render/widget state painted into it."
 [[opaque_type]]
 name = "dg_node_t"
 summary = "One layout/render node - pending (not yet in a tree) or live (attached under a window)."
+
+[[opaque_type]]
+name = "dg_theme_t"
+summary = "7-6: one loaded theme (a token->value table plus, optionally, the untrusted package directory it came from), owned by the app that loaded it."
 
 # --- Structs -----------------------------------------------------------------
 #
@@ -173,6 +181,14 @@ fields = [
   { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK only: the pointer position, device pixels." },
 ]
 
+[[struct]]
+name = "dg_theme_err"
+summary = "7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed. The human-readable detail (a JSON key path or a byte offset) is dg_last_error(), matching every other failing call in this ABI; this struct carries only the machine-checkable status, so a host can branch on it without string-parsing dg_last_error()'s text."
+fields = [
+  { name = "size", type = "uint32_t", summary = "sizeof(dg_theme_err)." },
+  { name = "status", type = "uint32_t", summary = "DG_THEME_ERR_* - mirrors dg::ThemeLoadStatus." },
+]
+
 # --- Constant groups -----------------------------------------------------------
 #
 # Every group emits plain `#define NAME value` constants, matching this
@@ -204,6 +220,7 @@ values = [
   { name = "LENGTH", id = 2, summary = "PropType::k_length." },
   { name = "COLOR", id = 3, summary = "PropType::k_color." },
   { name = "ENUM", id = 4, summary = "PropType::k_enum." },
+  { name = "TOKEN", id = 5, summary = "7-6: bits names a token_id (themes/schema.toml). dg_node_set_prop() with this type calls dg::bind_token() instead of a literal write - the ABI's own instance of design.md section 5.7.2's $token live reference, reusing dg_node_set_prop() unchanged rather than adding a second, bind-shaped function." },
 ]
 
 [[constant_group]]
@@ -234,6 +251,24 @@ values = [
   { name = "UNSUPPORTED", id = -9, summary = "dg::PropStatus::kUnsupported, or an ABI operation this slice never implemented (a non-null dg_node_insert_before ref)." },
   { name = "ALREADY_ATTACHED", id = -10, summary = "dg_node_insert_before()/dg_window_set_root() on a node that is already live in a tree." },
   { name = "NO_WINDOW", id = -11, summary = "An operation needs a node to be live under a window, and it is still pending." },
+  { name = "NO_ACTIVE_THEME", id = -12, summary = "7-6: dg_node_set_prop() with a DG_VALUE_TOKEN value, but dg_app_set_theme() was never called for this node's app - there is no theme to resolve the token against yet." },
+]
+
+[[constant_group]]
+name = "theme_err"
+prefix = "DG_THEME_ERR_"
+c_type = "uint32_t"
+summary = "7-6: dg_theme_err::status, mirroring dg::ThemeLoadStatus (include/drawgui/theme/theme_loader.h) one-to-one."
+values = [
+  { name = "PARSE_ERROR", id = 1, summary = "ThemeLoadStatus::kParseError - malformed JSON; dg_last_error() carries the byte offset." },
+  { name = "MISSING_FIELD", id = 2, summary = "ThemeLoadStatus::kMissingField." },
+  { name = "UNKNOWN_TOKEN", id = 3, summary = "ThemeLoadStatus::kUnknownToken - dg_last_error() names the exact JSON key path (design.md section 5.7.5)." },
+  { name = "TYPE_MISMATCH", id = 4, summary = "ThemeLoadStatus::kTypeMismatch." },
+  { name = "UNSUPPORTED_SCHEMA_VERSION", id = 5, summary = "ThemeLoadStatus::kUnsupportedSchemaVersion - design.md section 12 open question 7's settled reject-old policy." },
+  { name = "IO_ERROR", id = 6, summary = "ThemeLoadStatus::kIoError - theme.json or a resource file could not be read (missing, not a regular file, a symlink loop)." },
+  { name = "PATH_TRAVERSAL", id = 7, summary = "ThemeLoadStatus::kPathTraversal - design.md section 5.7.5's restriction; a resolved path escaped the package root." },
+  { name = "RESOURCE_TOO_LARGE", id = 8, summary = "ThemeLoadStatus::kResourceTooLarge - a single file exceeded its size bound." },
+  { name = "TOO_MANY_RESOURCES", id = 9, summary = "ThemeLoadStatus::kTooManyResources - the resource tree exceeded a file-count or aggregate-size bound." },
 ]
 
 # --- Functions ---------------------------------------------------------------
@@ -338,6 +373,41 @@ ret = "const char*"
 impl = "dump_layout_tree"
 params = [{ name = "node", type = "dg_node_t*" }]
 summary = "This node's subtree as JSON (type/bounds/parentData). See doc/abi.md section 7 for exactly what is and is not included."
+
+[[function]]
+name = "dg_theme_load_dir"
+ret = "dg_theme_t*"
+impl = "theme_load_dir"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "dir", type = "const char*" }, { name = "err", type = "dg_theme_err*" }]
+summary = "7-6: loads an EXTERNAL, untrusted theme package directory (design.md section 5.7.4/5.7.5 via dg::ThemePackage) - path traversal/size/resource-count bounds all apply. `err` may be null; on failure it (if non-null) and dg_last_error() both describe why."
+
+[[function]]
+name = "dg_theme_load_memory"
+ret = "dg_theme_t*"
+impl = "theme_load_memory"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "json", type = "const char*" }, { name = "len", type = "uint32_t" }, { name = "base_dir", type = "const char*" }, { name = "err", type = "dg_theme_err*" }]
+summary = "7-6: loads a theme from an in-memory JSON blob the host already has. `base_dir`, if non-null, is opened as a dg::ThemePackage resource root (the same path-traversal surface dg_theme_load_dir() has) so resource reads still resolve safely; null means no resource access for this theme."
+
+[[function]]
+name = "dg_theme_set_variant"
+ret = "int32_t"
+impl = "theme_set_variant"
+params = [{ name = "theme", type = "dg_theme_t*" }, { name = "variant", type = "const char*" }]
+summary = "7-6: \"light\" or \"dark\" (design.md section 5.7.2). If this theme is its app's currently active one, every window's bound nodes re-resolve immediately - no widget tree rebuild (design.md section 5.7.6)."
+
+[[function]]
+name = "dg_theme_override"
+ret = "int32_t"
+impl = "theme_override"
+params = [{ name = "theme", type = "dg_theme_t*" }, { name = "token_id", type = "uint16_t" }, { name = "value", type = "const dg_value*" }]
+summary = "7-6: patches one token's value in-place (the token's own scalar type is always DG_VALUE_COLOR or DG_VALUE_FLOAT/DG_VALUE_LENGTH - never a dedicated-setter shape, since every theme token is scalar by design.md section 5.7.2's own two-way dichotomy). A color token is overridden under the theme's CURRENTLY ACTIVE variant. Live-updates bound nodes exactly like dg_theme_set_variant()."
+
+[[function]]
+name = "dg_app_set_theme"
+ret = "int32_t"
+impl = "app_set_theme"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "theme", type = "dg_theme_t*" }]
+summary = "7-6: makes `theme` this app's active theme and immediately re-applies every window's ThemeBindings against it - this IS hot reload's second half: reload with dg_theme_load_dir()/load_memory() again, then call this again with the fresh handle (design.md section 5.7.6, settled in doc/theme-packages.md)."
 
 [[function]]
 name = "dg_debug_warp_pointer"

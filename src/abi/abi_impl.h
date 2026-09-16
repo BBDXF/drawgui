@@ -44,6 +44,13 @@ std::int32_t poll_events(dg_app_t* app, dg_event* out, std::int32_t max);
 const char* last_error();
 const char* dump_layout_tree(dg_node_t* node);
 
+dg_theme_t* theme_load_dir(dg_app_t* app, const char* dir, dg_theme_err* err);
+dg_theme_t* theme_load_memory(dg_app_t* app, const char* json, std::uint32_t len,
+                              const char* base_dir, dg_theme_err* err);
+std::int32_t theme_set_variant(dg_theme_t* theme, const char* variant);
+std::int32_t theme_override(dg_theme_t* theme, std::uint16_t token_id, const dg_value* value);
+std::int32_t app_set_theme(dg_app_t* app, dg_theme_t* theme);
+
 std::int32_t debug_warp_pointer(dg_window_t* window, std::int32_t x, std::int32_t y);
 std::int32_t debug_post_pointer_button(dg_window_t* window, std::int32_t down, std::int32_t x,
                                        std::int32_t y);

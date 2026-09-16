@@ -19,6 +19,10 @@ export type dg_window_t = unknown;
 // a window).
 export type dg_node_t = unknown;
 
+// 7-6: one loaded theme (a token->value table plus, optionally, the untrusted
+// package directory it came from), owned by the app that loaded it.
+export type dg_theme_t = unknown;
+
 // One property value, tagged - the ABI's dg::PropValue (node_props.h).
 export interface dg_value {
   size: number;
@@ -53,6 +57,16 @@ export interface dg_event {
   y: number;
 }
 
+// 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed.
+// The human-readable detail (a JSON key path or a byte offset) is
+// dg_last_error(), matching every other failing call in this ABI; this struct
+// carries only the machine-checkable status, so a host can branch on it without
+// string-parsing dg_last_error()'s text.
+export interface dg_theme_err {
+  size: number;
+  status: number;
+}
+
 // dg_node_create()'s type_id - the minimum vocabulary the acceptance criterion
 // needs.
 export const node_type = {
@@ -66,6 +80,7 @@ export const value_type = {
   LENGTH: 2,
   COLOR: 3,
   ENUM: 4,
+  TOKEN: 5,
 } as const;
 
 // dg_event::kind.
@@ -88,6 +103,21 @@ export const error = {
   UNSUPPORTED: -9,
   ALREADY_ATTACHED: -10,
   NO_WINDOW: -11,
+  NO_ACTIVE_THEME: -12,
+} as const;
+
+// 7-6: dg_theme_err::status, mirroring dg::ThemeLoadStatus
+// (include/drawgui/theme/theme_loader.h) one-to-one.
+export const theme_err = {
+  PARSE_ERROR: 1,
+  MISSING_FIELD: 2,
+  UNKNOWN_TOKEN: 3,
+  TYPE_MISMATCH: 4,
+  UNSUPPORTED_SCHEMA_VERSION: 5,
+  IO_ERROR: 6,
+  PATH_TRAVERSAL: 7,
+  RESOURCE_TOO_LARGE: 8,
+  TOO_MANY_RESOURCES: 9,
 } as const;
 
 // Property ids - props/drawgui.props.toml, re-emitted (see gen_abi.py).
@@ -143,6 +173,22 @@ export const prop = {
   image_placeholder_color: 49,
 } as const;
 
+// Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
+export const token = {
+  'color.surface': 1,
+  'color.on-surface': 2,
+  'color.border': 3,
+  'color.primary': 4,
+  'color.on-primary': 5,
+  'color.primary-hover': 6,
+  'color.primary-pressed': 7,
+  'radius.sm': 8,
+  'radius.md': 9,
+  'space.sm': 10,
+  'space.md': 11,
+  'color.focus-ring': 12,
+} as const;
+
 export declare namespace DrawguiAbi {
   // MAJOR<<16 | MINOR - design.md section 5.8's own dg_abi_version() line.
   function dg_abi_version(): number;
@@ -180,6 +226,32 @@ export declare namespace DrawguiAbi {
   // This node's subtree as JSON (type/bounds/parentData). See doc/abi.md section
   // 7 for exactly what is and is not included.
   function dg_dump_layout_tree(node: dg_node_t | null): string | null;
+  // 7-6: loads an EXTERNAL, untrusted theme package directory (design.md section
+  // 5.7.4/5.7.5 via dg::ThemePackage) - path traversal/size/resource-count bounds
+  // all apply. `err` may be null; on failure it (if non-null) and dg_last_error()
+  // both describe why.
+  function dg_theme_load_dir(app: dg_app_t | null, dir: string | null, err: dg_theme_err): dg_theme_t | null;
+  // 7-6: loads a theme from an in-memory JSON blob the host already has.
+  // `base_dir`, if non-null, is opened as a dg::ThemePackage resource root (the
+  // same path-traversal surface dg_theme_load_dir() has) so resource reads still
+  // resolve safely; null means no resource access for this theme.
+  function dg_theme_load_memory(app: dg_app_t | null, json: string | null, len: number, base_dir: string | null, err: dg_theme_err): dg_theme_t | null;
+  // 7-6: "light" or "dark" (design.md section 5.7.2). If this theme is its app's
+  // currently active one, every window's bound nodes re-resolve immediately - no
+  // widget tree rebuild (design.md section 5.7.6).
+  function dg_theme_set_variant(theme: dg_theme_t | null, variant: string | null): number;
+  // 7-6: patches one token's value in-place (the token's own scalar type is
+  // always DG_VALUE_COLOR or DG_VALUE_FLOAT/DG_VALUE_LENGTH - never a
+  // dedicated-setter shape, since every theme token is scalar by design.md
+  // section 5.7.2's own two-way dichotomy). A color token is overridden under the
+  // theme's CURRENTLY ACTIVE variant. Live-updates bound nodes exactly like
+  // dg_theme_set_variant().
+  function dg_theme_override(theme: dg_theme_t | null, token_id: number, value: dg_value): number;
+  // 7-6: makes `theme` this app's active theme and immediately re-applies every
+  // window's ThemeBindings against it - this IS hot reload's second half: reload
+  // with dg_theme_load_dir()/load_memory() again, then call this again with the
+  // fresh handle (design.md section 5.7.6, settled in doc/theme-packages.md).
+  function dg_app_set_theme(app: dg_app_t | null, theme: dg_theme_t | null): number;
   // TEST-ONLY. WindowManager::warp_pointer() at the ABI boundary - see the file
   // header.
   function dg_debug_warp_pointer(window: dg_window_t | null, x: number, y: number): number;

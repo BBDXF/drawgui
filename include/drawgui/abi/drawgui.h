@@ -53,6 +53,10 @@ typedef struct dg_window_s dg_window_t;
 /* a window). */
 typedef struct dg_node_s dg_node_t;
 
+/* 7-6: one loaded theme (a token->value table plus, optionally, the untrusted */
+/* package directory it came from), owned by the app that loaded it. */
+typedef struct dg_theme_s dg_theme_t;
+
 /* -- Structs --------------------------------------------------------------- */
 
 /* One property value, tagged - the ABI's dg::PropValue (node_props.h). */
@@ -105,6 +109,18 @@ typedef struct dg_event {
   int32_t y;
 } dg_event;
 
+/* 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed. */
+/* The human-readable detail (a JSON key path or a byte offset) is */
+/* dg_last_error(), matching every other failing call in this ABI; this struct */
+/* carries only the machine-checkable status, so a host can branch on it without */
+/* string-parsing dg_last_error()'s text. */
+typedef struct dg_theme_err {
+  /* sizeof(dg_theme_err). */
+  uint32_t size;
+  /* DG_THEME_ERR_* - mirrors dg::ThemeLoadStatus. */
+  uint32_t status;
+} dg_theme_err;
+
 /* -- Constants ------------------------------------------------------------- */
 
 /* dg_node_create()'s type_id - the minimum vocabulary the acceptance criterion */
@@ -123,6 +139,12 @@ typedef struct dg_event {
 #define DG_VALUE_COLOR 3u
 /* PropType::k_enum. */
 #define DG_VALUE_ENUM 4u
+/* 7-6: bits names a token_id (themes/schema.toml). dg_node_set_prop() with this */
+/* type calls dg::bind_token() instead of a literal write - the ABI's own */
+/* instance of design.md section 5.7.2's $token live reference, reusing */
+/* dg_node_set_prop() unchanged rather than adding a second, bind-shaped */
+/* function. */
+#define DG_VALUE_TOKEN 5u
 
 /* dg_event::kind. */
 /* The window closed (user or dg_debug_ script); the dg_window_t handle is now */
@@ -166,6 +188,37 @@ typedef struct dg_event {
 #define DG_ERR_ALREADY_ATTACHED (-10)
 /* An operation needs a node to be live under a window, and it is still pending. */
 #define DG_ERR_NO_WINDOW (-11)
+/* 7-6: dg_node_set_prop() with a DG_VALUE_TOKEN value, but dg_app_set_theme() */
+/* was never called for this node's app - there is no theme to resolve the token */
+/* against yet. */
+#define DG_ERR_NO_ACTIVE_THEME (-12)
+
+/* 7-6: dg_theme_err::status, mirroring dg::ThemeLoadStatus */
+/* (include/drawgui/theme/theme_loader.h) one-to-one. */
+/* ThemeLoadStatus::kParseError - malformed JSON; dg_last_error() carries the */
+/* byte offset. */
+#define DG_THEME_ERR_PARSE_ERROR 1u
+/* ThemeLoadStatus::kMissingField. */
+#define DG_THEME_ERR_MISSING_FIELD 2u
+/* ThemeLoadStatus::kUnknownToken - dg_last_error() names the exact JSON key */
+/* path (design.md section 5.7.5). */
+#define DG_THEME_ERR_UNKNOWN_TOKEN 3u
+/* ThemeLoadStatus::kTypeMismatch. */
+#define DG_THEME_ERR_TYPE_MISMATCH 4u
+/* ThemeLoadStatus::kUnsupportedSchemaVersion - design.md section 12 open */
+/* question 7's settled reject-old policy. */
+#define DG_THEME_ERR_UNSUPPORTED_SCHEMA_VERSION 5u
+/* ThemeLoadStatus::kIoError - theme.json or a resource file could not be read */
+/* (missing, not a regular file, a symlink loop). */
+#define DG_THEME_ERR_IO_ERROR 6u
+/* ThemeLoadStatus::kPathTraversal - design.md section 5.7.5's restriction; a */
+/* resolved path escaped the package root. */
+#define DG_THEME_ERR_PATH_TRAVERSAL 7u
+/* ThemeLoadStatus::kResourceTooLarge - a single file exceeded its size bound. */
+#define DG_THEME_ERR_RESOURCE_TOO_LARGE 8u
+/* ThemeLoadStatus::kTooManyResources - the resource tree exceeded a file-count */
+/* or aggregate-size bound. */
+#define DG_THEME_ERR_TOO_MANY_RESOURCES 9u
 
 /* -- Property ids (props/drawgui.props.toml) ------------------------------ */
 
@@ -294,6 +347,48 @@ typedef uint16_t dg_prop_id;
 
 #endif /* !__cplusplus */
 
+/* -- Theme token ids (themes/schema.toml) ------------------------ */
+
+/* 7-6: re-emitted here in C-compatible #define form from the SAME
+ * validated themes/schema.toml tools/gen_theme.py already generates
+ * include/drawgui/theme/token_ids.generated.h from - design.md section 5.7.7's
+ * own "主题 token_id 与 prop_id 同源同构" decision, applied at 7-6 the same
+ * way decision 5 already applies to prop_id above. Same #ifndef __cplusplus
+ * guard, same reason: token_ids.generated.h ALSO declares DG_TOKEN_* as an
+ * `inline constexpr dg_token_id`, not a macro. */
+
+#ifndef __cplusplus
+
+typedef uint16_t dg_token_id;
+#define DG_TOKEN_INVALID 0
+
+/* The default background a panel/window paints - NodeStyle::fill's usual source. */
+#define DG_TOKEN_COLOR_SURFACE 1
+/* Text/icon colour painted on top of color.surface. */
+#define DG_TOKEN_COLOR_ON_SURFACE 2
+/* The default border colour for a framed panel. */
+#define DG_TOKEN_COLOR_BORDER 3
+/* The accent colour for a primary action (a button's fill, say). */
+#define DG_TOKEN_COLOR_PRIMARY 4
+/* Text/icon colour painted on top of color.primary. */
+#define DG_TOKEN_COLOR_ON_PRIMARY 5
+/* color.primary's hovered state - a distinct token per section 5.11.4, not an alpha expression. */
+#define DG_TOKEN_COLOR_PRIMARY_HOVER 6
+/* color.primary's pressed state - a distinct token per section 5.11.4, not an alpha expression. */
+#define DG_TOKEN_COLOR_PRIMARY_PRESSED 7
+/* A small corner radius - chips, small controls. */
+#define DG_TOKEN_RADIUS_SM 8
+/* The default corner radius for a panel or a button. */
+#define DG_TOKEN_RADIUS_MD 9
+/* A small spacing unit - tight gaps, small padding. */
+#define DG_TOKEN_SPACE_SM 10
+/* The default spacing unit - ordinary gaps and padding. */
+#define DG_TOKEN_SPACE_MD 11
+/* The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (doc/focus.md section 5: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are). */
+#define DG_TOKEN_COLOR_FOCUS_RING 12
+
+#endif /* !__cplusplus */
+
 /* -- Functions ------------------------------------------------------------- */
 
 /* MAJOR<<16 | MINOR - design.md section 5.8's own dg_abi_version() line. */
@@ -344,6 +439,39 @@ DG_EXPORT const char* dg_last_error(void);
 /* This node's subtree as JSON (type/bounds/parentData). See doc/abi.md section */
 /* 7 for exactly what is and is not included. */
 DG_EXPORT const char* dg_dump_layout_tree(dg_node_t* node);
+
+/* 7-6: loads an EXTERNAL, untrusted theme package directory (design.md section */
+/* 5.7.4/5.7.5 via dg::ThemePackage) - path traversal/size/resource-count bounds */
+/* all apply. `err` may be null; on failure it (if non-null) and dg_last_error() */
+/* both describe why. */
+DG_EXPORT dg_theme_t* dg_theme_load_dir(dg_app_t* app, const char* dir, dg_theme_err* err);
+
+/* 7-6: loads a theme from an in-memory JSON blob the host already has. */
+/* `base_dir`, if non-null, is opened as a dg::ThemePackage resource root (the */
+/* same path-traversal surface dg_theme_load_dir() has) so resource reads still */
+/* resolve safely; null means no resource access for this theme. */
+DG_EXPORT dg_theme_t* dg_theme_load_memory(dg_app_t* app, const char* json, uint32_t len,
+                                           const char* base_dir, dg_theme_err* err);
+
+/* 7-6: "light" or "dark" (design.md section 5.7.2). If this theme is its app's */
+/* currently active one, every window's bound nodes re-resolve immediately - no */
+/* widget tree rebuild (design.md section 5.7.6). */
+DG_EXPORT int32_t dg_theme_set_variant(dg_theme_t* theme, const char* variant);
+
+/* 7-6: patches one token's value in-place (the token's own scalar type is */
+/* always DG_VALUE_COLOR or DG_VALUE_FLOAT/DG_VALUE_LENGTH - never a */
+/* dedicated-setter shape, since every theme token is scalar by design.md */
+/* section 5.7.2's own two-way dichotomy). A color token is overridden under the */
+/* theme's CURRENTLY ACTIVE variant. Live-updates bound nodes exactly like */
+/* dg_theme_set_variant(). */
+DG_EXPORT int32_t dg_theme_override(dg_theme_t* theme, uint16_t token_id,
+                                    const dg_value* value);
+
+/* 7-6: makes `theme` this app's active theme and immediately re-applies every */
+/* window's ThemeBindings against it - this IS hot reload's second half: reload */
+/* with dg_theme_load_dir()/load_memory() again, then call this again with the */
+/* fresh handle (design.md section 5.7.6, settled in doc/theme-packages.md). */
+DG_EXPORT int32_t dg_app_set_theme(dg_app_t* app, dg_theme_t* theme);
 
 /* TEST-ONLY. WindowManager::warp_pointer() at the ABI boundary - see the file */
 /* header. */

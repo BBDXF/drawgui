@@ -214,6 +214,85 @@ extern "C" DG_EXPORT const char* dg_dump_layout_tree(dg_node_t* node) {
   }
 }
 
+extern "C" DG_EXPORT dg_theme_t* dg_theme_load_dir(dg_app_t* app, const char* dir,
+                                                   dg_theme_err* err) {
+  try {
+    return dg::abi::theme_load_dir(app, dir, err);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_theme_load_dir: out of memory");
+    return nullptr;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_theme_load_dir: ") + e.what());
+    return nullptr;
+  } catch (...) {
+    dg::abi::set_last_error("dg_theme_load_dir: unknown exception");
+    return nullptr;
+  }
+}
+
+extern "C" DG_EXPORT dg_theme_t* dg_theme_load_memory(dg_app_t* app, const char* json,
+                                                      uint32_t len, const char* base_dir,
+                                                      dg_theme_err* err) {
+  try {
+    return dg::abi::theme_load_memory(app, json, len, base_dir, err);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_theme_load_memory: out of memory");
+    return nullptr;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_theme_load_memory: ") + e.what());
+    return nullptr;
+  } catch (...) {
+    dg::abi::set_last_error("dg_theme_load_memory: unknown exception");
+    return nullptr;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_theme_set_variant(dg_theme_t* theme, const char* variant) {
+  try {
+    return dg::abi::theme_set_variant(theme, variant);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_theme_set_variant: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_theme_set_variant: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_theme_set_variant: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_theme_override(dg_theme_t* theme, uint16_t token_id,
+                                               const dg_value* value) {
+  try {
+    return dg::abi::theme_override(theme, token_id, value);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_theme_override: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_theme_override: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_theme_override: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_app_set_theme(dg_app_t* app, dg_theme_t* theme) {
+  try {
+    return dg::abi::app_set_theme(app, theme);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_app_set_theme: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_app_set_theme: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_app_set_theme: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
 extern "C" DG_EXPORT int32_t dg_debug_warp_pointer(dg_window_t* window, int32_t x, int32_t y) {
   try {
     return dg::abi::debug_warp_pointer(window, x, y);

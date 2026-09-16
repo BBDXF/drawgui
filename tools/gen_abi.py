@@ -16,11 +16,12 @@ decision 5). This script turns it into:
 `prop_id` constants are re-emitted here in C-compatible `#define` form from
 props/drawgui.props.toml's own validated Definitions - imported directly from
 tools/gen_props.py rather than re-parsed, so there is exactly one parser and
-one set of validation rules for that table. Nothing about themes/schema.toml
-is re-emitted here: this slice declines the theme ABI entirely (see
-abi/drawgui.def.toml's own header comment and doc/abi.md section 6), so a
-token_id constant with no ABI consumer would be exactly the kind of
-speculative surface design.md section 5.8's "只导出必要面" forbids.
+one set of validation rules for that table. `token_id` constants (7-6) are
+re-emitted from themes/schema.toml the same way, once the theme ABI
+(dg_theme_load_dir/load_memory/set_variant/override, dg_app_set_theme) gave
+them a real consumer - design.md section 5.8's "只导出必要面" is why this
+generator declined to emit them any earlier (see doc/abi.md section 6 and
+doc/theme-packages.md for the 6-3-to-7-6 history).
 
 Usage:
   python3 tools/gen_abi.py            regenerate all three outputs
@@ -51,6 +52,7 @@ CONST_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gen_props  # noqa: E402  (needs the sys.path line above)
+import gen_theme  # noqa: E402  (7-6: token_id re-emission, same reuse shape as gen_props)
 
 
 class GenError(Exception):
@@ -123,6 +125,7 @@ class Definitions:
     constant_groups: tuple[ConstantGroup, ...]
     functions: tuple[Function, ...]
     props: gen_props.Definitions
+    tokens: gen_theme.Definitions
 
 
 # --------------------------------------------------------------------------
@@ -279,7 +282,7 @@ def _parse_function(entry: dict, index: int, known_types: set[str]) -> Function:
     return Function(name=name, ret=ret, impl=impl, summary=summary, params=params)
 
 
-def load_definitions(toml_path: Path, props_toml_path: Path) -> Definitions:
+def load_definitions(toml_path: Path, props_toml_path: Path, theme_toml_path: Path) -> Definitions:
     try:
         raw = tomllib.loads(toml_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -333,6 +336,7 @@ def load_definitions(toml_path: Path, props_toml_path: Path) -> Definitions:
     _reject_duplicate_names("function", [f.name for f in functions])
 
     props_defs = gen_props.load_definitions(props_toml_path)
+    theme_defs = gen_theme.load_definitions(theme_toml_path)
 
     return Definitions(
         schema_version=schema_version,
@@ -343,6 +347,7 @@ def load_definitions(toml_path: Path, props_toml_path: Path) -> Definitions:
         constant_groups=constant_groups,
         functions=functions,
         props=props_defs,
+        tokens=theme_defs,
     )
 
 
@@ -583,6 +588,28 @@ def render_header(defs: Definitions) -> str:
     lines.append("#endif /* !__cplusplus */")
     lines.append("")
 
+    lines.append("/* -- Theme token ids (themes/schema.toml) " + "-" * 24 + " */")
+    lines.append("")
+    lines.append("/* 7-6: re-emitted here in C-compatible #define form from the SAME")
+    lines.append(" * validated themes/schema.toml tools/gen_theme.py already generates")
+    lines.append(" * include/drawgui/theme/token_ids.generated.h from - design.md section 5.7.7's")
+    lines.append(" * own \"主题 token_id 与 prop_id 同源同构\" decision, applied at 7-6 the same")
+    lines.append(" * way decision 5 already applies to prop_id above. Same #ifndef __cplusplus")
+    lines.append(" * guard, same reason: token_ids.generated.h ALSO declares DG_TOKEN_* as an")
+    lines.append(" * `inline constexpr dg_token_id`, not a macro. */")
+    lines.append("")
+    lines.append("#ifndef __cplusplus")
+    lines.append("")
+    lines.append("typedef uint16_t dg_token_id;")
+    lines.append("#define DG_TOKEN_INVALID 0")
+    lines.append("")
+    for token in defs.tokens.tokens:
+        lines.append(f"/* {token.summary} */")
+        lines.append(f"#define {token.constant} {token.id}")
+    lines.append("")
+    lines.append("#endif /* !__cplusplus */")
+    lines.append("")
+
     lines.append("/* -- Functions " + "-" * 61 + " */")
     lines.append("")
     for fn in defs.functions:
@@ -729,6 +756,13 @@ def render_dts(defs: Definitions) -> str:
     lines.append("} as const;")
     lines.append("")
 
+    lines.append("// Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).")
+    lines.append("export const token = {")
+    for token in defs.tokens.tokens:
+        lines.append(f"  {token.name!r}: {token.id},")
+    lines.append("} as const;")
+    lines.append("")
+
     lines.append("export declare namespace DrawguiAbi {")
     for fn in defs.functions:
         for wrapped in _wrap(fn.summary):
@@ -798,9 +832,10 @@ def main(argv: list[str]) -> int:
     root = args.root.resolve()
     toml_path = (args.toml if args.toml is not None else root / TOML_RELPATH).resolve()
     props_toml_path = root / gen_props.TOML_RELPATH
+    theme_toml_path = root / gen_theme.TOML_RELPATH
 
     try:
-        defs = load_definitions(toml_path, props_toml_path)
+        defs = load_definitions(toml_path, props_toml_path, theme_toml_path)
         outputs = build_outputs(defs, root)
     except GenError as exc:
         print(f"error: {exc}", file=sys.stderr)

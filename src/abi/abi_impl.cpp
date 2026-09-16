@@ -85,6 +85,19 @@ std::deque<dg_node_s>& all_node_handles() {
   return handles;
 }
 
+// 7-6: identical shape/reasoning to the three handle decks above - see
+// abi_types.h's own header comment for the "never freed, stable address"
+// argument this deck relies on exactly as they do.
+std::deque<dg_theme_s>& all_theme_handles() {
+  static std::deque<dg_theme_s> handles;
+  return handles;
+}
+
+std::string& theme_err_storage() {
+  static thread_local std::string buffer;
+  return buffer;
+}
+
 // Per-thread scratch storage, wrapped in accessors for the identical reason
 // all_apps()/all_apps_alive() above are: a function-local static is not
 // "globally accessible" the way a namespace-scope variable is
@@ -150,6 +163,17 @@ NodeSlot* resolve_node_slot(dg_node_t* handle) {
   return &slot;
 }
 
+ThemeImpl* resolve_theme(dg_theme_t* handle) {
+  if (handle == nullptr) {
+    return nullptr;
+  }
+  AppImpl* impl = resolve_app(handle->app);
+  if (impl == nullptr || handle->index >= impl->themes.size()) {
+    return nullptr;
+  }
+  return impl->themes[handle->index].get();
+}
+
 WindowImpl* find_window_by_sdl_id(AppImpl& impl, dg::WindowId id) {
   for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
     if (!window->closed && window->sdl_window == id) {
@@ -202,6 +226,71 @@ std::int32_t to_error_code(dg::PropStatus status) {
       return DG_ERR_UNSUPPORTED;
   }
   return DG_ERR_INTERNAL;
+}
+
+// -- 7-6: theme handling ----------------------------------------------------
+
+std::uint32_t to_theme_err_status(dg::ThemeLoadStatus status) {
+  switch (status) {
+    case dg::ThemeLoadStatus::kParseError:
+      return DG_THEME_ERR_PARSE_ERROR;
+    case dg::ThemeLoadStatus::kMissingField:
+      return DG_THEME_ERR_MISSING_FIELD;
+    case dg::ThemeLoadStatus::kUnknownToken:
+      return DG_THEME_ERR_UNKNOWN_TOKEN;
+    case dg::ThemeLoadStatus::kTypeMismatch:
+      return DG_THEME_ERR_TYPE_MISMATCH;
+    case dg::ThemeLoadStatus::kUnsupportedSchemaVersion:
+      return DG_THEME_ERR_UNSUPPORTED_SCHEMA_VERSION;
+    case dg::ThemeLoadStatus::kIoError:
+      return DG_THEME_ERR_IO_ERROR;
+    case dg::ThemeLoadStatus::kPathTraversal:
+      return DG_THEME_ERR_PATH_TRAVERSAL;
+    case dg::ThemeLoadStatus::kResourceTooLarge:
+      return DG_THEME_ERR_RESOURCE_TOO_LARGE;
+    case dg::ThemeLoadStatus::kTooManyResources:
+      return DG_THEME_ERR_TOO_MANY_RESOURCES;
+  }
+  return DG_THEME_ERR_IO_ERROR;
+}
+
+void fill_theme_err(dg_theme_err* err, const dg::ThemeLoadError& error) {
+  theme_err_storage() = error.message;
+  set_last_error(std::string("dg_theme_load: ") + error.message);
+  if (err != nullptr && err->size >= sizeof(dg_theme_err)) {
+    err->status = to_theme_err_status(error.status);
+  }
+}
+
+std::optional<dg::ThemeVariant> parse_variant(const char* variant) {
+  if (variant == nullptr) {
+    return std::nullopt;
+  }
+  const std::string name(variant);
+  if (name == "light") {
+    return dg::ThemeVariant::kLight;
+  }
+  if (name == "dark") {
+    return dg::ThemeVariant::kDark;
+  }
+  return std::nullopt;
+}
+
+// dg_app_set_theme()/dg_theme_set_variant()/dg_theme_override() all end
+// here: whichever one changed the theme's DATA, the same re-apply against
+// every open window's own dg::ThemeBindings is what makes the change live -
+// design.md section 5.7.6's hot reload, at the ABI boundary, reusing 6-2's
+// ThemeBindings::apply() unchanged rather than inventing per-caller
+// invalidation logic three times over.
+void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
+  if (impl.active_theme != &theme) {
+    return;
+  }
+  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
+    if (!window->closed) {
+      window->theme_bindings.apply(window->tree, theme.theme, theme.variant);
+    }
+  }
 }
 
 // -- Node attachment --------------------------------------------------------
@@ -651,13 +740,31 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
   if (slot->state != NodeSlot::State::kLive) {
     return DG_ERR_NO_WINDOW;
   }
+
+  AppImpl* impl = resolve_app(node_h->app);
+  WindowImpl& window = *impl->windows[slot->window_index];
+
+  // 7-6: DG_VALUE_TOKEN is not a literal - it names a $token live reference
+  // (design.md section 5.7.2) by token_id (carried in `bits`, the same
+  // field an ordinary color value's ARGB already occupies). This reuses
+  // dg_node_set_prop() unchanged rather than adding a second, bind-shaped
+  // exported function - the ABI's own instance of doc/theme.md's own
+  // "resolution reuses dg::set_prop() unchanged" rule, one layer up.
+  if (value->type == DG_VALUE_TOKEN) {
+    if (impl->active_theme == nullptr) {
+      return DG_ERR_NO_ACTIVE_THEME;
+    }
+    const dg::PropWrite result =
+        dg::bind_token(window.tree, window.theme_bindings, slot->node_id, prop_id,
+                       impl->active_theme->theme, impl->active_theme->variant,
+                       static_cast<dg_token_id>(value->bits));
+    return to_error_code(result.status);
+  }
+
   const std::optional<dg::PropValue> prop_value = to_prop_value(*value);
   if (!prop_value.has_value()) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-
-  AppImpl* impl = resolve_app(node_h->app);
-  WindowImpl& window = *impl->windows[slot->window_index];
   const dg::PropWrite result = dg::set_prop(window.tree, slot->node_id, prop_id, *prop_value);
   return to_error_code(result.status);
 }
@@ -766,6 +873,142 @@ const char* dump_layout_tree(dg_node_t* node_h) {
   buffer.clear();
   dump_node(window.tree, slot->node_id, buffer);
   return buffer.c_str();
+}
+
+dg_theme_t* theme_load_dir(dg_app_t* app, const char* dir, dg_theme_err* err) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    set_last_error("dg_theme_load_dir: invalid app handle");
+    return nullptr;
+  }
+  if (dir == nullptr) {
+    set_last_error("dg_theme_load_dir: dir must not be null");
+    return nullptr;
+  }
+
+  dg::Expected<dg::ThemePackage, dg::ThemeLoadError> package = dg::ThemePackage::open(dir);
+  if (!package) {
+    fill_theme_err(err, package.error());
+    return nullptr;
+  }
+  dg::Expected<dg::Theme, dg::ThemeLoadError> theme = package.value().load_theme_json();
+  if (!theme) {
+    fill_theme_err(err, theme.error());
+    return nullptr;
+  }
+
+  auto owned = std::make_unique<ThemeImpl>();
+  owned->theme = std::move(theme).value();
+  owned->package = std::move(package).value();
+  impl->themes.push_back(std::move(owned));
+  impl->themes.back()->self_handle = nullptr;  // set once the handle exists, below
+
+  all_theme_handles().emplace_back(
+      dg_theme_s{app, static_cast<std::uint32_t>(impl->themes.size() - 1)});
+  dg_theme_t* handle = &all_theme_handles().back();
+  impl->themes.back()->self_handle = handle;
+  return handle;
+}
+
+dg_theme_t* theme_load_memory(dg_app_t* app, const char* json, std::uint32_t len,
+                              const char* base_dir, dg_theme_err* err) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    set_last_error("dg_theme_load_memory: invalid app handle");
+    return nullptr;
+  }
+  if (json == nullptr) {
+    set_last_error("dg_theme_load_memory: json must not be null");
+    return nullptr;
+  }
+
+  std::optional<dg::ThemePackage> package;
+  if (base_dir != nullptr) {
+    dg::Expected<dg::ThemePackage, dg::ThemeLoadError> opened = dg::ThemePackage::open(base_dir);
+    if (!opened) {
+      fill_theme_err(err, opened.error());
+      return nullptr;
+    }
+    package = std::move(opened).value();
+  }
+
+  const std::string_view text(json, len);
+  dg::Expected<dg::Theme, dg::ThemeLoadError> theme = dg::load_theme(text);
+  if (!theme) {
+    fill_theme_err(err, theme.error());
+    return nullptr;
+  }
+
+  auto owned = std::make_unique<ThemeImpl>();
+  owned->theme = std::move(theme).value();
+  owned->package = std::move(package);
+  impl->themes.push_back(std::move(owned));
+
+  all_theme_handles().emplace_back(
+      dg_theme_s{app, static_cast<std::uint32_t>(impl->themes.size() - 1)});
+  dg_theme_t* handle = &all_theme_handles().back();
+  impl->themes.back()->self_handle = handle;
+  return handle;
+}
+
+std::int32_t theme_set_variant(dg_theme_t* theme_h, const char* variant) {
+  ThemeImpl* theme = resolve_theme(theme_h);
+  if (theme == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  const std::optional<dg::ThemeVariant> parsed = parse_variant(variant);
+  if (!parsed.has_value()) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  theme->variant = *parsed;
+  AppImpl* impl = resolve_app(theme_h->app);
+  reapply_theme_if_active(*impl, *theme);
+  return DG_ERR_OK;
+}
+
+std::int32_t theme_override(dg_theme_t* theme_h, std::uint16_t token_id, const dg_value* value) {
+  if (value == nullptr || value->size < sizeof(dg_value)) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  ThemeImpl* theme = resolve_theme(theme_h);
+  if (theme == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  const std::optional<dg::TokenType> kind = dg::token_type(token_id);
+  if (!kind.has_value()) {
+    return DG_ERR_UNKNOWN_ID;
+  }
+  if (*kind == dg::TokenType::k_color) {
+    if (value->type != DG_VALUE_COLOR) {
+      return DG_ERR_TYPE_MISMATCH;
+    }
+    theme->theme.set_color(token_id, theme->variant, dg::Color::from_argb(value->bits));
+  } else {
+    if (value->type != DG_VALUE_FLOAT && value->type != DG_VALUE_LENGTH) {
+      return DG_ERR_TYPE_MISMATCH;
+    }
+    theme->theme.set_int(token_id, static_cast<int>(value->number));
+  }
+  AppImpl* impl = resolve_app(theme_h->app);
+  reapply_theme_if_active(*impl, *theme);
+  return DG_ERR_OK;
+}
+
+std::int32_t app_set_theme(dg_app_t* app, dg_theme_t* theme_h) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  ThemeImpl* theme = resolve_theme(theme_h);
+  if (theme == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (theme_h->app != app) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  impl->active_theme = theme;
+  reapply_theme_if_active(*impl, *theme);
+  return DG_ERR_OK;
 }
 
 std::int32_t debug_warp_pointer(dg_window_t* window_h, std::int32_t x, std::int32_t y) {

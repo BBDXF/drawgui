@@ -39,6 +39,9 @@
 #include "drawgui/abi/drawgui.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/theme/theme.h"
+#include "drawgui/theme/theme_bindings.h"
+#include "drawgui/theme/theme_package.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
@@ -56,6 +59,15 @@ struct dg_window_s {
 };
 
 struct dg_node_s {
+  dg_app_t* app = nullptr;
+  std::uint32_t index = 0;
+};
+
+// 7-6: a loaded dg::Theme belongs to exactly one app (dg_theme_load_dir()'s
+// own first parameter), the same one-owner shape dg_window_s/dg_node_s
+// already have - see AppImpl::themes below for why the arena, not this
+// wrapper, is what a handle actually resolves through.
+struct dg_theme_s {
   dg_app_t* app = nullptr;
   std::uint32_t index = 0;
 };
@@ -103,8 +115,25 @@ class WindowImpl {
   // Set once by dg_window_set_root(); a second call is DG_ERR_ALREADY_ATTACHED.
   std::optional<dg::NodeId> root;
 
+  // 7-6: this window's own $token binding side table (doc/theme.md's
+  // ThemeBindings, unchanged) - one per window, mirroring the fact that a
+  // NodeId numbering space is per-window (dg::ThemeBindings is keyed by
+  // NodeId), not per-app.
+  dg::ThemeBindings theme_bindings;
+
   dg_window_t* self_handle = nullptr;
   std::size_t self_index = 0;
+};
+
+// 7-6: one loaded theme, and (if it came from dg_theme_load_dir(), or from
+// dg_theme_load_memory() with a non-null base_dir) the untrusted package
+// directory it can still read resources from.
+struct ThemeImpl {
+  dg::Theme theme;
+  dg::ThemeVariant variant = dg::ThemeVariant::kLight;
+  std::optional<dg::ThemePackage> package;
+
+  dg_theme_t* self_handle = nullptr;
 };
 
 // One dg_app_t: the window manager every one of its windows shares (SDL3's
@@ -119,10 +148,18 @@ class AppImpl {
   std::vector<std::unique_ptr<WindowImpl>> windows;
   std::vector<NodeSlot> nodes;
 
+  // 7-6: every dg_theme_t this app has ever loaded (append-only, the same
+  // shape `nodes`/`windows` already are), and which one (if any) is
+  // currently active - dg_app_set_theme()'s own state. A theme that is
+  // never made active still lives here; nothing about loading one commits
+  // an app to using it.
+  std::vector<std::unique_ptr<ThemeImpl>> themes;
+  ThemeImpl* active_theme = nullptr;
+
   // dg_poll_events()'s queue - design.md section 5.8 decision 2's mandatory
   // dequeue mode. Filled by wait_events()'s internal pump, drained by
   // poll_events(); never delivered any other way (dg_set_event_callback is
-  // this slice's own declined item - see abi/drawgui.def.toml's header).
+  // this slice's own declined item - see abi/drawgui.def.toml's own header).
   std::vector<dg_event> pending_events;
 };
 
