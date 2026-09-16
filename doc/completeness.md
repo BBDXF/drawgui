@@ -278,6 +278,27 @@ readability; nothing here is re-ordered by importance.
 > also remains OPEN - it is 7-3, named as this slice's own direct successor
 > rather than started here.
 
+> **P7 7-3 cross-reference (append-only)**: "IME composition preview" is
+> now CLOSED - `WindowManager::pump()` reports `SDL_EVENT_TEXT_EDITING` as
+> `PumpResult::text_editing`, and `WidgetSet::text_field_composition_
+> update()` renders it inline (a fourth plain positioned child,
+> `composition_underline`) without touching the committed model until a
+> real commit, unchanged, reaches `text_field_insert()`. **A genuine limit
+> found rather than assumed**: on this project's own development machine,
+> a real, correctly-configured IME (fcitx5 + rime) never sends this event
+> at all - it draws its own real X11 composition window, positioned using
+> the exact caret rectangle 4-9's `start_text_input()` already reports
+> (measured causally, twice, at two different window/rect positions).
+> `doc/ime.md` is the full record, including the honest statement of what
+> could and could not be verified given that finding (section 5): the
+> composition-preview CODE PATH is tested through a synthesized
+> `SDL_EVENT_TEXT_EDITING` (`WindowManager::post_text_editing()`), not
+> through a genuine composing IME. "Tab order / focus tree" remains OPEN,
+> named as 7-4, this slice's own direct successor - what IME needs from it
+> (a window-level focus change should also end an in-progress composition,
+> the way this slice's widget-level `text_field_set_focus(false)` already
+> does) is named in `doc/ime.md` section 11 rather than built here.
+
 ### Widgets / interaction (pre-existing, re-affirmed unchanged this phase)
 
 | Declined | Slice/doc | Reason | Phase |

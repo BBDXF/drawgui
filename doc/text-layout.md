@@ -443,3 +443,23 @@ computeCodeUnitFlags()` directly (a new, dedicated seam,
 positions only. This distinction did not matter for 7-2's DISPLAY path
 (which never asks "where is cluster N" at all), which is why it went
 unrecorded here until an editing consumer needed the answer.
+
+## 15. Cross-reference: 7-3 landed - IME composition, and section 11's own prediction confirmed narrowly (append-only)
+
+Section 11 named IME composition (7-3) as untouched and section 10 named
+`SkUnicode::computeCodeUnitFlags()` as "available, not wired to editing."
+7-3 has now landed (`doc/ime.md` is its own full record) and used neither
+primitive directly - composition reuses 7-2b's ALREADY-WIRED
+`dg::grapheme_boundaries()`/`dg::Paragraph::caret_x()` path unchanged,
+adding no new call into `SkUnicode`/`SkParagraph` at all. What 7-3 DID add
+that touches this document's own section 14 finding: SDL3's own
+`SDL_TextEditingEvent::start`/`length` are documented as "UTF-8
+characters" - a THIRD offset convention section 14 had not anticipated,
+distinct from both the UTF-8-byte-native Skia editing API this project
+calls and the UTF-16 legacy one it does not. `doc/ime.md` section 6 is the
+full argument for why this did not reopen design.md section 5.13.2's
+three-strong-typed-index-space question generally: one new seam
+(`composition_focus_bytes()`, `src/widget/widget_set.cpp`) needed one
+small conversion function, not a type system - the same "a caller earns
+the seam" standard section 14's own closing paragraph already set.
+

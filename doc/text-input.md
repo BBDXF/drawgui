@@ -641,3 +641,34 @@ real, scoped slice of its own") and it does exactly that:
 as "filtered at the boundary" is now accepted. Sections 1-9 above are kept
 verbatim as the reasoning that was correct when written and the record of
 what 7-2b's own justification for changing course rests on.
+
+## 11. Cross-reference: 7-3 landed - IME composition (append-only)
+
+Section 1.3 above named `SDL_EVENT_TEXT_EDITING` as "the actual IME
+feature" this slice deliberately left unread, assigned to P7. 7-3
+(`.omo/plans/drawgui-phase7.md`) is that follow-up, and it has now landed:
+`WindowManager::pump()` reports a fourth event vector,
+`PumpResult::text_editing`, and `WidgetSet::text_field_composition_update()`
+turns it into an inline preview spliced into the display without touching
+`text`/`cursor`/`selection_anchor` until a real commit (still, unchanged,
+`text_field_insert()`) arrives. `doc/ime.md` is the full record; the short
+version this section adds is the one correction to what THIS document
+said: section 1.3 called `TextInputEvent` "no candidate window, no
+composition string ever reaches a caller" - 7-3 measured, empirically,
+that on this project's own development machine a real IME (fcitx5 + rime)
+never sends a composition string to ANY caller at all, on ANY platform -
+it draws its own candidate/composition window and positions it using the
+exact caret rectangle this section's own `start_text_input()` already
+reported. The interface slot this section called "real plumbing, not a
+placeholder" turned out to be more completely real than assumed: the
+rectangle argument this document already justified adding "because the
+call already needs a rectangle argument" (section 1.3) is the ENTIRE
+IME-positioning contract on this platform, not merely a downpayment on
+one. `doc/ime.md` section 5 records the honest limit of what 7-3 could
+verify given that finding: the composition-PREVIEW code path itself is
+tested through a synthesized `SDL_EVENT_TEXT_EDITING`
+(`WindowManager::post_text_editing()`, the same synthetic-injection shape
+this document's own `post_text_input()`/`post_key()` already are), not
+through a genuine composing IME - stated plainly rather than glossed
+over.
+

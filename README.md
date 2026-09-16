@@ -478,6 +478,44 @@ seventeenth consecutive slice. `doc/text-input.md` and `doc/text-layout.md`
 both carry cross-reference sections recording the decision without editing
 either document's original text.
 
+`TextField` can now **compose Chinese (and any other IME's) input, not
+just receive it already committed** - reading `SDL_EVENT_TEXT_EDITING`,
+the composition preview 4-9 named as P7's own job and left deliberately
+unread. A not-yet-committed preedit string is spliced inline at the point
+composition began and shown underlined - `composition_underline`, a
+fourth plain positioned child the same shape `caret`/`selection_highlight`
+already are, not a new paint primitive - and never touches the committed
+model until a real commit reaches the exact same `text_field_insert()`
+every other keystroke already goes through. A genuine platform finding,
+not an assumption: on this project's own development machine, with a
+real, correctly-configured IME (fcitx5 + rime) actually installed and
+running, composing real pinyin through it never sends this engine a
+composition event at all - the IME draws its own real, separate X11
+window instead, positioned using exactly the caret rectangle
+`start_text_input()` already reports (confirmed causally: moving that
+rectangle moves the IME's own window one-for-one). Building a second,
+redundant candidate-window UI was therefore declined by name rather than
+half-built past a platform behaviour this project does not control. The
+composition-preview code path itself is tested by driving a real,
+synthesized `SDL_EVENT_TEXT_EDITING` through the actual SDL event queue
+(`WindowManager::post_text_editing()`, the same synthetic-injection shape
+`post_text_input()`/`post_pointer_button()` already are) - proven to be
+read correctly, but honestly NOT proven end-to-end against a live
+composing IME, which no run performed for this slice ever observed. SDL's
+own documented unit for the event's cursor/length ("UTF-8 characters") is
+a third offset convention this project had not measured before, distinct
+from both halves 7-2b already found on Skia's own editing surface - one
+small, narrow conversion function was enough, not the general strong-typed
+index-space system design.md sketches, because one real caller needed
+exactly one seam. Composing costs zero relayout across several different
+preedit lengths in a row - the harder case than committed text, whose
+length changes only on insert/backspace - re-measured rather than assumed.
+Zero new node/`RenderObject`/`WidgetKind` kinds were needed - an
+eighteenth consecutive slice. `doc/ime.md` records the full investigation,
+including the real X11 window measurement, the honest testing-gap
+statement, and a defect-injection campaign that found one injection causes
+an actual crash rather than merely a wrong answer.
+
 
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
@@ -691,16 +729,26 @@ pointer; Backspace/Delete edit; clicking the other field (or empty space)
 blurs the current one. Both fields accept arbitrary well-formed UTF-8, by
 whole grapheme cluster (7-2b) - `--verify-text-input`'s own headless check
 types CJK text and a ZWJ family emoji into `field_b` and confirms a single
-Backspace removes exactly one character each time.
+Backspace removes exactly one character each time. Field b can also show an
+in-progress IME composition (7-3) - a not-yet-committed preedit string
+spliced inline and underlined, never touching the committed model until a
+real commit arrives; Escape cancels it without committing anything.
+`--preset-compose-b` shows this deterministically; `doc/ime.md` records
+that a real IME on this project's own development machine draws its own
+composition window rather than sending this engine a preview at all, so
+the composition CODE PATH is exercised through a synthesized event instead
+(see `--script` below).
 
 ```sh
 ./build/examples/drawgui_text_input                          # click/type/select it
 ./build/examples/drawgui_text_input --preset-field-b TEXT     # open field b pre-filled
 ./build/examples/drawgui_text_input --preset-focus-a          # open with field a focused
 ./build/examples/drawgui_text_input --preset-select-a         # open with a selection in field a
+./build/examples/drawgui_text_input --preset-compose-b        # open field b mid-IME-composition
 ./build/examples/drawgui_text_input --verify-text-input       # headless check
 ./build/examples/drawgui_text_input --dump-png out.png
-./build/examples/drawgui_text_input --script                  # real click/type/key through SDL's queue
+./build/examples/drawgui_text_input --script                  # real click/type/key + a synthesized
+                                                               # SDL_EVENT_TEXT_EDITING through SDL's queue
 ```
 
 ## The image demo
@@ -901,4 +949,5 @@ Findings and decisions from each slice live beside it:
 | `doc/theme.md` | The theme token system - `themes/schema.toml`'s generator family reused from `props/`, the JSON-parser decision (hand-rolled vs. nlohmann/json), `$token` live references as a `WidgetSet`-shaped side table rather than a generation-counter handle, the measured colour-only-vs-int-token relayout cost, `dg::Expected`-based load errors naming the exact JSON key path, and what CI's `tools/check_consistency.py` verifies |
 | `doc/abi.md` | The C ABI - `abi/drawgui.def.toml`'s generator family (reusing the props generator directly), how the generated try/catch wrapping is made provably uniform and how its removal was shown to crash rather than silently do nothing, why handle validation is append-only rather than AnimHandle's generation-counter shape, the two real engine gaps (no insertion-order or removal primitive) the ABI sketch does not admit to, and everything declined by name (theme ABI, animation ABI, callback events, QuickJS stubs) |
 | `doc/skia-dependency.md` | The libskia2 dependency switch (P7 7-1) - why the golden-image hash is unchanged and why that is credible rather than merely convenient, the empirical proof SkParagraph/SkUnicode link and initialize, the design.md §12 open-question-5 and §5.10.5-vs-§5.13.6 settlement (libgrapheme carries no `icudtl.dat` at all, verified rather than taken from the README), the fontconfig build-time-vs-runtime distinction, the newly-available-but-unwired capability inventory (SVG/WebP/GIF/Ganesh-GL/Windows), and the measured binary-size and clean-build-time deltas |
-| `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search; section 14 (7-2b, append-only) records that the follow-up landed and corrects section 10's prediction about `getGlyphClusterAt()` |
+| `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search; section 14 (7-2b, append-only) records that the follow-up landed and corrects section 10's prediction about `getGlyphClusterAt()`; section 15 (7-3, append-only) records that IME composition landed reusing 7-2b's grapheme seam unchanged, and the one narrow offset-unit question it raised |
+| `doc/ime.md` | IME composition (P7 7-3) - what SDL3 3.x actually delivers (`SDL_TextEditingEvent`/`SDL_TextEditingCandidatesEvent`) versus what design.md/4-9 assumed; the empirical finding, on this project's own development machine with a real running IME (fcitx5+rime), that the candidate/composition window is drawn by the platform itself and positioned using the caret rectangle 4-9 already reports (measured causally, twice); why a candidate-list UI is declined by name rather than duplicated; the synthetic-event testing answer (`WindowManager::post_text_editing()`) and the honest, explicit gap between it and a genuine composing IME; the one narrow byte-offset-unit conversion SDL's own "UTF-8 characters" convention forced, and why it did not reopen design.md §5.13.2's general type-index-space question; the re-measured relayout verdict under a preedit that changes length on every keystroke; and a defect-injection campaign that found one injection causes an actual crash rather than merely a wrong answer |
