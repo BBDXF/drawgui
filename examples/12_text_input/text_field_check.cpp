@@ -284,6 +284,98 @@ bool check_identity(std::ostream& out) {
   return true;
 }
 
+// --------------------------------------------------------------------------
+// Claim 6 (7-2b): typing and backspacing CJK text and a ZWJ family emoji -
+// the whole point of lifting 4-9's ASCII-only restriction. One backspace
+// removes an entire CJK character (never half of its 3 UTF-8 bytes) and an
+// entire ZWJ-joined emoji sequence (never one of its 7 codepoints), through
+// the SAME text_field_insert()/text_field_backspace() calls Claim 2 already
+// exercises for ASCII - re-measuring LayoutStats under this path is what
+// answers the task's own question of whether 4-9's "typing never relayouts"
+// claim still holds for non-ASCII, fixed-width input.
+// --------------------------------------------------------------------------
+
+bool check_cjk_and_zwj_emoji_editing(std::ostream& out) {
+  text_field_scene::Scene scene = text_field_scene::build(spec_for(kSize));
+  bool ok = true;
+  if (!scene.fonts.has_value()) {
+    out << "  SKIP: no system font found under /usr/share/fonts\n";
+    return true;
+  }
+  const dg::FontCatalog& fonts = *scene.fonts;
+  const NodeId field = scene.handles.field_b;
+  dg::RenderTree& tree = scene.tree.render();
+  dg::LayoutTree& layout_tree = scene.tree;
+
+  text_field_scene::set_focus(scene, field);
+
+  // "中文" (U+4E2D U+6587, 3 UTF-8 bytes each) - the same 16-unspaced-Han
+  // shape 7-1/7-2 already proved libgrapheme/SkParagraph handle, now through
+  // the EDITING path rather than only the display one.
+  const std::string cjk = "\xE4\xB8\xAD\xE6\x96\x87";
+  scene.widgets.text_field_insert(tree, fonts, field, cjk);
+  if (scene.widgets.text_field_text(field) != cjk) {
+    out << "  FAIL: typing \"\xE4\xB8\xAD\xE6\x96\x87\" did not produce it, got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+  // Re-measured under CJK, per the task's own instruction: does a fixed-
+  // width field's edit still cost zero relayout once the content is
+  // multi-byte? LayoutStats says yes - the mutator still routes exclusively
+  // through RenderTree (doc/text-input.md section 4's structural argument
+  // was never about ASCII specifically).
+  const dg::LayoutStats cjk_insert_stats = layout_tree.layout();
+  if (cjk_insert_stats.nodes_visited != 0 || cjk_insert_stats.nodes_relaid_out != 0) {
+    out << "  FAIL: inserting CJK text visited " << cjk_insert_stats.nodes_visited
+        << " layout node(s) - expected 0\n";
+    ok = false;
+  }
+
+  scene.widgets.text_field_backspace(tree, fonts, field);
+  if (scene.widgets.text_field_text(field) != "\xE4\xB8\xAD") {
+    out << "  FAIL: one Backspace after \"\xE4\xB8\xAD\xE6\x96\x87\" should remove exactly "
+           "one CJK character (leaving \"\xE4\xB8\xAD\"), got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+  const dg::LayoutStats cjk_backspace_stats = layout_tree.layout();
+  if (cjk_backspace_stats.nodes_visited != 0 || cjk_backspace_stats.nodes_relaid_out != 0) {
+    out << "  FAIL: a CJK Backspace visited " << cjk_backspace_stats.nodes_visited
+        << " layout node(s) - expected 0\n";
+    ok = false;
+  }
+  scene.widgets.text_field_backspace(tree, fonts, field);
+  if (!scene.widgets.text_field_text(field).empty()) {
+    out << "  FAIL: a second Backspace should clear the field, got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+
+  // The ZWJ family emoji design.md section 5.10.2 names by name: 7
+  // codepoints joined by ZWJ, 25 UTF-8 bytes, ONE grapheme cluster - one
+  // Backspace must remove the whole thing, not one codepoint of it.
+  const std::string family_emoji = "\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466";
+  scene.widgets.text_field_insert(tree, fonts, field, "X" + family_emoji);
+  if (scene.widgets.text_field_text(field) != "X" + family_emoji) {
+    out << "  FAIL: typing \"X\" + the ZWJ family emoji did not produce it\n";
+    ok = false;
+  }
+  scene.widgets.text_field_backspace(tree, fonts, field);
+  if (scene.widgets.text_field_text(field) != "X") {
+    out << "  FAIL: one Backspace after the ZWJ family emoji should remove all 25 of its "
+           "bytes in one step, leaving \"X\", got \""
+        << scene.widgets.text_field_text(field) << "\" ("
+        << scene.widgets.text_field_text(field).size() << " byte(s))\n";
+    ok = false;
+  }
+
+  if (ok) {
+    out << "  OK: CJK text and a ZWJ family emoji both edit by whole grapheme cluster, and "
+           "cost zero relayout (LayoutStats measured, not assumed)\n";
+  }
+  return ok;
+}
+
 }  // namespace
 
 int run(std::ostream& out) {
@@ -294,6 +386,7 @@ int run(std::ostream& out) {
   ok = check_overflow_ellipsis_and_scroll(out) && ok;
   ok = check_editing_costs_no_relayout(out) && ok;
   ok = check_identity(out) && ok;
+  ok = check_cjk_and_zwj_emoji_editing(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;
 }
