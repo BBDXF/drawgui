@@ -570,6 +570,124 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
 
 namespace {
 constexpr int kCaretWidthPx = 2;
+
+// A thin bar under the whole composing span (7-3, doc/ime.md) - the
+// conventional underline treatment, sized independently of the caret's own
+// width constant above because the two are visually distinct shapes (a
+// vertical bar vs. a horizontal one).
+constexpr int kCompositionUnderlineHeightPx = 2;
+
+// The byte range within a composition's own preedit string that SDL's
+// start/length units resolve to (Widget::composition_focus_start/_length).
+struct CompositionFocusBytes {
+  int start = 0;
+  int end = 0;
+};
+
+// Converts SDL_TextEditingEvent's own start/length ("UTF-8 characters",
+// TextEditingEvent's own header comment) into a byte range within `text`
+// (assumed well-formed - the caller already ran it through
+// sanitize_insertable_text()) by walking codepoints via dg::utf8_decode().
+// `int64_t` accumulators rather than `int` ones: a hostile or merely buggy
+// IME's start/length are exactly the "absurd cursor offset"
+// -DDG_SANITIZE=ON is meant to catch, and `start_units + length_units`
+// computed directly in `int` could overflow before either value is ever
+// compared against `text`'s own length. Both ends are clamped to
+// `text.size()` by the walk itself stopping there, never by trusting the
+// input.
+CompositionFocusBytes composition_focus_bytes(std::string_view text, int start_units,
+                                              int length_units) {
+  const std::int64_t start = std::max<std::int64_t>(0, start_units);
+  const std::int64_t end = start + std::max<std::int64_t>(0, length_units);
+
+  CompositionFocusBytes result;
+  std::size_t byte = 0;
+  std::int64_t index = 0;
+  bool start_found = false;
+  while (true) {
+    if (!start_found && index >= start) {
+      result.start = static_cast<int>(byte);
+      start_found = true;
+    }
+    if (start_found && index >= end) {
+      result.end = static_cast<int>(byte);
+      return result;
+    }
+    if (byte >= text.size()) {
+      break;
+    }
+    const Utf8Step step = utf8_decode(text, byte);
+    byte += step.length;
+    ++index;
+  }
+  if (!start_found) {
+    result.start = static_cast<int>(text.size());
+  }
+  result.end = static_cast<int>(text.size());
+  return result;
+}
+
+// Clears every composition field back to "not composing" - shared by
+// text_field_cancel_composition(), a blur (text_field_set_focus(false)) and
+// a click/commit arriving mid-composition (text_field_click()/
+// text_field_insert()), none of which touch `text`/`cursor`/
+// `selection_anchor` themselves: composition never wrote to any of them, so
+// there is nothing to undo.
+void reset_composition_fields(Widget& widget) {
+  widget.composing = false;
+  widget.composition_text.clear();
+  widget.composition_focus_start = 0;
+  widget.composition_focus_length = 0;
+  widget.composition_replace_start = 0;
+  widget.composition_replace_end = 0;
+}
+
+// What the FOCUSED display branch of text_field_refresh_display() paints,
+// computed once rather than branched on `widget.composing` repeatedly
+// inline - split out for the same reason `dispatch_keyboard()` was split
+// out of the SDL3 backend's own `dispatch()`: clang-tidy's cognitive-
+// complexity budget. `highlight` is the user's own selection OR (while
+// composing) SDL's own "focused clause" range, mutually exclusive by
+// construction; `underline` is only set while composing, spanning the
+// WHOLE preedit.
+struct FocusedProjection {
+  std::string text;
+  int cursor = 0;
+  std::optional<TextSelection> highlight;
+  std::optional<TextSelection> underline;
+};
+
+FocusedProjection focused_display_projection(const Widget& widget) {
+  if (!widget.composing) {
+    FocusedProjection projection{widget.text, widget.cursor, std::nullopt, std::nullopt};
+    if (widget.selection_anchor.has_value() && *widget.selection_anchor != widget.cursor) {
+      projection.highlight = normalize_selection(widget.cursor, *widget.selection_anchor);
+    }
+    return projection;
+  }
+
+  // While composing (7-3, doc/ime.md), the DISPLAY splices the IME's
+  // not-yet-committed preedit into `widget.text` at the point composition
+  // began - `widget.text`/`cursor`/`selection_anchor` are never written by
+  // composition itself, only read here, exactly the same "paint-time
+  // projection, not a second copy" shape ellipsize() already has for
+  // `widget.text` itself.
+  FocusedProjection projection;
+  projection.text =
+      widget.text.substr(0, static_cast<std::size_t>(widget.composition_replace_start)) +
+      widget.composition_text +
+      widget.text.substr(static_cast<std::size_t>(widget.composition_replace_end));
+  projection.cursor = widget.composition_replace_start + widget.composition_focus_start;
+  if (widget.composition_focus_length > 0) {
+    const int start = widget.composition_replace_start + widget.composition_focus_start;
+    projection.highlight = TextSelection{start, start + widget.composition_focus_length};
+  }
+  projection.underline = TextSelection{
+      widget.composition_replace_start,
+      widget.composition_replace_start + static_cast<int>(widget.composition_text.size())};
+  return projection;
+}
+
 }  // namespace
 
 const std::string& WidgetSet::text_field_text(NodeId id) const {
@@ -618,13 +736,18 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
                           PixelRect{0, 0, std::max(1, visible_width), inner_height});
     tree.set_local_bounds(widget.caret, PixelRect{0, 0, 0, inner_height});
     tree.set_local_bounds(widget.selection_highlight, PixelRect{0, 0, 0, inner_height});
+    tree.set_local_bounds(widget.composition_underline, PixelRect{0, 0, 0, inner_height});
     return;
   }
 
-  content_style.text = widget.text;
-  const std::optional<Paragraph> para = build_edit_paragraph(fonts, font, size, widget.text);
-  const float cursor_x = para ? para->caret_x(widget.cursor) : 0.0F;
-  const float total_width = para ? para->caret_x(static_cast<int>(widget.text.size())) : 0.0F;
+  const FocusedProjection projection = focused_display_projection(widget);
+
+  content_style.text = projection.text;
+  const std::optional<Paragraph> para =
+      build_edit_paragraph(fonts, font, size, projection.text);
+  const float cursor_x = para ? para->caret_x(projection.cursor) : 0.0F;
+  const float total_width =
+      para ? para->caret_x(static_cast<int>(projection.text.size())) : 0.0F;
 
   int scroll_x = widget.scroll_x;
   if (total_width <= static_cast<float>(visible_width)) {
@@ -661,17 +784,40 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
                  std::max(0, visible_width - kCaretWidthPx));
   tree.set_local_bounds(widget.caret, PixelRect{caret_x, 0, kCaretWidthPx, inner_height});
 
-  const std::optional<int> anchor = widget.selection_anchor;
-  if (anchor.has_value() && *anchor != widget.cursor) {
-    const TextSelection selection = normalize_selection(widget.cursor, *anchor);
-    const float start_x = para ? para->caret_x(selection.start) : 0.0F;
-    const float end_x = para ? para->caret_x(selection.end) : 0.0F;
+  // selection_highlight is dual-purpose while composing (7-3, doc/ime.md):
+  // the user's OWN selection when not composing, or SDL_TextEditingEvent's
+  // own "focused clause" range within the preedit when composing -
+  // focused_display_projection() above is where the two are told apart.
+  if (projection.highlight.has_value()) {
+    const float start_x = para ? para->caret_x(projection.highlight->start) : 0.0F;
+    const float end_x = para ? para->caret_x(projection.highlight->end) : 0.0F;
     const int hl_x = static_cast<int>(std::lround(static_cast<double>(start_x))) - scroll_x;
     const int hl_w =
         std::max(0, static_cast<int>(std::lround(static_cast<double>(end_x - start_x))));
     tree.set_local_bounds(widget.selection_highlight, PixelRect{hl_x, 0, hl_w, inner_height});
   } else {
     tree.set_local_bounds(widget.selection_highlight, PixelRect{0, 0, 0, inner_height});
+  }
+
+  // The composition underline (7-3, doc/ime.md): a thin bar under the
+  // WHOLE preedit span, the conventional visual distinction between
+  // composing and committed text - a fourth plain positioned child, the
+  // same shape caret/selection_highlight already are, not a new paint
+  // primitive.
+  if (projection.underline.has_value()) {
+    const float underline_start_x = para ? para->caret_x(projection.underline->start) : 0.0F;
+    const float underline_end_x = para ? para->caret_x(projection.underline->end) : 0.0F;
+    const int underline_x =
+        static_cast<int>(std::lround(static_cast<double>(underline_start_x))) - scroll_x;
+    const int underline_w =
+        std::max(0, static_cast<int>(
+                        std::lround(static_cast<double>(underline_end_x - underline_start_x))));
+    const int underline_y = std::max(0, inner_height - kCompositionUnderlineHeightPx);
+    const int underline_h = std::min(inner_height, kCompositionUnderlineHeightPx);
+    tree.set_local_bounds(widget.composition_underline,
+                          PixelRect{underline_x, underline_y, underline_w, underline_h});
+  } else {
+    tree.set_local_bounds(widget.composition_underline, PixelRect{0, 0, 0, inner_height});
   }
 }
 
@@ -698,6 +844,16 @@ bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, No
   if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
     return false;
   }
+  // A REAL commit (7-3, doc/ime.md) - whether IME-sourced or an ordinary
+  // keystroke/paste, this is the one call that actually writes to the
+  // model. `widget->cursor`/`selection_anchor` were never touched while
+  // composing, so discarding the stale preview here and falling straight
+  // through to the unchanged logic below inserts/replaces at exactly the
+  // range that was already there when composition began - the commit path
+  // this slice was asked to verify, not add a parallel one to.
+  if (widget->composing) {
+    reset_composition_fields(*widget);
+  }
   const std::string sanitized = sanitize_insertable_text(input);
   if (widget->selection_anchor.has_value()) {
     const TextSelection selection =
@@ -714,7 +870,12 @@ bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, No
 
 bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
   Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+  // Suppressed while composing (7-3, doc/ime.md section 6): a real IME
+  // consumes Backspace itself for candidate/clause editing while it is
+  // active, so it never reaches this far in practice; simulating that here
+  // (rather than editing the committed model underneath an active preview)
+  // is what keeps the two from disagreeing about what is on screen.
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
     return false;
   }
   if (widget->selection_anchor.has_value()) {
@@ -733,7 +894,9 @@ bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts,
 bool WidgetSet::text_field_delete_forward(RenderTree& tree, const FontCatalog& fonts,
                                           NodeId id) {
   Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+  // Suppressed while composing - the same rule text_field_backspace() above
+  // applies, for the identical reason.
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
     return false;
   }
   if (widget->selection_anchor.has_value()) {
@@ -753,7 +916,10 @@ bool WidgetSet::text_field_delete_forward(RenderTree& tree, const FontCatalog& f
 bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                 TextFieldMove move, bool extend_selection) {
   Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+  // Suppressed while composing, matching text_field_backspace()'s own
+  // reasoning: arrow-key navigation belongs to the IME's own clause/
+  // candidate selection while it is active.
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
     return false;
   }
   const int size = static_cast<int>(widget->text.size());
@@ -819,6 +985,16 @@ bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, Nod
   if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
     return false;
   }
+  // A click always ends composition without committing it (7-3, doc/ime.md
+  // section 6, "clicking elsewhere mid-composition") - the position it is
+  // about to move the cursor to may not even be inside the composition's
+  // own replace range any more, so there is no sensible way to keep a
+  // preview alive across it. Falls through and still positions the cursor
+  // at the click, exactly as it would have with no composition in
+  // progress.
+  if (widget->composing) {
+    reset_composition_fields(*widget);
+  }
   const PixelRect field_bounds = tree.absolute_bounds(id);
   const TextStyle& content_style = tree.style(widget->content).text;
   const float local_x = static_cast<float>(pointer_x - field_bounds.x + widget->scroll_x);
@@ -854,8 +1030,77 @@ void WidgetSet::text_field_set_focus(RenderTree& tree, const FontCatalog& fonts,
   }
   if (!focused) {
     widget->selection_anchor.reset();
+    // Losing focus ends composition without committing it (7-3, doc/
+    // ime.md section 6) - the identical rule Escape and a click already
+    // apply, restated here because a blur can arrive with no key or click
+    // of its own (a DIFFERENT field being focused instead).
+    reset_composition_fields(*widget);
   }
   text_field_refresh_display(tree, fonts, id, *widget, focused);
+}
+
+void WidgetSet::text_field_composition_update(RenderTree& tree, const FontCatalog& fonts,
+                                              NodeId id, std::string_view text, int start_units,
+                                              int length_units) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return;
+  }
+  const std::string sanitized = sanitize_insertable_text(text);
+  if (sanitized.empty()) {
+    // SDL's own convention: an empty preedit means composition ended
+    // WITHOUT a commit - a real commit is always a separate, later
+    // text_field_insert() call. Identical to an explicit cancellation, so
+    // this reuses it rather than duplicating the reset.
+    text_field_cancel_composition(tree, fonts, id);
+    return;
+  }
+  if (!widget->composing) {
+    // Composition START: capture the anchor ONCE from whatever
+    // selection/cursor the model already has - never re-derived from it
+    // again while composing (doc/ime.md's own argument: composition must
+    // never touch `cursor`/`selection_anchor` itself, so a later real
+    // commit through text_field_insert() replaces exactly this range).
+    const std::optional<int> anchor = widget->selection_anchor;
+    if (anchor.has_value() && *anchor != widget->cursor) {
+      const TextSelection selection = normalize_selection(widget->cursor, *anchor);
+      widget->composition_replace_start = selection.start;
+      widget->composition_replace_end = selection.end;
+    } else {
+      widget->composition_replace_start = widget->cursor;
+      widget->composition_replace_end = widget->cursor;
+    }
+    widget->composing = true;
+  }
+  widget->composition_text = sanitized;
+  const CompositionFocusBytes bytes =
+      composition_focus_bytes(sanitized, start_units, length_units);
+  widget->composition_focus_start = bytes.start;
+  widget->composition_focus_length = bytes.end - bytes.start;
+  text_field_refresh_display(tree, fonts, id, *widget, true);
+}
+
+void WidgetSet::text_field_cancel_composition(RenderTree& tree, const FontCatalog& fonts,
+                                              NodeId id) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField || !widget->composing) {
+    return;
+  }
+  reset_composition_fields(*widget);
+  text_field_refresh_display(tree, fonts, id, *widget, true);
+}
+
+bool WidgetSet::text_field_is_composing(NodeId id) const {
+  const Widget* widget = find(id);
+  return widget != nullptr && widget->kind == WidgetKind::kTextField && widget->composing;
+}
+
+const std::string& WidgetSet::text_field_composition_text(NodeId id) const {
+  static const std::string kEmpty;
+  const Widget* widget = find(id);
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField)
+             ? widget->composition_text
+             : kEmpty;
 }
 
 }  // namespace dg

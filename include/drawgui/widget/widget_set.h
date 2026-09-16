@@ -87,14 +87,18 @@ enum class WidgetKind : std::uint8_t {
   // 4-9 originally scoped this to printable ASCII, a restriction 7-2b lifted
   // (doc/text-input.md's cross-reference to doc/text-layout.md section 2).
   // Composition, not a new primitive: `content` (a plain text-bearing
-  // child), `caret` and `selection_highlight` (plain fill-only children the
-  // widget positions) are exactly the shape kCheckbox's `indicator` and
-  // kSlider's `thumb` already are, and the field's own node is a kLeaf with
-  // `overflow: kClip` - the clip doc/clipping.md built, reused verbatim to
-  // confine all three children, the same way doc/scrolling.md reused it for
-  // a viewport. Earns a kind of its own over reusing kSlider or kCheckbox
-  // because it needs FOCUS (keyboard routing) and a MODEL string, neither of
-  // which any existing kind carries - doc/text-input.md section 3.
+  // child), `caret`, `selection_highlight` and `composition_underline`
+  // (plain fill-only children the widget positions) are exactly the shape
+  // kCheckbox's `indicator` and kSlider's `thumb` already are, and the
+  // field's own node is a kLeaf with `overflow: kClip` - the clip
+  // doc/clipping.md built, reused verbatim to confine all four children,
+  // the same way doc/scrolling.md reused it for a viewport. Earns a kind of
+  // its own over reusing kSlider or kCheckbox because it needs FOCUS
+  // (keyboard routing) and a MODEL string, neither of which any existing
+  // kind carries - doc/text-input.md section 3. IME composition (7-3,
+  // doc/ime.md) needed no fifth child kind and no new WidgetKind either -
+  // just one more positioned plain child and more runtime state, the same
+  // shape every extension to this control has taken so far.
   kTextField,
 
   // A virtualized, fixed-extent list: a clipping node (NodeStyle::overflow,
@@ -184,9 +188,16 @@ struct Widget {
   // unfocused, or the full string scrolled by `scroll_x` while focused - the
   // same relationship `checked`/the indicator's fill and `value`/the thumb's
   // position already have. doc/text-input.md section 3 is the argument.
+  //
+  // `composition_underline` is 7-3's own addition (doc/ime.md) - a fourth
+  // plain positioned child, same shape as the three above it: a thin bar
+  // under the IME's in-progress preedit span, the conventional visual
+  // distinction between composing and committed text. No new RenderObject
+  // or paint primitive, matching every other child here.
   NodeId content;
   NodeId caret;
   NodeId selection_highlight;
+  NodeId composition_underline;
 
   // The MODEL. RUNTIME STATE, not a property - the identical argument
   // doc/scrolling.md section 2 and doc/form-controls.md section 1.3 already
@@ -207,6 +218,35 @@ struct Widget {
   int cursor = 0;                       // byte offset into `text`, in [0, text.size()]
   std::optional<int> selection_anchor;  // set => a selection [min(anchor,cursor), max(...))
   int scroll_x = 0;                     // device pixels; DERIVED, never declared
+
+  // 7-3's own composition state (doc/ime.md), RUNTIME STATE for the
+  // identical reason `text`/`cursor` above already are - SDL delivers one
+  // SDL_EVENT_TEXT_EDITING per keystroke while an IME composes, an
+  // unbounded stream exactly like committed keystrokes. Deliberately
+  // SEPARATE from `text`/`cursor`/`selection_anchor` rather than folded
+  // into them: composition never touches any of the three above until a
+  // REAL commit arrives (a TextInputEvent, through text_field_insert()
+  // unchanged) - this is what lets Escape/focus-loss/a click mid-
+  // composition simply discard `composition_text` below and leave the
+  // committed model exactly as it was, with no undo to perform.
+  //
+  // `composing` is false whenever nothing is in progress; while true,
+  // `composition_replace_start`/`composition_replace_end` are the byte
+  // range WITHIN `text` composition virtually sits over (captured ONCE at
+  // composition start from whatever selection/cursor was there - a plain
+  // cursor position with no selection is `{cursor, cursor}`), and
+  // `composition_text` is the IME's own not-yet-committed string (already
+  // sanitized). `composition_focus_start`/`composition_focus_length` are
+  // byte offsets WITHIN `composition_text` - SDL_TextEditingEvent's own
+  // `start`/`length` (TextEditingEvent's own comment records the "UTF-8
+  // characters" unit question this slice found and could not verify
+  // against a live IME), converted to bytes and clamped defensively.
+  bool composing = false;
+  std::string composition_text;
+  int composition_focus_start = 0;
+  int composition_focus_length = 0;
+  int composition_replace_start = 0;
+  int composition_replace_end = 0;
 
   // kList only. `list_pool` is the PERMANENT pool of item nodes - built once,
   // never grown or shrunk (this engine has no node-removal path at all;
@@ -492,9 +532,47 @@ class WidgetSet {
   // FOCUS ITSELF lives in the separate dg::Focus class, not here - the same
   // separation dg::Interaction's hover/press state already has from
   // WidgetSet, so this takes the answer as a parameter rather than storing
-  // a second copy of it.
+  // a second copy of it. Losing focus also ends any in-progress
+  // composition (7-3, doc/ime.md section 6) without committing it - the
+  // same rule Escape (text_field_cancel_composition()) and a click
+  // (text_field_click()) both apply.
   void text_field_set_focus(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                             bool focused);
+
+  // --- kTextField, IME composition (7-3, doc/ime.md) ---
+
+  // Applies one SDL_EVENT_TEXT_EDITING to `id`'s composition preview.
+  // `text` is the IME's not-yet-committed preedit string - sanitized
+  // through the exact same dg::sanitize_utf8() + control-byte filter
+  // text_field_insert() already uses (a composition event is exactly as
+  // untrusted as a keystroke or a paste). An EMPTY `text` ends composition
+  // without committing anything (equivalent to
+  // text_field_cancel_composition()) - a real commit is always a SEPARATE,
+  // later text_field_insert() call, never this one.
+  //
+  // `start_units`/`length_units` are SDL's own "UTF-8 characters" range
+  // within `text` (TextEditingEvent's own comment records the unit
+  // question this slice found) - converted to a byte range by walking
+  // codepoints, clamped to `text`'s own length so an absurd or negative
+  // value from a hostile/buggy source cannot read or write out of bounds.
+  // A no-op when `id` does not name a kTextField.
+  void text_field_composition_update(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                     std::string_view text, int start_units, int length_units);
+
+  // Ends composition (Escape, or any caller that wants to abandon it)
+  // WITHOUT committing anything - the model's `text`/`cursor`/
+  // `selection_anchor` are left exactly as they were when composition
+  // began, because composition never touched them (this file's own
+  // argument, restated: only a real commit, through text_field_insert(),
+  // ever does). A no-op when `id` is not currently composing.
+  void text_field_cancel_composition(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  [[nodiscard]] bool text_field_is_composing(NodeId id) const;
+
+  // The IME's current not-yet-committed preedit string, or empty when `id`
+  // is not composing - exposed for a caller/test that wants to display or
+  // assert on it directly rather than only its on-screen projection.
+  [[nodiscard]] const std::string& text_field_composition_text(NodeId id) const;
 
  private:
   // Null when `id` names no widget, including when it is past the end of the
