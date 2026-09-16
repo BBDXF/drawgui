@@ -236,6 +236,9 @@ void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& even
       // exactly two tab stops with no non-text-field widget between them,
       // so it is left as a plain field-to-field click-to-focus demo rather
       // than retrofitted here.
+    case dg::Key::kUp:
+    case dg::Key::kDown:
+    case dg::Key::kEnter:
     case dg::Key::kOther:
       break;
   }

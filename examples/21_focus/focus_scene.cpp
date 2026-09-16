@@ -407,6 +407,9 @@ void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
       }
       break;
     case dg::Key::kTab:
+    case dg::Key::kUp:
+    case dg::Key::kDown:
+    case dg::Key::kEnter:
     case dg::Key::kOther:
       break;
   }
