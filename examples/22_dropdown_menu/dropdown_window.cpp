@@ -50,7 +50,7 @@ void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::Ren
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId host_window, const Settings& settings,
-        std::ostream& out)
+         std::ostream& out)
       : settings_(settings),
         out_(&out),
         manager_(&manager),
@@ -101,11 +101,17 @@ class Runner {
 };
 
 dg::WidgetSet& Runner::active_widgets() {
-  return (popup_.has_value() && popup_->is_native) ? *popup_native_widgets_ : scene_.widgets;
+  if (popup_.has_value() && popup_->is_native && popup_native_widgets_.has_value()) {
+    return *popup_native_widgets_;
+  }
+  return scene_.widgets;
 }
 
 dg::Focus& Runner::active_focus() {
-  return (popup_.has_value() && popup_->is_native) ? *popup_native_focus_ : scene_.focus;
+  if (popup_.has_value() && popup_->is_native && popup_native_focus_.has_value()) {
+    return *popup_native_focus_;
+  }
+  return scene_.focus;
 }
 
 dg::RenderTree& Runner::active_tree() {
@@ -141,26 +147,29 @@ void Runner::open_dropdown() {
   const dg::PixelRect anchor = scene_.tree.render().absolute_bounds(scene_.handles.dropdown);
   const dg::PixelSize size = dropdown_options::size_for(
       static_cast<int>(dropdown_scene::kOptions.size()), anchor.width);
-  const dg::Expected<dg::PopupHandle, dg::WindowError> shown = popup_host_.show(
-      host_window_, scene_.tree.render(), caps, anchor, size, dg::PopupPlacement::kBelow,
-      dg::PopupFlags{});
+  const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
+      popup_host_.show(host_window_, scene_.tree.render(), caps, anchor, size,
+                       dg::PopupPlacement::kBelow, dg::PopupFlags{});
   if (!shown) {
     *out_ << "could not open the dropdown: " << shown.error().message << "\n";
     return;
   }
   popup_ = shown.value();
-  const std::optional<int> selected = scene_.widgets.dropdown_selected_index(scene_.handles.dropdown);
+  const std::optional<int> selected =
+      scene_.widgets.dropdown_selected_index(scene_.handles.dropdown);
 
   if (popup_->is_native) {
     popup_native_widgets_.emplace();
     popup_native_focus_.emplace();
     popup_native_ring_ = dg::FocusRing{};
-    rows_ = dropdown_options::build(*popup_->tree, *popup_native_widgets_, popup_->content_root,
-                                    dropdown_scene::kOptions, size.width, scene_.ui_font, 15.0F);
+    rows_ =
+        dropdown_options::build(*popup_->tree, *popup_native_widgets_, popup_->content_root,
+                                dropdown_scene::kOptions, size.width, scene_.ui_font, 15.0F);
     popup_native_surface_ = dg::RasterSurface::create(size.width, size.height);
   } else {
-    rows_ = dropdown_options::build(scene_.tree.render(), scene_.widgets, popup_->content_root,
-                                    dropdown_scene::kOptions, size.width, scene_.ui_font, 15.0F);
+    rows_ =
+        dropdown_options::build(scene_.tree.render(), scene_.widgets, popup_->content_root,
+                                dropdown_scene::kOptions, size.width, scene_.ui_font, 15.0F);
     scene_.focus.enter_scope(popup_->content_root);
   }
 
@@ -198,17 +207,18 @@ void Runner::close_dropdown(std::optional<int> select_index) {
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
   if (popup_.has_value() && popup_->open) {
-    if (popup_host_.handle_pointer(*popup_, event.window, event, dg::PopupFlags{})) {
+    dg::PopupHandle& handle = *popup_;
+    if (popup_host_.handle_pointer(handle, event.window, event, dg::PopupFlags{})) {
       close_dropdown(std::nullopt);
       return;
     }
     if (event.action != dg::PointerAction::kDown) {
       return;
     }
-    if (popup_->is_native && event.window != popup_->window) {
+    if (handle.is_native && event.window != handle.window) {
       return;
     }
-    if (!popup_->is_native && event.window != host_window_) {
+    if (!handle.is_native && event.window != host_window_) {
       return;
     }
     const dg::PixelPoint at{event.x, event.y};
@@ -233,7 +243,8 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
 
 void Runner::handle_key(const dg::KeyEvent& event) {
   if (popup_.has_value() && popup_->open) {
-    if (popup_host_.handle_key(*popup_, event.window, event, dg::PopupFlags{})) {
+    dg::PopupHandle& handle = *popup_;
+    if (popup_host_.handle_key(handle, event.window, event, dg::PopupFlags{})) {
       close_dropdown(std::nullopt);
       return;
     }
@@ -241,19 +252,19 @@ void Runner::handle_key(const dg::KeyEvent& event) {
       return;
     }
     if (event.key == dg::Key::kUp) {
-      active_focus().focus_previous(active_tree(), active_widgets(), popup_->content_root);
+      active_focus().focus_previous(active_tree(), active_widgets(), handle.content_root);
       refresh_ring();
       return;
     }
     if (event.key == dg::Key::kDown) {
-      active_focus().focus_next(active_tree(), active_widgets(), popup_->content_root);
+      active_focus().focus_next(active_tree(), active_widgets(), handle.content_root);
       refresh_ring();
       return;
     }
     if (event.key == dg::Key::kEnter) {
+      const std::optional<dg::NodeId> highlighted = active_focus().current();
       const std::optional<int> index =
-          active_focus().current().has_value() ? row_index_of(*active_focus().current())
-                                               : std::nullopt;
+          highlighted.has_value() ? row_index_of(*highlighted) : std::nullopt;
       close_dropdown(index);
       return;
     }
@@ -264,7 +275,7 @@ void Runner::handle_key(const dg::KeyEvent& event) {
     return;
   }
   if ((event.key == dg::Key::kDown || event.key == dg::Key::kEnter) &&
-     scene_.focus.is_focused(scene_.handles.dropdown)) {
+      scene_.focus.is_focused(scene_.handles.dropdown)) {
     open_dropdown();
     return;
   }
@@ -300,7 +311,8 @@ int Runner::run() {
       return 1;
     }
     present_if_damaged(*manager_, host_window_, scene_.tree.render(), *host_surface_);
-    if (popup_.has_value() && popup_->open && popup_->is_native && popup_native_surface_.has_value()) {
+    if (popup_.has_value() && popup_->open && popup_->is_native &&
+        popup_native_surface_.has_value()) {
       present_if_damaged(*manager_, popup_->window, *popup_->tree, *popup_native_surface_);
     }
   }
@@ -358,7 +370,8 @@ int dump_png(const Settings& settings, const std::string& path, std::ostream& ou
     return 2;
   }
   std::ofstream file(path, std::ios::binary);
-  file.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+  file.write(reinterpret_cast<const char*>(png.data()),
+             static_cast<std::streamsize>(png.size()));
   if (!file) {
     out << "could not write " << path << "\n";
     return 3;

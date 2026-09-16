@@ -126,8 +126,8 @@ Scene build(const Options& options) {
 
   spec.background.fill = Color::from_argb(kBodyFill);
   Scene scene{LayoutTree{spec}, dg::WidgetSet{}, dg::Interaction{}, dg::Focus{},
-             dg::FocusRing{},  Handles{},       std::move(fonts),  ui,
-             loaded.value()};
+              dg::FocusRing{},  Handles{},       std::move(fonts),  ui,
+              loaded.value()};
 
   BoxStyle body_box;
   body_box.kind = LayoutKind::kRow;
@@ -167,22 +167,23 @@ void apply_focus_change(Scene& scene, std::optional<dg::NodeId> target) {
   const dg::Color ring_color =
       scene.theme.color_value(DG_TOKEN_COLOR_FOCUS_RING, dg::ThemeVariant::kDark)
           .value_or(dg::Color::from_argb(0xFFFF8800));
-  dg::update_focus_ring(scene.tree.render(), LayoutTree::root(), scene.ring, scene.focus.current(),
-                       ring_color);
+  dg::update_focus_ring(scene.tree.render(), LayoutTree::root(), scene.ring,
+                        scene.focus.current(), ring_color);
 }
 
 void tab(Scene& scene, bool backwards) {
   const dg::FocusChange change =
-      backwards ? scene.focus.focus_previous(scene.tree.render(), scene.widgets, scene.handles.body)
-               : scene.focus.focus_next(scene.tree.render(), scene.widgets, scene.handles.body);
+      backwards
+          ? scene.focus.focus_previous(scene.tree.render(), scene.widgets, scene.handles.body)
+          : scene.focus.focus_next(scene.tree.render(), scene.widgets, scene.handles.body);
   if (!change.any()) {
     return;
   }
   const dg::Color ring_color =
       scene.theme.color_value(DG_TOKEN_COLOR_FOCUS_RING, dg::ThemeVariant::kDark)
           .value_or(dg::Color::from_argb(0xFFFF8800));
-  dg::update_focus_ring(scene.tree.render(), LayoutTree::root(), scene.ring, scene.focus.current(),
-                       ring_color);
+  dg::update_focus_ring(scene.tree.render(), LayoutTree::root(), scene.ring,
+                        scene.focus.current(), ring_color);
 }
 
 bool dispatch_pointer(Scene& scene, const dg::PointerEvent& event) {
@@ -195,8 +196,8 @@ bool dispatch_pointer(Scene& scene, const dg::PointerEvent& event) {
     case dg::PointerAction::kDown: {
       const std::optional<NodeId> hit = scene.widgets.widget_at(scene.tree.render(), at);
       change = scene.interaction.pressed_on(hit);
-      const bool focusable =
-          hit.has_value() && scene.widgets.has(*hit) && dg::is_focusable(scene.widgets.at(*hit).kind);
+      const bool focusable = hit.has_value() && scene.widgets.has(*hit) &&
+                             dg::is_focusable(scene.widgets.at(*hit).kind);
       apply_focus_change(scene, focusable ? hit : std::nullopt);
       break;
     }

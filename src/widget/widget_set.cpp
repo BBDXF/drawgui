@@ -570,13 +570,14 @@ void dropdown_refresh_label(RenderTree& tree, const FontCatalog& fonts, const Wi
 const std::vector<std::string>& WidgetSet::dropdown_options(NodeId id) const {
   static const std::vector<std::string> kEmpty;
   const Widget* widget = find(id);
-  return (widget != nullptr && widget->kind == WidgetKind::kDropdown) ? widget->options : kEmpty;
+  return (widget != nullptr && widget->kind == WidgetKind::kDropdown) ? widget->options
+                                                                      : kEmpty;
 }
 
 std::optional<int> WidgetSet::dropdown_selected_index(NodeId id) const {
   const Widget* widget = find(id);
   return (widget != nullptr && widget->kind == WidgetKind::kDropdown) ? widget->selected_index
-                                                                     : std::nullopt;
+                                                                      : std::nullopt;
 }
 
 void WidgetSet::dropdown_set_options(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -587,14 +588,15 @@ void WidgetSet::dropdown_set_options(RenderTree& tree, const FontCatalog& fonts,
   }
   widget->options = std::move(options);
   if (widget->selected_index.has_value() &&
-     (*widget->selected_index < 0 ||
-      static_cast<std::size_t>(*widget->selected_index) >= widget->options.size())) {
+      (*widget->selected_index < 0 ||
+       static_cast<std::size_t>(*widget->selected_index) >= widget->options.size())) {
     widget->selected_index.reset();
   }
   dropdown_refresh_label(tree, fonts, *widget);
 }
 
-bool WidgetSet::dropdown_select(RenderTree& tree, const FontCatalog& fonts, NodeId id, int index) {
+bool WidgetSet::dropdown_select(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                int index) {
   Widget* widget = find(id);
   if (widget == nullptr || widget->kind != WidgetKind::kDropdown) {
     return false;

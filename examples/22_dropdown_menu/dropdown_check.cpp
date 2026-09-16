@@ -105,13 +105,13 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
   const dg::FontCatalog& fonts = *scene.fonts;
   PopupHost host{manager};
   const PixelRect anchor = scene.tree.render().absolute_bounds(scene.handles.dropdown);
-  const dg::PixelSize popup_size =
-      dropdown_options::size_for(static_cast<int>(dropdown_scene::kOptions.size()), anchor.width);
+  const dg::PixelSize popup_size = dropdown_options::size_for(
+      static_cast<int>(dropdown_scene::kOptions.size()), anchor.width);
 
   auto open = [&]() -> std::optional<Opened> {
     const dg::Expected<PopupHandle, dg::WindowError> shown =
         host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = false},
-                 anchor, popup_size, PopupPlacement::kBelow, PopupFlags{});
+                  anchor, popup_size, PopupPlacement::kBelow, PopupFlags{});
     if (!shown) {
       out << "  FAIL: overlay show() failed: " << shown.error().message << "\n";
       ok = false;
@@ -119,9 +119,9 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
     }
     Opened opened;
     opened.handle = shown.value();
-    opened.rows =
-        dropdown_options::build(scene.tree.render(), scene.widgets, opened.handle.content_root,
-                                dropdown_scene::kOptions, popup_size.width, scene.ui_font, 15.0F);
+    opened.rows = dropdown_options::build(scene.tree.render(), scene.widgets,
+                                          opened.handle.content_root, dropdown_scene::kOptions,
+                                          popup_size.width, scene.ui_font, 15.0F);
     scene.focus.enter_scope(opened.handle.content_root);
     const std::optional<int> selected =
         scene.widgets.dropdown_selected_index(scene.handles.dropdown);
@@ -173,12 +173,12 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
   if (!opened.has_value()) {
     return;
   }
-  check(scene.focus.current() == opened->rows[2], "reopening seeds the highlight at index 2 again",
-        out, ok);
+  check(scene.focus.current() == opened->rows[2],
+        "reopening seeds the highlight at index 2 again", out, ok);
   scene.focus.focus_next(scene.tree.render(), scene.widgets, opened->handle.content_root);
   scene.focus.focus_next(scene.tree.render(), scene.widgets, opened->handle.content_root);
-  check(scene.focus.current() == opened->rows[4], "Down x2 from index 2 highlights index 4 (last)",
-        out, ok);
+  check(scene.focus.current() == opened->rows[4],
+        "Down x2 from index 2 highlights index 4 (last)", out, ok);
   scene.focus.focus_next(scene.tree.render(), scene.widgets, opened->handle.content_root);
   check(scene.focus.current() == opened->rows[0],
         "Down from the LAST option wraps FORWARD to index 0", out, ok);
@@ -213,20 +213,22 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
   if (!opened.has_value()) {
     return;
   }
-  check(scene.focus.current() == opened->rows[4], "reopening seeds the highlight at index 4 again",
-        out, ok);
+  check(scene.focus.current() == opened->rows[4],
+        "reopening seeds the highlight at index 4 again", out, ok);
   scene.widgets.dropdown_select(scene.tree.render(), fonts, scene.handles.dropdown, 1);
   close_without_commit(*opened);
-  check(scene.widgets.dropdown_selected_index(scene.handles.dropdown) == 1,
-        "a click resolving to row 1 (\"Banana\") commits it even though index 4 was highlighted",
-        out, ok);
+  check(
+      scene.widgets.dropdown_selected_index(scene.handles.dropdown) == 1,
+      "a click resolving to row 1 (\"Banana\") commits it even though index 4 was highlighted",
+      out, ok);
 
   // --- the measured relayout cost: every operation above went through
   // RenderTree alone (dropdown_select()'s tree.set_text(), the popup rows'
   // own direct RenderTree::add_child() calls per doc/popup.md section 3) -
   // LayoutTree::layout() should find nothing dirty.
   const dg::LayoutStats stats = scene.tree.layout();
-  out << "  LayoutStats after opening/closing the dropdown six times and five selection changes: "
+  out << "  LayoutStats after opening/closing the dropdown six times and five selection "
+         "changes: "
          "nodes_visited="
       << stats.nodes_visited << " nodes_relaid_out=" << stats.nodes_relaid_out << "\n";
   check(stats.nodes_visited == 0 && stats.nodes_relaid_out == 0,
@@ -266,11 +268,11 @@ void attempt_native_popup(std::ostream& out) {
   dropdown_scene::Scene scene = dropdown_scene::build(options_for(kSize));
   PopupHost host{manager};
   const PixelRect anchor = scene.tree.render().absolute_bounds(scene.handles.dropdown);
-  const dg::PixelSize popup_size =
-      dropdown_options::size_for(static_cast<int>(dropdown_scene::kOptions.size()), anchor.width);
+  const dg::PixelSize popup_size = dropdown_options::size_for(
+      static_cast<int>(dropdown_scene::kOptions.size()), anchor.width);
   const dg::Expected<PopupHandle, dg::WindowError> native =
       host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = true},
-               anchor, popup_size, PopupPlacement::kBelow, PopupFlags{});
+                anchor, popup_size, PopupPlacement::kBelow, PopupFlags{});
   if (!native) {
     out << "  SKIPPED, loudly and specifically: SDL_CreatePopupWindow failed under the dummy "
            "video driver, with: \""
@@ -292,7 +294,8 @@ void attempt_native_popup(std::ostream& out) {
 int run(std::ostream& out) {
   setenv("SDL_VIDEODRIVER", "dummy", 1);
 
-  out << "DROPDOWN: keyboard/mouse selection over a 5-option list, first/middle/last positions, "
+  out << "DROPDOWN: keyboard/mouse selection over a 5-option list, first/middle/last "
+         "positions, "
          "wraparound, both PopupHost branches.\n\n";
 
   bool ok = true;

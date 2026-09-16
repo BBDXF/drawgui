@@ -38,9 +38,8 @@ std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets, dg::
   for (std::size_t i = 0; i < options.size(); ++i) {
     NodeStyle row_style;
     row_style.fill = Color::from_argb(kRowNormal);
-    const dg::NodeId row =
-        tree.add_child(parent, PixelRect{0, static_cast<int>(i) * kRowHeight, width, kRowHeight},
-                       row_style);
+    const dg::NodeId row = tree.add_child(
+        parent, PixelRect{0, static_cast<int>(i) * kRowHeight, width, kRowHeight}, row_style);
 
     Widget widget;
     widget.kind = WidgetKind::kButton;

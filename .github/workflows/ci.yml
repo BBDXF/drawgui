@@ -413,7 +413,12 @@ jobs:
             examples/21_focus/focus_check.cpp
             examples/21_focus/focus_scene.cpp
             examples/21_focus/focus_window.cpp
-            examples/21_focus/popup_menu.cpp"
+            examples/21_focus/popup_menu.cpp
+            examples/22_dropdown_menu/main.cpp
+            examples/22_dropdown_menu/dropdown_check.cpp
+            examples/22_dropdown_menu/dropdown_options.cpp
+            examples/22_dropdown_menu/dropdown_scene.cpp
+            examples/22_dropdown_menu/dropdown_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files

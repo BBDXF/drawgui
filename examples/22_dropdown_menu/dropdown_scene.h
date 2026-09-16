@@ -28,7 +28,7 @@
 namespace dropdown_scene {
 
 inline const std::vector<std::string> kOptions = {"Apple", "Banana", "Cherry", "Date",
-                                                   "Elderberry"};
+                                                  "Elderberry"};
 
 struct Handles {
   dg::NodeId body;
