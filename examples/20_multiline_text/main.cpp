@@ -59,7 +59,7 @@ std::optional<Options> parse_options(int argc, char** argv) {
 
 void usage() {
   std::cerr << "usage: drawgui_multiline_text [--run-ms N] [--dump-png FILE] "
-              "[--font-dir DIR] [--verify-multiline-text]\n";
+               "[--font-dir DIR] [--verify-multiline-text]\n";
 }
 
 }  // namespace

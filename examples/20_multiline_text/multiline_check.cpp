@@ -21,10 +21,9 @@ using dg::TextStyle;
 bool check_height(const dg::FontCatalog& fonts, const multiline_scene::Scene& scene,
                   dg::NodeId panel, const TextStyle& text, const char* name, std::ostream& out,
                   bool& ok) {
-  dg::Expected<Paragraph, dg::FontError> rebuilt =
-      Paragraph::build(fonts, text,
-                        static_cast<float>(multiline_scene::kPanelWidth -
-                                           (2 * multiline_scene::kPanelPadding)));
+  dg::Expected<Paragraph, dg::FontError> rebuilt = Paragraph::build(
+      fonts, text,
+      static_cast<float>(multiline_scene::kPanelWidth - (2 * multiline_scene::kPanelPadding)));
   if (!rebuilt.has_value()) {
     out << "  FAIL " << name << ": independent Paragraph::build() failed\n";
     ok = false;
@@ -86,8 +85,8 @@ int run(std::ostream& out) {
 
   TextStyle ellipsized_style = latin_style;
   ellipsized_style.max_lines = 2;
-  check_height(scene.fonts, scene, scene.handles.ellipsized_panel, ellipsized_style, "ellipsized",
-              out, ok);
+  check_height(scene.fonts, scene, scene.handles.ellipsized_panel, ellipsized_style,
+               "ellipsized", out, ok);
 
   out << "  height oracle: " << (ok ? "PASS" : "FAIL") << "\n";
 
@@ -97,15 +96,18 @@ int run(std::ostream& out) {
   // characters" smoke-test claim, now consumed by a real paragraph.
   bool lines_ok = true;
   {
-    dg::Expected<Paragraph, dg::FontError> latin_built = Paragraph::build(
-        scene.fonts, latin_style,
-        static_cast<float>(multiline_scene::kPanelWidth - (2 * multiline_scene::kPanelPadding)));
-    dg::Expected<Paragraph, dg::FontError> cjk_built = Paragraph::build(
-        scene.fonts, cjk_style,
-        static_cast<float>(multiline_scene::kPanelWidth - (2 * multiline_scene::kPanelPadding)));
-    dg::Expected<Paragraph, dg::FontError> ellipsized_built = Paragraph::build(
-        scene.fonts, ellipsized_style,
-        static_cast<float>(multiline_scene::kPanelWidth - (2 * multiline_scene::kPanelPadding)));
+    dg::Expected<Paragraph, dg::FontError> latin_built =
+        Paragraph::build(scene.fonts, latin_style,
+                         static_cast<float>(multiline_scene::kPanelWidth -
+                                            (2 * multiline_scene::kPanelPadding)));
+    dg::Expected<Paragraph, dg::FontError> cjk_built =
+        Paragraph::build(scene.fonts, cjk_style,
+                         static_cast<float>(multiline_scene::kPanelWidth -
+                                            (2 * multiline_scene::kPanelPadding)));
+    dg::Expected<Paragraph, dg::FontError> ellipsized_built =
+        Paragraph::build(scene.fonts, ellipsized_style,
+                         static_cast<float>(multiline_scene::kPanelWidth -
+                                            (2 * multiline_scene::kPanelPadding)));
     if (!latin_built.has_value() || !cjk_built.has_value() || !ellipsized_built.has_value()) {
       out << "  FAIL: could not rebuild a paragraph for the line-count claims\n";
       lines_ok = false;
@@ -113,12 +115,13 @@ int run(std::ostream& out) {
       const dg::ParagraphMetrics latin_metrics = latin_built.value().metrics();
       const dg::ParagraphMetrics cjk_metrics = cjk_built.value().metrics();
       const dg::ParagraphMetrics ellipsized_metrics = ellipsized_built.value().metrics();
-      out << "  latin: " << latin_metrics.line_count << " line(s); cjk (no spaces): "
-          << cjk_metrics.line_count << " line(s); ellipsized (max_lines=2): "
-          << ellipsized_metrics.line_count << " line(s), exceeded="
-          << (ellipsized_metrics.exceeded_max_lines ? "true" : "false") << "\n";
+      out << "  latin: " << latin_metrics.line_count
+          << " line(s); cjk (no spaces): " << cjk_metrics.line_count
+          << " line(s); ellipsized (max_lines=2): " << ellipsized_metrics.line_count
+          << " line(s), exceeded=" << (ellipsized_metrics.exceeded_max_lines ? "true" : "false")
+          << "\n";
       lines_ok = latin_metrics.line_count > 1 && cjk_metrics.line_count > 1 &&
-                ellipsized_metrics.line_count == 2 && ellipsized_metrics.exceeded_max_lines;
+                 ellipsized_metrics.line_count == 2 && ellipsized_metrics.exceeded_max_lines;
     }
   }
   out << "  line-count claims: " << (lines_ok ? "PASS" : "FAIL") << "\n";
@@ -130,8 +133,8 @@ int run(std::ostream& out) {
   out << "  after building the scene (one layout_full() call): nodes_total="
       << built.nodes_total << " nodes_visited=" << built.nodes_visited
       << " nodes_relaid_out=" << built.nodes_relaid_out << "\n";
-  const bool built_ok = built.nodes_visited == built.nodes_total &&
-                       built.nodes_relaid_out == built.nodes_total;
+  const bool built_ok =
+      built.nodes_visited == built.nodes_total && built.nodes_relaid_out == built.nodes_total;
 
   const LayoutStats second = scene.tree.layout();
   out << "  a second, no-op layout() call: nodes_visited=" << second.nodes_visited

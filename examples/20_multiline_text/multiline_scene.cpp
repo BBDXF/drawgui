@@ -76,7 +76,8 @@ dg::NodeId add_panel(LayoutTree& tree, dg::NodeId parent, const TextStyle& text,
 
 Scene build(dg::TreeSpec spec, const std::string& font_dir, const std::string& primary_family) {
   dg::Expected<FontCatalog, dg::FontError> scanned = FontCatalog::scan(font_dir);
-  FontCatalog fonts = scanned.has_value() ? std::move(scanned).value() : FontCatalog::scan(".").value();
+  FontCatalog fonts =
+      scanned.has_value() ? std::move(scanned).value() : FontCatalog::scan(".").value();
   dg::Expected<FontId, dg::FontError> primary = fonts.add(primary_family, false);
   const FontId primary_id = primary.has_value() ? primary.value() : FontId{};
 
@@ -92,8 +93,7 @@ Scene build(dg::TreeSpec spec, const std::string& font_dir, const std::string& p
   handles.column = tree.add_child(root, column, NodeStyle{});
 
   const TextStyle latin = panel_text(primary_id, kLatinText, "", 0);
-  handles.latin_panel =
-      add_panel(tree, handles.column, latin, wrapped_height(fonts, latin));
+  handles.latin_panel = add_panel(tree, handles.column, latin, wrapped_height(fonts, latin));
 
   const TextStyle cjk = panel_text(primary_id, kCjkText, "zh-Hans", 0);
   handles.cjk_panel = add_panel(tree, handles.column, cjk, wrapped_height(fonts, cjk));

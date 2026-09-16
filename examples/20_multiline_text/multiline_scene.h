@@ -71,8 +71,9 @@ inline const std::string kCjkText =
 inline const std::string kMixedText =
     "Mixed script: \u4e2d\u6587 + Latin + \U0001F600 in one run, one family "
     "chain, zero fontconfig.";
-inline const std::string kBidiText = "hello \u0645\u0631\u062D\u0628\u0627 world, BiDi "
-                                     "reorders the Arabic run without mirroring the UI.";
+inline const std::string kBidiText =
+    "hello \u0645\u0631\u062D\u0628\u0627 world, BiDi "
+    "reorders the Arabic run without mirroring the UI.";
 
 struct Handles {
   dg::NodeId column;
@@ -100,7 +101,7 @@ struct Scene {
 // family added under `primary_family` - a caller only supplies the viewport,
 // background and (optionally) which font directory/family to use.
 Scene build(dg::TreeSpec spec, const std::string& font_dir = "/usr/share/fonts",
-           const std::string& primary_family = "DejaVu Sans");
+            const std::string& primary_family = "DejaVu Sans");
 
 inline constexpr dg::PixelSize kDemoViewport{620, 900};
 

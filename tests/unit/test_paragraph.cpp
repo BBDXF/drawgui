@@ -80,7 +80,8 @@ TEST_CASE("paragraph: a string wider than the width wraps to more than one line"
   // N times that height (SkParagraph does not add inter-line leading here),
   // so a caller can predict the box height from the width alone.
   const TextStyle one_line_style = make_style(latin.value(), "AB");
-  dg::Expected<Paragraph, dg::FontError> one_line = Paragraph::build(fonts, one_line_style, 100.0F);
+  dg::Expected<Paragraph, dg::FontError> one_line =
+      Paragraph::build(fonts, one_line_style, 100.0F);
   REQUIRE(one_line.has_value());
   const int single_line_height = one_line.value().metrics().height;
   CHECK(single_line_height > 0);
@@ -101,8 +102,9 @@ TEST_CASE("paragraph: max_lines truncates and reports it was exceeded") {
   CHECK(metrics.exceeded_max_lines);
 }
 
-TEST_CASE("paragraph: 16 unspaced Han characters wrap without a single space, at a "
-         "width that forces more than one line (UAX#14, not whitespace)") {
+TEST_CASE(
+    "paragraph: 16 unspaced Han characters wrap without a single space, at a "
+    "width that forces more than one line (UAX#14, not whitespace)") {
   FontCatalog fonts = make_catalog();
   dg::Expected<FontId, dg::FontError> hans = fonts.add("DgTest Han Hans", false);
   REQUIRE(hans.has_value());
@@ -125,8 +127,9 @@ TEST_CASE("paragraph: 16 unspaced Han characters wrap without a single space, at
   CHECK(built.value().metrics().line_count > 1);
 }
 
-TEST_CASE("paragraph: build() reports a fillable error rather than crashing on an "
-         "invalid font id, empty text, or non-positive size") {
+TEST_CASE(
+    "paragraph: build() reports a fillable error rather than crashing on an "
+    "invalid font id, empty text, or non-positive size") {
   FontCatalog fonts = make_catalog();
   dg::Expected<FontId, dg::FontError> latin = fonts.add("DgTest Latin", false);
   REQUIRE(latin.has_value());
@@ -141,15 +144,17 @@ TEST_CASE("paragraph: build() reports a fillable error rather than crashing on a
   CHECK_FALSE(Paragraph::build(fonts, zero_size, 100.0F).has_value());
 }
 
-TEST_CASE("paragraph: malformed UTF-8 is degraded to the primary family's run rather "
-         "than crashing - a lone continuation byte, a truncated multi-byte lead, and "
-         "an overlong encoding, each fed through Paragraph::build() directly") {
+TEST_CASE(
+    "paragraph: malformed UTF-8 is degraded to the primary family's run rather "
+    "than crashing - a lone continuation byte, a truncated multi-byte lead, and "
+    "an overlong encoding, each fed through Paragraph::build() directly") {
   FontCatalog fonts = make_catalog();
   dg::Expected<FontId, dg::FontError> latin = fonts.add("DgTest Latin", false);
   REQUIRE(latin.has_value());
 
   // A lone continuation byte (0x80..0xBF with nothing before it).
-  const TextStyle lone_continuation = make_style(latin.value(), std::string{"A\x80""B"});
+  const TextStyle lone_continuation = make_style(latin.value(), std::string{"A\x80"
+                                                                            "B"});
   CHECK(Paragraph::build(fonts, lone_continuation, 100.0F).has_value());
 
   // A truncated three-byte lead (0xE0 wants two continuation bytes; none
@@ -160,12 +165,14 @@ TEST_CASE("paragraph: malformed UTF-8 is degraded to the primary family's run ra
   // An overlong two-byte encoding of NUL (0xC0 0x80) - a codepoint that has a
   // shorter valid encoding, which utf8_decode() rejects per design.md
   // section 5.13.3 rather than accepting.
-  const TextStyle overlong = make_style(latin.value(), std::string{"A\xC0\x80""B"});
+  const TextStyle overlong = make_style(latin.value(), std::string{"A\xC0\x80"
+                                                                   "B"});
   CHECK(Paragraph::build(fonts, overlong, 100.0F).has_value());
 }
 
-TEST_CASE("paragraph_runs: groups by resolved family name, not by codepoint, and a "
-         "codepoint nothing covers still gets the primary's own family") {
+TEST_CASE(
+    "paragraph_runs: groups by resolved family name, not by codepoint, and a "
+    "codepoint nothing covers still gets the primary's own family") {
   FontCatalog fonts = make_catalog();
   dg::Expected<FontId, dg::FontError> latin = fonts.add("DgTest Latin", false);
   REQUIRE(latin.has_value());

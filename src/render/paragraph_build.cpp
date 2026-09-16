@@ -37,8 +37,8 @@ skia::textlayout::TextAlign to_sk_text_align(TextAlign align) {
 }  // namespace
 
 std::unique_ptr<skia::textlayout::Paragraph> build_paragraph(const FontCatalog& fonts,
-                                                              const TextStyle& text,
-                                                              float width) {
+                                                             const TextStyle& text,
+                                                             float width) {
   if (text.text.empty() || !fonts.holds(text.font) || text.size <= 0.0F) {
     return nullptr;
   }

@@ -41,7 +41,7 @@ void legend(std::ostream& out) {
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId window, const Settings& settings,
-        std::ostream& out)
+         std::ostream& out)
       : settings_(settings), out_(&out), manager_(&manager), window_(window) {}
 
   int run();

@@ -267,6 +267,9 @@ jobs:
             src/render/clip_shape.cpp
             src/render/hit_test.cpp
             src/render/image_catalog.cpp
+            src/render/paragraph.cpp
+            src/render/paragraph_build.cpp
+            src/render/paragraph_runs.cpp
             src/render/render_tree.cpp
             src/render/skia_paint.cpp
             src/render/text_metrics.cpp
@@ -311,6 +314,7 @@ jobs:
             tests/unit/test_animation.cpp
             tests/unit/test_theme.cpp
             tests/unit/test_skia_textlayout_smoke.cpp
+            tests/unit/test_paragraph.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
@@ -398,7 +402,11 @@ jobs:
             examples/18_theme/theme_check.cpp
             examples/18_theme/theme_scene.cpp
             examples/18_theme/theme_window.cpp
-            examples/19_c_client/main.c"
+            examples/19_c_client/main.c
+            examples/20_multiline_text/main.cpp
+            examples/20_multiline_text/multiline_check.cpp
+            examples/20_multiline_text/multiline_scene.cpp
+            examples/20_multiline_text/multiline_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files

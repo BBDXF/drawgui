@@ -15,10 +15,12 @@ struct Paragraph::Impl {
 
 Expected<Paragraph, FontError> Paragraph::build(const FontCatalog& fonts, const TextStyle& text,
                                                 float width) {
-  std::unique_ptr<skia::textlayout::Paragraph> built = detail::build_paragraph(fonts, text, width);
+  std::unique_ptr<skia::textlayout::Paragraph> built =
+      detail::build_paragraph(fonts, text, width);
   if (!built) {
-    return Unexpected{FontError{"paragraph layout failed: invalid font, empty text, or "
-                                "non-positive size"}};
+    return Unexpected{
+        FontError{"paragraph layout failed: invalid font, empty text, or "
+                  "non-positive size"}};
   }
   auto impl = std::make_unique<Impl>();
   impl->paragraph = std::move(built);
