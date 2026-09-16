@@ -1,5 +1,25 @@
 # Development
 
+## Skia dependency
+
+Skia is consumed as `BBDXF/libskia2` via `cmake/FetchSkia2.cmake` +
+`find_package(skia2)`/`skia2::skia2` (P7 slice 7-1; superseded the old
+rust-skia-based `cmake/FetchSkia.cmake`). `doc/skia-dependency.md` has the
+full switch record - what was verified, the golden-image risk assessment,
+the design.md §12/§5.10.5/§5.13.6 settlement, and the measurements.
+
+**New system prerequisite: `libfontconfig1-dev`.** `skia2Config.cmake`
+requires `libfontconfig` and its headers to configure the link on Linux
+(Skia's own `BUILD.gn` never vendors fontconfig). This is a *build*-time
+requirement only - `src/render/font_catalog.cpp` still never calls
+`SkFontMgr_New_FontConfig`, so no drawgui binary carries a runtime
+dependency on `libfontconfig` (verified with `ldd`; see `doc/skia-
+dependency.md` section 6 and `doc/font-fallback.md`). On a fresh machine:
+
+```sh
+sudo apt-get install -y libfontconfig1-dev
+```
+
 ## Adding a property
 
 Every layout and visual property lives in `props/drawgui.props.toml`, the

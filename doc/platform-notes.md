@@ -76,6 +76,31 @@ loader instead.
 (`GrDirectContext`, `GrDirectContexts::MakeGL`, etc.) is declared
 unconditionally in the headers, with no defines needed on the drawgui side.
 
+**Re-verified after the P7 7-1 Skia provider switch (libskia2)**: `nm` over
+every one of libskia2's 7 static libraries finds no undefined `gl*`/`glX*`
+symbol anywhere, confirming `GrGLMakeNativeInterface_none` is still what got
+built (`skia_use_x11=false` + `skia_use_egl=false` in libskia2's own
+`config/linux-x64.gn.args`, matching this note's finding independently
+rather than by re-reading the same GN args this project no longer controls).
+See `doc/skia-dependency.md` section 2 for the full re-verification.
+
+## fontconfig: a new build-time system prerequisite (P7 7-1)
+
+Switching to libskia2 makes `libfontconfig1-dev` a required system package
+to *build* this project - `skia2Config.cmake` does `find_library`/
+`find_path` for it on Linux (`REQUIRED`, hard error if absent). Installed and
+confirmed on this host: `fontconfig 2.17.1`,
+`/usr/lib/x86_64-linux-gnu/libfontconfig.so`.
+
+This is a build-time-only addition, not a runtime one, and not a reversal of
+this project's "no fontconfig for font selection" decision
+(`doc/font-fallback.md`): `ldd` on every drawgui binary - including
+`drawgui_skia_cpu_gallery`, the heaviest Skia consumer - shows zero
+`libfontconfig` runtime dependency, because nothing in this codebase's
+object files ever references an `Fc*` symbol and the linker's `--as-needed`
+default (Ubuntu's `ld` default) drops the otherwise-unused `DT_NEEDED` entry.
+`doc/skia-dependency.md` section 6 has the full measurement.
+
 ## The popup spike
 
 design.md section 5.2 requires that popups (dropdowns, context menus,

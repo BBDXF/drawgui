@@ -419,18 +419,35 @@ will be measured before it is abstracted over.
 - Ninja
 - clang or gcc with C++20 support
 - FreeType development headers (`libfreetype-dev`)
+- fontconfig development headers (`libfontconfig1-dev`) - new as of the
+  libskia2 dependency switch (`doc/skia-dependency.md`); see below for why
+  this is a *build*-time requirement without being a reversal of the
+  "no fontconfig for font selection" decision this section already recorded
 
 `libskia.a` references `SkTypeface_FreeType` unconditionally, so FreeType is
 required even though this phase draws no text.
 
-FreeType is the only external library, and it stays that way now that text
-falls back across scripts. `SkFontMgr_New_FontConfig` is present in the
-prebuilt archive - with 47 undefined `Fc*` symbols to go with it - and was
-deliberately not used: fontconfig's per-language answers come from
-`/etc/fonts` on the host, so glyph selection would have become a property of
-the machine rather than of the program. drawgui builds the chain itself
-instead. `doc/font-fallback.md` records the measurements, the cost, and what
-would force the other choice.
+The Skia distribution is `BBDXF/libskia2` (`cmake/FetchSkia2.cmake`), a
+purpose-built prebuilt Skia for self-drawn GUI frameworks; `doc/skia-
+dependency.md` records the full switch from the previous rust-skia-based
+setup, including why the golden-image hash did not change.
+
+FreeType and fontconfig are external libraries, and fontconfig is a build-
+time-only one: `skia2Config.cmake` requires `libfontconfig` and its headers
+to configure the link on Linux (Skia's own `BUILD.gn` never vendors it), but
+`SkFontMgr_New_FontConfig` is still not called anywhere in this codebase -
+`src/render/font_catalog.cpp` uses `SkFontMgr_New_Custom_Directory`
+exclusively - deliberately, for the same reason recorded below: fontconfig's
+per-language answers come from `/etc/fonts` on the host, so glyph selection
+would have become a property of the machine rather than of the program.
+drawgui builds the chain itself instead. Measured proof the property
+survived the dependency switch: `ldd` on every drawgui binary shows **no**
+runtime dependency on `libfontconfig` at all, because nothing in this
+codebase's object files references an `Fc*` symbol and the linker's
+`--as-needed` default drops the unused `DT_NEEDED` entry. `doc/font-
+fallback.md` records the measurements, the cost, and what would force the
+other choice; `doc/skia-dependency.md` section 6 records the fontconfig
+build-vs-runtime distinction in full.
 
 The prebuilt includes the Ganesh GL backend, but no OpenGL development package
 is needed: the build ships `GrGLMakeNativeInterface_none`, so every GL entry
@@ -445,11 +462,12 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The first configure downloads a prebuilt Skia static library and the matching
-headers into `third_party/skia-prebuilt/`. The library is verified by SHA256
-and the headers by commit SHA; a mismatch is a hard error, because headers
-that disagree with the binary produce a link that succeeds and then
-misbehaves at runtime.
+The first configure downloads libskia2's release tarball (one archive per
+platform, carrying all 7 static libraries, the full header tree and a
+generated CMake package) into `third_party/skia-prebuilt/`, verified by
+SHA256 against both the hash libskia2 itself publishes and a copy pinned in
+`cmake/FetchSkia2.cmake` - see `doc/skia-dependency.md` section 10 for why
+both checks run rather than trusting the published sidecar alone.
 
 It also downloads the doctest single header into `third_party/doctest-<version>/`,
 verified by SHA256 on every configure. Building without network access is
@@ -785,3 +803,4 @@ Findings and decisions from each slice live beside it:
 | `doc/animation.md` | `dg::AnimationEngine` - the clock's value-based seam and why it needed no `virtual`, why `curve_id` is a plain constant set rather than generator-backed, the generation-counter handle lifetime and why 5-3's "never free" precedent does not transfer, the retarget-mid-transition proof, the measured idle-CPU number, and the honest §5.15.2 three-level-invalidation gap report |
 | `doc/theme.md` | The theme token system - `themes/schema.toml`'s generator family reused from `props/`, the JSON-parser decision (hand-rolled vs. nlohmann/json), `$token` live references as a `WidgetSet`-shaped side table rather than a generation-counter handle, the measured colour-only-vs-int-token relayout cost, `dg::Expected`-based load errors naming the exact JSON key path, and what CI's `tools/check_consistency.py` verifies |
 | `doc/abi.md` | The C ABI - `abi/drawgui.def.toml`'s generator family (reusing the props generator directly), how the generated try/catch wrapping is made provably uniform and how its removal was shown to crash rather than silently do nothing, why handle validation is append-only rather than AnimHandle's generation-counter shape, the two real engine gaps (no insertion-order or removal primitive) the ABI sketch does not admit to, and everything declined by name (theme ABI, animation ABI, callback events, QuickJS stubs) |
+| `doc/skia-dependency.md` | The libskia2 dependency switch (P7 7-1) - why the golden-image hash is unchanged and why that is credible rather than merely convenient, the empirical proof SkParagraph/SkUnicode link and initialize, the design.md §12 open-question-5 and §5.10.5-vs-§5.13.6 settlement (libgrapheme carries no `icudtl.dat` at all, verified rather than taken from the README), the fontconfig build-time-vs-runtime distinction, the newly-available-but-unwired capability inventory (SVG/WebP/GIF/Ganesh-GL/Windows), and the measured binary-size and clean-build-time deltas |
