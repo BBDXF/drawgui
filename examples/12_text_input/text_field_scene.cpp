@@ -35,6 +35,10 @@ constexpr std::uint32_t kCaretColor = 0xFF2E86DE;
 // ~55% alpha over kFieldFill - visible without hiding the selected text drawn
 // over it in the same colour every other run uses.
 constexpr std::uint32_t kSelectionFill = 0x8A2E86DE;
+// 7-3 (doc/ime.md): the composition underline's colour - deliberately
+// distinct from the caret and selection so a hand-derived pixel test can
+// tell the three apart on screen.
+constexpr std::uint32_t kCompositionUnderlineColor = 0xFFE8B930;
 
 NodeStyle field_style(bool focused) {
   NodeStyle style;
@@ -66,6 +70,13 @@ NodeId add_field(dg::LayoutTree& tree, dg::WidgetSet& widgets, NodeId parent, dg
   highlight_style.fill = Color::from_argb(kSelectionFill);
   const NodeId highlight = tree.add_child(field, placeholder, highlight_style);
 
+  // 7-3's composition underline (doc/ime.md) - added before `content` so it
+  // paints behind the glyphs, the same "background before foreground" order
+  // `highlight` already establishes.
+  NodeStyle underline_style;
+  underline_style.fill = Color::from_argb(kCompositionUnderlineColor);
+  const NodeId underline = tree.add_child(field, placeholder, underline_style);
+
   NodeStyle content_style;
   content_style.text.font = font;
   content_style.text.size = static_cast<float>(kFontSize);
@@ -83,6 +94,7 @@ NodeId add_field(dg::LayoutTree& tree, dg::WidgetSet& widgets, NodeId parent, dg
   widget.content = content;
   widget.caret = caret;
   widget.selection_highlight = highlight;
+  widget.composition_underline = underline;
   widget.text = initial;
   widget.cursor = static_cast<int>(initial.size());
   widgets.attach(field, widget);

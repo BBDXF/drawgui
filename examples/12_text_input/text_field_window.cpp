@@ -66,6 +66,15 @@ void apply_presets(text_field_scene::Scene& scene, const Settings& settings) {
                                     dg::TextFieldMove::kCharRight, true);
     }
   }
+  if (settings.preset_compose_field_b) {
+    text_field_scene::set_focus(scene, scene.handles.field_b);
+    // "\xE4\xBD\xA0\xE5\xA5\xBD" is "你好" (6 UTF-8 bytes, 2 codepoints) -
+    // SDL's own start=2 names the SECOND codepoint's position (matching
+    // TextEditingEvent's own "UTF-8 characters" unit), length=1 highlights
+    // it as the IME's own focused clause.
+    scene.widgets.text_field_composition_update(
+        scene.tree.render(), fonts, scene.handles.field_b, "\xE4\xBD\xA0\xE5\xA5\xBD", 2, 1);
+  }
 }
 
 class Runner {
@@ -82,8 +91,10 @@ class Runner {
   void handle_down(text_field_scene::Scene& scene, dg::PixelPoint at);
   void handle_move(text_field_scene::Scene& scene, dg::PixelPoint at);
   void handle_up();
-  static void handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& event);
+  void handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& event);
   static void handle_text(text_field_scene::Scene& scene, const dg::TextInputEvent& event);
+  static void handle_text_editing(text_field_scene::Scene& scene,
+                                  const dg::TextEditingEvent& event);
 
   Settings settings_;
   std::ostream* out_;
@@ -209,8 +220,17 @@ void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& even
     case dg::Key::kDelete:
       scene.widgets.text_field_delete_forward(tree, fonts, field);
       break;
-    case dg::Key::kOther:
     case dg::Key::kEscape:
+      // 7-3 (doc/ime.md section 6): Escape cancels an in-progress
+      // composition without committing it - both halves, this engine's own
+      // model AND the platform's real IME state, so neither is left ahead
+      // of the other.
+      if (scene.widgets.text_field_is_composing(field)) {
+        scene.widgets.text_field_cancel_composition(tree, fonts, field);
+        manager_->clear_composition(window_);
+      }
+      break;
+    case dg::Key::kOther:
       break;
   }
 }
@@ -224,6 +244,19 @@ void Runner::handle_text(text_field_scene::Scene& scene, const dg::TextInputEven
     return;
   }
   scene.widgets.text_field_insert(scene.tree.render(), *scene.fonts, *focused, event.text);
+}
+
+void Runner::handle_text_editing(text_field_scene::Scene& scene,
+                                 const dg::TextEditingEvent& event) {
+  if (!scene.fonts.has_value()) {
+    return;
+  }
+  const std::optional<dg::NodeId> focused = scene.focus.current();
+  if (!focused.has_value()) {
+    return;
+  }
+  scene.widgets.text_field_composition_update(scene.tree.render(), *scene.fonts, *focused,
+                                              event.text, event.start, event.length);
 }
 
 int Runner::run() {
@@ -265,6 +298,13 @@ int Runner::run() {
     }
     for (const dg::KeyEvent& event : pumped.key) {
       handle_key(scene, event);
+    }
+    // Composition-preview events BEFORE committed text, matching the order
+    // a real IME delivers them in: SDL_EVENT_TEXT_EDITING (repeatedly, one
+    // per keystroke while composing) always precedes the eventual
+    // SDL_EVENT_TEXT_INPUT that actually commits.
+    for (const dg::TextEditingEvent& event : pumped.text_editing) {
+      handle_text_editing(scene, event);
     }
     for (const dg::TextInputEvent& event : pumped.text_input) {
       handle_text(scene, event);
@@ -404,6 +444,21 @@ int script(const Settings& settings, std::ostream& out) {
   }
   out << "  clicked field b at " << click_at.x << "," << click_at.y << ": " << downs
       << " real down event(s), " << ups << " real up event(s) delivered\n";
+
+  // A SYNTHESIZED SDL_EVENT_TEXT_EDITING, pushed the same route
+  // post_pointer_button()/post_text_input() already prove out - the
+  // deterministic testing answer doc/ime.md section 5 records: a real IME
+  // on THIS development machine never produces one at all (it draws its
+  // own composition window instead), so this is the only way this project
+  // has to exercise the composition-preview code path through the real SDL
+  // event queue. Stated plainly, not glossed over: this proves the engine
+  // reads a well-formed SDL_EVENT_TEXT_EDITING correctly, NOT that it works
+  // end-to-end against a genuine composing IME.
+  manager.post_text_editing(window, "h", 1, 0);
+  const dg::PumpResult editing_events = manager.pump(200);
+  out << "  composed \"h\" (SYNTHESIZED SDL_EVENT_TEXT_EDITING - doc/ime.md section 5: no "
+         "real IME on this machine ever produces one): "
+      << editing_events.text_editing.size() << " event(s) delivered\n";
 
   // A real committed-text event AND a real key event, both on the platform's
   // own queue - the same route post_pointer_button() proves out for a click.

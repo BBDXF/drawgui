@@ -117,6 +117,10 @@ std::optional<Options> parse_options(int argc, char** argv) {
       options.settings.preset_select_field_a = true;
       continue;
     }
+    if (args[i] == "--preset-compose-b") {
+      options.settings.preset_compose_field_b = true;
+      continue;
+    }
     if (i + 1 >= args.size() || !apply_valued(args[i], args[i + 1], options)) {
       return std::nullopt;
     }
@@ -128,6 +132,7 @@ std::optional<Options> parse_options(int argc, char** argv) {
 void usage() {
   std::cerr << "usage: drawgui_text_input [--size WxH] [--run-ms N]\n"
             << "                          [--preset-field-b TEXT] [--preset-focus-a]\n"
+            << "                          [--preset-select-a] [--preset-compose-b]\n"
             << "                          [--probe X,Y] [--dump-png FILE]\n"
             << "                          [--verify-text-input] [--script]\n";
 }

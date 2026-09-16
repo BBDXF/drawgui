@@ -376,6 +376,149 @@ bool check_cjk_and_zwj_emoji_editing(std::ostream& out) {
   return ok;
 }
 
+// --------------------------------------------------------------------------
+// Claim 7 (7-3, doc/ime.md): IME composition preview and commit.
+//
+// Models exactly what SDL delivers - WidgetSet::text_field_composition_
+// update()/text_field_cancel_composition() called directly, the same
+// level every other claim in this file exercises the model at (the
+// window-level plumbing that turns a real/synthesized SDL_EVENT_TEXT_
+// EDITING into this same call is examples/12_text_input's own
+// text_field_window.cpp::Runner::handle_text_editing(), and --script
+// drives it through the real SDL event queue - doc/ime.md section 5 is
+// where the honest boundary of what that proves is recorded).
+//
+// Also answers the task's own harder relayout question: a composition
+// preview's own LENGTH changes on every keystroke, unlike committed text
+// which changes only on insert/backspace - measured here across several
+// different preedit lengths in a row, not assumed from Claim 4/6's
+// committed-text finding.
+// --------------------------------------------------------------------------
+
+bool check_ime_composition_preview_and_commit(std::ostream& out) {
+  text_field_scene::Scene scene = text_field_scene::build(spec_for(kSize));
+  bool ok = true;
+  if (!scene.fonts.has_value()) {
+    out << "  SKIP: no system font found under /usr/share/fonts\n";
+    return true;
+  }
+  const dg::FontCatalog& fonts = *scene.fonts;
+  const NodeId field = scene.handles.field_b;
+  dg::RenderTree& tree = scene.tree.render();
+  dg::LayoutTree& layout_tree = scene.tree;
+
+  text_field_scene::set_focus(scene, field);
+
+  // Preview: composing "hi" (SDL's own start=2, no clause highlight) shows
+  // it inline WITHOUT touching the committed model.
+  scene.widgets.text_field_composition_update(tree, fonts, field, "hi", 2, 0);
+  if (!scene.widgets.text_field_is_composing(field)) {
+    out << "  FAIL: composition_update() did not enter the composing state\n";
+    ok = false;
+  }
+  if (!scene.widgets.text_field_text(field).empty()) {
+    out << "  FAIL: a composition preview touched the committed model, got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+  const std::string previewed_hi = tree.style(scene.widgets.at(field).content).text.text;
+  if (previewed_hi != "hi") {
+    out << "  FAIL: the content child should display the not-yet-committed preview \"hi\", got "
+           "\""
+        << previewed_hi << "\"\n";
+    ok = false;
+  }
+  if (tree.local_bounds(scene.widgets.at(field).composition_underline).width <= 0) {
+    out << "  FAIL: a non-empty composition should show a non-zero-width underline\n";
+    ok = false;
+  }
+
+  // The task's own harder relayout question: re-measure across SEVERAL
+  // DIFFERENT preedit lengths in a row (a preedit changes length on every
+  // keystroke, unlike committed text which only changes on insert/
+  // backspace) - LayoutStats, not assumed from Claim 4/6's committed-text
+  // finding.
+  const dg::LayoutStats after_h = layout_tree.layout();
+  if (after_h.nodes_visited != 0 || after_h.nodes_relaid_out != 0) {
+    out << "  FAIL: composing \"hi\" visited " << after_h.nodes_visited
+        << " layout node(s) - expected 0\n";
+    ok = false;
+  }
+  scene.widgets.text_field_composition_update(tree, fonts, field, "hell", 4, 0);
+  const dg::LayoutStats after_hell = layout_tree.layout();
+  if (after_hell.nodes_visited != 0 || after_hell.nodes_relaid_out != 0) {
+    out << "  FAIL: composing a LONGER preedit (\"hell\") visited " << after_hell.nodes_visited
+        << " layout node(s) - expected 0 (a changing preedit length is the harder case the "
+           "task asked to re-measure, not assume)\n";
+    ok = false;
+  }
+  scene.widgets.text_field_composition_update(tree, fonts, field, "h", 1, 0);
+  const dg::LayoutStats after_shrink = layout_tree.layout();
+  if (after_shrink.nodes_visited != 0 || after_shrink.nodes_relaid_out != 0) {
+    out << "  FAIL: composing a SHORTER preedit (\"h\") visited " << after_shrink.nodes_visited
+        << " layout node(s) - expected 0\n";
+    ok = false;
+  }
+
+  // Escape (text_field_cancel_composition): discards the preview, commits
+  // nothing, restores the empty field's own display.
+  scene.widgets.text_field_cancel_composition(tree, fonts, field);
+  if (scene.widgets.text_field_is_composing(field)) {
+    out << "  FAIL: cancel_composition() left the field still composing\n";
+    ok = false;
+  }
+  const std::string after_cancel = tree.style(scene.widgets.at(field).content).text.text;
+  if (!after_cancel.empty()) {
+    out << "  FAIL: cancelling a composition over an empty field should restore an empty "
+           "display, got \""
+        << after_cancel << "\"\n";
+    ok = false;
+  }
+
+  // A real commit (the same text_field_insert() every other claim in this
+  // file already exercises) - the exact commit path this slice was asked
+  // to VERIFY rather than add a parallel one to.
+  scene.widgets.text_field_composition_update(tree, fonts, field, "hi", 2, 0);
+  scene.widgets.text_field_insert(tree, fonts, field, "hi");
+  if (scene.widgets.text_field_is_composing(field)) {
+    out << "  FAIL: a commit should end composition\n";
+    ok = false;
+  }
+  if (scene.widgets.text_field_text(field) != "hi") {
+    out << "  FAIL: the commit should have produced \"hi\" in the model, got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+
+  // Composing over a selection: the selection stays untouched in the model
+  // until commit; the PREVIEW splices the preedit into the selection's own
+  // range.
+  scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart, false);
+  scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight, true);
+  scene.widgets.text_field_composition_update(tree, fonts, field, "X", 1, 0);
+  if (scene.widgets.text_field_text(field) != "hi") {
+    out << "  FAIL: composing over a selection mutated the model before any commit, got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+  const std::string previewed_over_selection =
+      tree.style(scene.widgets.at(field).content).text.text;
+  if (previewed_over_selection != "Xi") {
+    out << "  FAIL: composing \"X\" over a selected \"h\" should preview \"Xi\", got \""
+        << previewed_over_selection << "\"\n";
+    ok = false;
+  }
+  scene.widgets.text_field_cancel_composition(tree, fonts, field);
+
+  if (ok) {
+    out << "  OK: composition previews inline without touching the committed model, costs "
+           "zero relayout across SEVERAL different preedit lengths (the harder, changing-"
+           "length case), Escape cancels without committing, and a commit flows through the "
+           "ordinary text_field_insert() path\n";
+  }
+  return ok;
+}
+
 }  // namespace
 
 int run(std::ostream& out) {
@@ -387,6 +530,7 @@ int run(std::ostream& out) {
   ok = check_editing_costs_no_relayout(out) && ok;
   ok = check_identity(out) && ok;
   ok = check_cjk_and_zwj_emoji_editing(out) && ok;
+  ok = check_ime_composition_preview_and_commit(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;
 }
