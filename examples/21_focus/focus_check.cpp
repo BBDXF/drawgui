@@ -110,6 +110,19 @@ void check_order_and_wrapping(std::ostream& out, bool& ok) {
   scene.focus.set(scene.handles.inert);
   check(scene.focus.current() == scene.handles.inert,
         "tab_index=-1 (inert) is still focusable directly", out, ok);
+
+  // The measured relayout cost of a focus change: every side effect above
+  // (the ring's set_local_bounds()/set_style(), TextField's start/stop_
+  // text_input()) goes through RenderTree alone - LayoutTree::layout() is
+  // never told anything is dirty, so a real layout() pass afterward should
+  // find nothing to do, the identical shape doc/scrolling.md's offset and
+  // doc/form-controls.md's slider value already have.
+  const dg::LayoutStats stats = scene.tree.layout();
+  out << "  LayoutStats after " << (expected.size() + 8)
+      << " focus changes: nodes_visited=" << stats.nodes_visited
+      << " nodes_relaid_out=" << stats.nodes_relaid_out << "\n";
+  check(stats.nodes_visited == 0 && stats.nodes_relaid_out == 0,
+        "a focus change costs a repaint and never a relayout", out, ok);
 }
 
 // --------------------------------------------------------------------------
