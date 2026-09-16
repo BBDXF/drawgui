@@ -44,7 +44,7 @@ namespace {
 // the README table it feeds) is the point: design.md section 12 open
 // question 5 is settled against THIS built archive, first-party.
 size_t count_flag(const skia_private::TArray<SkUnicode::CodeUnitFlags, true>& flags,
-                   SkUnicode::CodeUnitFlags wanted) {
+                  SkUnicode::CodeUnitFlags wanted) {
   size_t n = 0;
   for (int i = 0; i < flags.size(); ++i) {
     if ((flags[i] & wanted) != 0) {
@@ -115,8 +115,7 @@ TEST_CASE("skia textlayout foundation: grapheme clusters (ZWJ family emoji count
   // `char utf8[]` (non-const), and a non-const std::string's own `.data()`
   // already returns `char*` in C++17 - the correct way to get a mutable
   // pointer without a const_cast.
-  std::string family_emoji =
-      "\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466";
+  std::string family_emoji = "\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466";
   skia_private::TArray<SkUnicode::CodeUnitFlags, true> flags;
   const bool ok = unicode->computeCodeUnitFlags(
       family_emoji.data(), static_cast<int>(family_emoji.size()), false, &flags);
@@ -135,7 +134,8 @@ TEST_CASE("skia textlayout foundation: CJK line breaking without spaces (UAX#14)
   // nothing in between, not "more than a handful". Not `const`, for the
   // same non-const-`.data()` reason as above.
   std::string cjk_text =
-      "\u4e2d\u6587\u6ca1\u6709\u7a7a\u683c\u6240\u4ee5\u65ad\u884c\u5b8c\u5168\u4f9d\u8d56\u89c4\u5219\u8868";
+      "\u4e2d\u6587\u6ca1\u6709\u7a7a\u683c\u6240\u4ee5\u65ad\u884c\u5b8c\u5168\u4f9d\u8d56"
+      "\u89c4\u5219\u8868";
   skia_private::TArray<SkUnicode::CodeUnitFlags, true> flags;
   const bool ok = unicode->computeCodeUnitFlags(
       cjk_text.data(), static_cast<int>(cjk_text.size()), false, &flags);
@@ -155,8 +155,9 @@ TEST_CASE("skia textlayout foundation: BiDi produces an RTL region for Arabic-in
   // undefined). A BidiLevel is RTL when it is odd.
   const std::string mixed_text = "hello \u0645\u0631\u062D\u0628\u0627 world";
   std::vector<SkUnicode::BidiRegion> regions;
-  const bool ok = unicode->getBidiRegions(mixed_text.data(), static_cast<int>(mixed_text.size()),
-                                           SkUnicode::TextDirection::kLTR, &regions);
+  const bool ok =
+      unicode->getBidiRegions(mixed_text.data(), static_cast<int>(mixed_text.size()),
+                              SkUnicode::TextDirection::kLTR, &regions);
   REQUIRE(ok);
   CHECK(regions.size() >= 2);
   bool has_rtl = false;
