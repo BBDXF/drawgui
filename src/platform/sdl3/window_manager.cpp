@@ -154,6 +154,8 @@ Key to_key(SDL_Keycode keycode) {
       return Key::kDelete;
     case SDLK_ESCAPE:
       return Key::kEscape;
+    case SDLK_TAB:
+      return Key::kTab;
     default:
       return Key::kOther;
   }
@@ -175,6 +177,8 @@ SDL_Keycode from_key(Key key) {
       return SDLK_DELETE;
     case Key::kEscape:
       return SDLK_ESCAPE;
+    case Key::kTab:
+      return SDLK_TAB;
     case Key::kOther:
       break;
   }

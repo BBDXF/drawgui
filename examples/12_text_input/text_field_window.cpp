@@ -230,6 +230,12 @@ void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& even
         manager_->clear_composition(window_);
       }
       break;
+    case dg::Key::kTab:
+      // Tab/Shift-Tab moving focus is 7-4's own job (examples/21_focus) -
+      // this demo predates dg::Focus::focus_next()/focus_previous() and has
+      // exactly two tab stops with no non-text-field widget between them,
+      // so it is left as a plain field-to-field click-to-focus demo rather
+      // than retrofitted here.
     case dg::Key::kOther:
       break;
   }

@@ -193,6 +193,14 @@ enum class Key : std::uint8_t {
   // the six above it, but the same "only what has a real consumer" policy
   // this enum's own comment states applies to it too.
   kEscape,
+
+  // 7-4's Tab/Shift-Tab (`shift` on KeyEvent below already carries the
+  // distinction). design.md section 5.5.2 lists Tab under "焦点树 + 显式
+  // tab_index" (section 5.5), not under a text field's own editing intents
+  // - it is the one keyboard input this project routes through
+  // `dg::Focus::focus_next()`/`focus_previous()` rather than through a
+  // widget's model at all.
+  kTab,
 };
 
 enum class KeyAction : std::uint8_t {
