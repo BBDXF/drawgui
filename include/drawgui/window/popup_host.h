@@ -139,10 +139,24 @@ class PopupHost {
   //
   // `anchor_rect` and the returned handle's `content_bounds` are both in
   // `parent_window`'s own physical-pixel coordinates.
+  //
+  // `kind` defaults to kMenu (SDL_WINDOW_POPUP_MENU on the native branch) -
+  // every existing caller of show() keeps getting exactly the window it
+  // always has, unchanged. kTooltip (SDL_WINDOW_TOOLTIP) is 7-5b's own
+  // addition (doc/menus.md section 6.2): it accepts NO input at all on the
+  // native branch, which is why a Tooltip's own lifecycle is NOT driven
+  // through handle_pointer()/handle_key() below - a window that receives no
+  // input can never produce the click/Escape those two read, so a caller
+  // showing a tooltip manages show/hide itself (from hover-timer state,
+  // include/drawgui/widget/tooltip.h) and calls close() directly. The
+  // overlay branch reads `kind` for nothing today - an appended RenderTree
+  // node has no SDL flag of its own to choose - so the two branches are not
+  // symmetrical here on purpose: there is nothing yet for the overlay side
+  // to differ ON.
   [[nodiscard]] Expected<PopupHandle, WindowError> show(
       WindowId parent_window, RenderTree& parent_tree, PlatformCaps caps,
       const PixelRect& anchor_rect, PixelSize content_size, PopupPlacement preferred,
-      PopupFlags flags);
+      PopupFlags flags, PopupWindowKind kind = PopupWindowKind::kMenu);
 
   // Tears down whichever branch `handle` names and marks it closed.
   // Idempotent: closing an already-closed handle does nothing.

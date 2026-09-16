@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -76,6 +77,13 @@ struct OwnedWindow {
   // pixels are the truth and repainting over them with a colour would erase
   // the frame it just drew.
   bool shows_fill = true;
+
+  // WindowSpec::cancellable_close, carried per-window - dispatch()'s
+  // SDL_EVENT_WINDOW_CLOSE_REQUESTED case reads this to decide whether a
+  // close request destroys the window immediately (false, every window's
+  // behaviour before 7-5b) or surfaces through PumpResult::close_requested
+  // instead, leaving the window open until close_now() is called.
+  bool cancellable_close = false;
 };
 
 // SDL reports failure as false or nullptr and leaves the reason in
@@ -198,6 +206,36 @@ SDL_Keycode from_key(Key key) {
   return SDLK_UNKNOWN;
 }
 
+// PointerButton <-> SDL_BUTTON_*, 7-5b's own prerequisite (doc/menus.md
+// section 6.1). std::nullopt is what X1/X2 ("back"/"forward") map to - still
+// dropped, unchanged from before this slice, matching the file's own
+// existing "only a primary-button event survives" comment at the one call
+// site that reads this (dispatch()'s SDL_EVENT_MOUSE_BUTTON_DOWN/UP case).
+std::optional<PointerButton> to_pointer_button(Uint8 sdl_button) {
+  switch (sdl_button) {
+    case SDL_BUTTON_LEFT:
+      return PointerButton::kPrimary;
+    case SDL_BUTTON_RIGHT:
+      return PointerButton::kSecondary;
+    case SDL_BUTTON_MIDDLE:
+      return PointerButton::kMiddle;
+    default:
+      return std::nullopt;
+  }
+}
+
+Uint8 from_pointer_button(PointerButton button) {
+  switch (button) {
+    case PointerButton::kPrimary:
+      return SDL_BUTTON_LEFT;
+    case PointerButton::kSecondary:
+      return SDL_BUTTON_RIGHT;
+    case PointerButton::kMiddle:
+      return SDL_BUTTON_MIDDLE;
+  }
+  return SDL_BUTTON_LEFT;
+}
+
 }  // namespace
 
 // The whole of the manager's state. Its destructor is the only place windows
@@ -240,8 +278,15 @@ struct WindowManager::Impl {
         // the window was destroyed, and request_close() is allowed to be
         // called twice; both arrive here as an id nobody owns.
         if (entry != windows.end()) {
-          close(entry);
-          result.closed.push_back(WindowId{sdl_id});
+          if (entry->cancellable_close) {
+            // Left open on purpose (WindowSpec::cancellable_close,
+            // design.md section 5.2's cancellable on_close_request) - the
+            // caller decides via close_now() below, not this dispatch loop.
+            result.close_requested.push_back(WindowId{sdl_id});
+          } else {
+            close(entry);
+            result.closed.push_back(WindowId{sdl_id});
+          }
         }
         break;
       }
@@ -256,10 +301,13 @@ struct WindowManager::Impl {
       }
       case SDL_EVENT_MOUSE_BUTTON_DOWN:
       case SDL_EVENT_MOUSE_BUTTON_UP: {
-        // Every other button is dropped here rather than carried and ignored
-        // upstream. Nothing routes a secondary button, and reporting one would
-        // let a right-click reach a state machine that has no case for it.
-        if (event.button.button != SDL_BUTTON_LEFT) {
+        // X1/X2 ("back"/"forward") are still dropped here rather than
+        // carried and ignored upstream - nothing routes them, matching
+        // Key::kOther's identical policy. Left/Right/Middle all now survive
+        // (7-5b, doc/menus.md section 6.1): PointerEvent::button is where a
+        // caller tells them apart, not this dispatch loop.
+        const std::optional<PointerButton> button = to_pointer_button(event.button.button);
+        if (!button.has_value()) {
           break;
         }
         const auto entry = find(event.button.windowID);
@@ -267,7 +315,9 @@ struct WindowManager::Impl {
           const PixelPoint at = to_physical(entry->window, event.button.x, event.button.y);
           const PointerAction action =
               event.button.down ? PointerAction::kDown : PointerAction::kUp;
-          result.pointer.push_back(PointerEvent{WindowId{entry->sdl_id}, action, at.x, at.y});
+          PointerEvent pointer_event{WindowId{entry->sdl_id}, action, at.x, at.y};
+          pointer_event.button = *button;
+          result.pointer.push_back(pointer_event);
         }
         break;
       }
@@ -419,7 +469,10 @@ Expected<WindowId, WindowError> WindowManager::open(const WindowSpec& spec) {
     return Unexpected{WindowError{sdl_failure("SDL_GetWindowID")}};
   }
 
-  impl_->windows.push_back(OwnedWindow{sdl_id, window, spec.fill});
+  impl_->windows.push_back(OwnedWindow{.sdl_id = sdl_id,
+                                       .window = window,
+                                       .fill = spec.fill,
+                                       .cancellable_close = spec.cancellable_close});
   paint(impl_->windows.back());
   return WindowId{sdl_id};
 }
@@ -436,7 +489,8 @@ PlatformCaps WindowManager::platform_caps() {
 }
 
 Expected<WindowId, WindowError> WindowManager::open_popup(WindowId parent, int offset_x,
-                                                          int offset_y, int width, int height) {
+                                                          int offset_y, int width, int height,
+                                                          PopupWindowKind kind) {
   const auto parent_entry = impl_->find(parent.value);
   if (parent_entry == impl_->windows.end()) {
     return Unexpected{WindowError{"open_popup: no such parent window"}};
@@ -454,13 +508,15 @@ Expected<WindowId, WindowError> WindowManager::open_popup(WindowId parent, int o
     return static_cast<int>(static_cast<float>(value) / scale);
   };
 
-  // SDL_WINDOW_POPUP_MENU (not SDL_WINDOW_TOOLTIP): this slice's popup can
-  // gain keyboard focus, which is the only way an Escape key reaches it -
-  // see this file's own header comment on open_popup() for why the
-  // no-input tooltip variant is a separate, undecided SDL flag.
+  // kMenu (SDL_WINDOW_POPUP_MENU) can gain keyboard focus, which is the only
+  // way an Escape key ever reaches it; kTooltip (SDL_WINDOW_TOOLTIP) accepts
+  // no input at all - doc/popup.md section 1's own measurement, exposed by
+  // 7-5b (doc/menus.md section 6.2) instead of hardcoded.
+  const SDL_WindowFlags flags =
+      kind == PopupWindowKind::kTooltip ? SDL_WINDOW_TOOLTIP : SDL_WINDOW_POPUP_MENU;
   SDL_Window* popup =
       SDL_CreatePopupWindow(parent_entry->window, to_logical(offset_x), to_logical(offset_y),
-                            to_logical(width), to_logical(height), SDL_WINDOW_POPUP_MENU);
+                            to_logical(width), to_logical(height), flags);
   if (popup == nullptr) {
     return Unexpected{WindowError{sdl_failure("SDL_CreatePopupWindow")}};
   }
@@ -471,7 +527,7 @@ Expected<WindowId, WindowError> WindowManager::open_popup(WindowId parent, int o
     return Unexpected{WindowError{sdl_failure("SDL_GetWindowID")}};
   }
 
-  impl_->windows.push_back(OwnedWindow{sdl_id, popup, Color{}});
+  impl_->windows.push_back(OwnedWindow{.sdl_id = sdl_id, .window = popup, .fill = Color{}});
   return WindowId{sdl_id};
 }
 
@@ -483,8 +539,61 @@ void WindowManager::close_popup(WindowId id) {
   impl_->close(entry);
 }
 
+Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spec,
+                                                           WindowId owner) {
+  const auto owner_entry = impl_->find(owner.value);
+  if (owner_entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"open_dialog: no such owner window"}};
+  }
+
+  SDL_Window* window = SDL_CreateWindow(spec.title.c_str(), spec.width, spec.height, 0);
+  if (window == nullptr) {
+    return Unexpected{WindowError{sdl_failure("SDL_CreateWindow")}};
+  }
+
+  // Real OS ownership/modality, in that order - SDL_SetWindowModal()'s own
+  // documented precondition ("the window must currently be the child of a
+  // parent"). Failure here fails open_dialog() outright (through the
+  // ordinary WindowError path, matching open_popup()'s own precedent)
+  // rather than silently degrading to an unowned/non-modal window -
+  // measured, not assumed, that this happens under SDL_VIDEODRIVER=dummy
+  // (see examples/23_menu_tooltip_dialog's own headless check, section
+  // 6.3 of doc/menus.md). This engine's OWN modal focus trap
+  // (dg::Focus::set_guarded()) is a separate mechanism either way - it does
+  // not depend on this OS-level call succeeding.
+  if (!SDL_SetWindowParent(window, owner_entry->window)) {
+    SDL_DestroyWindow(window);
+    return Unexpected{WindowError{sdl_failure("SDL_SetWindowParent")}};
+  }
+  if (!SDL_SetWindowModal(window, true)) {
+    SDL_DestroyWindow(window);
+    return Unexpected{WindowError{sdl_failure("SDL_SetWindowModal")}};
+  }
+
+  const SDL_WindowID sdl_id = SDL_GetWindowID(window);
+  if (sdl_id == 0) {
+    SDL_DestroyWindow(window);
+    return Unexpected{WindowError{sdl_failure("SDL_GetWindowID")}};
+  }
+
+  impl_->windows.push_back(OwnedWindow{.sdl_id = sdl_id,
+                                       .window = window,
+                                       .fill = spec.fill,
+                                       .cancellable_close = spec.cancellable_close});
+  paint(impl_->windows.back());
+  return WindowId{sdl_id};
+}
+
 std::size_t WindowManager::open_window_count() const {
   return impl_->windows.size();
+}
+
+void WindowManager::close_now(WindowId id) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  impl_->close(entry);
 }
 
 void WindowManager::request_close(WindowId id) {
@@ -515,7 +624,8 @@ void WindowManager::warp_pointer(WindowId id, int x, int y) {
                         static_cast<float>(y) / scale);
 }
 
-void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y) {
+void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y,
+                                        PointerButton button) {
   const auto entry = impl_->find(id.value);
   if (entry == impl_->windows.end()) {
     return;
@@ -526,7 +636,7 @@ void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y) {
   SDL_Event event{};
   event.button.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
   event.button.windowID = id.value;
-  event.button.button = SDL_BUTTON_LEFT;
+  event.button.button = from_pointer_button(button);
   event.button.down = down;
   event.button.clicks = 1;
   event.button.x = static_cast<float>(x) / scale;

@@ -66,6 +66,19 @@ struct WindowSpec {
   // Filled flat, so that "which window is this" is answerable by looking at
   // it. The alpha channel is ignored; a window is opaque.
   Color fill;
+
+  // design.md section 5.2's own `on_close_request` being cancellable (the
+  // unsaved-changes-prompt case) - 7-5b's own prerequisite for `Dialog`
+  // (doc/menus.md section 6.3). False, the default, preserves every
+  // existing window's behaviour byte-for-byte: request_close()/the user's
+  // own close button still destroy the window immediately and report it
+  // through PumpResult::closed, exactly as before this field existed. True
+  // routes the SAME close-requested event through PumpResult::
+  // close_requested instead - the window is NOT destroyed automatically -
+  // and the caller decides, by calling close_now() or doing nothing at
+  // all, which is the whole of what "cancellable" has to mean: refusing to
+  // act until told to.
+  bool cancellable_close = false;
 };
 
 // What this platform can do, so a layer above never has to assume.
@@ -86,6 +99,23 @@ struct PlatformCaps {
   // caller can also override it to exercise the overlay branch on a desktop
   // that does have native popups.
   bool native_popup = false;
+};
+
+// Which of the two genuinely different SDL popup-window capabilities
+// open_popup() should create - doc/popup.md section 1's own measurement,
+// closed by 7-5b (doc/menus.md section 6.2): SDL_WINDOW_POPUP_MENU (kMenu)
+// CAN gain keyboard focus, which is the only way Escape ever reaches it;
+// SDL_WINDOW_TOOLTIP (kTooltip) accepts NO input at all, which is exactly
+// what a tooltip needs (nothing should ever be able to click or type into
+// one) and exactly wrong for a menu (Escape/arrow-key navigation would
+// never arrive). Two enumerators rather than a bool, because "which flag"
+// reads at a call site the way `PopupPlacement::kBelow`/`kAbove` already do
+// on the same signature's neighbour, not because a third value is
+// anticipated - SDL itself has exactly two borderless-popup-shaped window
+// flags, not three.
+enum class PopupWindowKind : std::uint8_t {
+  kMenu,
+  kTooltip,
 };
 
 // How the bytes of one pixel are arranged in memory.
@@ -120,13 +150,47 @@ struct ImageView {
   PixelFormat format = PixelFormat::kBgra8888;
 };
 
+// Which physical button produced a kDown/kUp PointerEvent - 7-5b's own
+// prerequisite for a context menu (doc/menus.md section 6.1): before this
+// slice, `PointerEvent` carried no button identity anywhere, and the SDL3
+// backend dropped every button except the primary one before a PointerEvent
+// was ever constructed, so "a right-click cannot activate a widget here" was
+// a fact about a missing FIELD, not a routing decision.
+//
+// A FIELD ON PointerEvent, NOT A NEW PointerAction ENUMERATOR - the
+// project's own standing preference, restated: PointerAction names WHAT
+// HAPPENED (a move, a press, a release, a leave, a wheel notch), and every
+// one of those four things can happen with any button held; WHICH button
+// is an orthogonal question a sibling field answers without multiplying
+// PointerAction's own cases by three. This also means every existing
+// EXHAUSTIVE switch over PointerAction (examples/22_dropdown_menu's own
+// dispatch_pointer(), examples/21_focus's, and every prior one) needs no
+// fixup at all - the identical exhaustive-switch-fixup cost 7-5 paid for
+// extending Key (kUp/kDown/kEnter) does NOT recur here, because nothing was
+// added to the enum a switch already covers.
+enum class PointerButton : std::uint8_t {
+  kPrimary,
+  kSecondary,
+  kMiddle,
+};
+
 // What the pointer did.
 //
-// Four actions, and no button identity. Only the PRIMARY button produces an
-// event at all - the backend drops the others, because nothing routes them and
-// an enumerator naming a button no widget can receive would be a promise. The
-// consequence is worth stating: a right-click cannot activate a widget here,
-// not because the state machine checks, but because the event does not exist.
+// Four actions. Until 7-5b, no button identity at all was carried anywhere
+// on this path - only the PRIMARY button produced an event, and the backend
+// dropped every other one before a PointerEvent was ever constructed,
+// because nothing routed them and an enumerator naming a button no widget
+// could receive would have been a promise. `PointerEvent::button` (below)
+// is the fix: the SECONDARY button now also produces kDown/kUp events - for
+// a context menu, doc/menus.md's own follow-up (7-5b) - and the MIDDLE
+// button is passed through for the identical "measured, not assumed"
+// reason (SDL reports it with the same enum, and dropping a value nothing
+// asked for yet is a decision a future caller can still make, not one this
+// slice has to make FOR them by omission). Every other SDL button (X1/X2 -
+// "back"/"forward" side buttons) is still dropped, unchanged from before
+// this slice: nothing routes them and this project's own standing rule
+// (`Key::kOther`'s identical comment) is that an enumerator/field value
+// nothing consumes is a promise this engine does not keep.
 enum class PointerAction : std::uint8_t {
   kMove,
   kDown,
@@ -160,6 +224,19 @@ struct PointerEvent {
   PointerAction action = PointerAction::kMove;
   int x = 0;
   int y = 0;
+
+  // Meaningful only for kDown/kUp - which physical button changed state.
+  // kMove/kLeave/kWheel carry no real button of their own (a motion or a
+  // leave is not "a button doing something"), so the default kPrimary on
+  // those three is a don't-care value, never read by anything this project
+  // ships: doc/menus.md section 6.1 names the routing decision this field
+  // exists to answer - a secondary-button kDown does NOT feed
+  // dg::Interaction's hover/press/click machine the way a primary-button one
+  // does (it is a PARALLEL, non-activating channel that only ever opens a
+  // context menu), so every caller that already only ever constructed a
+  // primary-button PointerEvent by hand keeps doing exactly that with no
+  // change in observed behaviour.
+  PointerButton button = PointerButton::kPrimary;
 
   // kWheel only. Positive scrolls up / left, matching the platform's own sign
   // convention (SDL3 already flips SDL_MOUSEWHEEL_FLIPPED for the backend, so
@@ -297,8 +374,20 @@ struct TextEditingEvent {
 // Everything one pump() turned up, split by what the caller has to do about
 // it.
 struct PumpResult {
-  // Windows that closed during this call, in the order they closed.
+  // Windows that closed during this call, in the order they closed. A
+  // cancellable_close window (WindowSpec) is never in here directly from a
+  // user's close request - see close_requested below.
   std::vector<WindowId> closed;
+
+  // A cancellable_close window's own close request - `on_close_request`,
+  // design.md section 5.2 - reported HERE INSTEAD OF closed above, and the
+  // window is NOT destroyed: it stays exactly as open as it was before this
+  // pump() call, with nothing else about it changed. A caller runs whatever
+  // veto logic it wants (an "unsaved changes" prompt, most concretely) and
+  // then either calls close_now(id) to actually destroy it or does nothing
+  // at all, which is what makes doing nothing the same thing as vetoing -
+  // there is no separate "cancel" call to remember to make.
+  std::vector<WindowId> close_requested;
 
   // Windows whose contents are now stale - newly exposed, or resized. A
   // resize is not reported separately because the only correct response to
@@ -363,10 +452,20 @@ class WindowManager {
   //
   // The window this returns can gain keyboard focus (SDL_WINDOW_POPUP_MENU),
   // which is what lets Escape reach it - the tooltip variant
-  // (SDL_WINDOW_TOOLTIP, no input at all) is a real, different SDL flag this
-  // slice does not expose, named in doc/popup.md as declined.
-  [[nodiscard]] Expected<WindowId, WindowError> open_popup(WindowId parent, int offset_x,
-                                                           int offset_y, int width, int height);
+  // (SDL_WINDOW_TOOLTIP, no input at all) is a real, different SDL flag
+  // `kind` (below) now exposes, doc/popup.md's own named decline, closed by
+  // 7-5b (doc/menus.md section 6.2).
+  //
+  // `kind` defaults to kMenu, so every existing call site (5-2's own
+  // PopupHost, and every dropdown/menu example built on it since) keeps
+  // opening the exact SDL_WINDOW_POPUP_MENU window it always has, with no
+  // source change required. kTooltip opens SDL_WINDOW_TOOLTIP instead - a
+  // window that, per doc/popup.md section 1's own measurement, accepts NO
+  // input at all, which is why PopupHost::handle_pointer()/handle_key()
+  // dismissal is not how a tooltip is ever closed (see popup_host.h).
+  [[nodiscard]] Expected<WindowId, WindowError> open_popup(
+      WindowId parent, int offset_x, int offset_y, int width, int height,
+      PopupWindowKind kind = PopupWindowKind::kMenu);
 
   // Destroys a popup window immediately, synchronously, unlike
   // request_close(). A popup has no title bar and no user-driven close
@@ -377,13 +476,47 @@ class WindowManager {
   // open window is ignored, matching request_close()'s idempotence.
   void close_popup(WindowId id);
 
+  // Opens an ordinary top-level window that is also `owner`'s CHILD - real
+  // SDL_SetWindowParent()/SDL_SetWindowModal() ownership, not a convention
+  // this engine invents on top of an unrelated window - design.md section
+  // 5.2's `Dialog` window kind ("有 owner，可模态"), 7-5b's own prerequisite
+  // (doc/menus.md section 6.3). `owner` must already be open. This is the
+  // window's OS-level shape only: the modal FOCUS trap this engine's own
+  // dg::Focus enforces (set_guarded(), focus.h) is a separate, necessary
+  // mechanism, because SDL's own modal enforcement (blocking input to the
+  // owner at the platform level) and this engine's own click/set() routing
+  // are two different layers - a headless/dummy-driver backend, in
+  // particular, has no platform-level modal enforcement to fall back on at
+  // all, matching open_popup()'s own measured "dummy can open ordinary
+  // windows but not this" limitation (doc/popup.md section 1) - see
+  // doc/menus.md section 6.3 for the measurement on THIS call specifically.
+  [[nodiscard]] Expected<WindowId, WindowError> open_dialog(const WindowSpec& spec,
+                                                            WindowId owner);
+
   [[nodiscard]] std::size_t open_window_count() const;
 
   // Asks for one window to close, by the same route the window manager's own
   // close button takes. It has not closed when this returns - the close is
   // observed from pump(), exactly like a user-initiated one. An id that names
   // no open window is ignored, which is what makes asking twice harmless.
+  //
+  // A window opened with WindowSpec::cancellable_close does NOT close from
+  // this alone: the request surfaces through PumpResult::close_requested
+  // instead (see its own comment), and close_now() below is what actually
+  // destroys it.
   void request_close(WindowId id);
+
+  // Destroys a window immediately and synchronously - close_popup()'s own
+  // shape, applied to an ordinary/dialog window instead of a popup, for the
+  // identical reason: once a caller has decided (perhaps after running its
+  // own on_close_request veto logic) that a close should actually happen,
+  // there is no "same route a user takes" left to imitate, because the
+  // route a user took is exactly what already produced the
+  // close_requested entry this is answering. An id naming no open window is
+  // ignored, matching close_popup()'s/request_close()'s idempotence. Safe
+  // to call on a window that was never cancellable_close at all - it is
+  // simply request_close() without the round trip through pump().
+  void close_now(WindowId id);
 
   // Waits up to timeout_ms for something to happen, then handles everything
   // queued. Empty on a timeout.
@@ -400,15 +533,20 @@ class WindowManager {
   // be wrong.
   void warp_pointer(WindowId id, int x, int y);
 
-  // Puts a primary-button press or release on the platform's own event queue,
-  // by the same route request_close() uses for a close.
+  // Puts a button press or release on the platform's own event queue, by the
+  // same route request_close() uses for a close. `button` defaults to
+  // kPrimary, so every call site written before 7-5b keeps posting exactly
+  // the primary-button event it always did with no source change; a caller
+  // driving the secondary-button context-menu path (doc/menus.md section
+  // 6.1) passes kSecondary explicitly.
   //
   // Pushed rather than synthesized at the device, because no windowing system
   // offers a "press the button" call - warping the pointer is as far as the
   // real hardware path goes. The event is indistinguishable from a physical
   // one once queued, so everything downstream of pump() is exercised exactly
   // as it is for a user.
-  void post_pointer_button(WindowId id, bool down, int x, int y);
+  void post_pointer_button(WindowId id, bool down, int x, int y,
+                           PointerButton button = PointerButton::kPrimary);
 
   // Puts a wheel scroll on the platform's own event queue, same route as
   // post_pointer_button(). `dx`/`dy` are notches, matching

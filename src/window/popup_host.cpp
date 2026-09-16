@@ -40,7 +40,8 @@ Expected<PopupHandle, WindowError> PopupHost::show(WindowId parent_window,
                                                    RenderTree& parent_tree, PlatformCaps caps,
                                                    const PixelRect& anchor_rect,
                                                    PixelSize content_size,
-                                                   PopupPlacement preferred, PopupFlags flags) {
+                                                   PopupPlacement preferred, PopupFlags flags,
+                                                   PopupWindowKind kind) {
   (void)flags;
   const Expected<PixelSize, WindowError> parent_size = windows_->drawable_size(parent_window);
   if (!parent_size) {
@@ -52,7 +53,7 @@ Expected<PopupHandle, WindowError> PopupHost::show(WindowId parent_window,
   if (caps.native_popup) {
     const Expected<WindowId, WindowError> popup_window =
         windows_->open_popup(parent_window, resolved.left(), resolved.top(), content_size.width,
-                             content_size.height);
+                             content_size.height, kind);
     if (!popup_window) {
       return Unexpected{popup_window.error()};
     }
