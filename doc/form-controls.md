@@ -489,3 +489,21 @@ visual feedback on the slider thumb (the checkbox/radio pair already prove
 `fill_hover`/`fill_pressed` wired through a *second* appearance-holder that
 does not receive clicks, which is new machinery this slice's acceptance
 criteria did not ask for).
+
+## 9. Cross-reference: 7-5 landed — Dropdown (append-only)
+
+Section 2.4 named the exact prerequisite this decline was blocked on: a
+`PopupHost` abstraction with a `Popup` window kind and a `PlatformCaps`
+capability query. 5-2 built it; 7-5 (`.omo/plans/drawgui-phase7.md`,
+`doc/menus.md`) is the slice that used it - `WidgetKind::kDropdown`, a 9th
+kind earning its place by the identical "state that outlives the click"
+argument section 1.2 above already made for `kSlider`. `doc/menus.md`
+section 2.3 confirms this section's three named prerequisites satisfied
+one at a time rather than assumed satisfied because 5-2 landed. Context
+menu and Tooltip - named in this section's own "what has to exist before
+dropdown is buildable" discussion only implicitly, via design.md's shared
+`PopupHost` passage - turned out to each need a further, separate
+prerequisite of their own (no button identity in the pointer plumbing at
+all, for the former; an unplumbed `SDL_WINDOW_TOOLTIP` flag, for the
+latter) not satisfied by 5-2's own work - see `doc/menus.md` section 6.
+

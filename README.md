@@ -558,6 +558,71 @@ and a second one caught wiring Tab's own side effects (calling
 `focus_next()` had already performed the transition silently reported a
 no-op and skipped every side effect).
 
+Before touching any widget code, this phase settled design.md's own §12
+open question 6: does `Table` need a two-dimensional `RenderGrid`, or does
+Flex already suffice? **Both, depending which `Table` a caller means.**
+Caller-declared column widths need nothing new - an ordinary `kRow` per
+row, exactly the composition `doc/scrolling.md` already proved for `List`.
+Automatic column widths that must AGREE across every row genuinely cannot
+be expressed by Flex: a row's own size, per design.md's own layout
+invariant, depends only on its own constraints and content, never on a
+sibling row's - and "column N's width is the widest cell in column N,
+over every row" needs exactly that cross-sibling visibility before any
+row can be given its final widths. No caller across 19 prior slices, or
+this one's own four controls, needs the second case, so `Table` is not
+built - deferred with a decided answer, not left open, and the settled
+CSS-Grid trigger from §5.4.11 (re-evaluate Taffy, not self-build) stands
+ready the day a real caller does.
+
+`Dropdown` can now be **opened, browsed by keyboard or mouse, and
+selected from** - `WidgetKind::kDropdown`, a 9th kind earning its place
+the identical way `Slider` earned its own: an anchor plus a caller-declared
+option list plus a selected index that outlives the click that set it, a
+state no existing kind had anywhere to keep. `PopupHost` (5-2) is the
+whole of the popup mechanism a dropdown needed - `doc/form-controls.md`'s
+own three named prerequisites (a `Popup` window kind, the SDL3 popup-
+window backend, a `PlatformCaps` capability query) are each confirmed
+satisfied, not merely assumed satisfied because a later slice landed.
+`kList` (5-3) was evaluated and NOT reused for the option rows: its pool
+nodes carry no attached `Widget` at all, so they cannot be focused,
+clicked, or keyboard-highlighted without a second interaction layer this
+slice declined to build, on top of a virtualization threshold (measured
+past 100,000 items) six orders of magnitude beyond any dropdown's option
+count - the rows are ordinary `kButton`s in a plain stack instead, the
+same `kColumn`-of-plain-children composition `doc/scrolling.md` already
+proved for `List` itself. Keyboard Up/Down needed no new highlight-cursor
+state anywhere: it is `dg::Focus::focus_next()`/`focus_previous()`,
+7-4's own Tab traversal, called with two new keys instead of Tab/Shift-
+Tab, over the identical popup scope Tab already confines itself to -
+wraparound at both ends is 7-4's own mechanism doing exactly what it
+already did for a different caller. Two small platform additions became
+shared infrastructure: `Key::kUp`/`kDown`/`kEnter`, absent before this
+slice because nothing needed to navigate a menu with them yet. Checked
+rather than assumed, and declined by name with their own real
+prerequisite: a **Context menu** needs a button-identity field this
+engine's pointer plumbing does not carry anywhere - `PointerEvent` reports
+only the primary button, by construction, so "a right-click cannot
+activate a widget here" is not a routing gap but a genuinely missing
+platform-layer event; a **Tooltip** needs the `SDL_WINDOW_TOOLTIP` flag
+`WindowManager::open_popup()` never exposes (distinct from the
+`SDL_WINDOW_POPUP_MENU` flag every existing popup already uses, per 5-2's
+own measurement that only one of the two can take keyboard input) plus a
+home for hover-delay state that 6-1's animation clock could time but this
+slice found nowhere natural yet to keep; **`Dialog`'s** modal focus trap
+needs a genuinely new refusal mechanism in `dg::Focus` itself - 7-4
+explicitly built `enter_scope()`/`exit_scope()` to bound Tab only, never a
+click or a programmatic `set()`, and said so by name. All three are
+split into a named follow-up (7-5b) rather than half-built. Zero new
+node/`RenderObject`/`WidgetKind` kinds were needed for `kDropdown` itself
+- a twentieth consecutive slice. A defect-injection campaign against this
+slice's own new logic found one real coverage gap (`dropdown_set_options`'s
+range clamp had no test at all, and a boundary bug at the exact new-size
+edge survived undetected until a new regression test was written for it)
+and confirmed one injection is caught immediately by the existing suite.
+`doc/menus.md` records the full decision set, `doc/form-controls.md` and
+`doc/completeness.md` each carry an append-only cross-reference, and
+design.md §12 records the `Table`/`RenderGrid` resolution in place.
+
 
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
@@ -934,6 +999,29 @@ Tab is confined inside it until it closes.
 ./build/examples/drawgui_focus --dump-png out.png
 ```
 
+## The dropdown demo
+
+`examples/22_dropdown_menu` draws a `before`/`dropdown`/`after` row - the
+dropdown between two real neighbours, so a wrong Tab order is visible
+against real siblings rather than nothing. Its five options (`Apple`,
+`Banana`, `Cherry`, `Date`, `Elderberry`) are each their own word, none a
+substring or rotation of another, so a selection bug at any one position
+is visible rather than provable only by coincidence. Clicking the anchor
+(or Tab-ing to it and pressing Down/Enter) opens the option list through
+`PopupHost` - `--branch native|overlay` forces which one, matching
+`examples/14_popup`/`examples/21_focus`'s own precedent. Up/Down moves the
+highlight (wrapping at both ends), Enter commits whichever option is
+highlighted, Escape or a click outside closes without changing the
+selection, and a direct click on any row commits that row regardless of
+what was highlighted.
+
+```sh
+./build/examples/drawgui_dropdown_menu                        # click it, or Tab to it and press Down
+./build/examples/drawgui_dropdown_menu --branch overlay        # force the overlay popup branch
+./build/examples/drawgui_dropdown_menu --verify-dropdown       # headless check
+./build/examples/drawgui_dropdown_menu --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -957,7 +1045,8 @@ animates one.
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
 testing, interaction, UTF-8 decoding, font fallback, text-field editing,
-multi-line paragraph layout and focus (Tab order, scopes, the ring). It
+multi-line paragraph layout, focus (Tab order, scopes, the ring) and
+dropdown selection/option-list clamping. It
 can also be run directly for per-case output:
 
 ```sh
@@ -1014,3 +1103,4 @@ Findings and decisions from each slice live beside it:
 | `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search; section 14 (7-2b, append-only) records that the follow-up landed and corrects section 10's prediction about `getGlyphClusterAt()`; section 15 (7-3, append-only) records that IME composition landed reusing 7-2b's grapheme seam unchanged, and the one narrow offset-unit question it raised |
 | `doc/ime.md` | IME composition (P7 7-3) - what SDL3 3.x actually delivers (`SDL_TextEditingEvent`/`SDL_TextEditingCandidatesEvent`) versus what design.md/4-9 assumed; the empirical finding, on this project's own development machine with a real running IME (fcitx5+rime), that the candidate/composition window is drawn by the platform itself and positioned using the caret rectangle 4-9 already reports (measured causally, twice); why a candidate-list UI is declined by name rather than duplicated; the synthetic-event testing answer (`WindowManager::post_text_editing()`) and the honest, explicit gap between it and a genuine composing IME; the one narrow byte-offset-unit conversion SDL's own "UTF-8 characters" convention forced, and why it did not reopen design.md §5.13.2's general type-index-space question; the re-measured relayout verdict under a preedit that changes length on every keystroke; and a defect-injection campaign that found one injection causes an actual crash rather than merely a wrong answer; section 14 (7-4, append-only) records that a window-level focus change now ends an in-progress composition, satisfying section 11's own named dependency |
 | `doc/focus.md` | Tab order and the focus tree (P7 7-4) - why no third tree was needed (`RenderTree`'s own `children()`/`parent()` already are the tree Tab order and a popup's own focus boundary walk, so the only new state is one optional scope-root `NodeId`); `dg::focus_order()`'s DOM-shaped default and the deliberate `Widget::tab_index` override (HTML's own tabindex semantics); which `WidgetKind`s are focusable and why `kScrollView`/`kList` are declined by name rather than overlooked; why Tab reaching a zero-opacity widget is the CONSISTENT reading of 4-5's own hit-test divergence, not a second one; `enter_scope()`/`exit_scope()` as the smallest mechanism that serves a popup's Tab boundary without being `Dialog`'s modal trap (7-5's own job); why crossing into a popup needed no `NodeId`-plus-`window_id` struct (a native popup gets its own separate `Focus` for its own separate `RenderTree`; an overlay popup shares the host's, scoped); the list-recycling and mid-composition-Tab-away hazards, both handled and tested rather than assumed already safe; the ring's four-strips-outside-the-bounds geometry and why a single rectangle would have silently made a focused widget unclickable; the measured zero-relayout finding; and two real bugs this slice's own build caught (an overlay popup's buttons needing the HOST's `WidgetSet`, and a double-`set()` call that silently skipped every focus-change side effect) |
+| `doc/menus.md` | Dropdown, the 9th `WidgetKind` (P7 7-5) - design.md §12 question 6 settled (`Table` composes from Flex for caller-declared column widths, genuinely needs 2D layout only for auto column-width agreement no working caller needs yet); why `kList` was evaluated and not reused for the option rows (its pool nodes carry no `Widget`, so they cannot be focused or clicked); why keyboard Up/Down is `dg::Focus::focus_next()`/`focus_previous()` unchanged, reused rather than reimplemented; `doc/form-controls.md` §2.4's three named prerequisites confirmed satisfied one at a time; and why Context menu (no button identity anywhere in the pointer plumbing), Tooltip (an unplumbed `SDL_WINDOW_TOOLTIP` flag) and `Dialog` (a genuinely new modal-focus-trap mechanism) were each checked and declined by name with their own real prerequisite, split into follow-up 7-5b |

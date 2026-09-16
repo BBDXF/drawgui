@@ -610,3 +610,25 @@ Run once each, per the task's own reduced-verification instruction:
 - Declines consolidated: 46 rows across 6 topic groups (section 5).
 - design.md contradictions consolidated: 11 rows, one (`PopupHost`) escalated
   in severity by this audit (section 6).
+
+## Cross-reference: 7-5 landed — Dropdown, and the other three checked and declined by name (append-only)
+
+Section 6's row 10 recorded `PopupHost`'s absence as a contradiction more
+severe than an ordinary decline, "because every future popup-shaped
+control (`Dropdown`, `Menu`, `Tooltip`, `Dialog`) inherits the same missing
+prerequisite" - and 5-2's own update note already recorded that
+prerequisite closed, with Dropdown itself named as "the next slice's
+task." 7-5 (`.omo/plans/drawgui-phase7.md`, `doc/menus.md`) is that slice:
+`WidgetKind::kDropdown` (a 9th kind, zero new `RenderObject`/node kinds -
+the streak this section's own audit started measuring through 4-9 now
+extends to a twentieth consecutive slice). The other three named in that
+row's own prose were checked individually rather than assumed to fall out
+of the same `PopupHost` foundation: Context menu needs a pointer-plumbing
+prerequisite `PopupHost` never touched (no button identity on
+`PointerEvent` at all); Tooltip needs an unplumbed `SDL_WINDOW_TOOLTIP`
+flag `PopupHost`'s own `open_popup()` never exposed; `Dialog` needs a
+genuinely new modal-focus-trap mechanism 7-4 explicitly declined to build
+on top of its own `enter_scope()`/`exit_scope()`. All three declined by
+name, each with its own real (not assumed) prerequisite, in
+`doc/menus.md` section 6; the named follow-up is **7-5b**.
+
