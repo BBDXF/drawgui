@@ -82,6 +82,7 @@ add_executable(drawgui_unit_test
   unit/test_image.cpp
   unit/test_animation.cpp
   unit/test_theme.cpp
+  unit/test_theme_package.cpp
   unit/test_skia_textlayout_smoke.cpp
   unit/test_paragraph.cpp
   unit/test_grapheme.cpp
