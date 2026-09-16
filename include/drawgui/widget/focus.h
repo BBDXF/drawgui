@@ -66,7 +66,9 @@ struct FocusChange {
 // kButton/kCheckbox/kSlider/kTextField: yes - each is the kind of thing a
 // desktop toolkit puts a tab stop on, and each already has a visible,
 // steady-state APPEARANCE that does not depend on the pointer being over it
-// (doc/focus.md section 2).
+// (doc/focus.md section 2). kDropdown (7-5, doc/menus.md) joins this list
+// for the identical reason kButton is on it - it is an ordinary interactive
+// anchor with a steady-state appearance (the currently selected label).
 //
 // kPanel/kLabel: no - a container and static text carry no interaction at
 // all today (WidgetSet's own `interactive()` already excludes both from
@@ -88,6 +90,7 @@ struct FocusChange {
     case WidgetKind::kCheckbox:
     case WidgetKind::kSlider:
     case WidgetKind::kTextField:
+    case WidgetKind::kDropdown:
       return true;
     case WidgetKind::kPanel:
     case WidgetKind::kLabel:

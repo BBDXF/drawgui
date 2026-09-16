@@ -113,6 +113,23 @@ enum class WidgetKind : std::uint8_t {
   // already-measured child, which is exactly the thing a virtualized list
   // cannot have (doc/list.md section 1).
   kList,
+
+  // An anchor (this node, interactive like kButton) plus a caller-declared
+  // list of option strings and a selected index that OUTLIVES the click
+  // that set it - the same "state a checkbox's checked or a slider's value
+  // already earns a kind over" argument doc/form-controls.md section 1.2
+  // made for kSlider, one control over: kButton alone has nowhere to keep
+  // "which option is selected" once the popup that showed the choice has
+  // closed. The open/closed popup itself is NOT part of this state -
+  // PopupHost's own handle already owns that, matching every other popup
+  // client (doc/popup.md) - and the option ROWS are ordinary kButton
+  // widgets built fresh each time the popup opens (doc/menus.md), not a
+  // second array of NodeIds this kind tracks itself. Keyboard highlight
+  // navigation while the popup is open reuses dg::Focus::focus_next()/
+  // focus_previous() over the popup's own scope verbatim - the identical
+  // traversal Tab already performs (7-4), routed by Up/Down instead -
+  // so no highlight-cursor field belongs here either.
+  kDropdown,
 };
 
 // One widget's whole state. A plain struct of plain fields, for the reason
@@ -282,6 +299,19 @@ struct Widget {
   std::vector<int> list_assigned;
   int list_item_count = 0;
   int list_item_extent = 0;
+
+  // kDropdown only. `label` is the plain child showing the currently
+  // selected option's text - the same shape kTextField's `content` already
+  // is (a paint-time projection the widget positions, never a second node
+  // kind); named differently from `content` above only because both fields
+  // coexist on the same struct and C++ has one namespace per struct.
+  // `options` is the caller-declared choice list, set once via
+  // dropdown_set_options() the same way kList's `list_item_count`/
+  // `list_item_extent` are set once at attach() time. `selected_index` is
+  // RUNTIME STATE for the identical reason `checked`/`value` already are.
+  NodeId label;
+  std::vector<std::string> options;
+  std::optional<int> selected_index;
 };
 
 // A normalized [start, end) byte range into a kTextField's Widget::text.
@@ -476,6 +506,28 @@ class WidgetSet {
   // discharge on its own, because it has no notion that this leaf's child
   // position is anything but the ordinary default it just computed.
   void resync_sliders(RenderTree& tree) const;
+
+  // --- kDropdown ---
+
+  [[nodiscard]] const std::vector<std::string>& dropdown_options(NodeId id) const;
+  [[nodiscard]] std::optional<int> dropdown_selected_index(NodeId id) const;
+
+  // Sets the option list and refreshes the anchor's own label from
+  // whatever `selected_index` already is (out of range after a shrink is
+  // treated as unset, not clamped, so a stale index cannot mislabel a
+  // shorter list). Construction-time, then read-only, the same "set once,
+  // read many" shape kList's `list_item_count`/`list_item_extent` already
+  // are - a caller rebuilding the choices rebuilds the widget rather than
+  // mutating it live.
+  void dropdown_set_options(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                            std::vector<std::string> options);
+
+  // Commits `index` as selected and repaints the anchor's label. A no-op
+  // (returns false) when `id` does not name a kDropdown, `index` is out of
+  // `options`' range, or it already equals the stored selection - the
+  // identical "was this worth a repaint" signal set_slider_value() and
+  // scroll_by() already give a caller.
+  bool dropdown_select(RenderTree& tree, const FontCatalog& fonts, NodeId id, int index);
 
   // Writes the appearance `id` should have in `state`, and damages nothing
   // when that appearance is already on screen.

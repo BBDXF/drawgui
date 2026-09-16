@@ -156,6 +156,13 @@ Key to_key(SDL_Keycode keycode) {
       return Key::kEscape;
     case SDLK_TAB:
       return Key::kTab;
+    case SDLK_UP:
+      return Key::kUp;
+    case SDLK_DOWN:
+      return Key::kDown;
+    case SDLK_RETURN:
+    case SDLK_KP_ENTER:
+      return Key::kEnter;
     default:
       return Key::kOther;
   }
@@ -179,6 +186,12 @@ SDL_Keycode from_key(Key key) {
       return SDLK_ESCAPE;
     case Key::kTab:
       return SDLK_TAB;
+    case Key::kUp:
+      return SDLK_UP;
+    case Key::kDown:
+      return SDLK_DOWN;
+    case Key::kEnter:
+      return SDLK_RETURN;
     case Key::kOther:
       break;
   }

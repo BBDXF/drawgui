@@ -201,6 +201,20 @@ enum class Key : std::uint8_t {
   // `dg::Focus::focus_next()`/`focus_previous()` rather than through a
   // widget's model at all.
   kTab,
+
+  // 7-5's Dropdown/menu keyboard navigation (design.md section 5.6's
+  // Dropdown/Menu, doc/menus.md): arrow-key highlight movement and Enter to
+  // activate the highlighted option. Neither existed before this slice
+  // because nothing here had a list of options to move a highlight through
+  // - the identical "only what has a real consumer" policy this enum's own
+  // comment already states for kEscape/kTab. kUp/kDown are deliberately NOT
+  // named kBackward/kForward or folded into a generic "menu navigate"
+  // action: a dropdown's own vertical option list is the only consumer so
+  // far, matching this project's own standing rule against a speculative
+  // vocabulary.
+  kUp,
+  kDown,
+  kEnter,
 };
 
 enum class KeyAction : std::uint8_t {

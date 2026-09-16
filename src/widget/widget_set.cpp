@@ -25,6 +25,9 @@ bool interactive(WidgetKind kind) {
     // cursor), not merely to a plain child of it - doc/text-input.md
     // section 3.
     case WidgetKind::kTextField:
+    // A dropdown's anchor is a plain click target exactly like kButton -
+    // opening the popup IS the activation, doc/menus.md.
+    case WidgetKind::kDropdown:
       return true;
     case WidgetKind::kPanel:
     case WidgetKind::kLabel:
@@ -537,6 +540,74 @@ void WidgetSet::resync_sliders(RenderTree& tree) const {
     }
     reposition_slider(tree, NodeId{static_cast<std::uint32_t>(i)}, *slot);
   }
+}
+
+namespace {
+// Re-derives a kDropdown's own label child from whatever `selected_index`
+// currently is - a no-op while unset, which is what leaves the caller's own
+// placeholder text (set once on the label node at construction, the same
+// way an ordinary label starts with whatever text a scene author gave it)
+// on screen until a real selection exists. Ellipsized to the label's own
+// current width via the same grapheme-boundary-safe ellipsize() a
+// kTextField's unfocused display already uses - a long option string is not
+// this widget's problem to solve twice.
+void dropdown_refresh_label(RenderTree& tree, const FontCatalog& fonts, const Widget& widget) {
+  if (widget.label == RenderTree::root() || !widget.selected_index.has_value()) {
+    return;
+  }
+  const int index = *widget.selected_index;
+  if (index < 0 || static_cast<std::size_t>(index) >= widget.options.size()) {
+    return;
+  }
+  TextStyle style = tree.style(widget.label).text;
+  const int width = tree.local_bounds(widget.label).width;
+  style.text = ellipsize(fonts, style.font, style.size,
+                         widget.options[static_cast<std::size_t>(index)], width);
+  tree.set_text(widget.label, style);
+}
+}  // namespace
+
+const std::vector<std::string>& WidgetSet::dropdown_options(NodeId id) const {
+  static const std::vector<std::string> kEmpty;
+  const Widget* widget = find(id);
+  return (widget != nullptr && widget->kind == WidgetKind::kDropdown) ? widget->options : kEmpty;
+}
+
+std::optional<int> WidgetSet::dropdown_selected_index(NodeId id) const {
+  const Widget* widget = find(id);
+  return (widget != nullptr && widget->kind == WidgetKind::kDropdown) ? widget->selected_index
+                                                                     : std::nullopt;
+}
+
+void WidgetSet::dropdown_set_options(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                     std::vector<std::string> options) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kDropdown) {
+    return;
+  }
+  widget->options = std::move(options);
+  if (widget->selected_index.has_value() &&
+     (*widget->selected_index < 0 ||
+      static_cast<std::size_t>(*widget->selected_index) >= widget->options.size())) {
+    widget->selected_index.reset();
+  }
+  dropdown_refresh_label(tree, fonts, *widget);
+}
+
+bool WidgetSet::dropdown_select(RenderTree& tree, const FontCatalog& fonts, NodeId id, int index) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kDropdown) {
+    return false;
+  }
+  if (index < 0 || static_cast<std::size_t>(index) >= widget->options.size()) {
+    return false;
+  }
+  if (widget->selected_index.has_value() && *widget->selected_index == index) {
+    return false;
+  }
+  widget->selected_index = index;
+  dropdown_refresh_label(tree, fonts, *widget);
+  return true;
 }
 
 void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
