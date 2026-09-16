@@ -498,7 +498,7 @@ merely plausible." P7 slice 7-6 is that C client: all five functions land
 through this SAME generator (`tools/gen_abi.py`, extended to import
 `tools/gen_theme.py`'s `load_definitions()` alongside `tools/gen_props.py`'s,
 re-emitting `DG_TOKEN_*` constants the identical way `DG_PROP_*` already
-is), a new opaque type (`dg_theme_t`, a fifth handle, same never-freed
+is), a new opaque type (`dg_theme_t`, a fourth handle, same never-freed
 arena shape as the other four), and one new `dg_value` kind
 (`DG_VALUE_TOKEN`) rather than a second, `bind_token()`-shaped exported
 function - `dg_node_set_prop()` is reused unchanged, exactly the way this

@@ -438,7 +438,7 @@ Named explicitly, matching this slice's own scope statement:
 
 Zero new node kinds, zero new `RenderObject` kinds, zero new `WidgetKind`
 values. This slice adds no widget at all - `dg::ThemePackage` is a loader
-and a security boundary, `dg_theme_t` is a fifth ABI handle kind (an opaque
+and a security boundary, `dg_theme_t` is a fourth ABI handle kind (an opaque
 type, not a node kind), and `DG_VALUE_TOKEN` is a new `dg_value::type`
 variant, not a new node. The streak holds through a **twenty-second**
 consecutive slice.
@@ -447,7 +447,7 @@ consecutive slice.
 
 49 properties, 12 theme tokens (unchanged - no new token was added), 21
 exported ABI functions (16 before this slice + `dg_theme_load_dir`/
-`load_memory`/`set_variant`/`override`, `dg_app_set_theme`), 5 opaque
+`load_memory`/`set_variant`/`override`, `dg_app_set_theme`), 4 opaque
 types (`dg_app_t`/`dg_window_t`/`dg_node_t`/`dg_theme_t`), 5 structs
 (+`dg_theme_err`), 31 constants across 5 groups (+`theme_err`, +1
 `value_type` entry), 34 CTest entries (33 before this slice +
