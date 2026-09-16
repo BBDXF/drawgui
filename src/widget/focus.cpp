@@ -122,8 +122,9 @@ FocusChange Focus::focus_previous(const RenderTree& tree, const WidgetSet& widge
   return set(*prev_it);
 }
 
-void Focus::enter_scope(NodeId root) {
+void Focus::enter_scope(NodeId root, bool modal) {
   scope_root_ = root;
+  scope_modal_ = modal;
 }
 
 FocusChange Focus::exit_scope(const RenderTree& tree) {
@@ -132,10 +133,24 @@ FocusChange Focus::exit_scope(const RenderTree& tree) {
   }
   const NodeId root = *scope_root_;
   scope_root_.reset();
+  scope_modal_ = false;
   if (focused_.has_value() && is_within(tree, root, *focused_)) {
     return set(std::nullopt);
   }
   return FocusChange{};
+}
+
+FocusChange Focus::set_guarded(const RenderTree& tree, std::optional<NodeId> target) {
+  if (scope_modal_ && scope_root_.has_value() && target.has_value() &&
+      !is_within(tree, *scope_root_, *target)) {
+    // Refused: doc/menus.md section 6.3's own named prerequisite - a modal
+    // scope refuses a target OUTSIDE it rather than merely leaving it
+    // unreachable by Tab (enter_scope()'s own non-modal shape, unchanged
+    // above). Blurring to nothing (target == std::nullopt) is NOT refused -
+    // see this method's own header comment for why.
+    return FocusChange{};
+  }
+  return set(target);
 }
 
 FocusChange Focus::blur_if_any_of(std::span<const NodeId> recycled) {

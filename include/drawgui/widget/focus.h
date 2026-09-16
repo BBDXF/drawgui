@@ -33,6 +33,13 @@
 // own `RenderTree` and therefore the host's own `Focus` instance; Tab must
 // not let it leak into the parent window's widgets while the popup is open,
 // which is what `enter_scope()`/`exit_scope()` below are for.
+//
+// 7-5b (doc/menus.md section 6.3) grows exactly one more bit onto the SAME
+// scope: `enter_scope(root, modal)`'s `modal` flag, and `set_guarded()`
+// alongside `set()`, is `Dialog`'s modal focus trap - closing the gap 7-4
+// named and deliberately left open ("the smaller mechanism a modal trap
+// could be built ON TOP of, not the trap itself"). No second scope concept
+// was built: a modal scope IS a Tab scope, with refusal switched on.
 
 #pragma once
 
@@ -148,7 +155,32 @@ class Focus {
   // focusing anything new - clicking empty space or a non-focusable widget.
   // Focusing the widget that is already focused reports no change, matching
   // Interaction's identical no-op shape for a redundant hover.
+  //
+  // Takes NO RenderTree, on purpose - unconditional, exactly the shape 4-9
+  // built and every one of this class's existing five call sites (as of
+  // 7-4) already assume. `Dialog`'s modal trap (doc/menus.md section 6.3)
+  // needed a version that CAN refuse a target outside an active modal
+  // scope, and that check needs a tree (is_within() takes one) - rather
+  // than thread one through every existing call site to reason about a flag
+  // most of them will never set, set_guarded() below is a second entry
+  // point that only a modal-aware caller (a Dialog's own dispatch loop)
+  // calls; every caller here before 7-5b keeps calling this one, unchanged.
   FocusChange set(std::optional<NodeId> target);
+
+  // set()'s modal-aware sibling (doc/menus.md section 6.3): identical to
+  // set(target) UNLESS a modal scope is active (enter_scope(root, true))
+  // AND `target` has a value that is NOT is_within() that scope's root, in
+  // which case this REFUSES - returns FocusChange{} (no change at all,
+  // exactly what set() already returns for a redundant no-op) rather than
+  // moving focus outside the trap. Blurring to nothing
+  // (target == std::nullopt) is NOT refused - a click on empty space inside
+  // the dialog's own window still clears focus the ordinary way; only a
+  // target that names something OUTSIDE the modal scope is what this method
+  // exists to stop. Every caller that never enters a MODAL scope (a plain
+  // popup's enter_scope(root) with modal defaulted to false) sees this
+  // behave identically to set() - there is nothing to refuse when
+  // scope_modal_ is false.
+  FocusChange set_guarded(const RenderTree& tree, std::optional<NodeId> target);
 
   [[nodiscard]] std::optional<NodeId> current() const { return focused_; }
   [[nodiscard]] bool is_focused(NodeId id) const {
@@ -173,14 +205,23 @@ class Focus {
   FocusChange focus_previous(const RenderTree& tree, const WidgetSet& widgets,
                              NodeId default_root);
 
-  // --- Focus scopes: the popup boundary, not a modal trap ---
+  // --- Focus scopes: the popup boundary, and (7-5b) the modal trap ---
 
   // Confines focus_next()/focus_previous() to `root`'s own subtree until the
   // matching exit_scope() - the popup case: Tab inside an open dropdown/menu
-  // must not walk back out into the window that opened it. This is NOT
-  // Dialog's modal focus trap (7-5 owns that): nothing here refuses a direct
-  // click or a programmatic set() outside the scope, only Tab/Shift-Tab's
-  // own traversal is bounded.
+  // must not walk back out into the window that opened it.
+  //
+  // `modal` (default false) is 7-5b's own addition (doc/menus.md section
+  // 6.3): false is 7-4's original, unchanged meaning - nothing refuses a
+  // direct click or a plain set() from escaping, only Tab/Shift-Tab's own
+  // traversal is bounded, so every existing caller (a plain popup/dropdown
+  // scope) is unaffected by this parameter existing. true additionally
+  // makes set_guarded() (above) refuse a target outside `root` - a
+  // `Dialog`'s modal focus trap, composed onto the SAME scope mechanism
+  // rather than a second, parallel concept: a modal scope is a Tab scope
+  // with one more bit set, not a different kind of thing, because a modal
+  // dialog needs Tab confinement too and there is no reason to track the
+  // boundary twice.
   //
   // A SINGLE ACTIVE SCOPE, not a stack: PopupHost itself never nests one
   // popup inside another (doc/popup.md section 6, "no second popup ever
@@ -189,19 +230,24 @@ class Focus {
   // caller to justify it, matching this project's own "extracted from a
   // working implementation" rule. Calling this while a scope is already
   // active replaces it; there is no nested restore.
-  void enter_scope(NodeId root);
+  void enter_scope(NodeId root, bool modal = false);
 
-  // Leaves the active scope (a no-op if none is active). If the currently
-  // focused widget is `is_within()` the scope's own root, it is BLURRED
-  // first - the popup-close hazard the task names by name: an overlay
-  // popup's own container is not removed on close, only clipped to an empty
-  // rectangle (doc/popup.md section 3), so a widget focus still names is
-  // not a dangling NodeId (the node object still exists) but IS one nobody
-  // can see, click, or usefully route a keystroke to any more. Leaving
-  // Focus pointed at it would keep painting a ring around nothing.
+  // Leaves the active scope (a no-op if none is active), clearing the modal
+  // flag too. If the currently focused widget is `is_within()` the scope's
+  // own root, it is BLURRED first - the popup-close hazard the task names by
+  // name: an overlay popup's own container is not removed on close, only
+  // clipped to an empty rectangle (doc/popup.md section 3), so a widget
+  // focus still names is not a dangling NodeId (the node object still
+  // exists) but IS one nobody can see, click, or usefully route a keystroke
+  // to any more. Leaving Focus pointed at it would keep painting a ring
+  // around nothing.
   FocusChange exit_scope(const RenderTree& tree);
 
   [[nodiscard]] std::optional<NodeId> current_scope() const { return scope_root_; }
+
+  // Whether the active scope (if any) is a modal one - set_guarded()'s own
+  // condition, exposed so a caller/test can assert on it directly.
+  [[nodiscard]] bool scope_is_modal() const { return scope_modal_; }
 
   // The root focus_next()/focus_previous() should walk from right now:
   // current_scope() if a scope is active, `default_root` otherwise. Exposed
@@ -229,6 +275,7 @@ class Focus {
  private:
   std::optional<NodeId> focused_;
   std::optional<NodeId> scope_root_;
+  bool scope_modal_ = false;
 };
 
 // --- Focus ring: visible keyboard-focus indication (design.md section 11
