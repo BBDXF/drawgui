@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "name": "mytheme",
+  "base": {
+    "radius.sm": 3,
+    "radius.md": 10,
+    "space.sm": 6,
+    "space.md": 18
+  },
+  "variants": {
+    "light": {
+      "color.surface": "#F5F0E6FF",
+      "color.on-surface": "#2A2018FF",
+      "color.border": "#B8A98CFF",
+      "color.primary": "#C0522DFF",
+      "color.on-primary": "#FFFFFFFF",
+      "color.primary-hover": "#D06A44FF",
+      "color.primary-pressed": "#9E4322FF",
+      "color.focus-ring": "#2D7DC0FF"
+    },
+    "dark": {
+      "color.surface": "#241E17FF",
+      "color.on-surface": "#EDE4D6FF",
+      "color.border": "#5C4E38FF",
+      "color.primary": "#E08159FF",
+      "color.on-primary": "#241E17FF",
+      "color.primary-hover": "#E89A79FF",
+      "color.primary-pressed": "#C0663FFF",
+      "color.focus-ring": "#5DA3E0FF"
+    }
+  }
+}
