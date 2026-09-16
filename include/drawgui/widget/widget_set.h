@@ -121,6 +121,20 @@ enum class WidgetKind : std::uint8_t {
 struct Widget {
   WidgetKind kind = WidgetKind::kPanel;
 
+  // 7-4's Tab-order override (dg::focus_order(), include/drawgui/widget/
+  // focus.h), a construction-time declarative field for the identical
+  // reason `min_value`/`max_value`/`step` already are one struct up:
+  // nothing consumes it through dg::set_prop() (design.md names
+  // `tab_index` in section 5.9.6 as an intended property, but it was never
+  // added to props/drawgui.props.toml - there is no generated prop_id for
+  // it to bind to yet), so it stays a plain field until a caller needs the
+  // C ABI to set it. std::nullopt (the default) means "plain tree order";
+  // a POSITIVE value is HTML's own tabindex convention - visited ascending
+  // before every unset/zero widget; a NEGATIVE value removes this widget
+  // from Tab/Shift-Tab's own sequence entirely without making it
+  // unfocusable (a direct click, or dg::Focus::set(), still reaches it).
+  std::optional<int> tab_index;
+
   // The three fills an interactive widget cycles through. A panel or a label
   // never changes fill and leaves these alone.
   Color fill_normal;
