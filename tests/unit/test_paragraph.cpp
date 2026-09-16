@@ -200,9 +200,10 @@ TEST_CASE(
   CHECK(runs[1].end == 5);
 }
 
-TEST_CASE("paragraph_runs: a valid byte immediately beside an invalid one, both "
-         "resolving to the same (primary) family, does NOT merge into a single "
-         "run marked valid") {
+TEST_CASE(
+    "paragraph_runs: a valid byte immediately beside an invalid one, both "
+    "resolving to the same (primary) family, does NOT merge into a single "
+    "run marked valid") {
   // Defect-injection finding: the merge condition once compared only
   // `family`, not `invalid` too. Because an invalid step's family defaults to
   // the PRIMARY (the same family "A" already resolves to), "A" followed by a
@@ -218,7 +219,9 @@ TEST_CASE("paragraph_runs: a valid byte immediately beside an invalid one, both 
 
   TextStyle style;
   style.font = latin.value();
-  style.text = std::string{"A\x80" "B"};
+  style.text = std::string{
+      "A\x80"
+      "B"};
 
   const std::vector<dg::detail::ParagraphRun> runs = dg::detail::paragraph_runs(fonts, style);
   REQUIRE(runs.size() == 3);
@@ -231,4 +234,62 @@ TEST_CASE("paragraph_runs: a valid byte immediately beside an invalid one, both 
   CHECK_FALSE(runs[2].invalid);
   CHECK(runs[2].begin == 2);
   CHECK(runs[2].end == 3);
+}
+
+// ----------------------------------------------------------------------------
+// Paragraph::caret_x (7-2b): the shaping-aware pixel-position primitive
+// TextField editing is built on (doc/text-input.md's cross-reference), on
+// the SAME monospaced test font (12px/glyph at size 20) 4-9's
+// measure_ascii_width()/ascii_offset_at_x() were hand-derived against, so
+// every expected value below is the identical integer those tests already
+// asserted for ASCII - confirming this replacement agrees with what it
+// replaces rather than merely "returning something".
+// ----------------------------------------------------------------------------
+
+TEST_CASE("caret_x is exactly cursor_offset * glyph_width on the monospaced test font") {
+  FontCatalog fonts = make_catalog();
+  dg::Expected<FontId, dg::FontError> latin = fonts.add("DgTest Latin", false);
+  REQUIRE(latin.has_value());
+
+  TextStyle style = make_style(latin.value(), "ABCDE", 20.0F);
+  style.wrap = false;
+  style.align = TextAlign::kLeft;
+  dg::Expected<Paragraph, dg::FontError> built = Paragraph::build(fonts, style, 1000.0F);
+  REQUIRE(built.has_value());
+  const Paragraph& para = built.value();
+
+  CHECK(para.caret_x(0) == 0.0F);
+  CHECK(para.caret_x(1) == 12.0F);
+  CHECK(para.caret_x(3) == 36.0F);
+  CHECK(para.caret_x(5) == 60.0F);  // one past the last glyph: the string's end
+}
+
+TEST_CASE("caret_x lands at the true start of a grapheme cluster even without font coverage") {
+  // DgTest Latin covers none of these codepoints - the whole point: a
+  // TextField's caret position must not depend on whether its font can
+  // render a ZWJ family emoji as one ligature glyph (doc/text-input.md's
+  // cross-reference to doc/text-layout.md section 2 records the
+  // measurement that found SkParagraph's OWN glyph clustering IS
+  // font-dependent). caret_x() itself does no grapheme snapping (its own
+  // doc-comment says so) - this test calls it only at offsets
+  // dg::grapheme_boundaries() already reports as real cluster starts,
+  // which is the one guarantee every caller in this codebase relies on.
+  FontCatalog fonts = make_catalog();
+  dg::Expected<FontId, dg::FontError> latin = fonts.add("DgTest Latin", false);
+  REQUIRE(latin.has_value());
+
+  const std::string text =
+      "X\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466"
+      "Y";
+  TextStyle style = make_style(latin.value(), text, 20.0F);
+  style.wrap = false;
+  style.align = TextAlign::kLeft;
+  dg::Expected<Paragraph, dg::FontError> built = Paragraph::build(fonts, style, 10000.0F);
+  REQUIRE(built.has_value());
+  const Paragraph& para = built.value();
+
+  // "X" is one glyph (12px); the emoji sequence (uncovered, drawn as
+  // .notdef boxes) starts immediately after it.
+  CHECK(para.caret_x(0) == 0.0F);
+  CHECK(para.caret_x(1) == 12.0F);
 }

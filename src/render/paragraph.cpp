@@ -1,6 +1,7 @@
 #include "drawgui/render/paragraph.h"
 
 #include <cmath>
+#include <cstddef>
 #include <utility>
 
 #include "modules/skparagraph/include/Paragraph.h"
@@ -38,6 +39,23 @@ ParagraphMetrics Paragraph::metrics() const {
   out.line_count = static_cast<int>(impl_->paragraph->lineNumber());
   out.exceeded_max_lines = impl_->paragraph->didExceedMaxLines();
   return out;
+}
+
+float Paragraph::caret_x(int offset) const {
+  skia::textlayout::Paragraph::GlyphClusterInfo info;
+  if (impl_->paragraph->getGlyphClusterAt(static_cast<std::size_t>(offset), &info)) {
+    return info.fBounds.left();
+  }
+  // `offset` names no cluster of its own - the end of the text, or (should a
+  // caller ever pass one) an out-of-range position past it. Sit right after
+  // whatever the PRECEDING byte's cluster is, rather than at 0: an empty
+  // string never reaches here (Paragraph::build() itself declines it), so
+  // `offset > 0` here means there is a real preceding cluster to ask about.
+  if (offset > 0 &&
+      impl_->paragraph->getGlyphClusterAt(static_cast<std::size_t>(offset - 1), &info)) {
+    return info.fBounds.right();
+  }
+  return 0.0F;
 }
 
 }  // namespace dg

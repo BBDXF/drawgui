@@ -63,6 +63,26 @@ class Paragraph {
 
   [[nodiscard]] ParagraphMetrics metrics() const;
 
+  // The pixel x-position (relative to this paragraph's own left edge) where
+  // a caret sitting at BYTE offset `offset` would be drawn - the
+  // shaping-aware replacement for 4-9's measure_ascii_width()/
+  // ascii_offset_at_x() per-substring SkFont::measureText calls
+  // (doc/text-input.md's 7-2b cross-reference), built on skia::textlayout::
+  // Paragraph's own byte-offset-native "Editing API"
+  // (getGlyphClusterAt) - confirmed byte-offset-native (not the UTF-16-
+  // offset legacy Flutter API design.md section 5.13.2 warns about) by
+  // direct measurement against the linked archive, not assumed from Skia's
+  // own naming.
+  //
+  // `offset` must be in [0, text length]. It is not required to land on a
+  // grapheme-cluster boundary (dg::grapheme_boundaries()) for this call
+  // itself to return a sensible pixel value - every CALLER in this codebase
+  // only ever passes one, because that is the only place a caret is ever
+  // drawn, but this function does no snapping of its own, matching the "one
+  // function does one thing" shape every other primitive at this layer
+  // already has.
+  [[nodiscard]] float caret_x(int offset) const;
+
  private:
   struct Impl;
   explicit Paragraph(std::unique_ptr<Impl> impl);
