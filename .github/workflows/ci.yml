@@ -408,7 +408,12 @@ jobs:
             examples/20_multiline_text/main.cpp
             examples/20_multiline_text/multiline_check.cpp
             examples/20_multiline_text/multiline_scene.cpp
-            examples/20_multiline_text/multiline_window.cpp"
+            examples/20_multiline_text/multiline_window.cpp
+            examples/21_focus/main.cpp
+            examples/21_focus/focus_check.cpp
+            examples/21_focus/focus_scene.cpp
+            examples/21_focus/focus_window.cpp
+            examples/21_focus/popup_menu.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
