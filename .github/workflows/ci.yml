@@ -2,10 +2,13 @@
 # tests are in place before the first widget. The retrospective this project
 # inherits from records that deleting the tooling left no defence at all.
 #
-# Windows is in scope per design.md section 3 but has no job yet: the MSVC
-# Skia asset has no SHA256 registered in cmake/FetchSkia.cmake, and that file
-# refuses to consume an unverified archive. A job would be red by
-# construction, so it is added together with the hash rather than before it.
+# Windows is in scope per design.md section 3 but has no job yet: libskia2
+# (cmake/FetchSkia2.cmake, P7 slice 7-1) publishes a windows-x64-msvc
+# tarball with its own SHA256 sidecar, but FetchSkia2.cmake deliberately
+# only maps the linux-x64 triple today - wiring up an MSVC job (and the
+# CMake triple mapping + pin it would need) is out of scope for 7-1 by name.
+# A job would be red by construction otherwise, so it is added together with
+# the mapping rather than before it. See doc/skia-dependency.md section 7.
 
 name: CI
 
@@ -35,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build clang clang-tidy libfreetype-dev
+            ninja-build clang clang-tidy libfreetype-dev libfontconfig1-dev
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
@@ -49,14 +52,14 @@ jobs:
 
       # libskia.a references FreeType unconditionally, and the prebuilt
       # archive plus the pinned headers are large enough that re-fetching them
-      # on every run is wasteful. The key covers every pin in FetchSkia.cmake,
+      # on every run is wasteful. The key covers every pin in FetchSkia2.cmake,
       # so changing a pin invalidates the cache rather than silently reusing
       # the previous artifact.
       - name: Cache Skia
         uses: actions/cache@v4
         with:
           path: third_party/skia-prebuilt
-          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia.cmake') }}
+          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia2.cmake') }}
 
       - name: Configure
         run: |
@@ -100,7 +103,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build clang clang-tidy libfreetype-dev
+            ninja-build clang clang-tidy libfreetype-dev libfontconfig1-dev
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
@@ -116,7 +119,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: third_party/skia-prebuilt
-          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia.cmake') }}
+          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia2.cmake') }}
 
       # Debug rather than Release on purpose. UBSan's checks are emitted before
       # optimisation and an optimiser is entitled to delete the ones it can
@@ -213,7 +216,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build clang clang-tidy libfreetype-dev
+            ninja-build clang clang-tidy libfreetype-dev libfontconfig1-dev
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
@@ -229,7 +232,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: third_party/skia-prebuilt
-          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia.cmake') }}
+          key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia2.cmake') }}
 
       # clang-tidy needs compile_commands.json, which the configure step
       # emits, and needs the generated property header to exist on disk.
@@ -307,6 +310,7 @@ jobs:
             tests/unit/test_image.cpp
             tests/unit/test_animation.cpp
             tests/unit/test_theme.cpp
+            tests/unit/test_skia_textlayout_smoke.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
