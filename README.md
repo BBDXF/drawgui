@@ -406,6 +406,38 @@ because nothing had ever tested whether they described the machine. The rule
 now is that an interface is extracted from at least one working
 implementation, never written ahead of one.
 
+Phase 7 opens on the piece 7-1's Skia switch was building toward: text can
+now **wrap, reflow across multiple lines, and draw CJK, mixed-script and
+bidirectional text through the real font-fallback chain** - `TextStyle::wrap`
+routes a node through a real `skia::textlayout::Paragraph` (HarfBuzz shaping,
+libgrapheme UAX#14 line breaking and BiDi, all consumed rather than
+reimplemented) instead of the plain `SkFont` call every node has used since
+slice 2, opt-in and off by default so every scene built before this slice is
+byte-for-byte unaffected. `LayoutTree` gained zero knowledge of text to make
+this work: a wrapping paragraph's height is measured by a new
+`dg::Paragraph::build()` call BEFORE the node exists, the same "know your
+size before your content is resolved" discipline design.md already forces on
+a decoded image - so multi-line text, the classic case that forces a second
+measurement pass in other layout engines, costs this one nothing extra:
+`LayoutStats` on the real demo scene shows every node laid out exactly once,
+measured rather than assumed. Font selection for wrapped text reuses 6-1's
+own zero-fontconfig fallback chain rather than delegating to SkParagraph's
+own (broken, on this project's font manager) search - each run is handed
+exactly one resolved family name up front. A real hang (not a crash) was
+found and fixed along the way: handing ill-formed UTF-8 straight to
+`SkParagraph::addText()` hangs the process, so every byte range this
+project's own decoder already rejects is substituted with well-formed U+FFFD
+before it ever reaches the shaping library. Zero new node/`RenderObject`/
+`WidgetKind` kinds were needed - a sixteenth consecutive slice - and the
+golden PNG hash is unchanged, confirmed by injection to be a structural fact
+(that scene draws no text at all) rather than evidence that text rendering
+was untouched, which `test_font_fallback.cpp`'s own pixel oracles are what
+actually still guard. `TextField`'s ASCII-only editing surface (4-9) is
+completely untouched by this slice - grapheme-cluster cursor movement is
+named as a separate follow-up (7-2b) rather than rushed alongside the display
+substrate. `doc/text-layout.md` records the full decision set, the four
+defect injections, and the exactly-once-layout verdict in detail.
+
 ## Platform scope
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
@@ -728,6 +760,27 @@ window's background colour through `dg_node_set_prop`, driven by the
 ./build/examples/drawgui_c_client --verify-c-client   # headless check (SDL_VIDEODRIVER=dummy)
 ```
 
+## The multiline text demo
+
+`examples/20_multiline_text` draws five panels against real system fonts
+(`/usr/share/fonts`, the same default `examples/06_font_fallback` scans):
+a long English sentence wrapped at ordinary word breaks; sixteen-plus
+UNSPACED Chinese characters wrapped purely by UAX#14's rule table (there is
+no space to fall back on); Latin, Chinese and a colour emoji mixed in one
+run of text through the same zero-fontconfig font-fallback chain 6-1 built;
+Arabic embedded in Latin, its run reordered right-to-left by BiDi while the
+panel itself (and the whole window) stays strictly left-to-right; and the
+same English sentence again, truncated to two lines with an ellipsis. Every
+panel's height is computed by `dg::Paragraph::build()` before its node
+exists - `LayoutTree` never measures a byte of text.
+
+```sh
+./build/examples/drawgui_multiline_text                              # resize it
+./build/examples/drawgui_multiline_text --font-dir DIR                # scan a different font directory
+./build/examples/drawgui_multiline_text --verify-multiline-text       # headless check
+./build/examples/drawgui_multiline_text --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -750,8 +803,9 @@ animates one.
 
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
-testing, interaction, UTF-8 decoding, font fallback and text-field editing. It
-can also be run directly for per-case output:
+testing, interaction, UTF-8 decoding, font fallback, text-field editing and
+multi-line paragraph layout. It can also be run directly for per-case
+output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -804,3 +858,4 @@ Findings and decisions from each slice live beside it:
 | `doc/theme.md` | The theme token system - `themes/schema.toml`'s generator family reused from `props/`, the JSON-parser decision (hand-rolled vs. nlohmann/json), `$token` live references as a `WidgetSet`-shaped side table rather than a generation-counter handle, the measured colour-only-vs-int-token relayout cost, `dg::Expected`-based load errors naming the exact JSON key path, and what CI's `tools/check_consistency.py` verifies |
 | `doc/abi.md` | The C ABI - `abi/drawgui.def.toml`'s generator family (reusing the props generator directly), how the generated try/catch wrapping is made provably uniform and how its removal was shown to crash rather than silently do nothing, why handle validation is append-only rather than AnimHandle's generation-counter shape, the two real engine gaps (no insertion-order or removal primitive) the ABI sketch does not admit to, and everything declined by name (theme ABI, animation ABI, callback events, QuickJS stubs) |
 | `doc/skia-dependency.md` | The libskia2 dependency switch (P7 7-1) - why the golden-image hash is unchanged and why that is credible rather than merely convenient, the empirical proof SkParagraph/SkUnicode link and initialize, the design.md §12 open-question-5 and §5.10.5-vs-§5.13.6 settlement (libgrapheme carries no `icudtl.dat` at all, verified rather than taken from the README), the fontconfig build-time-vs-runtime distinction, the newly-available-but-unwired capability inventory (SVG/WebP/GIF/Ganesh-GL/Windows), and the measured binary-size and clean-build-time deltas |
+| `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search |

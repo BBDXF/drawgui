@@ -380,6 +380,18 @@ remaining two are unchanged.
    child is placed - a run's extent, a child's baseline - which is the one
    thing this piece declined to build. The prediction was right that they need
    the same machinery and wrong that this piece would bring it.
+
+   **P7 7-2 cross-reference**: `align=baseline` remains exactly as recorded
+   here, unchanged and untouched by multi-line paragraph text. The task that
+   introduced `TextStyle::wrap` asked whether wrapped text would finally make
+   a text baseline a real, available quantity to align other children
+   against - it does not, for the identical structural reason: 7-2 keeps
+   `LayoutTree` at zero knowledge of text (`doc/text-layout.md` section 6),
+   so a paragraph's baseline is never surfaced to layout at all, only its
+   overall height (`dg::ParagraphMetrics::height`, computed BEFORE the node
+   exists). `align=baseline` still needs the same measured-quantity-before-
+   placement machinery this item already declined to build, and 7-2 does not
+   change that.
 5. ~~**Per-child overrides and per-side painting**~~ - done. `align_self`, and
    the paint half of `border_width_*`.
 

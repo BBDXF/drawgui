@@ -243,6 +243,19 @@ readability; nothing here is re-ordered by importance.
 | fontconfig (`SkFontMgr_New_FontConfig`) | font-fallback.md | per-language answers come from `/etc/fonts`, breaking determinism/golden tests | forced only by non-file-based platform font systems, thousands-of-fonts scale, or runtime font install |
 | Locale inheritance (node→scope→app-default) | font-fallback.md | design.md 5.13.5 wants 3 levels; only node-property level exists | the slice that introduces scopes |
 
+> **P7 7-2 cross-reference (this row set is append-only; not rewritten)**:
+> "Multi-line reflow / `SkParagraph`" and "HarfBuzz shaping, ICU BiDi,
+> UAX#14 line-breaking" above are now CLOSED for read-only DISPLAY -
+> `TextStyle::wrap`, `dg::Paragraph`, `examples/20_multiline_text`,
+> `doc/text-layout.md`. "Non-ASCII input / grapheme clustering" and "Shrink-
+> to-fit TextField" remain OPEN exactly as recorded here - 7-2 touched no
+> `TextField` editing code at all, and the grapheme-cluster editing half is
+> named `.omo/plans/drawgui-phase7.md`'s 7-2b. "Caret blink" and "Tab order
+> / focus tree" are unaffected by 7-2. The `icudtl.dat`
+> distribution question this row's "fontconfig" neighbour also touches was
+> already dissolved by 7-1 (`doc/skia-dependency.md` §5) - libgrapheme
+> carries no such file to embed or trim.
+
 ### Widgets / interaction (pre-existing, re-affirmed unchanged this phase)
 
 | Declined | Slice/doc | Reason | Phase |
@@ -281,6 +294,18 @@ how the originating slice framed it, because design.md's own wording for that
 one item is categorically stronger ("must", "the single most critical
 decision") than the "declined, named, deferred" register every other item in
 this table shares.
+
+> **P7 7-2 cross-reference**: row 11 above is now PARTIALLY resolved rather
+> than fully closed. `SkParagraph`/`HarfBuzz`(via `SkShaper`)/`SkUnicode`
+> (libgrapheme, not ICU - 7-1's substitution, see `doc/skia-dependency.md`
+> §5) are now real, exercised code paths (`src/render/paragraph_build.cpp`,
+> `src/render/paragraph_runs.cpp`), consumed for read-only DISPLAY behind
+> `TextStyle::wrap`. `grep -rn "SkParagraph" include/ src/` no longer finds
+> nothing. What remains true of row 11 as originally written: `TextField`'s
+> OWN editing path still uses none of it - `src/widget/widget_set.cpp`'s
+> `text_field_*` functions are unchanged and still ASCII-scoped, per
+> `doc/text-layout.md` section 2's explicit scope decision and
+> `.omo/plans/drawgui-phase7.md`'s named 7-2b follow-up.
 
 **Update (slice 5-4, phase 5): row #12 added.** This is a worklist item for
 design.md's own next revision, not a fix applied to design.md's prose by this
