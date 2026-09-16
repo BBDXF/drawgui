@@ -47,7 +47,7 @@ size_t count_flag(const skia_private::TArray<SkUnicode::CodeUnitFlags, true>& fl
                    SkUnicode::CodeUnitFlags wanted) {
   size_t n = 0;
   for (int i = 0; i < flags.size(); ++i) {
-    if (flags[i] & wanted) {
+    if ((flags[i] & wanted) != 0) {
       ++n;
     }
   }
@@ -111,12 +111,15 @@ TEST_CASE("skia textlayout foundation: grapheme clusters (ZWJ family emoji count
   // grapheme-cluster requirement's own example: 7 code points joined by ZWJ,
   // one cursor/backspace unit. computeCodeUnitFlags marks kGraphemeStart at
   // every cluster boundary plus the string's end, so N clusters produce
-  // N + 1 marks.
-  const std::string family_emoji =
+  // N + 1 marks. Not `const`: SkUnicode::computeCodeUnitFlags takes
+  // `char utf8[]` (non-const), and a non-const std::string's own `.data()`
+  // already returns `char*` in C++17 - the correct way to get a mutable
+  // pointer without a const_cast.
+  std::string family_emoji =
       "\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466";
   skia_private::TArray<SkUnicode::CodeUnitFlags, true> flags;
   const bool ok = unicode->computeCodeUnitFlags(
-      const_cast<char*>(family_emoji.data()), static_cast<int>(family_emoji.size()), false, &flags);
+      family_emoji.data(), static_cast<int>(family_emoji.size()), false, &flags);
   REQUIRE(ok);
   CHECK(count_flag(flags, SkUnicode::kGraphemeStart) == 2);
 }
@@ -129,12 +132,13 @@ TEST_CASE("skia textlayout foundation: CJK line breaking without spaces (UAX#14)
   // entirely dependent on the UAX#14 rule table libgrapheme must carry
   // in-process (section 5.10.5's trim question). 16 unspaced Han characters;
   // a rule table that is silently absent gives at most a start/end mark and
-  // nothing in between, not "more than a handful".
-  const std::string cjk_text =
+  // nothing in between, not "more than a handful". Not `const`, for the
+  // same non-const-`.data()` reason as above.
+  std::string cjk_text =
       "\u4e2d\u6587\u6ca1\u6709\u7a7a\u683c\u6240\u4ee5\u65ad\u884c\u5b8c\u5168\u4f9d\u8d56\u89c4\u5219\u8868";
   skia_private::TArray<SkUnicode::CodeUnitFlags, true> flags;
   const bool ok = unicode->computeCodeUnitFlags(
-      const_cast<char*>(cjk_text.data()), static_cast<int>(cjk_text.size()), false, &flags);
+      cjk_text.data(), static_cast<int>(cjk_text.size()), false, &flags);
   REQUIRE(ok);
   const size_t soft_breaks = count_flag(flags, SkUnicode::kSoftLineBreakBefore);
   CHECK(soft_breaks > 4);
