@@ -10,7 +10,8 @@ void collect_focus_order(const RenderTree& tree, const WidgetSet& widgets, NodeI
                          std::vector<NodeId>& out) {
   if (widgets.has(id)) {
     const Widget& widget = widgets.at(id);
-    if (is_focusable(widget.kind) && !(widget.tab_index.has_value() && *widget.tab_index < 0) &&
+    if (is_focusable(widget.kind) &&
+        (!widget.tab_index.has_value() || *widget.tab_index >= 0) &&
         !tree.absolute_bounds(id).is_empty()) {
       out.push_back(id);
     }
@@ -121,7 +122,9 @@ FocusChange Focus::focus_previous(const RenderTree& tree, const WidgetSet& widge
   return set(*prev_it);
 }
 
-void Focus::enter_scope(NodeId root) { scope_root_ = root; }
+void Focus::enter_scope(NodeId root) {
+  scope_root_ = root;
+}
 
 FocusChange Focus::exit_scope(const RenderTree& tree) {
   if (!scope_root_.has_value()) {
@@ -178,8 +181,8 @@ void update_focus_ring(RenderTree& tree, NodeId parent, FocusRing& ring,
       ring.top, PixelRect::from_edges(outer.left(), outer.top(), outer.right(), inner.top()));
   tree.set_local_bounds(ring.bottom, PixelRect::from_edges(outer.left(), inner.bottom(),
                                                            outer.right(), outer.bottom()));
-  tree.set_local_bounds(
-      ring.left, PixelRect::from_edges(outer.left(), inner.top(), inner.left(), inner.bottom()));
+  tree.set_local_bounds(ring.left, PixelRect::from_edges(outer.left(), inner.top(),
+                                                         inner.left(), inner.bottom()));
   tree.set_local_bounds(ring.right, PixelRect::from_edges(inner.right(), inner.top(),
                                                           outer.right(), inner.bottom()));
 }

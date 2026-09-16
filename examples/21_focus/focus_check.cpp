@@ -63,8 +63,8 @@ void check_order_and_wrapping(std::ostream& out, bool& ok) {
   const std::vector<NodeId> expected{scene.handles.reversed, scene.handles.btn_open,
                                      scene.handles.checkbox, scene.handles.slider,
                                      scene.handles.textfield};
-  check(order == expected,
-       "focus_order() == [reversed, btn_open, checkbox, slider, textfield]", out, ok);
+  check(order == expected, "focus_order() == [reversed, btn_open, checkbox, slider, textfield]",
+        out, ok);
 
   dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
   if (!made) {
@@ -87,17 +87,17 @@ void check_order_and_wrapping(std::ostream& out, bool& ok) {
   for (const NodeId& id : expected) {
     focus_scene::tab(scene, manager, window.value(), /*backwards=*/false);
     check(scene.focus.current() == id,
-         ("focus_next() reaches " + focus_scene::describe(scene, id)).c_str(), out, ok);
+          ("focus_next() reaches " + focus_scene::describe(scene, id)).c_str(), out, ok);
   }
   // One more Tab wraps past textfield back to reversed.
   focus_scene::tab(scene, manager, window.value(), false);
   check(scene.focus.current() == scene.handles.reversed, "focus_next() wraps to the front", out,
-       ok);
+        ok);
 
   // Shift-Tab from the front wraps to the back.
   focus_scene::tab(scene, manager, window.value(), /*backwards=*/true);
   check(scene.focus.current() == scene.handles.textfield, "focus_previous() wraps to the back",
-       out, ok);
+        out, ok);
 
   // `inert` (tab_index=-1) is never reached by five more Tabs from here...
   bool ever_hit_inert = false;
@@ -109,7 +109,7 @@ void check_order_and_wrapping(std::ostream& out, bool& ok) {
   // ...but a direct focus (a click, in the real widget) still reaches it.
   scene.focus.set(scene.handles.inert);
   check(scene.focus.current() == scene.handles.inert,
-       "tab_index=-1 (inert) is still focusable directly", out, ok);
+        "tab_index=-1 (inert) is still focusable directly", out, ok);
 }
 
 // --------------------------------------------------------------------------
@@ -151,7 +151,7 @@ void check_real_tab_key_event(std::ostream& out, bool& ok) {
   }
   check(saw_tab, "a posted SDLK_TAB round-trips through pump() as Key::kTab", out, ok);
   check(scene.focus.current() == scene.handles.reversed,
-       "dispatch_key() routed that real KeyEvent to focus_next()", out, ok);
+        "dispatch_key() routed that real KeyEvent to focus_next()", out, ok);
 }
 
 // --------------------------------------------------------------------------
@@ -198,7 +198,7 @@ void check_overlay_scope_and_close(std::ostream& out, bool& ok) {
   for (int cycle = 0; cycle < 3; ++cycle) {
     const dg::Expected<PopupHandle, dg::WindowError> shown =
         host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = false},
-                 anchor, popup_menu::kSize, PopupPlacement::kBelow, PopupFlags{});
+                  anchor, popup_menu::kSize, PopupPlacement::kBelow, PopupFlags{});
     if (!shown) {
       out << "  FAIL: overlay show() failed: " << shown.error().message << "\n";
       ok = false;
@@ -211,25 +211,25 @@ void check_overlay_scope_and_close(std::ostream& out, bool& ok) {
 
     focus_scene::tab(scene, manager, window.value(), false);
     check(scene.focus.current() == menu.btn1, "Tab into the overlay reaches its first button",
-         out, ok);
+          out, ok);
     focus_scene::tab(scene, manager, window.value(), false);
     check(scene.focus.current() == menu.btn2, "Tab again reaches its second button", out, ok);
     focus_scene::tab(scene, manager, window.value(), false);
     check(scene.focus.current() == menu.btn1,
-         "a third Tab wraps WITHIN the popup, not out to the host", out, ok);
+          "a third Tab wraps WITHIN the popup, not out to the host", out, ok);
 
     scene.focus.set(menu.btn2);
     host.close(handle);
     const dg::FocusChange change = scene.focus.exit_scope(scene.tree.render());
     check(change.blurred == menu.btn2,
-         "closing the overlay blurs a widget still focused inside it", out, ok);
+          "closing the overlay blurs a widget still focused inside it", out, ok);
     check(!scene.focus.current().has_value(), "focus is nullopt immediately after", out, ok);
   }
 }
 
 void attempt_native_popup(std::ostream& out) {
   out << "\nnative popup: attempting a real SDL_CreatePopupWindow under the headless dummy "
-        "driver (measured, not assumed, that this fails - doc/popup.md section 1)\n";
+         "driver (measured, not assumed, that this fails - doc/popup.md section 1)\n";
   dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
   if (!made) {
     out << "  SKIP (loud, specific): could not even start the window system: "
@@ -252,19 +252,19 @@ void attempt_native_popup(std::ostream& out) {
   const PixelRect anchor = scene.tree.render().absolute_bounds(scene.handles.btn_open);
   const dg::Expected<PopupHandle, dg::WindowError> native =
       host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = true},
-               anchor, popup_menu::kSize, PopupPlacement::kBelow, PopupFlags{});
+                anchor, popup_menu::kSize, PopupPlacement::kBelow, PopupFlags{});
   if (!native) {
     out << "  SKIPPED, loudly and specifically: SDL_CreatePopupWindow failed under the dummy "
-          "video driver, with: \""
+           "video driver, with: \""
         << native.error().message
         << "\". Real doc/focus.md section 6 evidence (a genuine second OS window gaining real "
-          "keyboard focus, and this engine's own separate dg::Focus instance for it) comes "
-          "from examples/21_focus's interactive mode against an actual display, matching "
-          "doc/popup.md's own precedent exactly.\n";
+           "keyboard focus, and this engine's own separate dg::Focus instance for it) comes "
+           "from examples/21_focus's interactive mode against an actual display, matching "
+           "doc/popup.md's own precedent exactly.\n";
     return;
   }
   out << "  UNEXPECTED PASS: this environment's dummy driver created a real popup window - "
-        "bonus coverage, not a failure.\n";
+         "bonus coverage, not a failure.\n";
   PopupHandle handle = native.value();
   host.close(handle);
 }
@@ -282,7 +282,8 @@ void check_two_focus_instances_never_collide(std::ostream& out, bool& ok) {
   RenderTree tree_a{spec_a};
   WidgetSet widgets_a;
   dg::Focus focus_a;
-  const NodeId btn_a = tree_a.add_child(RenderTree::root(), PixelRect{0, 0, 40, 20}, NodeStyle{});
+  const NodeId btn_a =
+      tree_a.add_child(RenderTree::root(), PixelRect{0, 0, 40, 20}, NodeStyle{});
   Widget widget_a;
   widget_a.kind = WidgetKind::kButton;
   widgets_a.attach(btn_a, widget_a);
@@ -292,18 +293,19 @@ void check_two_focus_instances_never_collide(std::ostream& out, bool& ok) {
   RenderTree tree_b{spec_b};
   WidgetSet widgets_b;
   dg::Focus focus_b;
-  const NodeId btn_b = tree_b.add_child(RenderTree::root(), PixelRect{0, 0, 40, 20}, NodeStyle{});
+  const NodeId btn_b =
+      tree_b.add_child(RenderTree::root(), PixelRect{0, 0, 40, 20}, NodeStyle{});
   Widget widget_b;
   widget_b.kind = WidgetKind::kButton;
   widgets_b.attach(btn_b, widget_b);
 
-  check(btn_a.value == btn_b.value, "both windows' first button gets the identical NodeId value",
-       out, ok);
+  check(btn_a.value == btn_b.value,
+        "both windows' first button gets the identical NodeId value", out, ok);
 
   focus_a.set(btn_a);
   focus_b.set(btn_b);
   check(focus_a.current() == btn_a && focus_b.current() == btn_b,
-       "each dg::Focus still names only its own window's widget", out, ok);
+        "each dg::Focus still names only its own window's widget", out, ok);
 }
 
 // --------------------------------------------------------------------------
@@ -337,7 +339,7 @@ void check_tab_away_mid_composition(std::ostream& out, bool& ok) {
   focus_scene::Scene scene = focus_scene::build(options_for(kSize));
   if (!scene.fonts.has_value()) {
     out << "  SKIP (loud, specific): no font directory scanned - the text field has no "
-          "FontCatalog, so its editing/composition surface cannot be exercised on this host\n";
+           "FontCatalog, so its editing/composition surface cannot be exercised on this host\n";
     return;
   }
 
@@ -348,11 +350,11 @@ void check_tab_away_mid_composition(std::ostream& out, bool& ok) {
   const dg::PumpResult composing = manager.pump(200);
   for (const dg::TextEditingEvent& event : composing.text_editing) {
     scene.widgets.text_field_composition_update(scene.tree.render(), *scene.fonts,
-                                                scene.handles.textfield, event.text, event.start,
-                                                event.length);
+                                                scene.handles.textfield, event.text,
+                                                event.start, event.length);
   }
   check(scene.widgets.text_field_is_composing(scene.handles.textfield),
-       "a synthesized SDL_EVENT_TEXT_EDITING started a real composition", out, ok);
+        "a synthesized SDL_EVENT_TEXT_EDITING started a real composition", out, ok);
 
   manager.post_key(window.value(), true, dg::Key::kTab, false);
   const dg::PumpResult tabbed = manager.pump(200);
@@ -360,9 +362,9 @@ void check_tab_away_mid_composition(std::ostream& out, bool& ok) {
     focus_scene::dispatch_key(scene, manager, window.value(), event);
   }
   check(scene.focus.current() != scene.handles.textfield, "Tab moved focus away from the field",
-       out, ok);
+        out, ok);
   check(!scene.widgets.text_field_is_composing(scene.handles.textfield),
-       "the composition was cancelled, not left dangling against an unfocused field", out, ok);
+        "the composition was cancelled, not left dangling against an unfocused field", out, ok);
 }
 
 }  // namespace
@@ -371,7 +373,7 @@ int run(std::ostream& out) {
   setenv("SDL_VIDEODRIVER", "dummy", 1);
 
   out << "FOCUS: Tab order over a mixed-kind scene, wrapping, the tab_index override, focus "
-        "scopes across both PopupHost branches, and the mid-composition Tab-away hazard.\n\n";
+         "scopes across both PopupHost branches, and the mid-composition Tab-away hazard.\n\n";
 
   bool ok = true;
   check_order_and_wrapping(out, ok);

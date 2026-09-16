@@ -51,7 +51,7 @@ void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::Ren
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId host_window, const Settings& settings,
-        std::ostream& out)
+         std::ostream& out)
       : settings_(settings),
         out_(&out),
         manager_(&manager),
@@ -118,7 +118,8 @@ void Runner::open_popup() {
     popup_native_widgets_.emplace();
     popup_native_focus_.emplace();
     popup_native_ring_ = dg::FocusRing{};
-    popup_handles_ = popup_menu::build(*popup_->tree, *popup_native_widgets_, popup_->content_root);
+    popup_handles_ =
+        popup_menu::build(*popup_->tree, *popup_native_widgets_, popup_->content_root);
     popup_native_surface_ =
         dg::RasterSurface::create(popup_menu::kSize.width, popup_menu::kSize.height);
     // The OS just moved real keyboard focus to the new window; this
@@ -128,7 +129,8 @@ void Runner::open_popup() {
     // host's own) is simply never consulted while this window has OS
     // focus, and stays exactly as it was.
   } else {
-    popup_handles_ = popup_menu::build(scene_.tree.render(), scene_.widgets, popup_->content_root);
+    popup_handles_ =
+        popup_menu::build(scene_.tree.render(), scene_.widgets, popup_->content_root);
     scene_.focus.enter_scope(popup_->content_root);
   }
 }
@@ -152,12 +154,19 @@ void Runner::close_popup() {
 }
 
 void Runner::refresh_native_ring() {
+  if (!popup_.has_value() || !popup_native_focus_.has_value()) {
+    return;
+  }
   dg::update_focus_ring(*popup_->tree, popup_->content_root, popup_native_ring_,
                         popup_native_focus_->current(), ring_color(scene_.theme));
 }
 
 void Runner::dispatch_popup_native_pointer(const dg::PointerEvent& event) {
   if (event.action != dg::PointerAction::kDown) {
+    return;
+  }
+  if (!popup_.has_value() || !popup_native_widgets_.has_value() ||
+      !popup_native_focus_.has_value()) {
     return;
   }
   const dg::PixelPoint at{event.x, event.y};
@@ -169,11 +178,16 @@ void Runner::dispatch_popup_native_pointer(const dg::PointerEvent& event) {
 }
 
 void Runner::dispatch_popup_native_tab(bool backwards) {
+  if (!popup_.has_value() || !popup_native_widgets_.has_value() ||
+      !popup_native_focus_.has_value()) {
+    return;
+  }
   if (backwards) {
     popup_native_focus_->focus_previous(*popup_->tree, *popup_native_widgets_,
                                         popup_->content_root);
   } else {
-    popup_native_focus_->focus_next(*popup_->tree, *popup_native_widgets_, popup_->content_root);
+    popup_native_focus_->focus_next(*popup_->tree, *popup_native_widgets_,
+                                    popup_->content_root);
   }
   refresh_native_ring();
 }
@@ -199,7 +213,8 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
     focus_scene::dispatch_pointer(scene_, *manager_, host_window_, event);
     return;
   }
-  const bool open_requested = focus_scene::dispatch_pointer(scene_, *manager_, host_window_, event);
+  const bool open_requested =
+      focus_scene::dispatch_pointer(scene_, *manager_, host_window_, event);
   if (open_requested) {
     open_popup();
   }
@@ -231,10 +246,10 @@ void Runner::handle_key(const dg::KeyEvent& event) {
 int Runner::run() {
   const Clock::time_point started = Clock::now();
   *out_ << "focus demo\n"
-       << "  Tab/Shift-Tab moves focus; click a widget to focus it; click the \"open popup\" "
-          "button for a "
-       << (settings_.force_overlay ? "OVERLAY" : "NATIVE")
-       << " popup; click outside it or press Escape to dismiss it.\n";
+        << "  Tab/Shift-Tab moves focus; click a widget to focus it; click the \"open popup\" "
+           "button for a "
+        << (settings_.force_overlay ? "OVERLAY" : "NATIVE")
+        << " popup; click outside it or press Escape to dismiss it.\n";
 
   if (!host_surface_.has_value()) {
     return 1;
@@ -308,7 +323,7 @@ int dump_png(const Settings& settings, const std::string& path, std::ostream& ou
   const dg::Color color = ring_color(scene.theme);
   scene.focus.set(scene.handles.reversed);
   dg::update_focus_ring(scene.tree.render(), dg::LayoutTree::root(), scene.ring,
-                       scene.focus.current(), color);
+                        scene.focus.current(), color);
 
   scene.tree.render().repaint_full(*surface);
 
@@ -318,7 +333,8 @@ int dump_png(const Settings& settings, const std::string& path, std::ostream& ou
     return 2;
   }
   std::ofstream file(path, std::ios::binary);
-  file.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+  file.write(reinterpret_cast<const char*>(png.data()),
+             static_cast<std::streamsize>(png.size()));
   if (!file) {
     out << "could not write " << path << "\n";
     return 3;

@@ -205,7 +205,8 @@ void apply_side_effects(Scene& scene, dg::WindowManager& manager, dg::WindowId w
       // rectangle 7-3's internal `focused_display_projection()` computes -
       // that helper is not public API, and an IME only needs to land
       // somewhere near the field, not on the exact glyph.
-      manager.start_text_input(window, scene.tree.render().absolute_bounds(scene.handles.textfield));
+      manager.start_text_input(window,
+                               scene.tree.render().absolute_bounds(scene.handles.textfield));
       scene.tree.render().set_style(scene.handles.textfield, field_style(true));
     }
   }
@@ -213,8 +214,8 @@ void apply_side_effects(Scene& scene, dg::WindowManager& manager, dg::WindowId w
   const dg::Color ring_color =
       scene.theme.color_value(DG_TOKEN_COLOR_FOCUS_RING, dg::ThemeVariant::kDark)
           .value_or(dg::Color::from_argb(0xFFFF8800));
-  dg::update_focus_ring(scene.tree.render(), LayoutTree::root(), scene.ring, scene.focus.current(),
-                       ring_color);
+  dg::update_focus_ring(scene.tree.render(), LayoutTree::root(), scene.ring,
+                        scene.focus.current(), ring_color);
 }
 
 }  // namespace
@@ -237,9 +238,8 @@ Scene build(const Options& options) {
 
   const dg::Expected<dg::Theme, dg::ThemeLoadError> loaded = dg::load_builtin_theme();
 
-  Scene scene{LayoutTree{spec}, dg::WidgetSet{},         dg::Interaction{},
-             dg::Focus{},      dg::FocusRing{},          Handles{},
-             std::move(fonts), loaded.value()};
+  Scene scene{LayoutTree{spec}, dg::WidgetSet{}, dg::Interaction{}, dg::Focus{},
+              dg::FocusRing{},  Handles{},       std::move(fonts),  loaded.value()};
 
   BoxStyle body_box;
   body_box.kind = LayoutKind::kColumn;
@@ -271,8 +271,8 @@ Scene build(const Options& options) {
   scene.tree.layout_full();
   scene.widgets.resync_sliders(scene.tree.render());
   if (scene.fonts.has_value()) {
-    scene.widgets.text_field_set_focus(scene.tree.render(), *scene.fonts, scene.handles.textfield,
-                                       false);
+    scene.widgets.text_field_set_focus(scene.tree.render(), *scene.fonts,
+                                       scene.handles.textfield, false);
   }
 
   return scene;
@@ -316,14 +316,14 @@ void tab(Scene& scene, dg::WindowManager& manager, dg::WindowId window, bool bac
   // matches the current state (which would report a no-op and skip every
   // side effect below).
   const dg::FocusChange change =
-      backwards ? scene.focus.focus_previous(scene.tree.render(), scene.widgets,
-                                             scene.handles.body)
-               : scene.focus.focus_next(scene.tree.render(), scene.widgets, scene.handles.body);
+      backwards
+          ? scene.focus.focus_previous(scene.tree.render(), scene.widgets, scene.handles.body)
+          : scene.focus.focus_next(scene.tree.render(), scene.widgets, scene.handles.body);
   apply_side_effects(scene, manager, window, change);
 }
 
 bool dispatch_pointer(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
-                     const dg::PointerEvent& event) {
+                      const dg::PointerEvent& event) {
   const dg::PixelPoint at{event.x, event.y};
   dg::InteractionChange change;
   switch (event.action) {
@@ -333,8 +333,8 @@ bool dispatch_pointer(Scene& scene, dg::WindowManager& manager, dg::WindowId win
     case dg::PointerAction::kDown: {
       const std::optional<NodeId> hit = scene.widgets.widget_at(scene.tree.render(), at);
       change = scene.interaction.pressed_on(hit);
-      const bool is_focusable =
-          hit.has_value() && scene.widgets.has(*hit) && dg::is_focusable(scene.widgets.at(*hit).kind);
+      const bool is_focusable = hit.has_value() && scene.widgets.has(*hit) &&
+                                dg::is_focusable(scene.widgets.at(*hit).kind);
       apply_focus_change(scene, manager, window, is_focusable ? hit : std::nullopt);
       break;
     }
@@ -391,7 +391,8 @@ void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
                                     event.shift);
       break;
     case dg::Key::kEnd:
-      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd, event.shift);
+      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd,
+                                    event.shift);
       break;
     case dg::Key::kBackspace:
       scene.widgets.text_field_backspace(tree, fonts, field);

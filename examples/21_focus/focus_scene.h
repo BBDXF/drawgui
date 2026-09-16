@@ -93,7 +93,7 @@ void tab(Scene& scene, dg::WindowManager& manager, dg::WindowId window, bool bac
 // the caller's cue to open the popup, kept out of this function because
 // PopupHost belongs to the window layer, not the scene.
 bool dispatch_pointer(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
-                     const dg::PointerEvent& event);
+                      const dg::PointerEvent& event);
 
 // Left/Right/Home/End/Backspace/Delete route to the focused kTextField
 // exactly like examples/12_text_input's own handle_key(); Tab/Shift-Tab

@@ -84,7 +84,8 @@ Scene build_scene() {
   const NodeId root = RenderTree::root();
 
   scene.container1 = scene.tree.add_child(root, PixelRect{0, 0, 400, 40}, NodeStyle{});
-  scene.button_a = scene.tree.add_child(scene.container1, PixelRect{10, 5, 80, 30}, NodeStyle{});
+  scene.button_a =
+      scene.tree.add_child(scene.container1, PixelRect{10, 5, 80, 30}, NodeStyle{});
   scene.label = scene.tree.add_child(scene.container1, PixelRect{100, 5, 80, 30}, NodeStyle{});
   scene.checkbox_b =
       scene.tree.add_child(scene.container1, PixelRect{200, 5, 30, 30}, NodeStyle{});
