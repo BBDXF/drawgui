@@ -672,3 +672,23 @@ this document's own `post_text_input()`/`post_key()` already are), not
 through a genuine composing IME - stated plainly rather than glossed
 over.
 
+## 12. Cross-reference: 7-4 landed - Tab order and the focus tree (append-only)
+
+Section 3 above introduced `dg::Focus` "from nothing... one optional
+`NodeId`, exclusive, no tab order, no focus tree" and named design.md
+section 5.2's per-window `FocusManager` as P4 scope, not this slice's.
+7-4 (`.omo/plans/drawgui-phase7.md`) is that follow-up, and it has now
+landed: `dg::focus_order()`/`Focus::focus_next()`/`focus_previous()` (a
+pre-order walk of `RenderTree`'s own `children()`, overridden by an
+explicit `Widget::tab_index`), wrapping, popup-scoped Tab boundaries, and
+a themed focus ring - `doc/focus.md` is the full record. `Focus::set()`
+itself is UNCHANGED - the exclusive, atomic-transition, `FocusChange`-
+reporting shape this section already built is exactly what 7-4's own
+`focus_next()`/`focus_previous()` call at the end of computing which
+`NodeId` is next, rather than a second focusing primitive replacing it.
+This section's own closing sentence - "an interface is extracted from a
+working implementation, not written ahead of one" - is the identical
+argument `doc/focus.md` section 1 makes for why Tab order needed no third
+tree: `RenderTree`'s own `children()`/`parent()` (6-3) turned out to
+already be the tree a "focus tree" needed.
+

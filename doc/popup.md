@@ -328,3 +328,34 @@ Unchanged: 49 properties, 35 implemented / 10 partial / 4 not-yet.
 `RenderTree::add_child()` calls, the same as every flat-colour demo scene
 before it (`doc/damage-repaint.md`, `doc/compositing.md`'s own examples).
 `doc/properties.md` needs no edit.
+
+## 9. Cross-reference: 7-4 landed — window-level focus tracking (append-only)
+
+Section 5 named the one real, un-worked edge this slice found: "nothing
+wires window-level (as opposed to widget-level) focus tracking yet." 7-4
+(`.omo/plans/drawgui-phase7.md`) is that follow-up, and the answer it
+found is structural rather than a new mechanism: a native popup already
+forces a second `RenderTree` instance (section 3 above), so 7-4 gives it
+an entirely separate `dg::Focus` (and `WidgetSet`) too, rather than a
+single global focus keyed by a `NodeId`-plus-`window_id` compound. Two
+independent `Focus` instances never share a `NodeId` numbering space, so
+there is nothing for a cross-window struct to disambiguate — confirmed
+directly (`examples/21_focus`'s own structural check hands two separate
+windows' first buttons the IDENTICAL numeric `NodeId` and shows each
+`Focus` still names only its own). The Escape/native-popup-focus edge
+this section named is unaffected by 7-4 either way — it was always an SDL/
+window-manager-level question (does `SDL_WINDOW_POPUP_MENU` currently hold
+keyboard focus), not one this engine's own `Focus` concept was ever going
+to answer. For the OVERLAY branch, which shares the host's own `RenderTree`
+and therefore its own `Focus`, 7-4 adds `enter_scope()`/`exit_scope()` so
+Tab does not leak out of an open popup into the host window behind it, and
+`exit_scope()` blurs a focused widget still inside the popup when it
+closes — the append-only-but-invisible-content hazard section 3 above
+already named ("a handful of dead nodes... accepted and named") now has a
+FOCUS-side answer to match: closing does not delete the nodes, but it does
+stop `Focus` from still pointing at one. `doc/focus.md` is the full
+record, including a real bug 7-4's own build found while attaching an
+overlay popup's buttons: they must be attached to the HOST's own
+`WidgetSet` (never a second one) for `dg::focus_order()`'s tree walk ever
+to see them — a finding this document's own section 3 did not anticipate
+because `WidgetSet` predates 7-4's own Tab-order consumer of it.

@@ -516,6 +516,48 @@ including the real X11 window measurement, the honest testing-gap
 statement, and a defect-injection campaign that found one injection causes
 an actual crash rather than merely a wrong answer.
 
+`TextField` and every other interactive control can now be **reached and
+driven by keyboard alone** - Tab/Shift-Tab, wrapping, and a visible focus
+ring. `dg::focus_order()` needed no third tree to compute a DOM-shaped Tab
+sequence: `RenderTree`'s own `children()`/`parent()` (6-3's own addition)
+already are the tree Tab order and a popup's own focus boundary both walk,
+so the one new piece of state is a single optional scope-root `NodeId`
+inside `dg::Focus` itself - the identical "smallest structure that earns
+its place" argument this project's own `WidgetSet` and `ThemeBindings`
+already made against a fourth or fifth table. An explicit
+`Widget::tab_index` override (HTML's own `tabindex` semantics: positive
+values lead, ascending; unset/zero follow in tree order; negative values
+are focusable by a click but never a Tab stop) was built deliberately
+rather than left to tree order by accident, and a scene mixing
+`kButton`/`kCheckbox`/`kSlider`/`kTextField` with one non-focusable widget
+sandwiched between two focusable ones and one sibling whose Tab position
+reverses its tree position is what `examples/21_focus` demonstrates and
+verifies. Crossing into a popup turned out to need no new cross-window
+machinery: a native popup already forces its own separate `RenderTree`
+(5-2), so it gets its own separate `dg::Focus` too, and two independent
+`Focus` instances never share a `NodeId` numbering space to confuse; an
+overlay popup shares the host's own `RenderTree` and `Focus`, scoped by
+`enter_scope()`/`exit_scope()` so Tab cannot leak out of it, with
+`exit_scope()` blurring a still-focused widget when the popup closes - the
+exact popup-close hazard this project's own append-only `RenderTree`
+(nothing is ever removed, only clipped to empty) made real. Two further
+hazards this slice owns rather than assumes fixed: a focused widget in a
+virtualized `kList` whose pool slot gets recycled to a different logical
+item is blurred rather than left pointing at the wrong item's content, and
+Tab-ing away from a `TextField` mid-IME-composition cancels the
+composition end to end (re-verified through a real posted `SDLK_TAB`
+against a synthesized composition event, not assumed still correct from
+7-3). A focus change costs a repaint and never a relayout, measured after
+13 Tab/click-driven transitions in a row. Zero new node/`RenderObject`/
+`WidgetKind` kinds were needed - a nineteenth consecutive slice. `doc/
+focus.md` records the full decision set, including a real bug this
+slice's own build caught (an overlay popup's buttons must be attached to
+the HOST's `WidgetSet`, not a second one, for Tab order to ever see them)
+and a second one caught wiring Tab's own side effects (calling
+`dg::Focus::set()` a second time to derive a `FocusChange` after
+`focus_next()` had already performed the transition silently reported a
+no-op and skipped every side effect).
+
 
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
@@ -872,6 +914,26 @@ exists - `LayoutTree` never measures a byte of text.
 ./build/examples/drawgui_multiline_text --dump-png out.png
 ```
 
+## The focus demo
+
+`examples/21_focus` draws a mixed-kind scene deliberately shaped so a
+wrong Tab order is visibly wrong: `btn_open` (kButton) - a non-focusable
+label - `checkbox` (kCheckbox) - `slider` (kSlider) on one row;
+`textfield` (kTextField) - `reversed` (kButton, `tab_index=1`) - `inert`
+(kButton, `tab_index=-1`) on the second. Tab/Shift-Tab cycles focus
+through `[reversed, btn_open, checkbox, slider, textfield]` and wraps at
+both ends; `inert` is reachable by a click but never by Tab. Clicking
+`btn_open` opens a popup through `PopupHost` - `--branch native|overlay`
+forces which branch, matching `examples/14_popup`'s own precedent - and
+Tab is confined inside it until it closes.
+
+```sh
+./build/examples/drawgui_focus                        # Tab/Shift-Tab it; click "open popup"
+./build/examples/drawgui_focus --branch overlay        # force the overlay popup branch
+./build/examples/drawgui_focus --verify-focus          # headless check
+./build/examples/drawgui_focus --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -894,9 +956,9 @@ animates one.
 
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
-testing, interaction, UTF-8 decoding, font fallback, text-field editing and
-multi-line paragraph layout. It can also be run directly for per-case
-output:
+testing, interaction, UTF-8 decoding, font fallback, text-field editing,
+multi-line paragraph layout and focus (Tab order, scopes, the ring). It
+can also be run directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -950,4 +1012,5 @@ Findings and decisions from each slice live beside it:
 | `doc/abi.md` | The C ABI - `abi/drawgui.def.toml`'s generator family (reusing the props generator directly), how the generated try/catch wrapping is made provably uniform and how its removal was shown to crash rather than silently do nothing, why handle validation is append-only rather than AnimHandle's generation-counter shape, the two real engine gaps (no insertion-order or removal primitive) the ABI sketch does not admit to, and everything declined by name (theme ABI, animation ABI, callback events, QuickJS stubs) |
 | `doc/skia-dependency.md` | The libskia2 dependency switch (P7 7-1) - why the golden-image hash is unchanged and why that is credible rather than merely convenient, the empirical proof SkParagraph/SkUnicode link and initialize, the design.md §12 open-question-5 and §5.10.5-vs-§5.13.6 settlement (libgrapheme carries no `icudtl.dat` at all, verified rather than taken from the README), the fontconfig build-time-vs-runtime distinction, the newly-available-but-unwired capability inventory (SVG/WebP/GIF/Ganesh-GL/Windows), and the measured binary-size and clean-build-time deltas |
 | `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search; section 14 (7-2b, append-only) records that the follow-up landed and corrects section 10's prediction about `getGlyphClusterAt()`; section 15 (7-3, append-only) records that IME composition landed reusing 7-2b's grapheme seam unchanged, and the one narrow offset-unit question it raised |
-| `doc/ime.md` | IME composition (P7 7-3) - what SDL3 3.x actually delivers (`SDL_TextEditingEvent`/`SDL_TextEditingCandidatesEvent`) versus what design.md/4-9 assumed; the empirical finding, on this project's own development machine with a real running IME (fcitx5+rime), that the candidate/composition window is drawn by the platform itself and positioned using the caret rectangle 4-9 already reports (measured causally, twice); why a candidate-list UI is declined by name rather than duplicated; the synthetic-event testing answer (`WindowManager::post_text_editing()`) and the honest, explicit gap between it and a genuine composing IME; the one narrow byte-offset-unit conversion SDL's own "UTF-8 characters" convention forced, and why it did not reopen design.md §5.13.2's general type-index-space question; the re-measured relayout verdict under a preedit that changes length on every keystroke; and a defect-injection campaign that found one injection causes an actual crash rather than merely a wrong answer |
+| `doc/ime.md` | IME composition (P7 7-3) - what SDL3 3.x actually delivers (`SDL_TextEditingEvent`/`SDL_TextEditingCandidatesEvent`) versus what design.md/4-9 assumed; the empirical finding, on this project's own development machine with a real running IME (fcitx5+rime), that the candidate/composition window is drawn by the platform itself and positioned using the caret rectangle 4-9 already reports (measured causally, twice); why a candidate-list UI is declined by name rather than duplicated; the synthetic-event testing answer (`WindowManager::post_text_editing()`) and the honest, explicit gap between it and a genuine composing IME; the one narrow byte-offset-unit conversion SDL's own "UTF-8 characters" convention forced, and why it did not reopen design.md §5.13.2's general type-index-space question; the re-measured relayout verdict under a preedit that changes length on every keystroke; and a defect-injection campaign that found one injection causes an actual crash rather than merely a wrong answer; section 14 (7-4, append-only) records that a window-level focus change now ends an in-progress composition, satisfying section 11's own named dependency |
+| `doc/focus.md` | Tab order and the focus tree (P7 7-4) - why no third tree was needed (`RenderTree`'s own `children()`/`parent()` already are the tree Tab order and a popup's own focus boundary walk, so the only new state is one optional scope-root `NodeId`); `dg::focus_order()`'s DOM-shaped default and the deliberate `Widget::tab_index` override (HTML's own tabindex semantics); which `WidgetKind`s are focusable and why `kScrollView`/`kList` are declined by name rather than overlooked; why Tab reaching a zero-opacity widget is the CONSISTENT reading of 4-5's own hit-test divergence, not a second one; `enter_scope()`/`exit_scope()` as the smallest mechanism that serves a popup's Tab boundary without being `Dialog`'s modal trap (7-5's own job); why crossing into a popup needed no `NodeId`-plus-`window_id` struct (a native popup gets its own separate `Focus` for its own separate `RenderTree`; an overlay popup shares the host's, scoped); the list-recycling and mid-composition-Tab-away hazards, both handled and tested rather than assumed already safe; the ring's four-strips-outside-the-bounds geometry and why a single rectangle would have silently made a focused widget unclickable; the measured zero-relayout finding; and two real bugs this slice's own build caught (an overlay popup's buttons needing the HOST's `WidgetSet`, and a double-`set()` call that silently skipped every focus-change side effect) |

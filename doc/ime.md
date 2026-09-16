@@ -505,3 +505,27 @@ works end-to-end against a real composing input method** — section 5 is
 the honest record of exactly what was and was not verified, and exactly
 what would need to change (a different IME/toolkit combination, or a
 different platform) to close that gap for real.
+
+## 14. Cross-reference: 7-4 landed — the named dependency, satisfied (append-only)
+
+Section 11 named one thing a future `FocusManager` should guarantee: "a
+window-level focus change also ends any in-progress composition on that
+window, the way this slice's own `text_field_set_focus(false)` already
+does at the widget level." 7-4 (`.omo/plans/drawgui-phase7.md`) is that
+`FocusManager`, and it satisfies this directly rather than by accident:
+`examples/21_focus`'s `focus_scene::apply_side_effects()` calls
+`WidgetSet::text_field_set_focus(..., false)` — this slice's own function,
+UNCHANGED — on every blur, whether the blur came from a click or from Tab,
+alongside `WindowManager::clear_composition()` so the platform's own IME
+state agrees (the identical "both sides, never one ahead of the other"
+rule this section's own Escape-cancellation path already established).
+`doc/focus.md` section 6 records the re-verification: rather than
+assuming this slice's own widget-level cancellation was already enough
+once SOMETHING called it on blur, 7-4's own headless check drives a
+synthesized `SDL_EVENT_TEXT_EDITING` (this section's own
+`post_text_editing()`, unchanged) to start a real composition, then a
+real posted `SDLK_TAB` to move focus away, and confirms
+`text_field_is_composing()` is false afterward — end to end, through the
+real event queue, not merely a direct call against `text_field_set_focus()`
+in isolation. `doc/completeness.md`'s own P7 7-4 cross-reference records
+"Tab order / focus tree" as CLOSED.

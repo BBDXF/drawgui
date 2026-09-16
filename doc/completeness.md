@@ -299,6 +299,35 @@ readability; nothing here is re-ordered by importance.
 > the way this slice's widget-level `text_field_set_focus(false)` already
 > does) is named in `doc/ime.md` section 11 rather than built here.
 
+> **P7 7-4 cross-reference (append-only)**: "Tab order / focus tree" is
+> now CLOSED - `dg::focus_order()`/`dg::Focus::focus_next()`/
+> `focus_previous()` (DOM-shaped pre-order over `RenderTree::children()`,
+> reordered by an explicit `Widget::tab_index` override), wrapping at both
+> ends, `enter_scope()`/`exit_scope()` for a popup's own Tab boundary, and
+> a themed focus ring - `doc/focus.md` is the full record. **No third
+> tree was added**: `RenderTree`'s own `children()`/`parent()` (6-3) are
+> what Tab order and scope containment both walk; the one new piece of
+> state is a single optional scope-root `NodeId` inside `Focus` itself.
+> IME's own named dependency (`doc/ime.md` section 11: "a window-level
+> focus change should also end an in-progress composition") is now
+> satisfied - `examples/21_focus`'s `apply_side_effects()` calls
+> `WidgetSet::text_field_set_focus(false)` (which already cancels
+> composition internally, 7-3) AND `WindowManager::clear_composition()`
+> on every blur, and `focus_check.cpp`'s own check re-verifies this
+> end-to-end (a synthesized `SDL_EVENT_TEXT_EDITING` starts a real
+> composition, a real posted `SDLK_TAB` cancels it) rather than assuming
+> 7-3's widget-level cancellation was already enough. `doc/popup.md`
+> section 5's own named gap ("nothing wires window-level... focus
+> tracking yet") is resolved by construction rather than by new plumbing:
+> a native popup gets its own, entirely separate `dg::Focus` instance (a
+> separate `RenderTree`/window already forced a separate `WidgetSet`), so
+> cross-window focus needed no `NodeId`-plus-`window_id` struct at all -
+> two independent `Focus` instances simply never share a `NodeId` space,
+> confirmed directly by `examples/21_focus`'s own structural check. The
+> shortcut/intent system and its four-level routing (design.md section
+> 5.5.1/5.5.2) and the gesture arena (§5.16.3) remain OPEN, declined by
+> name as siblings this slice does not build.
+
 ### Widgets / interaction (pre-existing, re-affirmed unchanged this phase)
 
 | Declined | Slice/doc | Reason | Phase |
