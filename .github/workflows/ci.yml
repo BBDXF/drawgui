@@ -320,6 +320,7 @@ jobs:
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
             tests/unit/test_widget_pipeline.cpp
+            tests/unit/test_focus.cpp
             tests/layout/layout_identity_main.cpp
             tests/widget/widget_identity_main.cpp
             examples/03_damage_repaint/scene.cpp
