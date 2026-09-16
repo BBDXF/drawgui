@@ -181,6 +181,7 @@ add_library(drawgui STATIC
   src/render/damage.cpp
   src/render/font_catalog.cpp
   src/render/font_fallback.cpp
+  src/render/grapheme.cpp
   src/render/hit_test.cpp
   src/render/image_catalog.cpp
   src/render/paragraph.cpp

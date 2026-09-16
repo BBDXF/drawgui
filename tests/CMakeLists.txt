@@ -84,6 +84,7 @@ add_executable(drawgui_unit_test
   unit/test_theme.cpp
   unit/test_skia_textlayout_smoke.cpp
   unit/test_paragraph.cpp
+  unit/test_grapheme.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp

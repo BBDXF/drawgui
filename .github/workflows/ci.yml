@@ -265,6 +265,7 @@ jobs:
             src/render/font_catalog.cpp
             src/render/font_fallback.cpp
             src/render/clip_shape.cpp
+            src/render/grapheme.cpp
             src/render/hit_test.cpp
             src/render/image_catalog.cpp
             src/render/paragraph.cpp
@@ -315,6 +316,7 @@ jobs:
             tests/unit/test_theme.cpp
             tests/unit/test_skia_textlayout_smoke.cpp
             tests/unit/test_paragraph.cpp
+            tests/unit/test_grapheme.cpp
             tests/unit/test_hit_test.cpp
             tests/unit/test_interaction.cpp
             tests/unit/test_text_damage.cpp
