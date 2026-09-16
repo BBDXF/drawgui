@@ -484,3 +484,201 @@ task itself as out of scope, untouched here. Popup/dropdown animations
 unrevisited by this slice: nothing about Dropdown specifically needed one,
 though 6-1's clock would serve it the identical way section 6.2 describes
 for a tooltip's fade-in.
+
+---
+
+## 12. Cross-reference: 7-5b landed — Context menu, Tooltip, `Dialog` (append-only)
+
+Section 6 above named three real, previously-nonexistent prerequisites and
+split them into follow-up **7-5b**. This section records that 7-5b landed
+all three in one slice, closing each prerequisite immediately before the
+control it unblocked, rather than closing all three prerequisites first —
+each control was built as soon as its own gate was proven, matching this
+project's "an interface is extracted from a working implementation" rule
+applied three times in sequence rather than once.
+
+### 12.1 Context menu: button identity, verified not assumed
+
+Section 6.1's exact finding — `PointerEvent`/`PointerAction` carried no
+button identity anywhere — is now closed by a **field on `PointerEvent`**,
+not a new `PointerAction` enumerator: `PointerButton { kPrimary, kSecondary,
+kMiddle }`. This was a real design fork this section's own text left open
+("does the SDL3 backend implementation... need a routing decision"), and
+the answer is the field, for the reason the task itself asked to be
+weighed: `PointerAction` names WHAT happened (move/down/up/leave/wheel),
+which button did it is orthogonal, and a field costs zero fixups to every
+existing EXHAUSTIVE switch over `PointerAction` this project already has
+(`examples/22_dropdown_menu`'s own `dispatch_pointer()`, `examples/
+21_focus`'s, every prior one) — the identical exhaustive-switch-fixup tax
+7-5 paid extending `Key` does NOT recur here, because nothing was added to
+an enum a switch already covers. `src/platform/sdl3/window_manager.cpp`'s
+own `if (event.button.button != SDL_BUTTON_LEFT) { break; }` — quoted
+verbatim by section 6.1 above — is replaced by a `to_pointer_button()`
+mapping that lets `SDL_BUTTON_LEFT/RIGHT/MIDDLE` all survive (X1/X2 still
+dropped, unchanged policy); `post_pointer_button()` gained a trailing
+`PointerButton button = PointerButton::kPrimary` parameter, so every
+pre-7-5b call site (the exhaustive per-pixel hit-test oracle's own harness,
+4-8's `--script` real-X-input tests, 7-4's focus tests) recompiles unchanged
+and posts the IDENTICAL primary-button event it always did — confirmed, not
+assumed: the full 32-test suite this slice inherited stayed 32/32 BEFORE a
+single new file was written, the moment the plumbing change alone was
+built, and again after.
+
+The routing decision section 6.1 named as unsettled — "does right-click
+change hover/press state... or is it a parallel, non-activating channel" —
+is decided: **parallel, non-activating**. A secondary-button `kDown` never
+reaches `dg::Interaction`; the caller (`examples/23_menu_tooltip_dialog`'s
+own `menu_target_secondary_click()`) intercepts it before `menu_scene::
+dispatch_pointer()` — which remains a byte-for-byte left-click-only view of
+the world, unaware button identity exists at all — ever sees it. The
+context menu itself needed **zero new `WidgetKind`**: it is `PopupHost::
+show()` anchored at the pointer (a zero-size rect, not a widget's own
+bounds — the one thing a dropdown's anchor never needed to be) plus
+`kButton` rows built the identical way `examples/22_dropdown_menu`'s own
+`dropdown_options.cpp` already does (renamed `menu_rows.{h,cpp}` rather than
+shared, matching this project's own "a second near-identical file, not a
+premature shared library" precedent — `examples/21_focus`'s `popup_menu.cpp`
+and `examples/22_dropdown_menu`'s `dropdown_options.cpp` already coexist
+unshared). Keyboard Up/Down/Enter/Escape/click-outside are `dg::Focus::
+focus_next()`/`focus_previous()` and `PopupHost::handle_pointer()`/
+`handle_key()`, completely unmodified — a context menu needed no new
+mechanism at this layer at all, only the pointer-plumbing prerequisite.
+
+### 12.2 Tooltip: `SDL_WINDOW_TOOLTIP` threaded, hover state's home decided
+
+`WindowManager::open_popup()` gained a trailing `PopupWindowKind kind =
+PopupWindowKind::kMenu` parameter (`kMenu` → `SDL_WINDOW_POPUP_MENU`,
+`kTooltip` → `SDL_WINDOW_TOOLTIP`), threaded through `PopupHost::show()`'s
+own new trailing parameter of the same type. Every existing call site
+defaults to `kMenu`, unchanged.
+
+Section 6.2's own hover-delay-timer home question is answered by a NEW,
+small, standalone file (`include/drawgui/widget/tooltip.h` + `src/widget/
+tooltip.cpp`) rather than a side table: `HoverTimer` is a single `(optional
+NodeId, AnimTime)` pair, defended against the side-table precedent this
+project actually has (`ThemeBindings`, `WidgetSet`) by the same argument
+`dg::Focus`'s own scope-root field and `dg::Interaction`'s own `hovered_`
+field already make — a side table earns its place when MANY nodes need the
+state SIMULTANEOUSLY (many theme bindings, every node's own `Widget`); at
+most ONE widget is ever hovered at any instant, which is exactly why
+`Interaction` already holds `hovered_` as a single optional field rather
+than a per-node bool table. `update_hover_timer()`/`hover_ready()` are the
+plain `AnimTime` comparison section 6.2 already predicted needing no new
+engine feature — confirmed, not merely predicted correct.
+
+**The idle-CPU property was measured to survive, not assumed to.**
+`examples/23_menu_tooltip_dialog`'s own frame loop reuses design.md section
+5.15.1's idle-vs-active shape verbatim (`examples/17_animation`'s own
+`kFramePacerMs` pattern, applied to a hover delay for the first time rather
+than an animation): `-1` (block indefinitely) whenever nothing is being
+timed toward a tooltip, a short poll only while `HoverTimer` names a widget
+still waiting out its delay. `--idle-probe-ms 2000` against a REAL display
+(this sandbox's WSLg, matching every prior idle-CPU measurement's own
+precedent for where such a number is credible) measured **0.013% CPU**
+across the block — the identical order of magnitude as 6-1's own 0.009%
+baseline, confirming the hover timer added zero measurable idle cost. The
+SAME probe under `SDL_VIDEODRIVER=dummy` measured 2.3%, and re-running
+`examples/17_animation`'s OWN, completely unmodified idle probe under the
+identical dummy driver measured 2.9% — proving the elevated number is the
+dummy driver's own pre-existing overhead, not a regression this slice
+introduced; a real display is what makes this measurement meaningful, and
+this slice reports both numbers rather than only the flattering one.
+
+### 12.3 `Dialog`: modal focus refusal composed onto 7-4's scopes, and the close-request veto
+
+**Modal refusal is one more bit on the SAME scope mechanism 7-4 built, not a
+second concept.** `Focus::enter_scope(root, bool modal = false)` — `modal`
+defaults to `false`, so every pre-7-5b call site (a plain popup/dropdown
+scope) is byte-for-byte unaffected. A new entry point, `Focus::set_guarded
+(const RenderTree&, std::optional<NodeId>)`, is what actually refuses: when
+the active scope is modal and the target names something `is_within()` does
+NOT confirm belongs to the scope's own subtree, it returns an empty
+`FocusChange` — no change at all — instead of delegating to `set()`. This is
+the SECOND, additional entry point section 6.3 named as one of two honest
+shapes ("a second `set()`-shaped entry point... or a trap flag threaded
+through `Focus` itself that every... call site would need to newly reason
+about") — the second entry point was chosen specifically because it lets
+every one of `Focus`'s five pre-existing call sites (dropdown included)
+keep calling the plain `set()` unchanged, with zero new reasoning required,
+while a NEW caller that actually builds a modal dialog opts in explicitly.
+Blurring to nothing (`target == std::nullopt`) is deliberately NOT refused
+— only a target naming something OUTSIDE the scope is; `set_guarded()` on a
+non-modal scope behaves identically to `set()`, confirmed directly rather
+than assumed.
+
+This mechanism is inherently a SAME-TREE question, for the identical
+structural reason 7-4's own scopes already are: `is_within()` walks
+`RenderTree::parent()` links within ONE tree, so "outside the modal" is
+only a meaningful, checkable question when the dialog's content shares the
+host's own tree — the OVERLAY shape (a full-window backdrop + a centred
+panel, appended directly to the host's `RenderTree`, `doc/popup.md`
+section 3's own overlay precedent applied at whole-window scale). A dialog
+opened as a genuinely separate OS window (this slice's new
+`WindowManager::open_dialog()`, real `SDL_SetWindowParent()`/
+`SDL_SetWindowModal()`) gets its own separate `dg::Focus` for its own
+separate tree — 7-4's own precedent for a native popup, restated rather
+than reinvented — and there is structurally nothing in that OTHER tree for
+`set_guarded()` to refuse, the same reason cross-window focus never needed
+a `NodeId`-plus-`window_id` struct (`doc/focus.md` section 5). Real OS-level
+modal enforcement is the platform's own answer for the native shape; this
+engine's own refusal mechanism is what protects the overlay shape, and
+both are real, working code paths in `examples/23_menu_tooltip_dialog`.
+
+**The close-request veto is a WindowManager-level addition, independent of
+which Dialog shape is in use.** `WindowSpec::cancellable_close` (default
+`false`, every existing window unaffected) routes a
+`SDL_EVENT_WINDOW_CLOSE_REQUESTED` through `PumpResult::close_requested`
+INSTEAD of `closed`, and does NOT destroy the window — `WindowManager::
+close_now()` is what a handler calls once it decides not to veto; declining
+to call it (doing nothing) is the whole of what "veto" means. Proven with a
+plain window (not `open_dialog()`'s own parent/modal machinery, which fails
+under this sandbox's dummy driver — see 12.4): open two windows, one
+cancellable, one not; `request_close()` both; the plain one closes
+immediately (unchanged pre-7-5b behaviour); the cancellable one surfaces
+through `close_requested` and stays open across a further `pump()` with no
+action taken; `close_now()` then destroys it.
+
+### 12.4 `SDL_VIDEODRIVER=dummy`, extended to this slice's own new platform calls
+
+Matching this document's own section 7 and every prior popup-touching
+slice's identical precedent: `examples/23_menu_tooltip_dialog --verify-menus`
+sets `SDL_VIDEODRIVER=dummy`. Real, measured outcomes, not assumed:
+`SDL_CreatePopupWindow` fails identically regardless of which flag
+(`SDL_WINDOW_POPUP_MENU` or the new `SDL_WINDOW_TOOLTIP`) is requested —
+attempted once for each, reported loudly and specifically, never silently
+skipped. `WindowManager::open_dialog()`'s own two new SDL calls,
+`SDL_SetWindowParent()`/`SDL_SetWindowModal()`, were measured directly with
+a standalone probe BEFORE writing the engine wrapper (this document's own
+methodology, `doc/popup.md` section 1's precedent) and found to fail with
+the IDENTICAL "That operation is not supported" message — attempted once in
+`--verify-menus`, reported the same way. Real coverage of both — a genuine
+second OS window, real ownership/modality, `SDL_WINDOW_TOOLTIP`'s own
+no-input behaviour — comes from `examples/23_menu_tooltip_dialog`'s
+interactive `--branch native` mode against this sandbox's actual display
+(WSLg, `DISPLAY=:0`), the same precedent every prior popup-touching example
+already established. Everything that does NOT need a real second OS
+window — button identity's real SDL round-trip (a same-process,
+same-window event, unaffected by the dummy driver), the hover timer's own
+pure-value logic, the modal-refusal overlay shape, the close-request
+veto on a plain window — runs for real under the dummy driver with no gap
+at all.
+
+### 12.5 `design.md` section 5.6 line 622, re-verified
+
+**Zero new `RenderObject`/node/`WidgetKind` kinds.** `PointerButton` is a
+field on an existing struct; `PopupWindowKind` selects an existing SDL flag
+choice; `HoverTimer` is a plain value type outside the render tree
+entirely; the modal scope is one more `bool` on `Focus`; the context
+menu/tooltip/dialog panel are all `PopupHost`/direct-`RenderTree`
+composition, identical in kind to every popup client since 5-2. The streak
+`doc/menus.md` section 2.2 measured through Dropdown (a twentieth
+consecutive slice) extends to a **twenty-first**.
+
+### 12.6 Final counts after 7-5b
+
+49 properties (unchanged); 12 theme tokens (unchanged); 9 `WidgetKind`s
+(unchanged); 33 CTest entries (32 + `menu_tooltip_dialog.verify_demo_scene`);
+23 examples (22 + `23_menu_tooltip_dialog`); zero new node/`RenderObject`
+kinds, a twenty-first consecutive slice. All three controls named in
+7-5b's own follow-up were built in this one slice — no further split-out
+was needed.

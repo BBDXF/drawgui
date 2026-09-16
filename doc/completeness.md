@@ -632,3 +632,18 @@ on top of its own `enter_scope()`/`exit_scope()`. All three declined by
 name, each with its own real (not assumed) prerequisite, in
 `doc/menus.md` section 6; the named follow-up is **7-5b**.
 
+
+## Cross-reference: 7-5b landed — Context menu, Tooltip, `Dialog` (append-only)
+
+The prior section named three prerequisites, each checked and confirmed
+real by 7-5 rather than assumed to fall out of `PopupHost`. 7-5b
+(`.omo/plans/drawgui-phase7.md`, `doc/menus.md` section 12) closed all
+three in one slice: a `PointerButton` field on `PointerEvent` (context
+menu), `PopupWindowKind`/`SDL_WINDOW_TOOLTIP` threaded through
+`WindowManager::open_popup()`/`PopupHost::show()` plus a new `HoverTimer`
+value type (tooltip), and `Focus::set_guarded()` composed onto 7-4's own
+scope mechanism plus `WindowManager::open_dialog()`/`cancellable_close`
+(`Dialog`). Zero new `RenderObject`/node/`WidgetKind` kinds - the streak
+this section's own audit measured through 7-5 (a twentieth consecutive
+slice) extends to a **twenty-first**. `doc/menus.md` section 12 has the
+full record.

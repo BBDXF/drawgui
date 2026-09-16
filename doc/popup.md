@@ -359,3 +359,34 @@ overlay popup's buttons: they must be attached to the HOST's own
 `WidgetSet` (never a second one) for `dg::focus_order()`'s tree walk ever
 to see them — a finding this document's own section 3 did not anticipate
 because `WidgetSet` predates 7-4's own Tab-order consumer of it.
+
+## 10. Cross-reference: 7-5b landed — `SDL_WINDOW_TOOLTIP` threaded, and `Dialog`'s own window (append-only)
+
+Section 6's own declined-by-name list named `SDL_WINDOW_TOOLTIP` and
+`WindowKind::kDialog` explicitly. 7-5b (`.omo/plans/drawgui-phase7.md`,
+`doc/menus.md` section 12) is that follow-up. `WindowManager::open_popup()`
+gained a trailing `PopupWindowKind kind = PopupWindowKind::kMenu`
+parameter — every existing call site (this document's own, and every
+popup/dropdown client since) keeps requesting `SDL_WINDOW_POPUP_MENU`
+unchanged; `kTooltip` requests `SDL_WINDOW_TOOLTIP` instead, threaded
+through `PopupHost::show()`'s own new trailing parameter of the same type.
+Measured directly, matching this document's own section 1 methodology: a
+tooltip window fails to create under `SDL_VIDEODRIVER=dummy` with the
+IDENTICAL "That operation is not supported" message a menu-flagged popup
+already does — the dummy driver's limitation is about `SDL_CreatePopupWindow`
+itself, not about which flag it is asked for.
+
+`Dialog` is a genuinely separate window-layer addition, `WindowManager::
+open_dialog()`, deliberately NOT built on `PopupHost` — a real,
+ordinary top-level window (`SDL_CreateWindow`, unlike `open_popup()`'s
+`SDL_CreatePopupWindow`) additionally given real OS ownership/modality
+(`SDL_SetWindowParent()` then `SDL_SetWindowModal()`, in that documented
+order) and an opt-in `WindowSpec::cancellable_close` for design.md section
+5.2's own cancellable `on_close_request`. This is a peer window kind to
+`Popup`, not a variant of it, matching design.md's own four-row window-kind
+table naming `Normal`/`Dialog`/`Popup`/`Tooltip` as siblings rather than a
+hierarchy. `doc/menus.md` section 12.3/12.4 has the full record, including
+why the modal FOCUS trap this engine's own `dg::Focus` enforces is a
+separate concern from this window's own real OS-level modality, and the
+measured failure of `SDL_SetWindowParent()`/`SDL_SetWindowModal()` under
+`SDL_VIDEODRIVER=dummy`.

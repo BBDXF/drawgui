@@ -623,6 +623,42 @@ and confirmed one injection is caught immediately by the existing suite.
 `doc/completeness.md` each carry an append-only cross-reference, and
 design.md §12 records the `Table`/`RenderGrid` resolution in place.
 
+`Dropdown`'s own three declines are now closed. **A context menu** opens
+at the pointer on a real right-click - `PointerEvent` gained a
+`PointerButton` field (`kPrimary`/`kSecondary`/`kMiddle`), a sibling field
+rather than a new `PointerAction` case, so every existing exhaustive
+switch over `PointerAction` needed no fixup at all and the SDL3 backend's
+own left-button path is untouched byte-for-byte - confirmed by the full
+inherited test suite staying green before a single new file existed. A
+secondary-button press is a parallel, non-activating channel: it never
+touches `dg::Interaction`'s hover/press state, only opens the menu.
+**A tooltip** shows after a continuous hover delay - `WindowManager::
+open_popup()` can now request `SDL_WINDOW_TOOLTIP` as well as
+`SDL_WINDOW_POPUP_MENU` (a real, measured SDL capability difference: only
+the latter can take keyboard focus), and the hover-delay state lives in a
+new, minimal `HoverTimer` value - a single `(node, timestamp)` pair, not a
+side table, for the identical reason `dg::Focus`'s own scope root and
+`dg::Interaction`'s own hovered-widget field are single values rather than
+per-node tables: at most one widget is ever hovered at a time. The
+hover-delay poll reuses 6-1's own idle-vs-active frame-loop shape, and the
+idle-CPU property was measured to survive it: 0.013% CPU blocked against a
+real display, the same order of magnitude as 6-1's own 0.009% baseline.
+**A modal `Dialog`** can now genuinely refuse to lose focus: `dg::Focus`
+gained `set_guarded()`, a second entry point alongside the unconditional
+`set()` every existing caller keeps using unchanged, which refuses a
+target outside an `enter_scope(root, /*modal=*/true)` scope - one more bit
+on 7-4's own scope mechanism, not a second concept. `WindowManager` gained
+`open_dialog()` (a real second OS window with genuine `SDL_SetWindowParent`/
+`SDL_SetWindowModal` ownership) and an opt-in `WindowSpec::
+cancellable_close`, which routes a close request through a new
+`PumpResult::close_requested` instead of destroying the window outright -
+proven cancellable by a direct test: a handler that declines to call the
+new `close_now()` leaves the window open indefinitely. Zero new
+`RenderObject`/node/`WidgetKind` kinds were needed for any of the three - a
+twenty-first consecutive slice. `doc/menus.md` section 12 records the full
+decision set; `doc/popup.md` and `doc/focus.md` each carry an append-only
+cross-reference.
+
 
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
@@ -1022,6 +1058,33 @@ what was highlighted.
 ./build/examples/drawgui_dropdown_menu --dump-png out.png
 ```
 
+## The menu/tooltip/dialog demo
+
+`examples/23_menu_tooltip_dialog` draws five buttons in a row: `before`,
+`Right-click me` (a context menu, anchored at the pointer), `Hover me` (a
+tooltip after a continuous hover delay), `Open Dialog` (a modal dialog),
+`after`. `--branch native|overlay` picks which shape the context
+menu/tooltip/dialog take, matching every prior `PopupHost`-based example's
+own precedent - `native` opens the dialog as a real second OS window with
+genuine `SDL_SetWindowParent`/`SDL_SetWindowModal` ownership and a
+cancellable close request (a "Veto" toggle inside it decides whether its
+own Close button's request actually closes the window); `overlay` shows
+the dialog as a same-window backdrop-and-panel whose Tab/click/`Focus::
+set_guarded()` confinement is what this slice's own headless check
+exercises directly (`SDL_SetWindowParent`/`SDL_SetWindowModal`, like
+`SDL_CreatePopupWindow`, fail under a headless `SDL_VIDEODRIVER=dummy`
+driver - attempted once, reported loudly and specifically, never silently
+skipped).
+
+```sh
+./build/examples/drawgui_menu_tooltip_dialog                        # right-click, hover, or open the dialog
+./build/examples/drawgui_menu_tooltip_dialog --branch overlay       # force the overlay dialog/no real second OS window
+./build/examples/drawgui_menu_tooltip_dialog --tooltip-delay-ms 800 # a longer hover delay
+./build/examples/drawgui_menu_tooltip_dialog --verify-menus         # headless check
+./build/examples/drawgui_menu_tooltip_dialog --idle-probe-ms 2000   # measure idle CPU with the hover timer present but idle
+./build/examples/drawgui_menu_tooltip_dialog --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -1045,8 +1108,9 @@ animates one.
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
 testing, interaction, UTF-8 decoding, font fallback, text-field editing,
-multi-line paragraph layout, focus (Tab order, scopes, the ring) and
-dropdown selection/option-list clamping. It
+multi-line paragraph layout, focus (Tab order, scopes, modal refusal, the
+ring), dropdown selection/option-list clamping, and the tooltip
+hover-delay timer. It
 can also be run directly for per-case output:
 
 ```sh
@@ -1103,4 +1167,4 @@ Findings and decisions from each slice live beside it:
 | `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search; section 14 (7-2b, append-only) records that the follow-up landed and corrects section 10's prediction about `getGlyphClusterAt()`; section 15 (7-3, append-only) records that IME composition landed reusing 7-2b's grapheme seam unchanged, and the one narrow offset-unit question it raised |
 | `doc/ime.md` | IME composition (P7 7-3) - what SDL3 3.x actually delivers (`SDL_TextEditingEvent`/`SDL_TextEditingCandidatesEvent`) versus what design.md/4-9 assumed; the empirical finding, on this project's own development machine with a real running IME (fcitx5+rime), that the candidate/composition window is drawn by the platform itself and positioned using the caret rectangle 4-9 already reports (measured causally, twice); why a candidate-list UI is declined by name rather than duplicated; the synthetic-event testing answer (`WindowManager::post_text_editing()`) and the honest, explicit gap between it and a genuine composing IME; the one narrow byte-offset-unit conversion SDL's own "UTF-8 characters" convention forced, and why it did not reopen design.md §5.13.2's general type-index-space question; the re-measured relayout verdict under a preedit that changes length on every keystroke; and a defect-injection campaign that found one injection causes an actual crash rather than merely a wrong answer; section 14 (7-4, append-only) records that a window-level focus change now ends an in-progress composition, satisfying section 11's own named dependency |
 | `doc/focus.md` | Tab order and the focus tree (P7 7-4) - why no third tree was needed (`RenderTree`'s own `children()`/`parent()` already are the tree Tab order and a popup's own focus boundary walk, so the only new state is one optional scope-root `NodeId`); `dg::focus_order()`'s DOM-shaped default and the deliberate `Widget::tab_index` override (HTML's own tabindex semantics); which `WidgetKind`s are focusable and why `kScrollView`/`kList` are declined by name rather than overlooked; why Tab reaching a zero-opacity widget is the CONSISTENT reading of 4-5's own hit-test divergence, not a second one; `enter_scope()`/`exit_scope()` as the smallest mechanism that serves a popup's Tab boundary without being `Dialog`'s modal trap (7-5's own job); why crossing into a popup needed no `NodeId`-plus-`window_id` struct (a native popup gets its own separate `Focus` for its own separate `RenderTree`; an overlay popup shares the host's, scoped); the list-recycling and mid-composition-Tab-away hazards, both handled and tested rather than assumed already safe; the ring's four-strips-outside-the-bounds geometry and why a single rectangle would have silently made a focused widget unclickable; the measured zero-relayout finding; and two real bugs this slice's own build caught (an overlay popup's buttons needing the HOST's `WidgetSet`, and a double-`set()` call that silently skipped every focus-change side effect) |
-| `doc/menus.md` | Dropdown, the 9th `WidgetKind` (P7 7-5) - design.md §12 question 6 settled (`Table` composes from Flex for caller-declared column widths, genuinely needs 2D layout only for auto column-width agreement no working caller needs yet); why `kList` was evaluated and not reused for the option rows (its pool nodes carry no `Widget`, so they cannot be focused or clicked); why keyboard Up/Down is `dg::Focus::focus_next()`/`focus_previous()` unchanged, reused rather than reimplemented; `doc/form-controls.md` §2.4's three named prerequisites confirmed satisfied one at a time; and why Context menu (no button identity anywhere in the pointer plumbing), Tooltip (an unplumbed `SDL_WINDOW_TOOLTIP` flag) and `Dialog` (a genuinely new modal-focus-trap mechanism) were each checked and declined by name with their own real prerequisite, split into follow-up 7-5b |
+| `doc/menus.md` | Dropdown, the 9th `WidgetKind` (P7 7-5) - design.md §12 question 6 settled (`Table` composes from Flex for caller-declared column widths, genuinely needs 2D layout only for auto column-width agreement no working caller needs yet); why `kList` was evaluated and not reused for the option rows (its pool nodes carry no `Widget`, so they cannot be focused or clicked); why keyboard Up/Down is `dg::Focus::focus_next()`/`focus_previous()` unchanged, reused rather than reimplemented; `doc/form-controls.md` §2.4's three named prerequisites confirmed satisfied one at a time; and why Context menu (no button identity anywhere in the pointer plumbing), Tooltip (an unplumbed `SDL_WINDOW_TOOLTIP` flag) and `Dialog` (a genuinely new modal-focus-trap mechanism) were each checked and declined by name with their own real prerequisite, split into follow-up 7-5b; section 12 (7-5b, append-only) records all three landing - a `PointerButton` field on `PointerEvent` (not a new `PointerAction` case), `PopupWindowKind`/`SDL_WINDOW_TOOLTIP` plus a new `HoverTimer` value type, and `dg::Focus::set_guarded()` composed onto 7-4's own scope mechanism plus `WindowManager::open_dialog()`/`cancellable_close` |

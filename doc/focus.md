@@ -614,3 +614,59 @@ property); 12 theme tokens (11 + `color.focus-ring`); 8 `WidgetKind`s
 (unchanged); 31 CTest entries (30 + `focus.verify_demo_scene`); 21
 examples (20 + `21_focus`); zero new node/`RenderObject` kinds, a
 nineteenth consecutive slice.
+
+---
+
+## 14. Cross-reference: 7-5b landed — the modal focus trap (append-only)
+
+Section 11 above named `Dialog`'s modal focus trap as explicitly out of
+this slice's own scope, handed to 7-5. 7-5 itself (`doc/menus.md` section
+6.3) checked `Focus::set()` directly before deciding and confirmed the gap
+was real, splitting the actual build into follow-up **7-5b**, which is
+what this section records landing.
+
+The mechanism is exactly the smaller one section 4 above already predicted
+a modal trap could be built ON TOP of: `enter_scope(root, bool modal =
+false)` grows one trailing parameter (default `false`, so every one of
+this class's five pre-7-5b call sites is unaffected), and a new method,
+`Focus::set_guarded(const RenderTree&, std::optional<NodeId>)`, is the
+"second `set()`-shaped entry point" section 4's own header comment framed
+as one of two honest shapes a trap could take — chosen over threading a
+flag through the plain `set()` specifically so every EXISTING caller (a
+click's `apply_focus_change()`, `focus_next()`/`focus_previous()`'s own
+internal calls, Dropdown's own `active_focus().set(...)`) keeps calling
+the unconditional, always-succeeds `set()` with zero new reasoning
+required — only a caller that actually builds a modal `Dialog` opts into
+`set_guarded()` explicitly.
+
+`set_guarded()` refuses exactly one case: the active scope is modal AND
+the target names a `NodeId` `is_within()` (this file's own existing
+ancestor climb, unchanged) does not confirm belongs to the scope's own
+subtree. Blurring to nothing is deliberately NOT refused — only escaping TO
+something outside is. `exit_scope()` clears the modal flag alongside the
+scope root it already cleared, so a released scope never leaves a stale
+trap armed.
+
+**This mechanism is structurally a same-tree question**, for the identical
+reason this file's own section 5 already established that cross-window
+focus needed no compound identifier: `is_within()` walks one `RenderTree`'s
+own `parent()` links, so "outside the modal" is only checkable when the
+dialog's content shares a tree with whatever it might refuse. A `Dialog`
+realised as a genuinely separate OS window (this slice's own new
+`WindowManager::open_dialog()`) gets its own separate `Focus` for its own
+separate tree, exactly like a native popup already does (section 5 above)
+— and there is nothing in a DIFFERENT tree for `set_guarded()` to name, let
+alone refuse. The mechanism's real, checked use is therefore the OVERLAY
+shape (content appended directly to the host's own `RenderTree`, sharing
+the host's own `Focus`) — `examples/23_menu_tooltip_dialog`'s own dialog
+panel, and `tests/unit/test_focus.cpp`'s new direct cases, both exercise
+exactly that. `doc/menus.md` section 12.3 has the full record, including
+why real OS-level modal enforcement (`SDL_SetWindowParent()`/
+`SDL_SetWindowModal()`) is the separate, platform-level answer for the
+native shape rather than something this file's own mechanism needs to
+reach across windows for.
+
+49 properties (unchanged); 12 theme tokens (unchanged); 9 `WidgetKind`s
+(unchanged); 33 CTest entries (32 + `menu_tooltip_dialog.verify_demo_
+scene`); 23 examples (22 + `23_menu_tooltip_dialog`); zero new node/
+`RenderObject` kinds, a twenty-first consecutive slice.
