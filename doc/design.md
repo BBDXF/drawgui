@@ -1025,6 +1025,16 @@ ICU 数据文件 `icudtl.dat` 是 BiDi、断行、grapheme 分割的前提，绕
 
 这一项列入 §12 未决，在 P3 文本控件落地前定案。
 
+> **P7 切片 7-1 已解决，非裁剪而是消解**：本项目的 Skia 分发（libskia2）选择
+> `skia_use_libgrapheme=true` + `skia_use_icu=false`，textlayout 依赖的是
+> libgrapheme，不是 ICU/HarfBuzz 组合里的 ICU 半边——`icudtl.dat` 从未存在，
+> 因此"嵌入 vs 裁剪"这个问题本身不成立，不是选了裁剪那一支。UAX #14
+> 断行规则表以代码形式编译进 `libskunicode_libgrapheme.a`，不是外部可裁的
+> 数据文件，§5.13.6 "断行规则表不可裁掉"的约束因此被满足而非被违反。
+> 实测证据（grapheme cluster / CJK 断行 / BiDi 三项针对本项目实际构建的
+> 直接断言，而非转抄上游 README）见 `doc/skia-dependency.md` §5，
+> `tests/unit/test_skia_textlayout_smoke.cpp` 是可执行的证明。
+
 ### 5.11 颜色与透明度
 
 #### 5.11.1 两类透明度，语义不同而非冗余
@@ -1202,6 +1212,12 @@ CJK 不以空格分词，断行完全依赖 **ICU 的 UAX #14 规则**。
 **因此 §5.10.5 裁剪 ICU 数据时，断行规则表不可裁掉**——
 它与 BiDi、grapheme 分割同属必需项。泰语、老挝语需要词典分词，
 若裁剪掉相应数据则这些语言断行退化，属已知取舍。
+
+> **P7 切片 7-1**：本项目实际选用的 libgrapheme 后端不经过"裁剪 ICU 数据"
+> 这条路径，UAX #14 规则表随 `libskunicode_libgrapheme.a` 一起编译，
+> 因此这里描述的约束仍然成立（规则表确实没有被裁掉），只是成立的方式
+> 与 §5.10.5 原文设想的不同——见该节的更新注记与 `doc/skia-dependency.md`
+> §5。泰语/老挝语词典分词的取舍不变：仍然缺失，仍是已知取舍。
 
 #### 5.13.7 BiDi 与 RTL 布局镜像
 
@@ -1767,8 +1783,16 @@ drawgui/
    Windows / macOS 仍未验证，问题对这两个平台保持未决
 2. 多窗口下共享 GL context 与 `SkSurface` 的 MakeCurrent 开销 —— P1 基准测量
 3. JSON 解析器选型（nlohmann/json 便利 vs 更轻量的方案）—— P3 前定案，权衡二进制体积与编译时间
-5. **ICU 数据的嵌入与裁剪**（§5.10.5）—— 完整 `icudtl.dat` 约 10 MB 量级，
-   本项目仅需 BiDi / 断行 / grapheme / 大小写映射，P3 文本控件落地前定案
+5. ~~**ICU 数据的嵌入与裁剪**（§5.10.5）—— 完整 `icudtl.dat` 约 10 MB 量级，
+   本项目仅需 BiDi / 断行 / grapheme / 大小写映射，P3 文本控件落地前定案~~ ——
+   **P7 切片 7-1 已解决，且是消解而非在两难中选一支**：本项目的 Skia
+   分发（libskia2）选用 libgrapheme 后端而非 ICU，`icudtl.dat` 从未存在
+   于本项目的构建或运行时——不是"裁剪到 10MB 以下"，是从零开始就没有这个
+   文件。BiDi / 断行（UAX #14）/ grapheme 三项针对实际构建实测通过（见
+   `doc/skia-dependency.md` §5、`tests/unit/test_skia_textlayout_smoke.cpp`），
+   §5.13.6 的"断行规则表不可裁掉"约束因此以"根本不是数据而是编译进代码"
+   的方式被满足。泰语/老挝语词典分词、locale 相关大小写映射、句子边界
+   分割仍然缺失，与 libgrapheme 的已知取舍一致，非本项目独有代价
 6. 是否需要 `RenderGrid`（二维网格布局）—— P3 后按实际控件需求决定。
    `Table` 可能可以用 Flex + 内在尺寸覆盖；若确需完整 CSS Grid，
    按 §5.4.11 的触发条件重新评估 Taffy 而非自研
