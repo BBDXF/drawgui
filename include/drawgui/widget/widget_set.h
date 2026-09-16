@@ -83,16 +83,18 @@ enum class WidgetKind : std::uint8_t {
   // machine cannot hold - doc/form-controls.md section 2.
   kSlider,
 
-  // A single-line, ASCII-only text field. Composition, not a new primitive:
-  // `content` (a plain text-bearing child), `caret` and `selection_highlight`
-  // (plain fill-only children the widget positions) are exactly the shape
-  // kCheckbox's `indicator` and kSlider's `thumb` already are, and the
-  // field's own node is a kLeaf with `overflow: kClip` - the clip
-  // doc/clipping.md built, reused verbatim to confine all three children,
-  // the same way doc/scrolling.md reused it for a viewport. Earns a kind of
-  // its own over reusing kSlider or kCheckbox because it needs FOCUS
-  // (keyboard routing) and a MODEL string, neither of which any existing
-  // kind carries - doc/text-input.md section 3.
+  // A single-line text field, editable in whole grapheme clusters (7-2b) -
+  // 4-9 originally scoped this to printable ASCII, a restriction 7-2b lifted
+  // (doc/text-input.md's cross-reference to doc/text-layout.md section 2).
+  // Composition, not a new primitive: `content` (a plain text-bearing
+  // child), `caret` and `selection_highlight` (plain fill-only children the
+  // widget positions) are exactly the shape kCheckbox's `indicator` and
+  // kSlider's `thumb` already are, and the field's own node is a kLeaf with
+  // `overflow: kClip` - the clip doc/clipping.md built, reused verbatim to
+  // confine all three children, the same way doc/scrolling.md reused it for
+  // a viewport. Earns a kind of its own over reusing kSlider or kCheckbox
+  // because it needs FOCUS (keyboard routing) and a MODEL string, neither of
+  // which any existing kind carries - doc/text-input.md section 3.
   kTextField,
 
   // A virtualized, fixed-extent list: a clipping node (NodeStyle::overflow,
@@ -190,11 +192,17 @@ struct Widget {
   // doc/scrolling.md section 2 and doc/form-controls.md section 1.3 already
   // make for the scroll offset and the slider's value: this accumulates
   // across an unbounded stream of keystrokes rather than being declared
-  // once. ASCII-only (bytes 0x20..0x7E) is this slice's declared content
-  // boundary - doc/text-input.md section 1 - which is what makes a byte
-  // offset into `text` also a codepoint offset AND a grapheme-cluster
-  // offset, honouring design.md's mandatory minimum edit unit (line ~1001)
-  // by construction rather than by a segmentation library.
+  // once. Well-formed UTF-8, sanitized at every mutation entry point
+  // (WidgetSet::text_field_insert()); `cursor`/`selection_anchor` are byte
+  // offsets that ALWAYS land on a grapheme-cluster boundary (dg::
+  // grapheme_boundaries()), enforced by construction because every mutator
+  // only ever places them via a grapheme-boundary query, never raw
+  // arithmetic - 7-2b lifted 4-9's ASCII-only restriction (doc/text-
+  // input.md's cross-reference to doc/text-layout.md section 2) once
+  // libgrapheme's segmentation (7-1) made real grapheme-cluster boundaries
+  // available; design.md's mandatory minimum edit unit (line ~1001) is now
+  // honoured by that segmentation rather than by ASCII's byte-offset
+  // coincidence.
   std::string text;
   int cursor = 0;                       // byte offset into `text`, in [0, text.size()]
   std::optional<int> selection_anchor;  // set => a selection [min(anchor,cursor), max(...))
@@ -439,11 +447,17 @@ class WidgetSet {
   [[nodiscard]] std::optional<TextSelection> text_field_selection(NodeId id) const;
 
   // Replaces the current selection (if any) or inserts at the cursor.
-  // `input` is filtered to printable ASCII (0x20-0x7E) - anything else,
-  // including a multi-byte UTF-8 sequence an IME might commit, is DROPPED
-  // rather than mis-split, matching design.md's own MVP concession (line
-  // ~547-548) - doc/text-input.md section 1. Returns false when nothing
-  // changed (an empty filtered input with no selection to delete).
+  // `input` is sanitized before it touches the model (7-2b, doc/text-
+  // input.md's cross-reference): malformed UTF-8 (a lone continuation byte,
+  // a truncated lead, an overlong encoding, a surrogate) is repaired to
+  // U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
+  // paragraph_build.cpp substitution, reused rather than a second policy -
+  // and ASCII control characters (0x00-0x1F, 0x7F) are dropped, since a
+  // literal newline/tab has no meaning in this single-line field
+  // (multi-line editing is out of this slice's scope). Everything else is
+  // kept, including arbitrary well-formed multi-byte UTF-8 - 4-9's
+  // printable-ASCII-only filter is gone. Returns false when nothing changed
+  // (an all-filtered/empty input with no selection to delete).
   bool text_field_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                          std::string_view input);
 
@@ -457,13 +471,15 @@ class WidgetSet {
   bool text_field_move(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                        TextFieldMove move, bool extend_selection);
 
-  // Click-to-position: sets the cursor to the byte offset nearest
-  // `pointer_x` (ABSOLUTE device pixels - the same coordinate a
-  // PointerEvent carries). `extend_selection` is a shift-click or a drag
-  // continuation: the anchor is preserved rather than reset, so dragging
-  // from an initial click extends a selection one pointer-move event at a
-  // time - the same shape a slider's drag already has (doc/form-controls.md
-  // section 1.4), reused here for a text selection rather than a value.
+  // Click-to-position: sets the cursor to the byte offset of whichever
+  // grapheme-cluster boundary is nearest `pointer_x` (ABSOLUTE device
+  // pixels - the same coordinate a PointerEvent carries) - never a byte
+  // offset that would land inside a multi-codepoint cluster (7-2b).
+  // `extend_selection` is a shift-click or a drag continuation: the anchor
+  // is preserved rather than reset, so dragging from an initial click
+  // extends a selection one pointer-move event at a time - the same shape
+  // a slider's drag already has (doc/form-controls.md section 1.4), reused
+  // here for a text selection rather than a value.
   bool text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id, int pointer_x,
                         bool extend_selection);
 

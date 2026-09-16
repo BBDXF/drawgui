@@ -189,7 +189,6 @@ add_library(drawgui STATIC
   src/render/paragraph_runs.cpp
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
-  src/render/text_metrics.cpp
   src/render/tree_paint.cpp
   src/theme/mini_json.cpp
   src/theme/theme.cpp

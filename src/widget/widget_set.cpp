@@ -9,7 +9,9 @@
 #include <string_view>
 #include <vector>
 
-#include "drawgui/render/text_metrics.h"
+#include "drawgui/base/utf8.h"
+#include "drawgui/render/grapheme.h"
+#include "drawgui/render/paragraph.h"
 
 namespace dg {
 namespace {
@@ -34,54 +36,165 @@ bool interactive(WidgetKind kind) {
   return false;
 }
 
-// Printable ASCII only (space through tilde). Everything else - control
-// characters, DEL, and every byte of a multi-byte UTF-8 sequence an IME or a
-// paste might commit - is dropped rather than mis-split, which is the
-// concrete mechanism behind doc/text-input.md section 1's scoping decision.
-bool is_editable_ascii(char byte) {
-  const auto value = static_cast<unsigned char>(byte);
-  return value >= 0x20 && value <= 0x7E;
-}
-
-std::string filter_ascii(std::string_view input) {
-  std::string filtered;
-  filtered.reserve(input.size());
-  for (const char byte : input) {
-    if (is_editable_ascii(byte)) {
-      filtered.push_back(byte);
+// Replaces 4-9's filter_ascii(): accepts arbitrary well-formed Unicode text
+// rather than dropping every non-ASCII byte whole (doc/text-input.md's
+// cross-reference to doc/text-layout.md section 2 - libgrapheme's
+// segmentation, proven by 7-1, is what makes lifting the restriction safe).
+// Two things are still rejected, not merely "everything except ASCII":
+//
+//   - malformed UTF-8 (a lone continuation byte, a truncated multi-byte
+//     lead, an overlong encoding, a surrogate codepoint) is repaired to
+//     U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
+//     paragraph_build.cpp substitution (doc/text-layout.md section 3),
+//     reused here rather than a second hand-rolled policy;
+//   - ASCII control characters (0x00-0x1F) and DEL (0x7F) are dropped: a
+//     literal newline or tab a paste/IME might commit has no meaning in a
+//     single-line field (multi-line TextArea editing stays out of scope -
+//     design.md's MVP-8 list names TextField, not TextArea, and 4-9 already
+//     verified that).
+//
+// Stripping control bytes AFTER sanitize_utf8() (rather than folding both
+// into one pass) is safe because well-formed UTF-8 guarantees every byte
+// below 0x80 is a complete one-byte codepoint on its own, never a
+// continuation byte of something else - so a plain byte-range filter over
+// the sanitized result cannot split anything.
+std::string sanitize_insertable_text(std::string_view input) {
+  const std::string well_formed = sanitize_utf8(input);
+  std::string out;
+  out.reserve(well_formed.size());
+  for (const char byte : well_formed) {
+    const auto value = static_cast<unsigned char>(byte);
+    if (value < 0x20 || value == 0x7F) {
+      continue;
     }
+    out.push_back(byte);
   }
-  return filtered;
+  return out;
 }
 
 TextSelection normalize_selection(int cursor, int anchor) {
   return TextSelection{std::min(cursor, anchor), std::max(cursor, anchor)};
 }
 
-// Truncates `text` to the longest prefix such that PREFIX + "..." still fits
-// `visible_width` device pixels, appending the ellipsis - the unfocused
-// overflow treatment doc/text-input.md section 5 chose over scrolling an
-// unfocused field with no visible caret to justify it. Returns `text`
-// unchanged (no ellipsis) when it already fits.
+// Builds a throwaway, single-line, unwrapped Paragraph over `text` purely
+// for pixel measurement - the shaping-aware replacement for 4-9's
+// measure_ascii_width()/ascii_offset_at_x() (doc/text-input.md's 7-2b
+// cross-reference). The width is fixed at a value no realistic TextField
+// content will ever reach, so the paragraph never wraps - a TextField stays
+// single-line by construction, matching design.md's MVP-8 naming (4-9
+// section 1.1), the scroll/ellipsis projection this file already builds
+// being what handles overflow instead of word-wrap.
+//
+// nullopt only for the one input Paragraph::build() itself declines (empty
+// text, invalid font, non-positive size) - the identical early-return shape
+// measure_ascii_width() already had for the same inputs.
+std::optional<Paragraph> build_edit_paragraph(const FontCatalog& fonts, FontId font, float size,
+                                              const std::string& text) {
+  if (text.empty() || size <= 0.0F || !fonts.holds(font)) {
+    return std::nullopt;
+  }
+  static constexpr float kUnboundedWidth = 1.0e7F;
+  TextStyle style;
+  style.text = text;
+  style.font = font;
+  style.size = size;
+  style.color = Color::from_argb(0xFFFFFFFFU);  // measurement-only; never painted
+  // TextStyle::align defaults to kCenter, which would center this
+  // measurement paragraph inside kUnboundedWidth and make every caret_x()
+  // result meaningless (found by running this exact code: a first draft
+  // without this line produced a caret_x() around -5,000,000). kLeft
+  // anchors it at the paragraph's own x == 0, matching every pixel formula
+  // in this file that assumes an unscrolled origin.
+  style.align = TextAlign::kLeft;
+  Expected<Paragraph, FontError> built = Paragraph::build(fonts, style, kUnboundedWidth);
+  if (!built.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(built).value();
+}
+
+// One grapheme-cluster step from `from`, which MUST already be a boundary
+// in `boundaries` (every TextField mutator's own invariant - doc/widgets.h's
+// Widget::cursor comment). Left/right unified into one function via
+// `left`, matching design.md's own "the minimum unit is the grapheme
+// cluster, not the byte" mandate for both directions at once rather than as
+// two independently-derived pieces of arithmetic.
+int grapheme_step(const std::vector<int>& boundaries, int from, bool left) {
+  const auto it = std::lower_bound(boundaries.begin(), boundaries.end(), from);
+  if (it == boundaries.end() || *it != from) {
+    return from;  // defensive: `from` was not on a boundary - should not happen
+  }
+  if (left) {
+    return it == boundaries.begin() ? from : *(it - 1);
+  }
+  const auto next = it + 1;
+  return next == boundaries.end() ? from : *next;
+}
+
+// The grapheme boundary in `boundaries` whose MIDPOINT to its neighbour
+// `local_x` is on the near side of - the direct cluster-index analogue of
+// 4-9's ascii_offset_at_x() per-byte midpoint loop, now walking grapheme
+// boundaries instead of raw byte indices so a click inside a ZWJ/skin-tone/
+// flag sequence can only resolve to its START or its END, never a byte in
+// the middle of it.
+int grapheme_offset_at_x(const Paragraph& para, const std::vector<int>& boundaries,
+                         float local_x) {
+  if (boundaries.size() < 2 || local_x <= 0.0F) {
+    return boundaries.empty() ? 0 : boundaries.front();
+  }
+  float previous_x = para.caret_x(boundaries.front());
+  for (std::size_t i = 1; i < boundaries.size(); ++i) {
+    const float x = para.caret_x(boundaries[i]);
+    if (local_x < (previous_x + x) * 0.5F) {
+      return boundaries[i - 1];
+    }
+    previous_x = x;
+  }
+  return boundaries.back();
+}
+
+// Truncates `text` to the longest GRAPHEME-CLUSTER prefix such that PREFIX +
+// "..." still fits `visible_width` device pixels, appending the ellipsis -
+// the unfocused overflow treatment doc/text-input.md section 5 chose over
+// scrolling an unfocused field with no visible caret to justify it. Cuts at
+// a cluster boundary rather than a byte offset (7-2b): a byte-oriented cut
+// could bisect a multi-byte character or a ZWJ/skin-tone/flag sequence,
+// corrupting the displayed string - the exact failure design.md's grapheme-
+// cluster mandate exists to rule out. Returns `text` unchanged (no
+// ellipsis) when it already fits.
 std::string ellipsize(const FontCatalog& fonts, FontId font, float size,
                       const std::string& text, int visible_width) {
-  const auto width_of = [&](std::string_view candidate) {
-    return measure_ascii_width(fonts, font, size, candidate);
-  };
-  if (visible_width <= 0 || width_of(text) <= static_cast<float>(visible_width)) {
+  if (text.empty()) {
     return text;
   }
+  const std::optional<Paragraph> full = build_edit_paragraph(fonts, font, size, text);
+  if (!full) {
+    return text;
+  }
+  const float full_width = full->caret_x(static_cast<int>(text.size()));
+  if (visible_width <= 0 || full_width <= static_cast<float>(visible_width)) {
+    return text;
+  }
+
   static constexpr std::string_view kEllipsis = "...";
-  std::size_t prefix = 0;
-  for (; prefix <= text.size(); ++prefix) {
-    std::string candidate = text.substr(0, prefix);
-    candidate += kEllipsis;
-    if (width_of(candidate) > static_cast<float>(visible_width)) {
+  const std::optional<Paragraph> ellipsis_para =
+      build_edit_paragraph(fonts, font, size, std::string(kEllipsis));
+  const float ellipsis_width =
+      ellipsis_para ? ellipsis_para->caret_x(static_cast<int>(kEllipsis.size())) : 0.0F;
+
+  // Longest cluster prefix whose width plus the ellipsis's own still fits,
+  // walking from the shortest prefix (boundary 0) upward and keeping the
+  // last one that fit - the direct grapheme-cluster analogue of 4-9's
+  // byte-index loop.
+  int kept = 0;
+  for (const int boundary : grapheme_boundaries(text)) {
+    const float prefix_width = full->caret_x(boundary);
+    if (prefix_width + ellipsis_width > static_cast<float>(visible_width)) {
       break;
     }
+    kept = boundary;
   }
-  const std::size_t kept = prefix > 0 ? prefix - 1 : 0;
-  std::string result = text.substr(0, kept);
+  std::string result = text.substr(0, static_cast<std::size_t>(kept));
   result += kEllipsis;
   return result;
 }
@@ -509,10 +622,9 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   }
 
   content_style.text = widget.text;
-  const float cursor_x = measure_ascii_width(
-      fonts, font, size,
-      std::string_view{widget.text}.substr(0, static_cast<std::size_t>(widget.cursor)));
-  const float total_width = measure_ascii_width(fonts, font, size, widget.text);
+  const std::optional<Paragraph> para = build_edit_paragraph(fonts, font, size, widget.text);
+  const float cursor_x = para ? para->caret_x(widget.cursor) : 0.0F;
+  const float total_width = para ? para->caret_x(static_cast<int>(widget.text.size())) : 0.0F;
 
   int scroll_x = widget.scroll_x;
   if (total_width <= static_cast<float>(visible_width)) {
@@ -552,12 +664,8 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   const std::optional<int> anchor = widget.selection_anchor;
   if (anchor.has_value() && *anchor != widget.cursor) {
     const TextSelection selection = normalize_selection(widget.cursor, *anchor);
-    const float start_x = measure_ascii_width(
-        fonts, font, size,
-        std::string_view{widget.text}.substr(0, static_cast<std::size_t>(selection.start)));
-    const float end_x = measure_ascii_width(
-        fonts, font, size,
-        std::string_view{widget.text}.substr(0, static_cast<std::size_t>(selection.end)));
+    const float start_x = para ? para->caret_x(selection.start) : 0.0F;
+    const float end_x = para ? para->caret_x(selection.end) : 0.0F;
     const int hl_x = static_cast<int>(std::lround(static_cast<double>(start_x))) - scroll_x;
     const int hl_w =
         std::max(0, static_cast<int>(std::lround(static_cast<double>(end_x - start_x))));
@@ -590,18 +698,18 @@ bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, No
   if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
     return false;
   }
-  const std::string filtered = filter_ascii(input);
+  const std::string sanitized = sanitize_insertable_text(input);
   if (widget->selection_anchor.has_value()) {
     const TextSelection selection =
         normalize_selection(widget->cursor, *widget->selection_anchor);
     return text_field_replace_range(tree, fonts, id, *widget, selection.start, selection.end,
-                                    filtered);
+                                    sanitized);
   }
-  if (filtered.empty()) {
+  if (sanitized.empty()) {
     return false;
   }
   return text_field_replace_range(tree, fonts, id, *widget, widget->cursor, widget->cursor,
-                                  filtered);
+                                  sanitized);
 }
 
 bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
@@ -618,8 +726,8 @@ bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts,
   if (widget->cursor <= 0) {
     return false;
   }
-  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor - 1, widget->cursor,
-                                  "");
+  const int start = grapheme_step(grapheme_boundaries(widget->text), widget->cursor, true);
+  return text_field_replace_range(tree, fonts, id, *widget, start, widget->cursor, "");
 }
 
 bool WidgetSet::text_field_delete_forward(RenderTree& tree, const FontCatalog& fonts,
@@ -638,8 +746,8 @@ bool WidgetSet::text_field_delete_forward(RenderTree& tree, const FontCatalog& f
   if (widget->cursor >= size) {
     return false;
   }
-  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor, widget->cursor + 1,
-                                  "");
+  const int end = grapheme_step(grapheme_boundaries(widget->text), widget->cursor, false);
+  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor, end, "");
 }
 
 bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -661,6 +769,11 @@ bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, Node
   const TextSelection current = collapsing ? normalize_selection(old_cursor, *old_anchor)
                                            : TextSelection{old_cursor, old_cursor};
 
+  // Grapheme-cluster boundaries of the CURRENT text - the font-independent
+  // source kCharLeft/kCharRight step through (7-2b), computed once and
+  // reused by whichever case needs it rather than per-branch.
+  const std::vector<int> boundaries = grapheme_boundaries(widget->text);
+
   // A returning switch inside an immediately-invoked lambda, rather than a
   // single mutable local the switch assigns and `break`s out of: the
   // earlier shape (one `int new_cursor;` assigned in every case) could not
@@ -673,9 +786,9 @@ bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, Node
   const int new_cursor = [&] {
     switch (move) {
       case TextFieldMove::kCharLeft:
-        return collapsing ? current.start : std::max(0, old_cursor - 1);
+        return collapsing ? current.start : grapheme_step(boundaries, old_cursor, true);
       case TextFieldMove::kCharRight:
-        return collapsing ? current.end : std::min(size, old_cursor + 1);
+        return collapsing ? current.end : grapheme_step(boundaries, old_cursor, false);
       case TextFieldMove::kLineStart:
         return 0;
       case TextFieldMove::kLineEnd:
@@ -709,8 +822,10 @@ bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, Nod
   const PixelRect field_bounds = tree.absolute_bounds(id);
   const TextStyle& content_style = tree.style(widget->content).text;
   const float local_x = static_cast<float>(pointer_x - field_bounds.x + widget->scroll_x);
-  const std::size_t offset =
-      ascii_offset_at_x(fonts, content_style.font, content_style.size, widget->text, local_x);
+  const std::optional<Paragraph> para =
+      build_edit_paragraph(fonts, content_style.font, content_style.size, widget->text);
+  const int offset =
+      para ? grapheme_offset_at_x(*para, grapheme_boundaries(widget->text), local_x) : 0;
 
   const int old_cursor = widget->cursor;
   const std::optional<int> old_anchor = widget->selection_anchor;
@@ -722,7 +837,7 @@ bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, Nod
   } else {
     widget->selection_anchor.reset();
   }
-  widget->cursor = static_cast<int>(offset);
+  widget->cursor = offset;
 
   if (widget->cursor == old_cursor && widget->selection_anchor == old_anchor) {
     return false;
