@@ -105,7 +105,7 @@ target_include_directories(drawgui_unit_test PRIVATE
 # comparator decodes and encodes PNG. drawgui itself keeps Skia PRIVATE.
 target_link_libraries(drawgui_unit_test PRIVATE
   drawgui::drawgui
-  drawgui::skia
+  skia2::skia2
   drawgui::doctest
   drawgui_warnings
   drawgui_sanitizers)
@@ -203,7 +203,7 @@ target_include_directories(drawgui_golden_test PRIVATE
 
 target_link_libraries(drawgui_golden_test PRIVATE
   drawgui::drawgui
-  drawgui::skia
+  skia2::skia2
   drawgui_warnings
   drawgui_sanitizers)
 

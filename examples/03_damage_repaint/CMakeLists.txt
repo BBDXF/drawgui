@@ -12,7 +12,7 @@ if(DRAWGUI_HAVE_SDL3)
   # drawgui's own API. When text becomes a node, hud.cpp is what disappears.
   target_link_libraries(drawgui_damage_repaint PRIVATE
     drawgui::drawgui
-    drawgui::skia
+    skia2::skia2
     drawgui_warnings
     drawgui_sanitizers)
 

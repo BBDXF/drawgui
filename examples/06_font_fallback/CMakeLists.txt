@@ -4,7 +4,7 @@ if(DRAWGUI_HAVE_SDL3)
     font_check.cpp
     font_scene.cpp)
 
-  # No drawgui::skia here. Everything on screen is a render-tree node, and the
+  # No skia2::skia2 here. Everything on screen is a render-tree node, and the
   # PNG dump goes through RasterSurface::encode_png(), so this example needs no
   # Skia type of its own - which is the state examples 03 to 05 were reaching
   # towards and the first one to actually get there.

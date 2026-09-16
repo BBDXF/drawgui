@@ -13,7 +13,7 @@ if(DRAWGUI_HAVE_SDL3)
   # disappears.
   target_link_libraries(drawgui_layout PRIVATE
     drawgui::drawgui
-    drawgui::skia
+    skia2::skia2
     drawgui_warnings
     drawgui_sanitizers)
 

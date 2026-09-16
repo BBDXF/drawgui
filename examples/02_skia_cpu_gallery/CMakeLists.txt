@@ -18,7 +18,7 @@ if(DRAWGUI_HAVE_SDL3)
   # produced twelve unused platform headers.
   target_link_libraries(drawgui_skia_cpu_gallery PRIVATE
     drawgui::drawgui
-    drawgui::skia
+    skia2::skia2
     drawgui_warnings
     drawgui_sanitizers)
 

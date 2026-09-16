@@ -47,7 +47,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateProps.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateTheme.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateAbi.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/cmake/FetchSkia.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/FetchSkia2.cmake)
 
 # --- Warning configuration --------------------------------------------------
 
@@ -227,7 +227,7 @@ target_include_directories(drawgui
 # consumer include Skia headers, which is precisely what that rule forbids.
 target_link_libraries(drawgui
   PRIVATE
-    drawgui::skia
+    skia2::skia2
     drawgui_warnings
     drawgui_sanitizers)
 
