@@ -108,6 +108,25 @@ struct TextStyle {
   // kCenter, which is already clear of both.
   int inset = 0;
 
+  // Routes this run through SkParagraph instead of the plain SkFont path
+  // above when true - 7-2's multi-line/shaping/BiDi/CJK substrate
+  // (doc/text-layout.md). FALSE BY DEFAULT, and that default is what keeps
+  // every scene built through 7-1 byte-for-byte unaffected: paint_text()
+  // only calls into skia_paint.cpp's paragraph path when a caller opts in,
+  // so the golden `drawgui_render_png` hash cannot move by this field
+  // existing. A wrapping node's HEIGHT is not derived here - doc/text-
+  // layout.md section 2 is the argument for why that stays the caller's
+  // job (a `dg::Paragraph::build()` measurement before the node is
+  // constructed), the same shape design.md section 5.10.3 already forces
+  // on `ImageStyle`: a box must know its own size before its content is
+  // resolved, never the other way around.
+  bool wrap = false;
+
+  // Read only when `wrap` is true. Zero means unlimited lines; a positive
+  // value truncates with an ellipsis appended to the last kept line
+  // (SkParagraph's own `ParagraphStyle::setMaxLines`/`setEllipsis`).
+  int max_lines = 0;
+
   friend bool operator==(const TextStyle&, const TextStyle&) = default;
 };
 

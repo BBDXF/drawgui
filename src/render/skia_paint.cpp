@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,9 @@
 #include "render/clip_shape.h"
 #include "render/font_access.h"
 #include "render/image_access.h"
+#include "render/paragraph_build.h"
+
+#include "modules/skparagraph/include/Paragraph.h"
 
 namespace dg::detail {
 namespace {
@@ -228,9 +232,43 @@ float run_width(const TextRun& run, const SkFont& font, const std::string& sourc
                           SkTextEncoding::kUTF8);
 }
 
+// 7-2's multi-line path: SkParagraph, HarfBuzz shaping and libgrapheme
+// line-breaking/BiDi instead of the single SkFont run below. Confined to
+// this one function - the rest of paint_text() and every caller of it are
+// untouched, which is what keeps `TextStyle::wrap == false` (every scene
+// through 7-1) byte-for-byte on the original path.
+//
+// The box's HEIGHT is never touched here - doc/text-layout.md section 2:
+// LayoutTree already settled it before paint ever runs, the same as it
+// settles a plain label's box. Text taller than `bounds` is clipped, not
+// grown, matching how a plain label already behaves when its string
+// overflows a box laid out too small for it.
+void paint_paragraph(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text,
+                     const FontCatalog* fonts) {
+  if (fonts == nullptr) {
+    return;
+  }
+  const float inset = static_cast<float>(text.inset);
+  const float width = std::max(0.0F, static_cast<float>(bounds.width) - (2.0F * inset));
+  std::unique_ptr<skia::textlayout::Paragraph> paragraph =
+      detail::build_paragraph(*fonts, text, width);
+  if (!paragraph) {
+    return;
+  }
+  canvas.save();
+  canvas.clipRect(to_sk_rect(bounds), false);
+  paragraph->paint(&canvas, static_cast<float>(bounds.left()) + inset,
+                   static_cast<float>(bounds.top()));
+  canvas.restore();
+}
+
 void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text,
                 const FontCatalog* fonts) {
   if (text.text.empty() || text.size <= 0.0F || text.color.alpha() == 0 || fonts == nullptr) {
+    return;
+  }
+  if (text.wrap) {
+    paint_paragraph(canvas, bounds, text, fonts);
     return;
   }
   sk_sp<SkTypeface> primary = FontAccess::typeface(*fonts, text.font);
