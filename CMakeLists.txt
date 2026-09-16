@@ -183,6 +183,9 @@ add_library(drawgui STATIC
   src/render/font_fallback.cpp
   src/render/hit_test.cpp
   src/render/image_catalog.cpp
+  src/render/paragraph.cpp
+  src/render/paragraph_build.cpp
+  src/render/paragraph_runs.cpp
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
   src/render/text_metrics.cpp

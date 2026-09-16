@@ -130,6 +130,16 @@ bool FontCatalog::holds(FontId id) const {
   return id.is_valid() && id.value <= impl_->typefaces.size();
 }
 
+std::string FontCatalog::family_name(FontId id) const {
+  sk_sp<SkTypeface> face = FontAccess::typeface(*this, id);
+  if (!face) {
+    return {};
+  }
+  SkString name;
+  face->getFamilyName(&name);
+  return std::string{name.c_str()};
+}
+
 std::string FontCatalog::available_families() const {
   std::string names;
   for (const FaceEntry& entry : impl_->chain.pool) {
@@ -217,6 +227,10 @@ sk_sp<SkTypeface> FontAccess::typeface(const FontCatalog& catalog, FontId id) {
     return nullptr;
   }
   return catalog.impl_->typefaces[id.value - 1];
+}
+
+sk_sp<SkFontMgr> FontAccess::font_manager(const FontCatalog& catalog) {
+  return catalog.impl_->manager;
 }
 
 }  // namespace dg

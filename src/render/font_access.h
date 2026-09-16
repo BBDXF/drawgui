@@ -15,6 +15,7 @@
 #include "drawgui/render/font_catalog.h"
 #include "drawgui/render/render_tree.h"
 
+#include "include/core/SkFontMgr.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypeface.h"
 
@@ -46,6 +47,13 @@ struct FontAccess {
   // Null when `id` names nothing in `catalog`, including the zero id. The
   // caller draws no text rather than substituting a family.
   [[nodiscard]] static sk_sp<SkTypeface> typeface(const FontCatalog& catalog, FontId id);
+
+  // The SkFontMgr the catalog itself scanned with (SkFontMgr_New_Custom_
+  // Directory) - what 7-2's SkParagraph seam registers as FontCollection's
+  // default manager, so a paragraph's per-run family lookup resolves against
+  // the exact same font set FontCatalog::resolve_text() already walked, never
+  // a second, possibly-disagreeing source.
+  [[nodiscard]] static sk_sp<SkFontMgr> font_manager(const FontCatalog& catalog);
 
   // Empty when the style names no valid font or carries no text. Otherwise
   // every byte of the string is covered by exactly one run, in order.

@@ -141,6 +141,16 @@ class FontCatalog {
   // different catalog is a bug the paint path must not dereference.
   [[nodiscard]] bool holds(FontId id) const;
 
+  // The family name `id` was added under, or empty when `id` names nothing in
+  // this table. Added for 7-2's paragraph module: SkParagraph resolves fonts
+  // by family-name string, never by the SkTypeface pointer this catalog
+  // otherwise keeps behind FontId, and the resolution this table already
+  // computes (resolve()/resolve_text()) reports family names for exactly this
+  // reason - this accessor is the one additional case (the caller's OWN
+  // primary family, not something the chain resolved) that FontResolution
+  // does not already cover on its own.
+  [[nodiscard]] std::string family_name(FontId id) const;
+
   // The chain drawgui ships. Names fonts from several platforms; the ones this
   // machine lacks are skipped, so the same table is correct everywhere.
   [[nodiscard]] static std::vector<FontFallbackRule> default_fallback_rules();
