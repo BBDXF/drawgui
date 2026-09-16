@@ -34,7 +34,6 @@
 #include <vector>
 
 #include "drawgui/graphics/types.h"
-#include "drawgui/render/font_catalog.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/widget/widget_set.h"
 
@@ -54,8 +53,11 @@ inline constexpr int kRowPad = 6;
 // because RenderTree::children()/dg::focus_order() both walk in add
 // order, the same fact 7-4's own focus_order() already rests its DOM-shaped
 // default on. Returns the row NodeIds, one per option, in that same order.
-std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets,
-                              const dg::FontCatalog& fonts, dg::NodeId parent,
+// Takes no FontCatalog: a row's own text child is a plain `NodeStyle::text`
+// assignment (`font`/`font_size` passed straight through), not a measured
+// paragraph - the same "content is the caller's job" boundary kList's own
+// item nodes already have.
+std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets, dg::NodeId parent,
                               const std::vector<std::string>& options, int width,
                               dg::FontId font, float font_size);
 

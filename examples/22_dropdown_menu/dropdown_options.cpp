@@ -25,11 +25,9 @@ dg::PixelSize size_for(int count, int width) {
   return dg::PixelSize{width, count * kRowHeight};
 }
 
-std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets,
-                              const dg::FontCatalog& fonts, dg::NodeId parent,
+std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets, dg::NodeId parent,
                               const std::vector<std::string>& options, int width,
                               dg::FontId font, float font_size) {
-  (void)fonts;
   NodeStyle background;
   background.fill = Color::from_argb(kBackground);
   tree.add_child(parent, PixelRect{0, 0, width, static_cast<int>(options.size()) * kRowHeight},
