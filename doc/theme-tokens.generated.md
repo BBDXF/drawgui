@@ -22,3 +22,4 @@ on every change, never edited directly.
 | 9 | `radius.md` | int | radius | The default corner radius for a panel or a button. |
 | 10 | `space.sm` | int | space | A small spacing unit - tight gaps, small padding. |
 | 11 | `space.md` | int | space | The default spacing unit - ordinary gaps and padding. |
+| 12 | `color.focus-ring` | color | color | The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (doc/focus.md section 5: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are). |

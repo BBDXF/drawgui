@@ -67,5 +67,10 @@ inline constexpr dg_token_id DG_TOKEN_SPACE_SM = 10;  // "space.sm"
 // type=int
 inline constexpr dg_token_id DG_TOKEN_SPACE_MD = 11;  // "space.md"
 
-inline constexpr std::uint16_t kDgTokenMaxId = 11;
-inline constexpr std::uint16_t kDgTokenCount = 11;
+// -- color -------------------------------------------------------
+// The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (doc/focus.md section 5: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are).
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_FOCUS_RING = 12;  // "color.focus-ring"
+
+inline constexpr std::uint16_t kDgTokenMaxId = 12;
+inline constexpr std::uint16_t kDgTokenCount = 12;

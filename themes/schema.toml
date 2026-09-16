@@ -55,7 +55,7 @@ schema_version = 1
 
 [meta]
 # The id the next new token must take. Bump it when appending.
-next_id = 12
+next_id = 13
 
 # ---------------------------------------------------------------------------
 # Colour tokens - variant-dependent (light/dark). design.md section 5.11.4:
@@ -147,3 +147,16 @@ id = 11
 type = "int"
 group = "space"
 summary = "The default spacing unit - ordinary gaps and padding."
+
+# ---------------------------------------------------------------------------
+# 7-4: the focus ring. A colour token, not an int, and out of numbering order
+# with the two groups above only in the sense that it was appended after
+# both existed - id 12 is still the next free id, ascending, append-only.
+# ---------------------------------------------------------------------------
+
+[[token]]
+name = "color.focus-ring"
+id = 12
+type = "color"
+group = "color"
+summary = "The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (doc/focus.md section 5: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are)."

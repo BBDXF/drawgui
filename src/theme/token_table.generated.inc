@@ -17,3 +17,4 @@
 {"radius.md", DG_TOKEN_RADIUS_MD, TokenType::k_int},
 {"space.sm", DG_TOKEN_SPACE_SM, TokenType::k_int},
 {"space.md", DG_TOKEN_SPACE_MD, TokenType::k_int},
+{"color.focus-ring", DG_TOKEN_COLOR_FOCUS_RING, TokenType::k_color},
