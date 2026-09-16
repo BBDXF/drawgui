@@ -438,7 +438,47 @@ named as a separate follow-up (7-2b) rather than rushed alongside the display
 substrate. `doc/text-layout.md` records the full decision set, the four
 defect injections, and the exactly-once-layout verdict in detail.
 
-## Platform scope
+`TextField` can now **edit any well-formed UTF-8, by whole grapheme
+cluster** - 4-9's printable-ASCII-only `filter_ascii()` is gone.
+Left/Right/Home/End, Backspace/Delete, selection and click-to-position all
+move and delete by user-perceived character rather than by byte: a ZWJ
+family emoji (`👨‍👩‍👧‍👦`, seven codepoints), a skin-tone-modified emoji and a
+regional-indicator flag pair each vanish in exactly one Backspace, matching
+design.md's own named acceptance example. The seam this needed was NOT
+`dg::Paragraph`'s own clustering - measuring it directly found
+`skia::textlayout::Paragraph::getGlyphClusterAt()` clusters by SHAPING
+outcome, splitting a ZWJ sequence into one cluster per codepoint whenever
+the active font has no ligature glyph for it, which a `TextField`'s content
+font cannot be guaranteed to have. Cursor movement is instead built on a
+new, font-independent primitive, `dg::grapheme_boundaries()`
+(`SkUnicode::computeCodeUnitFlags()`, the same libgrapheme backend 7-1
+proved and 7-2 already links), while `dg::Paragraph` gained exactly one new
+method, `caret_x()`, for the pixel-position half. Malformed UTF-8 at the
+editing boundary - a lone continuation byte, a truncated lead, an overlong
+encoding, a surrogate - is repaired to U+FFFD via `dg::sanitize_utf8()`,
+7-2's own `paragraph_build.cpp` substitution promoted into a header so both
+consumers share one policy rather than two. `ellipsize()` was rewritten to
+truncate at a grapheme boundary rather than a byte offset, with hand-derived
+exact-string assertions (not a looser "ends in an ellipsis" check) - 4-9's
+own recorded "assertion-too-weak" failure mode, re-verified not to recur by
+re-injecting the identical off-by-one bug and confirming the new assertions
+catch it. `measure_ascii_width()`/`ascii_offset_at_x()` are deleted outright,
+their shaping-aware replacements measured to agree with them exactly on
+every ASCII case 4-9 already hand-derived. Typing still costs a repaint and
+never a relayout - re-measured, not assumed, under CJK input specifically,
+confirming 4-9's fixed-width condition still holds unchanged for non-ASCII
+content. `dg::ByteOffset`/`Utf16Offset`/`GraphemeIndex` (design.md's
+strong-typed index spaces) were deliberately NOT built: every Skia call
+this slice's editing surface needs turned out, measured against the linked
+archive, to already be UTF-8-byte-offset-native, so there was no second
+index space for the type system to guard against confusing with the
+first - the day a caller needs Skia's UTF-16-native API, that is what would
+justify it. Zero new node/`RenderObject`/`WidgetKind` kinds were needed - a
+seventeenth consecutive slice. `doc/text-input.md` and `doc/text-layout.md`
+both carry cross-reference sections recording the decision without editing
+either document's original text.
+
+
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
 deferred. Only Linux is wired into the build, and the window manager is SDL3
@@ -648,7 +688,10 @@ while focused; `field_b` empty, for typing from scratch. Click a field to
 focus it and place the cursor there; type to insert; Left/Right/Home/End move
 the cursor and, held with Shift, extend a selection; drag to select with the
 pointer; Backspace/Delete edit; clicking the other field (or empty space)
-blurs the current one.
+blurs the current one. Both fields accept arbitrary well-formed UTF-8, by
+whole grapheme cluster (7-2b) - `--verify-text-input`'s own headless check
+types CJK text and a ZWJ family emoji into `field_b` and confirms a single
+Backspace removes exactly one character each time.
 
 ```sh
 ./build/examples/drawgui_text_input                          # click/type/select it
@@ -848,7 +891,7 @@ Findings and decisions from each slice live beside it:
 | `doc/sizing.md` | `basis`, `shrink`, `main_size`, `aspect_ratio`, and why a second sizing stage needed no second measurement |
 | `doc/scrolling.md` | `scroll_axis`, the runtime scroll offset, why scrolling costs a repaint and never a relayout, and what design.md's roadmap asks for that needs an animation clock this project does not have yet |
 | `doc/form-controls.md` | radio as a checkbox field, a slider needing no new RenderObject, why dropdown is declined and what its prerequisite is, and a real `LayoutTree` sizing constraint found while building it |
-| `doc/text-input.md` | a single-line `TextField`, why ASCII scoping satisfies design.md's grapheme-cluster requirement by construction, the IME hook as real plumbing rather than a placeholder, and the exact condition under which typing would force a relayout |
+| `doc/text-input.md` | a single-line `TextField`, why ASCII scoping satisfies design.md's grapheme-cluster requirement by construction, the IME hook as real plumbing rather than a placeholder, and the exact condition under which typing would force a relayout; section 10 (7-2b, append-only) records the ASCII scoping being superseded once libgrapheme made grapheme-cluster segmentation real |
 | `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
 | `doc/completeness.md` | the phase-closing audit against design.md's MVP-8 widget list, the acceptance-criterion re-check, the consolidated decline and contradiction tables, and the qualified completeness verdict |
 | `doc/image.md` | the `Image` node-model decision (a `NodeStyle` field, not a new kind), the mandatory size-before-decode rule and its measured no-relayout property, the synthesized-source solution to the golden-test problem, and what a future async decode would and would not change |
@@ -858,4 +901,4 @@ Findings and decisions from each slice live beside it:
 | `doc/theme.md` | The theme token system - `themes/schema.toml`'s generator family reused from `props/`, the JSON-parser decision (hand-rolled vs. nlohmann/json), `$token` live references as a `WidgetSet`-shaped side table rather than a generation-counter handle, the measured colour-only-vs-int-token relayout cost, `dg::Expected`-based load errors naming the exact JSON key path, and what CI's `tools/check_consistency.py` verifies |
 | `doc/abi.md` | The C ABI - `abi/drawgui.def.toml`'s generator family (reusing the props generator directly), how the generated try/catch wrapping is made provably uniform and how its removal was shown to crash rather than silently do nothing, why handle validation is append-only rather than AnimHandle's generation-counter shape, the two real engine gaps (no insertion-order or removal primitive) the ABI sketch does not admit to, and everything declined by name (theme ABI, animation ABI, callback events, QuickJS stubs) |
 | `doc/skia-dependency.md` | The libskia2 dependency switch (P7 7-1) - why the golden-image hash is unchanged and why that is credible rather than merely convenient, the empirical proof SkParagraph/SkUnicode link and initialize, the design.md §12 open-question-5 and §5.10.5-vs-§5.13.6 settlement (libgrapheme carries no `icudtl.dat` at all, verified rather than taken from the README), the fontconfig build-time-vs-runtime distinction, the newly-available-but-unwired capability inventory (SVG/WebP/GIF/Ganesh-GL/Windows), and the measured binary-size and clean-build-time deltas |
-| `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search |
+| `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search; section 14 (7-2b, append-only) records that the follow-up landed and corrects section 10's prediction about `getGlyphClusterAt()` |

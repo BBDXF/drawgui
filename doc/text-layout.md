@@ -415,3 +415,31 @@ modes. No caching of built paragraphs. No shrink-to-fit wrapping label
 11's named gap). No changes to the C ABI (`abi/drawgui.def.toml`
 untouched - 7-2 added no property, so there is nothing new for the ABI
 surface to expose yet).
+
+## 14. Cross-reference: 7-2b landed (append-only)
+
+Sections 1-13 above are 7-2's own record, unedited. 7-2b
+(`.omo/plans/drawgui-phase7.md`) is the follow-up section 1 and section 10
+named, and it has now landed: `WidgetSet::text_field_insert/backspace/
+delete_forward/move/click` (`src/widget/widget_set.cpp`) are grapheme-
+cluster aware, `WidgetKind::kTextField` is no longer ASCII-scoped, and
+4-9's `filter_ascii()` no longer exists. `doc/text-input.md`'s own section
+10 is the full cross-reference for what changed and why; the short version
+this document's own section 10's "available, not wired to editing" finding
+predicted correctly: `SkUnicode::computeCodeUnitFlags()` is exactly the
+primitive 7-2b wired in, unchanged from how 7-1/7-2 already proved it out.
+
+One correction to this document's own section 10, found by 7-2b rather
+than assumed: `getGlyphClusterAt()` (`skia::textlayout::Paragraph`'s own
+clustering, mentioned nowhere in section 10 because 7-2 never needed
+per-cluster queries for display) turned out to be a SHAPING-level concept,
+not a Unicode-grapheme one - it clusters by what the active font could
+actually shape, not by UAX #29 boundaries, and reports one cluster PER
+CODEPOINT for a ZWJ/skin-tone/flag sequence the font has no ligature glyph
+for. 7-2b's cursor movement is therefore built on `SkUnicode::
+computeCodeUnitFlags()` directly (a new, dedicated seam,
+`dg::grapheme_boundaries()`), not on `dg::Paragraph`'s own clustering -
+`dg::Paragraph` gained exactly one new method, `caret_x()`, for pixel
+positions only. This distinction did not matter for 7-2's DISPLAY path
+(which never asks "where is cluster N" at all), which is why it went
+unrecorded here until an editing consumer needed the answer.

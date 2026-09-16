@@ -36,6 +36,16 @@ substrate exists, virtualization does not), and one is **completely absent**
 `kUnsupported`; there is no representation for an image anywhere in the node
 model).
 
+> **P7 7-2b cross-reference (append-only; row 24 above is a historical
+> snapshot and is left unchanged)**: "single-line, ASCII-scoped" no longer
+> describes `TextField`'s CONTENT boundary. 7-2b lifted the ASCII
+> restriction for editing (`WidgetSet::text_field_insert/backspace/
+> delete_forward/move/click`, all grapheme-cluster-aware); "single-line"
+> still holds - multi-line `TextField` editing (a `TextArea`) is out of
+> 7-2b's scope by name, distinct from 7-2's multi-line DISPLAY substrate.
+> See `doc/text-input.md`'s cross-reference and `doc/text-layout.md`
+> section 2.
+
 ## 2. design.md's own acceptance criterion (line 622), re-verified across every widget this phase built
 
 > "如果实现 `Slider` 需要新增 RenderObject，说明第 3 层的原语集设计有缺陷。MVP
@@ -256,6 +266,18 @@ readability; nothing here is re-ordered by importance.
 > already dissolved by 7-1 (`doc/skia-dependency.md` §5) - libgrapheme
 > carries no such file to embed or trim.
 
+> **P7 7-2b cross-reference (append-only)**: "Non-ASCII input / grapheme
+> clustering" is now CLOSED - `WidgetSet::text_field_insert/backspace/
+> delete_forward/move/click` all edit by grapheme cluster
+> (`dg::grapheme_boundaries()`, `dg::Paragraph::caret_x()`), and 4-9's
+> `filter_ascii()` is gone. `doc/text-input.md`'s own cross-reference and
+> `doc/text-layout.md` section 2 record the decision in full. "Shrink-to-fit
+> TextField" remains OPEN, unaffected by this slice - every `TextField` this
+> slice touches is still fixed-width (doc/text-input.md section 4's
+> condition, re-verified rather than assumed). "IME composition preview"
+> also remains OPEN - it is 7-3, named as this slice's own direct successor
+> rather than started here.
+
 ### Widgets / interaction (pre-existing, re-affirmed unchanged this phase)
 
 | Declined | Slice/doc | Reason | Phase |
@@ -306,6 +328,16 @@ this table shares.
 > `text_field_*` functions are unchanged and still ASCII-scoped, per
 > `doc/text-layout.md` section 2's explicit scope decision and
 > `.omo/plans/drawgui-phase7.md`'s named 7-2b follow-up.
+
+> **P7 7-2b cross-reference**: row 11 is now FULLY resolved - `TextField`'s
+> editing path (`src/widget/widget_set.cpp`) consumes `dg::Paragraph`
+> (extended with `caret_x()`) and a new `dg::grapheme_boundaries()` seam
+> (`src/render/grapheme.cpp`, `SkUnicode::computeCodeUnitFlags()`) for
+> cursor movement, backspace, delete, click hit-testing and selection, all
+> by grapheme cluster. Nothing in this codebase's `TextField` surface is
+> ASCII-scoped any more; `doc/text-input.md`'s cross-reference records what,
+> if anything, is left of the original ASCII boundary (nothing, for
+> editing).
 
 **Update (slice 5-4, phase 5): row #12 added.** This is a worklist item for
 design.md's own next revision, not a fix applied to design.md's prose by this

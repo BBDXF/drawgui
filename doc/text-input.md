@@ -564,3 +564,80 @@ prerequisite this project still lacks: there is no animation clock
 anywhere in this codebase to blink one against, and building a one-off
 timer for a single cosmetic detail this slice's acceptance criteria never
 asked for was declined the same way fling was.
+
+## 10. Cross-reference: 7-2b superseded section 1.2's ASCII scoping (append-only)
+
+This section is appended rather than editing sections 1-9 above, which
+remain the accurate historical record of what this slice decided and why -
+correct for its time, and worth keeping exactly as written rather than
+edited over, per this project's own standing practice for a later slice
+that changes an earlier one's premise (`doc/completeness.md`'s "historical
+snapshot, left unchanged" rows are the identical shape one document over).
+
+**What changed, and why it was safe to change**: section 1.2's whole
+argument was conditional on one fact - "implementing that needs
+`SkUnicode`'s grapheme-cluster segmentation, itself the ICU dependency
+design.md section 5.10.5 already flags as a P3/P4 cost this project has not
+taken on." That fact stopped being true at slice 7-1: `SkUnicode`'s
+libgrapheme backend links, initializes, and (`tests/unit/
+test_skia_textlayout_smoke.cpp`) demonstrably segments a ZWJ family emoji
+into one grapheme cluster. Slice 7-2b (`.omo/plans/drawgui-phase7.md`) is
+the follow-up section 1.2 itself named ("Lifting this restriction needs
+`SkUnicode`'s grapheme API wired into `dg::Focus`-adjacent cursor math - a
+real, scoped slice of its own") and it does exactly that:
+
+- **`filter_ascii()` is gone.** `WidgetSet::text_field_insert()` now calls
+  `sanitize_insertable_text()` (`src/widget/widget_set.cpp`): well-formed
+  UTF-8 (repaired via `dg::sanitize_utf8()`, 7-2's own
+  `paragraph_build.cpp` substitution policy reused rather than duplicated)
+  with ASCII control characters (0x00-0x1F, 0x7F) still dropped - a literal
+  newline/tab has no meaning in a single-line field, which is a scope
+  boundary this slice keeps, not a segmentation concern.
+- **Cursor movement, backspace, delete and selection are grapheme-cluster
+  aware**, using a new font-independent seam, `dg::grapheme_boundaries()`
+  (`include/drawgui/render/grapheme.h`, `SkUnicode::
+  computeCodeUnitFlags()`) - measured to be necessary rather than assumed:
+  `skia::textlayout::Paragraph::getGlyphClusterAt()` (the seam this slice
+  first tried) turned out to cluster by SHAPING outcome, not Unicode
+  grapheme rules, and reports one cluster PER CODEPOINT when the active
+  font has no ligature/colour glyph for a ZWJ/skin-tone/flag sequence -
+  exactly the case a `TextField`'s content font cannot be guaranteed to
+  avoid. `dg::Paragraph` gained one new method instead, `caret_x(int
+  offset)`, for the pixel-position half only.
+- **`measure_ascii_width()`/`ascii_offset_at_x()` (`text_metrics.h/.cpp`)
+  are deleted**, replaced by `dg::Paragraph::caret_x()` plus the
+  grapheme-boundary-walking helpers in `widget_set.cpp` - shaping-aware
+  rather than a raw `SkFont::measureText` per byte, and (measured on the
+  existing ASCII test suite before and after) numerically IDENTICAL for
+  every ASCII case this slice already had hand-derived pixel values for.
+- **`ellipsize()` was rewritten to cut at a grapheme-cluster boundary**,
+  never a byte offset - section 1.4's ellipsis behaviour is unchanged in
+  shape, only in what a "character" means, and a defect-injection
+  re-derivation of 4-9's own famous off-by-one bug (this section's own
+  historical section 8 discovery) confirmed the new hand-derived exact-
+  string assertions still catch it.
+- **What is declined by name, distinct from what 7-2b lifted**: `dg::
+  ByteOffset`/`Utf16Offset`/`GraphemeIndex` (design.md section 5.13.2's
+  three strong-typed index spaces) were NOT built. The measurement that
+  found `getGlyphClusterAt()` insufficient also found, empirically, that
+  every Skia call this slice's editing surface needs
+  (`getGlyphClusterAt`/`getClosestGlyphClusterAt`, the "Editing API"
+  `modules/skparagraph/include/Paragraph.h` itself groups together) is
+  UTF-8 byte-offset native, not UTF-16 - the UTF-16 semantics design.md
+  section 5.13.2 warns about belong to a DIFFERENT, older Skia API
+  (`getGlyphPositionAtCoordinate`/`getRectsForRange`) this slice never
+  calls. Building `Utf16Offset` with no caller would be exactly the
+  ahead-of-a-working-implementation infrastructure this project's own
+  precedent (this document's own section 3, `doc/widgets.md`) already
+  argues against; the day a caller needs the UTF-16-native API, that is
+  when the conversion function - and the type - earns its place.
+- **Full details, the ZWJ/skin-tone/flag measurements, the defect-injection
+  campaign and the re-verified relayout claim under CJK/emoji input** are
+  in `doc/text-layout.md` (7-2's own document, extended by 7-2b) rather
+  than duplicated here.
+
+**What remains of this document's original ASCII argument**: nothing, for
+`TextField`'s editing surface - every byte this section's own words describe
+as "filtered at the boundary" is now accepted. Sections 1-9 above are kept
+verbatim as the reasoning that was correct when written and the record of
+what 7-2b's own justification for changing course rests on.
