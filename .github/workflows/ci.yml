@@ -278,6 +278,7 @@ jobs:
             src/theme/theme.cpp
             src/theme/theme_bindings.cpp
             src/theme/theme_loader.cpp
+            src/theme/theme_package.cpp
             src/widget/focus.cpp
             src/widget/interaction.cpp
             src/widget/tooltip.cpp
@@ -314,6 +315,7 @@ jobs:
             tests/unit/test_image.cpp
             tests/unit/test_animation.cpp
             tests/unit/test_theme.cpp
+            tests/unit/test_theme_package.cpp
             tests/unit/test_skia_textlayout_smoke.cpp
             tests/unit/test_paragraph.cpp
             tests/unit/test_grapheme.cpp
@@ -427,7 +429,11 @@ jobs:
             examples/23_menu_tooltip_dialog/menu_rows.cpp
             examples/23_menu_tooltip_dialog/menu_scene.cpp
             examples/23_menu_tooltip_dialog/menu_window.cpp
-            examples/23_menu_tooltip_dialog/tooltip_content.cpp"
+            examples/23_menu_tooltip_dialog/tooltip_content.cpp
+            examples/24_theme_package/main.cpp
+            examples/24_theme_package/theme_package_check.cpp
+            examples/24_theme_package/theme_package_scene.cpp
+            examples/24_theme_package/theme_package_window.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files

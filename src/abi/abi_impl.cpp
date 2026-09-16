@@ -754,10 +754,9 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
     if (impl->active_theme == nullptr) {
       return DG_ERR_NO_ACTIVE_THEME;
     }
-    const dg::PropWrite result =
-        dg::bind_token(window.tree, window.theme_bindings, slot->node_id, prop_id,
-                       impl->active_theme->theme, impl->active_theme->variant,
-                       static_cast<dg_token_id>(value->bits));
+    const dg::PropWrite result = dg::bind_token(
+        window.tree, window.theme_bindings, slot->node_id, prop_id, impl->active_theme->theme,
+        impl->active_theme->variant, static_cast<dg_token_id>(value->bits));
     return to_error_code(result.status);
   }
 
@@ -924,7 +923,8 @@ dg_theme_t* theme_load_memory(dg_app_t* app, const char* json, std::uint32_t len
 
   std::optional<dg::ThemePackage> package;
   if (base_dir != nullptr) {
-    dg::Expected<dg::ThemePackage, dg::ThemeLoadError> opened = dg::ThemePackage::open(base_dir);
+    dg::Expected<dg::ThemePackage, dg::ThemeLoadError> opened =
+        dg::ThemePackage::open(base_dir);
     if (!opened) {
       fill_theme_err(err, opened.error());
       return nullptr;
@@ -966,7 +966,8 @@ std::int32_t theme_set_variant(dg_theme_t* theme_h, const char* variant) {
   return DG_ERR_OK;
 }
 
-std::int32_t theme_override(dg_theme_t* theme_h, std::uint16_t token_id, const dg_value* value) {
+std::int32_t theme_override(dg_theme_t* theme_h, std::uint16_t token_id,
+                            const dg_value* value) {
   if (value == nullptr || value->size < sizeof(dg_value)) {
     return DG_ERR_INVALID_ARGUMENT;
   }

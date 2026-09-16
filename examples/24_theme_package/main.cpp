@@ -69,8 +69,9 @@ std::optional<Options> parse_options(int argc, char** argv) {
 }
 
 void usage() {
-  std::cerr << "usage: drawgui_theme_package [--package-dir DIR] [--run-ms N] [--dump-png FILE] "
-               "[--idle-probe-ms N] [--verify-theme-package]\n";
+  std::cerr
+      << "usage: drawgui_theme_package [--package-dir DIR] [--run-ms N] [--dump-png FILE] "
+         "[--idle-probe-ms N] [--verify-theme-package]\n";
 }
 
 }  // namespace

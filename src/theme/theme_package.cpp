@@ -170,8 +170,7 @@ Expected<std::vector<std::uint8_t>, ThemeLoadError> ThemePackage::read_resource(
     // through the same error_code channel) - neither has a resolved path to
     // check against the root, so neither can be a traversal finding either;
     // both are simply "could not read this resource".
-    return fail(ThemeLoadStatus::kIoError,
-                std::string(relative_path) + ": " + ec.message());
+    return fail(ThemeLoadStatus::kIoError, std::string(relative_path) + ": " + ec.message());
   }
   if (!is_within_root(root_path, resolved)) {
     return fail(ThemeLoadStatus::kPathTraversal,

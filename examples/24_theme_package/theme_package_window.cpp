@@ -37,14 +37,15 @@ void legend(std::ostream& out) {
   out << "  two panels loaded from an EXTERNAL theme package directory (see --package-dir) - "
       << "surface_panel and primary_panel, both $token-bound. Click anywhere to switch "
       << "light<->dark. Editing the package's own theme.json on disk and calling this "
-      << "engine's reload takes effect with no widget-tree rebuild - see --verify-theme-package "
+      << "engine's reload takes effect with no widget-tree rebuild - see "
+         "--verify-theme-package "
       << "for the measured, deterministic version of that claim.\n";
 }
 
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId window, const Settings& settings,
-        std::ostream& out)
+         std::ostream& out)
       : settings_(settings), out_(&out), manager_(&manager), window_(window) {}
 
   int run();
@@ -92,7 +93,8 @@ void Runner::switch_theme() {
   }
   scene_->variant = scene_->variant == dg::ThemeVariant::kLight ? dg::ThemeVariant::kDark
                                                                 : dg::ThemeVariant::kLight;
-  const std::size_t unresolved = scene_->bindings.apply(scene_->tree, scene_->theme, scene_->variant);
+  const std::size_t unresolved =
+      scene_->bindings.apply(scene_->tree, scene_->theme, scene_->variant);
   *out_ << "  switched to " << (scene_->variant == dg::ThemeVariant::kLight ? "light" : "dark")
         << " (" << unresolved << " unresolved binding(s))\n";
 }
@@ -142,8 +144,8 @@ int Runner::run() {
 }
 
 std::optional<theme_package_scene::Scene> rendered(const Settings& settings,
-                                                    std::optional<dg::RasterSurface>& surface,
-                                                    std::ostream& out) {
+                                                   std::optional<dg::RasterSurface>& surface,
+                                                   std::ostream& out) {
   surface = dg::RasterSurface::create(settings.size.width, settings.size.height);
   if (!surface.has_value()) {
     return std::nullopt;
@@ -248,7 +250,7 @@ int idle_probe(const Settings& settings, int idle_probe_ms, std::ostream& out) {
 
   (void)manager.pump(200);
 
-  struct rusage before {};
+  struct rusage before{};
   getrusage(RUSAGE_SELF, &before);
   const Clock::time_point wall_start = Clock::now();
 
@@ -261,7 +263,7 @@ int idle_probe(const Settings& settings, int idle_probe_ms, std::ostream& out) {
   }
 
   const double wall_ms = ms_since(wall_start);
-  struct rusage after {};
+  struct rusage after{};
   getrusage(RUSAGE_SELF, &after);
   const double cpu_ms = (to_ms(after.ru_utime) - to_ms(before.ru_utime)) +
                         (to_ms(after.ru_stime) - to_ms(before.ru_stime));

@@ -61,8 +61,9 @@ struct Scene {
 // SEPARATE scene instance that has one (`bind_gap_to_token = true`) - see
 // theme_package_check.cpp for why this demo builds both rather than
 // reusing one scene for both halves of the measurement.
-[[nodiscard]] std::optional<Scene> build(const dg::TreeSpec& spec, const std::string& package_dir,
-                                         std::string& error_out, bool bind_gap_to_token = false);
+[[nodiscard]] std::optional<Scene> build(const dg::TreeSpec& spec,
+                                         const std::string& package_dir, std::string& error_out,
+                                         bool bind_gap_to_token = false);
 
 // Re-reads theme.json from `scene.package` (design.md section 5.7.6's hot
 // reload, in full - see dg::reload_theme_package()) and re-applies every

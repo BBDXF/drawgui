@@ -88,6 +88,8 @@ class TempDir {
   ~TempDir() { fs::remove_all(path_); }
   TempDir(const TempDir&) = delete;
   TempDir& operator=(const TempDir&) = delete;
+  TempDir(TempDir&&) = delete;
+  TempDir& operator=(TempDir&&) = delete;
 
   [[nodiscard]] const fs::path& path() const { return path_; }
 
@@ -113,7 +115,7 @@ TEST_CASE("ThemePackage::open loads a well-formed package, dogfooding the same l
 
   const dg::Expected<dg::Theme, dg::ThemeLoadError> theme = package.value().load_theme_json();
   REQUIRE(theme.has_value());
-  CHECK(theme.value().int_value(9).value() == 6);  // radius.md
+  CHECK(theme.value().int_value(9) == 6);  // radius.md
 }
 
 TEST_CASE("ThemePackage::open rejects a directory that does not exist") {
@@ -215,7 +217,8 @@ TEST_CASE(
 
 TEST_CASE(
     "DEFECT INJECTION: removing the is_within_root() guard would let '../' traversal succeed - "
-    "this test is what would fail if that guard were removed, proving it is not provably inert") {
+    "this test is what would fail if that guard were removed, proving it is not provably "
+    "inert") {
   // This case intentionally duplicates the '../' traversal test above under
   // a name that states the falsifiability claim directly, per this slice's
   // own task instruction ("make sure removing a traversal guard actually
@@ -256,8 +259,9 @@ TEST_CASE("load_theme_json: an oversized theme.json is rejected before any of it
   CHECK(theme.error().status == ThemeLoadStatus::kResourceTooLarge);
 }
 
-TEST_CASE("load_theme_json: a deeply nested theme.json is rejected, re-verified through the "
-          "package path rather than assumed still true from 6-2's own mini_json test") {
+TEST_CASE(
+    "load_theme_json: a deeply nested theme.json is rejected, re-verified through the "
+    "package path rather than assumed still true from 6-2's own mini_json test") {
   TempDir dir("deep_nesting");
   std::string deep;
   for (int i = 0; i < 64; ++i) {
@@ -266,9 +270,8 @@ TEST_CASE("load_theme_json: a deeply nested theme.json is rejected, re-verified 
   for (int i = 0; i < 64; ++i) {
     deep += "]";
   }
-  const std::string json =
-      std::string("{\"schema_version\":1,\"name\":\"deep\",\"base\":") + deep +
-      ",\"variants\":{\"light\":{},\"dark\":{}}}";
+  const std::string json = std::string("{\"schema_version\":1,\"name\":\"deep\",\"base\":") +
+                           deep + ",\"variants\":{\"light\":{},\"dark\":{}}}";
   write_file(dir.path() / "theme.json", json);
 
   const dg::Expected<dg::ThemePackage, dg::ThemeLoadError> package =
@@ -301,7 +304,7 @@ TEST_CASE("ThemePackage::open rejects a single resource file over the per-file b
     std::ofstream file(dir.path() / "images" / "huge.bin", std::ios::binary);
     const std::string chunk(1 << 16, 'z');
     for (std::uintmax_t written = 0; written <= dg::kMaxResourceFileBytes;
-        written += chunk.size()) {
+         written += chunk.size()) {
       file << chunk;
     }
   }
@@ -312,8 +315,9 @@ TEST_CASE("ThemePackage::open rejects a single resource file over the per-file b
   CHECK(package.error().status == ThemeLoadStatus::kResourceTooLarge);
 }
 
-TEST_CASE("reload_theme_package: editing theme.json on disk takes effect on the next call, with "
-          "no widget tree or ThemePackage handle involved") {
+TEST_CASE(
+    "reload_theme_package: editing theme.json on disk takes effect on the next call, with "
+    "no widget tree or ThemePackage handle involved") {
   TempDir dir("reload");
   write_file(dir.path() / "theme.json", kValidThemeJson);
 
@@ -323,7 +327,7 @@ TEST_CASE("reload_theme_package: editing theme.json on disk takes effect on the 
 
   const dg::Expected<dg::Theme, dg::ThemeLoadError> first = package.value().load_theme_json();
   REQUIRE(first.has_value());
-  CHECK(first.value().int_value(9).value() == 6);  // radius.md, as shipped above
+  CHECK(first.value().int_value(9) == 6);  // radius.md, as shipped above
 
   std::string edited = kValidThemeJson;
   const std::string needle = "\"radius.md\": 6";
@@ -335,11 +339,12 @@ TEST_CASE("reload_theme_package: editing theme.json on disk takes effect on the 
   const dg::Expected<dg::Theme, dg::ThemeLoadError> reloaded =
       dg::reload_theme_package(package.value());
   REQUIRE(reloaded.has_value());
-  CHECK(reloaded.value().int_value(9).value() == 99);
+  CHECK(reloaded.value().int_value(9) == 99);
 }
 
-TEST_CASE("fuzz: random byte mutations of a valid theme.json never crash, hang, or throw - "
-          "every result is an Expected, ok or a clean ThemeLoadError") {
+TEST_CASE(
+    "fuzz: random byte mutations of a valid theme.json never crash, hang, or throw - "
+    "every result is an Expected, ok or a clean ThemeLoadError") {
   // A fixed seed, not a time-based one: a fuzz failure must be reproducible
   // by re-running this exact test, not only observable once in CI. 2000
   // iterations across a corpus of single-byte flips is small enough to run
@@ -347,7 +352,7 @@ TEST_CASE("fuzz: random byte mutations of a valid theme.json never crash, hang, 
   // matters most - ASan/UBSan on a hand-rolled parser reading attacker-
   // shaped bytes is exactly this slice's own stated priority) rather than
   // needing a separate, slower fuzz target.
-  std::mt19937 rng(0xD6A57E4Du);
+  std::mt19937 rng(0xD6A57E4DU);
   const std::string original = kValidThemeJson;
 
   TempDir dir("fuzz");
@@ -367,7 +372,8 @@ TEST_CASE("fuzz: random byte mutations of a valid theme.json never crash, hang, 
     // throw past dg::Expected's boundary - whichever it is, ok or an error,
     // is an acceptable outcome for RANDOM bytes; only a crash/hang/throw
     // would fail this loop.
-    const dg::Expected<dg::Theme, dg::ThemeLoadError> result = package.value().load_theme_json();
+    const dg::Expected<dg::Theme, dg::ThemeLoadError> result =
+        package.value().load_theme_json();
     (void)result;
   }
 }

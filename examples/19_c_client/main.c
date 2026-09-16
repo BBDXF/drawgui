@@ -361,7 +361,8 @@ static int run_verify(void) {
 
     theme = dg_theme_load_dir(app, "/nonexistent/drawgui/theme/package", &err);
     check(theme == NULL && err.status == DG_THEME_ERR_IO_ERROR,
-          "dg_theme_load_dir on a missing directory fails with DG_THEME_ERR_IO_ERROR, not a crash");
+          "dg_theme_load_dir on a missing directory fails with DG_THEME_ERR_IO_ERROR, not a "
+          "crash");
 
     theme = dg_theme_load_memory(app, kThemeJson, (uint32_t)strlen(kThemeJson), NULL, &err);
     check(theme != NULL, "dg_theme_load_memory loads a valid in-memory theme");
