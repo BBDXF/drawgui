@@ -1,0 +1,20 @@
+# ============================================================================
+# drawgui shortcut action id lock - an ABI contract, not a cache.
+#
+# One line per locked action, "<id>  <name>", in ascending id order.
+# Written by `python3 tools/shortcut_lock.py --write` and verified by
+# `python3 tools/shortcut_lock.py --check`. Same contract as props/prop_ids.lock and
+# themes/token_ids.lock, applied to the action_id family (design.md
+# section 5.5.3).
+#
+# NEVER hand-edit this file to make a failing check pass. Fix
+# input/shortcuts.toml instead.
+# ============================================================================
+    1  copy
+    2  cut
+    3  paste
+    4  select_all
+    5  scroll_page_up
+    6  scroll_page_down
+    7  scroll_to_start
+    8  scroll_to_end
