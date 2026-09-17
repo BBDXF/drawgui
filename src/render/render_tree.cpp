@@ -140,19 +140,86 @@ RenderTree& RenderTree::operator=(RenderTree&&) noexcept = default;
 RenderTree::~RenderTree() = default;
 
 NodeId RenderTree::add_child(NodeId parent, const PixelRect& bounds, const NodeStyle& style) {
-  const auto index = static_cast<std::uint32_t>(impl_->nodes.size());
+  std::uint32_t index = 0;
+  if (!impl_->free_indices.empty()) {
+    // Reuse a tombstoned slot rather than growing forever - the free-list
+    // half of the generation-counter design, mirrored from
+    // AnimationEngine::allocate_slot(). The slot's `generation` was already
+    // bumped by remove_child(); this call inherits that value rather than
+    // resetting it, which is exactly what makes a stale NodeId naming the
+    // old occupant fail is_valid() against the new one.
+    index = impl_->free_indices.back();
+    impl_->free_indices.pop_back();
+  } else {
+    index = static_cast<std::uint32_t>(impl_->nodes.size());
+    impl_->nodes.emplace_back();
+  }
+  const std::uint32_t generation = impl_->nodes[index].generation;
 
   Node node;
+  node.generation = generation;
   node.local = bounds;
   node.style = style;
   node.clip_atomic = clips_atomically(style);
   node.parent = parent.index;
-  impl_->nodes.push_back(std::move(node));
+  impl_->nodes[index] = std::move(node);
   impl_->nodes[parent.index].children.push_back(index);
 
   impl_->reposition(index);
   impl_->invalidate(index);
-  return NodeId{index};
+  return NodeId{index, generation};
+}
+
+bool RenderTree::is_valid(NodeId id) const {
+  return id.index < impl_->nodes.size() && !impl_->nodes[id.index].removed &&
+         impl_->nodes[id.index].generation == id.generation;
+}
+
+bool RenderTree::remove_child(NodeId id) {
+  // The root has no parent to detach from, and design.md's own append-only
+  // root (index 0, never reassigned) is what every ancestor walk in this
+  // codebase terminates on - removing it is a reported failure, not a
+  // no-op that leaves a caller guessing why nothing looked different.
+  if (id == root() || !is_valid(id)) {
+    return false;
+  }
+
+  // Damage the subtree's LAST visible bounds before anything is mutated -
+  // the "old bounds ∪ new bounds" rule with new bounds empty, since nothing
+  // will ever paint there again. This must run before detachment: damage_
+  // subtree() walks live `children` links, which the tombstoning loop below
+  // clears.
+  impl_->invalidate(id.index);
+
+  // Collect the whole subtree (id included) before mutating anything -
+  // tombstoning a node clears its `children`, so the walk has to finish
+  // first.
+  std::vector<std::uint32_t> subtree{id.index};
+  for (std::size_t i = 0; i < subtree.size(); ++i) {
+    for (const std::uint32_t child : impl_->nodes[subtree[i]].children) {
+      subtree.push_back(child);
+    }
+  }
+
+  const std::uint32_t parent_index = impl_->nodes[id.index].parent;
+  std::vector<std::uint32_t>& siblings = impl_->nodes[parent_index].children;
+  siblings.erase(std::remove(siblings.begin(), siblings.end(), id.index), siblings.end());
+
+  for (const std::uint32_t index : subtree) {
+    Node& victim = impl_->nodes[index];
+    victim.removed = true;
+    victim.generation += 1;
+    victim.children.clear();
+    // `parent` is deliberately left alone rather than reset to its
+    // default (0, the root's own index): RenderTree::parent() below
+    // refuses to read a tombstoned node's fields at all, so nothing ever
+    // observes this value again - resetting it would only recreate the
+    // exact "a removed slot's default parent looks like the root" trap
+    // doc/widgets.md's own generation-counter argument was written to
+    // avoid, one field away from where the guard actually lives.
+    impl_->free_indices.push_back(index);
+  }
+  return true;
 }
 
 std::size_t RenderTree::node_count() const {
@@ -168,7 +235,23 @@ const NodeStyle& RenderTree::style(NodeId id) const {
 }
 
 NodeId RenderTree::parent(NodeId id) const {
-  return NodeId{impl_->nodes[id.index].parent};
+  // An invalid `id` (out of range, tombstoned, or a stale generation) is
+  // its own parent - the same sentinel the root already uses to terminate
+  // a climb - rather than reading nodes[id.index].parent, which a
+  // tombstoned slot never clears. Reading it anyway is the exact trap:
+  // remove_child() leaves a dead slot's `parent` field pointing at its OLD
+  // real ancestor, and a climb that trusted it would walk up through a
+  // node that no longer exists as if nothing had happened, rather than
+  // stopping the moment it met one. Every ancestor walk in this codebase
+  // (WidgetSet::owner_of() and its three siblings, Focus::is_within(),
+  // the shortcut router's resolve_action()) is built on `id == parent(id)`
+  // terminating the loop, so this one check is what makes all of them
+  // removal-safe at once rather than needing four separate fixes.
+  if (!is_valid(id)) {
+    return id;
+  }
+  const std::uint32_t parent_index = impl_->nodes[id.index].parent;
+  return NodeId{parent_index, impl_->nodes[parent_index].generation};
 }
 
 std::vector<NodeId> RenderTree::children(NodeId id) const {

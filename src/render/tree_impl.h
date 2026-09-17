@@ -59,6 +59,17 @@ struct Node {
   std::uint32_t parent = 0;
   std::vector<std::uint32_t> children;
 
+  // Bumped every time this slot is freed by remove_child() and handed to a
+  // later add_child() call - the same free-list-plus-generation shape
+  // AnimHandle already has (animation_engine.h), for the identical ABA
+  // reason: this slot IS reused (RenderTree::Impl::free_indices below), so
+  // an index alone cannot tell a live node from a removed one that used to
+  // sit at the same index. `removed` is the tombstone bit itself; a slot
+  // with `removed == true` is on the free list and every field but
+  // `generation` is meaningless until the slot is reused.
+  std::uint32_t generation = 0;
+  bool removed = false;
+
   // True when this node must be rasterized whole or not at all, because
   // clipping it partway changes the pixels it produces even inside the clip.
   // Measured, not assumed: over 1800 randomized clips, Skia's anti-aliased
@@ -161,6 +172,13 @@ struct RenderTree::Impl {
   PaintMode paint_mode = PaintMode::kDirect;
   std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
   std::vector<Node> nodes;
+
+  // Indices remove_child() tombstoned, available for add_child() to hand
+  // out again - the recycling half of the generation-counter design;
+  // without it a long removal-heavy session grows `nodes` without bound
+  // even though most slots in it are dead.
+  std::vector<std::uint32_t> free_indices;
+
   DamageRegion damage;
   DamageRegion painted;
   sk_sp<SkPicture> picture;

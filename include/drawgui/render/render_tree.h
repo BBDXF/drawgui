@@ -547,6 +547,28 @@ class RenderTree {
   // added, and a child paints over its parent.
   NodeId add_child(NodeId parent, const PixelRect& bounds, const NodeStyle& style);
 
+  // Whether `id` still names a live node - false for an out-of-range index,
+  // a tombstoned (removed) slot, or a stale generation (the slot has been
+  // reused by a later add_child()). The one check every removal-aware
+  // reader needs, and the one RenderTree::parent() itself uses below to
+  // keep an ancestor walk from ever reading a removed node's leftover
+  // fields.
+  [[nodiscard]] bool is_valid(NodeId id) const;
+
+  // Detaches `id`'s whole subtree (id included) from the tree: dropped from
+  // its parent's children, every node in the subtree tombstoned and its
+  // generation bumped, none of it compacted - doc/widgets.md's own
+  // recorded reason (compacting would silently reattach every node whose
+  // index shifted). Returns false, and changes nothing, for the root
+  // (`id == root()`, which has no parent to detach from) or an already
+  // invalid `id` - a reported failure a caller can check, not a silent
+  // no-op with a surprising result.
+  //
+  // Damages the removed subtree's LAST absolute (visible) bounds - the
+  // established "old bounds ∪ new bounds" rule with new bounds empty, the
+  // same halfway shape set_local_bounds() already has for an ordinary move.
+  bool remove_child(NodeId id);
+
   [[nodiscard]] std::size_t node_count() const;
   [[nodiscard]] PixelSize viewport() const;
   [[nodiscard]] const NodeStyle& style(NodeId id) const;
