@@ -227,7 +227,7 @@ readability; nothing here is re-ordered by importance.
 | Overscroll rebound animation | scrolling.md §1 | same animation-clock dependency; the hard-stop clamp half IS built | P4.5 |
 | Nested scroll delegation | scrolling.md §1 | no real nested-scroll scene exists to drive the policy | whenever such a scene exists |
 | Scroll anchoring | scrolling.md §1 | node vectors are append-only; nothing can insert above a sibling to anchor against | whichever slice adds insertion |
-| Keyboard scrolling | scrolling.md §1 | needs the intent-binding mechanism (§5.5.1) which does not exist | the intent-binding slice |
+| Keyboard scrolling | scrolling.md §1 | needs the intent-binding mechanism (§5.5.1) which does not exist | closed by 8-3c (`doc/shortcuts.md`) |
 | Scrollbar as a drawn/hit-tested control | scrolling.md §1 | none exists at all | unnamed |
 | **List virtualization** | scrolling.md §1 | design.md's own phase table (line 1714) puts it at **P3** as part of `List`'s definition, not this viewport's | **P3**, a `List`-shaped slice (see section 1 and 7) |
 
@@ -328,6 +328,18 @@ readability; nothing here is re-ordered by importance.
 > 5.5.1/5.5.2) and the gesture arena (§5.16.3) remain OPEN, declined by
 > name as siblings this slice does not build.
 
+> **P8 8-1/8-2/8-3/8-3b/8-3c/8-3d cross-reference (append-only)**: the
+> shortcut/intent system named OPEN two paragraphs above is now **CLOSED**
+> - the fourth generated-id family (`action_id`, `input/shortcuts.toml`),
+> a generated `LogicalKey` enum, the `Mod` pseudo-modifier, the mandatory
+> `consumer` field, and the full four-level router (IME isolation, the
+> focused-node bubble, an app-wide table; routing level 3, the window
+> table, is declined below by name for want of a window-scoped action) -
+> `doc/shortcuts.md` has the full record, including the `Home`/`End`
+> collision between `scroll_to_start` and a `TextField`'s own line-start
+> editing key, resolved by design.md §5.5.2's text-editing-key bypass, not
+> by scope priority.
+
 ### Widgets / interaction (pre-existing, re-affirmed unchanged this phase)
 
 | Declined | Slice/doc | Reason | Phase |
@@ -338,7 +350,19 @@ readability; nothing here is re-ordered by importance.
 | Double-click, drag thresholds, cross-widget pointer capture | widgets.md §9 | out of scope, undedicated | unnamed |
 | `prop_lock.py` enum-ordering coverage | properties.md §2 | small known gap | the slice that first needs to reorder an enum |
 
-**46 distinct declines recorded across the phase.** Nothing here is new to
+### Shortcuts / clipboard / node removal (phase 8, this batch's own declines)
+
+| Declined | Slice/doc | Reason | Phase |
+| --- | --- | --- | --- |
+| `dg_app_bind_shortcut` | shortcuts.md §9 / abi.md §6 | no host application in this project needs to bind a chord the generated table does not already cover | the slice that needs a host-defined chord |
+| Insert-before-a-sibling | node-removal.md §8 / abi.md §5 Gap 2 | no caller anywhere in this project needs to insert before an arbitrary sibling; every scene builds front-to-back | a reorderable list |
+| Routing level 3 (the window-level shortcut table) | shortcuts.md §9 | no action is scoped to a window today; `ActionScope::kWindow` would be built ahead of a caller | a real window-scoped action |
+| macOS non-`Mod`-derivable overrides (`Ctrl+A`/`Ctrl+E` line-start/end, `Option+Delete` word-delete) | shortcuts.md §3 | not derivable from the `Mod` substitution rule, and there is no macOS backend yet to test either override against | a macOS backend slice |
+| Physical scancode chords | shortcuts.md §9 | every binding matches the layout-dependent logical key; nothing in this project needs the layout-independent alternative | a WASD-shaped game scene |
+| Horizontal keyboard scrolling | shortcuts.md §9 | `apply_keyboard_scroll()` only touches the vertical axis; no scene has a horizontally-scrolling viewport a key could target | a horizontally-scrolling scene |
+| Removal inside an open popup, and removal mixed into `kList`'s recycled pool | node-removal.md §8 | popup close already leaves dead nodes by design (doc/popup.md); `kList`'s pool is deliberately a fixed set of interchangeable nodes, never a per-item lifetime | a popup-closing path that wants nodes gone; a list needing fewer live nodes than its own pool |
+
+**53 distinct declines recorded across phases 7 and 8.** Nothing here is new to
 this audit — the value this table adds is that they are now in one place,
 against one column naming the design.md phase (where one is named), so the
 next phase's owner does not have to re-read nine documents to build a
