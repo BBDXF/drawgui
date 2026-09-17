@@ -19,814 +19,72 @@ accessibility, complex text editing, and depth of native integration.
 
 ## Current status
 
-The foundation is in place: CMake build, verified prebuilt Skia, a CPU raster
-path that produces a PNG, a golden-image test pipeline, a concrete SDL3
-multi-window manager, and Skia rendering on the CPU into a real window.
+The engine has layout, widgets, theming and a C ABI, all running on a CPU
+raster path with no GPU dependency.
 
-Skia and the window manager now meet, on the CPU. A frame is rasterized into
-an ordinary buffer and copied onto the window surface; no GL context is
-created anywhere. `doc/cpu-raster-findings.md` records what that costs and
-where it stops being enough. There is no layout, no widget, no theming and no
-C ABI.
+- **Layout**: a Flexbox-like model (row/column, wrap, `align`/`align_self`,
+  `basis`/`shrink`/`main_size`/`aspect_ratio`, clipping, group opacity via
+  `saveLayer`) that lays every node out exactly once per frame - measured,
+  not assumed: `LayoutStats` reports `nodes_visited == 0` for scrolling,
+  slider drag, typing, list recycling, theme colour switches and focus
+  changes alike.
+- **Properties**: 49 CSS-like properties addressable by numeric id -
+  38 fully implemented, 10 partial, 1 not yet (`transform`, blocked on this
+  engine's axis-aligned damage/hit-test/clip representation).
+- **Widgets**: 9 `WidgetKind` values - panel, label, button, checkbox (radio
+  is a `group` field on it), slider, scroll view, text field, virtualized
+  list, dropdown - plus a context menu, tooltip and modal dialog through a
+  shared popup host. No new `RenderObject`/node kind has been needed across
+  23 consecutive development slices, the acceptance bar `doc/design.md` set
+  for its own primitive set.
+- **Text**: single- and multi-line, with CJK/BiDi/complex-script shaping via
+  `SkParagraph` + libgrapheme (no `icudtl.dat` needed), grapheme-cluster-
+  correct editing, and IME composition.
+- **Focus**: Tab order via a focus-scope model, with a visible focus ring.
+- **Theming**: 12 tokens, light/dark variants, and external theme packages
+  (path-traversal-safe, hot-reloadable).
+- **C ABI**: 21 exported functions; `examples/19_c_client` is a pure C
+  program that opens two windows and cross-updates them on click.
 
-Layout and paint are now configurable by **property id**. `props/` held a
-45-property CSS-like table, a generator and an ABI lock from the very first
-phase, frozen because nothing included either generated file; its real consumer
-- the eventual C ABI, where a host language sets a property by number rather
-than by calling a C++ setter - finally exists in outline, so `dg::set_prop()`
-connects the table to the layout and render trees. 21 properties are fully
-implemented, 12 partially, and 12 report `kUnsupported` naming what they need.
-`doc/properties.md` records the reconciliation, the per-property gap report, and
-why the generated ids are plain constants rather than an enumeration.
+All 35 CTest entries pass. The golden-image sha256
+(`f635028e6e1e92349d23f0575f1e39e7ca8b05e5974492641ee610fe520df12e`) has been
+unchanged across the entire history, including a full Skia distribution swap.
 
-Layout now **wraps**. A container whose children overrun the main axis breaks
-them into runs; `run_gap` spaces the runs, `align_content` positions the run
-stack, and `align` applies within a run rather than across the container. A
-child can override its container with `align_self`, and a border can be a
-different thickness on each of its four sides. 27 properties are now fully
-implemented, 9 partially and 9 report `kUnsupported`. `doc/wrapping.md` records
-why wrapping still lays every node out exactly once, and where design.md asks
-for two things that cannot both be true.
-
-A container can now **clip** what overflows it. `overflow` is one field on the
-node, and painting, hit testing and damage all read it: content is cut at the
-boundary, a point in the cut-away region does not hit the widget that would
-have been there, and a change inside a clipped container does not ask for a
-repaint of pixels the clip removes. Rounded clips follow the curve.
-`doc/clipping.md` records why a rounded clip needed no new damage rule, what it
-costs, and where `overflow` deviates from CSS.
-
-A subtree can now be **faded as a group**. `opacity` composites the whole
-subtree through `SkCanvas::saveLayer` and blends the result as one image, so
-overlapping children inside a faded group do not show through each other - the
-CSS meaning, not per-object alpha, and the two are drawn side by side out of
-the same node table in `examples/08_opacity`. A layer is opened only when one
-is needed: never at `opacity == 1`, and never at `0` either, where the subtree
-is skipped. Hit testing deliberately ignores `opacity` entirely, so a group
-faded to nothing is invisible and still clickable. 29 properties are now fully
-implemented, 9 partially and 7 report `kUnsupported`. `doc/compositing.md`
-records why a layer is **not** a damage-atomic region, why the anti-alias slack
-does not belong on a layer's extent, where this contradicts `design.md`, and
-what `shadow` and `transform` still need.
-
-Sizing now has a **second stage**, and the finding is that it needed no second
-measurement. `basis` gives a child a declared base main size, `shrink` takes
-space back from it when the container overruns - weighted by `shrink x base`,
-CSS's scaled shrink factor, split by prefix sums so no pixel is invented or
-lost - `main_size` makes a container fill its main axis instead of hugging its
-content, and `aspect_ratio` derives one axis from the other, including the
-sharp direction where a stretched child's WIDTH follows the height its
-container handed down. Every node is still laid out **exactly once** per pass,
-which the demo asserts on itself. The one thing that would have cost a second
-measurement is shrinking from a base the engine had to measure, and that is
-declined by name with a layout diagnostic; `doc/sizing.md` section 1 records
-the argument, including the exponential the obvious two-pass design costs and
-why design.md section 5.4.6's cache is mandatory rather than advisory. 32
-properties are now fully implemented, 10 partially and 3 report `kUnsupported`.
-
-A leaf can now be a **scrolling viewport**, and a "list" turned out to be
-nothing new: it is a `kColumn`/`kRow` of ordinary children composed inside
-one. `scroll_axis` hands that single child an unbounded constraint on one
-axis instead of squeezing it to fit, `overflow` (unchanged) clips the
-overflow at the viewport's own bounds, and `RenderTree::set_scroll_offset`
-shifts the child without moving what it declared - the same shape a clip
-confines a descendant without confining its own paint. The offset itself is
-runtime state, not a property, for the reason hover and press already are:
-it accumulates across an unbounded stream of wheel notches and drag deltas
-rather than being declared once. Scrolling costs a repaint and never a
-relayout - `LayoutTree::layout()` visits zero nodes on a frame where only the
-offset changed, measured on the demo scene rather than assumed from the code
-that makes it true. Hit testing needed no new code at all: it already read
-the position the offset shifts, so a scrolled-out child stops answering and a
-scrolled-in one starts, for free. 33 properties are now fully implemented, 10
-partially and 3 report `kUnsupported`. `doc/scrolling.md` records why nested
-scrolling composes without new code, what design.md's own roadmap asks for
-that needs an animation clock this project does not have yet (fling,
-overscroll rebound - both declined and named), and why list virtualization
-belongs to a later phase's `List` control rather than to this viewport.
-
-Checkbox, radio and slider are three form controls out of two mechanisms.
-Radio is not a new control at all: a checkbox gained one field, `group`, and
-selecting one option clears every other checkbox sharing its group id instead
-of toggling - "checkbox plus a group id", the same composition doc/scrolling.md
-found for scrolling rather than a fourth widget kind. Slider is a sixth
-`WidgetKind` - a track and a thumb, the thumb's position a paint-time function
-of its value, moved through the same `RenderTree::set_local_origin` a plain
-node move already used - satisfying design.md's own acceptance bar for this
-control head-on: no new RenderObject was needed. The value itself is runtime
-state, not a property, for the identical reason the scroll offset is: it
-accumulates across an unbounded stream of drag deltas rather than being
-declared once. Dropdown is declined outright rather than half-built: this
-engine's window layer has no popup-window concept whatsoever - no window
-kind, no `PopupHost`, nothing - and design.md calls that abstraction the
-single most critical decision in the whole design, naming the exact trap a
-naive in-window dropdown falls into. `doc/form-controls.md` records the
-scoping arguments in full, a real `LayoutTree` constraint found while sizing
-the slider's thumb (a leaf's child cannot exceed the leaf's own resolved
-size, even "loosened"), and a defect-injection campaign that found and fixed
-a genuine bug in its own first regression test.
-
-Text can now be **typed and edited**, in a single-line `TextField` scoped to
-design.md's own MVP concession: ASCII direct input and correct display of
-committed text, nothing more. `TextField` is a seventh `WidgetKind` built from
-the same primitives every widget here already stands on - a clipping leaf plus
-three plain children the widget positions - so the field needed no new
-RenderObject, echoing design.md's own acceptance bar for Slider. ASCII scoping
-is not a shortcut around design.md's grapheme-cluster requirement for cursor
-movement and selection, it satisfies that requirement by construction: for
-ASCII, a byte offset, a codepoint offset and a grapheme-cluster boundary are
-the same number, so no ICU or HarfBuzz is wired in, and no non-ASCII byte is
-ever mis-segmented - it is filtered at the model boundary instead. IME's
-interface hook, `start_text_input`/`stop_text_input`, is real SDL3 plumbing
-rather than a placeholder: SDL3 emits no committed-text event at all until it
-is called, so this slice needs it for plain ASCII typing to work, while the
-actual IME feature - reading the in-progress composition preview - stays
-future work exactly where design.md puts it. Unfocused, an overflowing field
-shows an ellipsis-truncated prefix; focused, it shows the full string scrolled
-to keep the caret visible - both built on the same `SkFont::measureText`
-primitive this project's text rendering already uses, not on `SkParagraph`,
-which appears nowhere in this codebase and stays out of scope for a
-single-line field. Text content, cursor and selection are runtime widget
-state, not properties, for the same reason the scroll offset and the slider's
-value already are: keystrokes and drag deltas are unbounded streams, not
-declared values. A `dg::Focus` concept - one optional node id, exclusive, no
-tab order - had to be introduced from nothing, this engine's first notion of
-which widget receives keyboard input. Typing costs a repaint and never a
-relayout in this slice specifically because every `TextField` here is
-fixed-width, exactly like a slider's track; a future shrink-to-fit field would
-need a real relayout on every edit, and that condition is named rather than
-glossed over. `doc/text-input.md` records every scoping decision in full, the
-relayout finding measured rather than assumed, and a defect-injection campaign
-that found a sixth project failure mode: a weak assertion that was satisfied
-by an entire family of wrong answers, not only the right one.
-
-Text now falls back across scripts: one named family draws any string, and a
-BCP 47 language tag selects between Han faces. `doc/font-fallback.md` records
-why that chain is built here rather than delegated to fontconfig.
-
-This phase closes on an audit, not a feature: `doc/completeness.md` checks the
-whole phase against design.md's own MVP-8 widget list (`Box` `Text` `Button`
-`TextField` `ScrollView` `List` `Image` `Row`/`Column`) rather than against
-this project's own prior claims about itself. Six of the eight are unambiguous
-- `Box` and `Row`/`Column` are `BoxStyle`/`LayoutKind`, not `WidgetKind`s, and
-that is by design, not a shortfall. `List` turns out to be present as
-mechanism (a `kColumn`/`kRow` composed inside a `kScrollView`, exactly what
-`examples/10_scrolling` already draws) but not as the control design.md
-itself defines: line 617 makes virtualization part of `List`'s definition,
-and none exists, so an honest reading calls this a proven substrate rather
-than a finished widget. `Image` is the one true gap: nothing in `NodeStyle`
-carries an image of any kind, and no decode/draw path exists anywhere the
-engine's own render tree can reach - the Skia gallery's image panel is a demo
-of Skia, not of this engine. Both gaps are named as the first tasks for
-whichever phase follows this one rather than papered over. Everything else
-checks out further than expected: the layer-3 primitive set that design.md's
-own acceptance bar asks Slider to validate (line 622) turns out to have
-needed zero new RenderObject kinds across every widget this phase built -
-checkbox, radio, slider, scrollview, textfield alike - and every invariant
-this phase established (exactly-once layout, damage correctness, zero
-`virtual`, zero SDL in `include/`, golden byte-stability, the ABI lock) still
-holds with all nine slices' work coexisting, each re-checked once rather than
-assumed. The verdict is a qualified TRUE: basic GUI components are complete
-for layout, CSS-like properties and the widget primitives that compose from
-what already exists, on Linux, CPU raster, ASCII text, with no theme system
-and no popups - a real boundary, stated exactly, not an unqualified claim
-papering over the two named holes. `doc/completeness.md` also finds and
-escalates the sharpest single gap between this project and design.md's own
-priorities: `PopupHost`, which design.md calls "the single most critical
-decision in the whole design" and requires to exist as of MVP, does not exist
-at all.
-
-Phase 5 opened by closing the sharper of that audit's two named gaps:
-`Image` can now be **decoded and painted**, as one more field on the same
-`NodeStyle` every node already carries - `ImageStyle`, sitting beside
-`TextStyle` rather than becoming a new node kind, for the identical reason
-`overflow` and `opacity` are fields rather than kinds. A decoded bitmap comes
-through the real `SkCodec` path (`ImageCatalog`), scaled into its node's box
-by one of four fit modes (`fill`/`contain`/`cover`/`none`), with a plain
-configurable colour standing in for the theme-token placeholder design.md
-asks for. The one rule that made this safe to build at all is a layout
-constraint stated as a hard requirement, not a suggestion: an image node
-must know its own size **before** decoding finishes - through an explicit
-size, an `aspect_ratio`, or a parent constraint that settles both axes -
-because sizing from decoded content would turn every finished image load
-into a visible reflow. The fourth, illegal case (none of the three) is a real
-diagnostic through this project's existing layout-error channel, never a
-silent fallback and never an assert. The property the rule exists to buy was
-measured, not assumed: swapping a node's decoded 64x64 source for a 512x512
-one moves nothing, `LayoutStats` reporting zero nodes visited and zero
-relaid out on that frame. An image golden test had no precedent in this
-project - every prior golden scene is vector fills, borders and text - so
-`examples/13_image` synthesizes its own source in-process from a documented
-pixel formula, encodes it with this project's own PNG writer, and decodes it
-back through the real codec, leaving the existing byte-exact golden suite
-(`f635028e...`, unchanged since 4-6) untouched. `doc/image.md` records the
-decision in full, including why zero new node/RenderObject kinds were needed
-- extending `doc/completeness.md`'s own streak through the one MVP-8 item it
-had found absent - and what a future asynchronous decode would and would not
-have to change about any of this.
-
-`List` can now be **virtualized**, which closes the other of the two gaps
-4-10's audit named. A `kList` is an 8th `WidgetKind`: a fixed, permanently-
-allocated pool of item nodes - never one node per logical item - recycled as
-the visible range moves, so a 1000-item list costs 14 real nodes rather than
-1000. Node removal was evaluated and correctly not added: the pool sidesteps
-the question rather than needing an answer to it, so a recycled `NodeId`
-never dangles anywhere - it is restyled and repositioned, never destroyed.
-Recycling routes entirely through `RenderTree::set_local_bounds()`/
-`set_style()`, the same primitives a slider's thumb or a checkbox's indicator
-already move through, so it costs a repaint and never a relayout - measured,
-not assumed, extending 4-7's `nodes_visited == 0` finding to cover recycling
-as well as a plain offset. The data-source seam needed no interface at all:
-`WidgetSet` reports which pool node now represents which logical item (a
-plain `NodeId, int` pair), and the caller writes that item's content through
-the exact same `RenderTree::set_style()` an unrecycled node already uses.
-Only fixed-extent rows are built; variable-height rows are declined by name,
-because the two usual techniques (measuring every off-screen item, or
-estimate-then-correct) either defeat virtualization outright or introduce
-visible scrollbar jitter. Measured against design.md's own "1000 项列表
-60fps" bar with a real pre-virtualization baseline (1000 permanently-
-allocated real nodes): both clear 60fps comfortably at 1000 items on this
-CPU-raster engine, and the decisive difference - the virtualized pool's cost
-staying flat as item count grows, against the baseline's cost growing with
-node count - shows up further out, where `doc/list.md` measures it crossing
-the 60fps line on this host somewhere past 100,000 items. Zero new node/
-RenderObject kinds were needed, extending `doc/completeness.md`'s streak
-through an 11th consecutive slice. `doc/list.md` records the decision in
-full, including the residue-correctness design that makes a recycled node's
-stale content structurally impossible rather than merely checked for, and a
-defect-injection campaign that found two real coverage gaps and closed both
-with new regression tests.
-
-Phase 5 closes on the property table's last three gaps. `background_gradient`,
-`shadow` and `image_source` all needed a shape design.md itself specifies but
-this project had never built: a dedicated setter, separate from the ordinary
-scalar `dg::set_prop()` door, for a value too large or too variable to fit a
-tagged union. `image_source` was built first and proven working - its
-decode/paint/layout path already existed from the prior slice - and the
-shared id-validation shape was extracted from that working code afterward,
-never written ahead of it. `background_gradient` and `shadow` then reused the
-same shape for real new work: a linear gradient shader, and a drop shadow
-that is this project's first property to paint OUTSIDE the pixels a node
-declares as its own. That is a fact damage tracking's whole design assumes
-never happens, so the node's own damage rule was generalised rather than
-bypassed - a shadowed node forces whole-node repaint growth for the same
-mechanical reason a rounded node already does (both are unsafe to cut with a
-damage rectangle), just outset by the shadow's own reach - budgeted, per a
-prior slice's measurement that blur is over half a dense frame's raster
-time. `transform`, the table's fourth complex-typed property, is declined:
-its dedicated setter exists and answers consistently, but every rectangle
-this engine tracks - damage, hit testing, clipping - is axis-aligned integer
-pixels, and a general 2D transform breaks that in three places at once
-rather than one at a time. 49 properties: 38 fully implemented, 10 partially,
-1 not yet - down from 4. Zero new node kinds were needed, extending the
-streak through a twelfth consecutive slice. `doc/complex-properties.md`
-records the decision in full, including a defect-injection campaign that
-found one genuinely inert guard and root-caused why, rather than merely
-noting it survived.
-
-Phase 6 opens with the piece design.md's own roadmap named as the shared
-blocker for five separate features: an **animation clock**. `dg::AnimationEngine`
-owns it, C++-side, exactly as design.md section 5.16.1 requires - a host
-declares a `from`, a `to`, a duration and a curve, and interpolation never
-leaves C++. The clock's own seam is a value, not a `virtual` interface:
-`AnimTime` is a plain integer-millisecond struct passed into `tick()` as an
-ordinary argument, the same technique every prior seam in this project used
-for a varying input (`WindowManager::warp_pointer`'s `x, y`,
-`RenderTree::set_scroll_offset`'s offset) rather than a new one invented for
-testability - so every assertion in `tests/unit/test_animation.cpp` advances
-time by an exact, hand-chosen amount and never sleeps. Two APIs, both
-over the property table this project already had: `animate()` returns a
-handle that can be paused, reversed or cancelled, and `set_transition()` +
-`set_value()` give any subsequent write to a declared property the CSS
-transition model - including the subtle case where a property changes again
-before its first transition finished, which retargets from the CURRENT
-interpolated value rather than restarting from the original (a defect
-injection confirmed this is load-bearing, not merely asserted). A handle's
-lifetime problem is new, not 5-3's list-pool answer reapplied: an animation's
-count is unbounded over a session the way a render node's is not, so a
-finished slot's storage IS reused, and a generation counter (the mechanism
-`doc/widgets.md` already named as what a future removal path would need) is
-what keeps a stale handle from ever controlling the wrong animation. The
-on-demand frame loop design.md section 5.15.1 asks for - block indefinitely
-while idle, run a short frame-pacer interval while animating, return to
-blocking once nothing is - is built on `WindowManager::pump()`'s existing
-timeout shape and measured, not assumed: blocking for a genuine two-second
-idle span consumes 0.009% of a CPU core. Two real clients prove the system:
-an implicit `background_color` transition on hover, and a text-cursor blink
-built from four chained explicit animations - unblocking 4-9's caret-blink
-decline and 4-7/5-2's animation-shaped declines at the mechanism level, while
-naming plainly what each still needs (a gesture-arena velocity source for
-fling, in particular, stays out of scope). Zero new node kinds were needed -
-a thirteenth consecutive slice - and `doc/animation.md` records an honest gap
-this slice does NOT close: §5.15.2's three-level invalidation model is not
-implemented as a cost model, so an animated `opacity` write costs exactly
-what a hand-written one already did, not a cheaper recomposite-only path.
-
-Phase 6 closes its second slice on the half of P3 the completeness audit
-found at zero: a **theme token system**. `themes/schema.toml` is a
-compile-time contract - which tokens exist, `color.surface`/`radius.md`/
-11 total - generated exactly like `props/drawgui.props.toml` already is,
-by a sibling tool (`tools/gen_theme.py` + `tools/theme_lock.py`) rather than
-an extension of the property generator, because the two source-of-truth
-shapes genuinely differ. `themes/builtin/theme.json` is the one shipped
-instance of what each token EQUALS under light/dark, loaded by a
-purpose-built ~300-line JSON parser rather than a third-party library - this
-project's first new dependency decision since Skia/SDL3/FreeType, argued
-and declined in `doc/theme.md` section 3 on the grounds that `theme.json`'s
-own grammar is closed and small enough that a general-purpose parser buys
-nothing this slice needs. `$token` live references - a theme switch that
-updates a bound node without touching the widget tree - are a side table,
-`ThemeBindings`, keyed by `NodeId` exactly the way `WidgetSet` already is,
-and deliberately NOT a generation-counter handle the way `AnimationEngine`'s
-slots are: a token binding's lifetime is tied one-to-one to a node's, and
-nodes here never get removed, so there is no reuse and no ABA problem to
-guard against - the opposite precedent applies for the opposite reason.
-Resolving a binding reuses `dg::set_prop()` unchanged, which is what lets
-"which invalidation a theme switch costs" fall out of a rule this project
-already had rather than needing a new one: measured on a real `LayoutTree`,
-a colour-only variant switch costs zero relayout (`nodes_visited == 0`),
-while an int-token (spacing/radius) value change through the identical path
-costs a real one. Unknown token names and type mismatches are both
-`dg::Expected` failures naming the exact JSON key path, and
-`tools/check_consistency.py` verifies in CI that the shipped theme covers
-every schema token in both directions. Zero new node/`RenderObject`/
-`WidgetKind` kinds were needed - a fourteenth consecutive slice - and a
-defect-injection campaign (three caught immediately, including a
-demo-oracle-only bug a unit-test-only campaign could not have found, and
-two real coverage gaps closed) is recorded in full, along with everything
-this slice explicitly declines (external theme packages, hot reload,
-theme-package security limits, an expression evaluator for token alpha, and
-the `.d.ts`/ABI-constant-table generation deferred to 6-3), in
-`doc/theme.md`.
-
-Phase 6 closes on the piece its own opening paragraph named as the point of
-the whole exercise: a **C ABI**, closing this section's own opening claim
-("no C ABI") four phases later. `abi/drawgui.def.toml` is a third instance of
-the same TOML-to-generator-to-lock family `props/drawgui.props.toml` and
-`themes/schema.toml` already are, importing the props generator's own
-validated table directly rather than re-parsing it, and producing a real,
-C89-compilable `drawgui.h` alongside the try/catch trampolines design.md's
-own risk register names as mandatory (a C++ exception crossing a C boundary
-is undefined behaviour) - generated uniformly, with no per-function opt-out,
-so a hand-written export is structurally impossible rather than merely
-discouraged. `examples/19_c_client` is a genuinely pure C program, compiled
-by a C front end and linking nothing else, that opens two windows and
-responds to clicks - design.md's own acceptance bar for this piece, met
-literally rather than approximated: a click on either window's button is
-delivered as an event naming both the window and the node, and the host
-program uses it to set the OTHER window's colour through the same ABI,
-proving the round trip rather than merely a callback firing. Handle
-validity is generation-free by design, not by omission: an app/window/node
-arena here only ever appends, unlike an animation slot's pool, so there is
-no ABA problem index reuse would reopen, and a removed handle's own tiny
-wrapper is never freed (only marked dead) - a real defect the first draft
-had (freeing it, which would have turned a stale handle into an actual
-use-after-free) was found and fixed before this slice landed, and the
-opposite mistake (allocating it and never accounting for the memory at all)
-was caught immediately by LeakSanitizer. Two real engine gaps the abstract
-ABI sketch does not admit to are named rather than quietly worked around:
-`LayoutTree`/`RenderTree` have never grown an insertion-order primitive
-(only append) or a removal primitive at all, so `dg_node_insert_before`'s
-`ref` argument only accepts null and `dg_node_remove` only invalidates a
-handle without detaching the node's tree structure - both are honestly
-reported as future engine-layer work, not invented here ungrounded in a
-working caller. `dg_dump_layout_tree`, P2's own missed acceptance item,
-landed alongside the ABI it was always meant to expose. The theme ABI, the
-animation ABI, a callback event mode and QuickJS binding stubs are all
-declined by name for the identical reason: no working caller in this
-project's own build exercises any of them yet. `doc/abi.md` records every
-decision in full, including a defect-injection experiment against the
-generated try/catch wrapping itself (removing it crashes the process
-instead of silently doing nothing, closing the "provably inert code" defect
-mode by construction rather than by argument).
-
-There is also no platform abstraction, on purpose. An earlier attempt wrote
-twelve abstract platform headers before any backend existed; they were removed
-because nothing had ever tested whether they described the machine. The rule
-now is that an interface is extracted from at least one working
-implementation, never written ahead of one.
-
-Phase 7 opens on the piece 7-1's Skia switch was building toward: text can
-now **wrap, reflow across multiple lines, and draw CJK, mixed-script and
-bidirectional text through the real font-fallback chain** - `TextStyle::wrap`
-routes a node through a real `skia::textlayout::Paragraph` (HarfBuzz shaping,
-libgrapheme UAX#14 line breaking and BiDi, all consumed rather than
-reimplemented) instead of the plain `SkFont` call every node has used since
-slice 2, opt-in and off by default so every scene built before this slice is
-byte-for-byte unaffected. `LayoutTree` gained zero knowledge of text to make
-this work: a wrapping paragraph's height is measured by a new
-`dg::Paragraph::build()` call BEFORE the node exists, the same "know your
-size before your content is resolved" discipline design.md already forces on
-a decoded image - so multi-line text, the classic case that forces a second
-measurement pass in other layout engines, costs this one nothing extra:
-`LayoutStats` on the real demo scene shows every node laid out exactly once,
-measured rather than assumed. Font selection for wrapped text reuses 6-1's
-own zero-fontconfig fallback chain rather than delegating to SkParagraph's
-own (broken, on this project's font manager) search - each run is handed
-exactly one resolved family name up front. A real hang (not a crash) was
-found and fixed along the way: handing ill-formed UTF-8 straight to
-`SkParagraph::addText()` hangs the process, so every byte range this
-project's own decoder already rejects is substituted with well-formed U+FFFD
-before it ever reaches the shaping library. Zero new node/`RenderObject`/
-`WidgetKind` kinds were needed - a sixteenth consecutive slice - and the
-golden PNG hash is unchanged, confirmed by injection to be a structural fact
-(that scene draws no text at all) rather than evidence that text rendering
-was untouched, which `test_font_fallback.cpp`'s own pixel oracles are what
-actually still guard. `TextField`'s ASCII-only editing surface (4-9) is
-completely untouched by this slice - grapheme-cluster cursor movement is
-named as a separate follow-up (7-2b) rather than rushed alongside the display
-substrate. `doc/text-layout.md` records the full decision set, the four
-defect injections, and the exactly-once-layout verdict in detail.
-
-`TextField` can now **edit any well-formed UTF-8, by whole grapheme
-cluster** - 4-9's printable-ASCII-only `filter_ascii()` is gone.
-Left/Right/Home/End, Backspace/Delete, selection and click-to-position all
-move and delete by user-perceived character rather than by byte: a ZWJ
-family emoji (`👨‍👩‍👧‍👦`, seven codepoints), a skin-tone-modified emoji and a
-regional-indicator flag pair each vanish in exactly one Backspace, matching
-design.md's own named acceptance example. The seam this needed was NOT
-`dg::Paragraph`'s own clustering - measuring it directly found
-`skia::textlayout::Paragraph::getGlyphClusterAt()` clusters by SHAPING
-outcome, splitting a ZWJ sequence into one cluster per codepoint whenever
-the active font has no ligature glyph for it, which a `TextField`'s content
-font cannot be guaranteed to have. Cursor movement is instead built on a
-new, font-independent primitive, `dg::grapheme_boundaries()`
-(`SkUnicode::computeCodeUnitFlags()`, the same libgrapheme backend 7-1
-proved and 7-2 already links), while `dg::Paragraph` gained exactly one new
-method, `caret_x()`, for the pixel-position half. Malformed UTF-8 at the
-editing boundary - a lone continuation byte, a truncated lead, an overlong
-encoding, a surrogate - is repaired to U+FFFD via `dg::sanitize_utf8()`,
-7-2's own `paragraph_build.cpp` substitution promoted into a header so both
-consumers share one policy rather than two. `ellipsize()` was rewritten to
-truncate at a grapheme boundary rather than a byte offset, with hand-derived
-exact-string assertions (not a looser "ends in an ellipsis" check) - 4-9's
-own recorded "assertion-too-weak" failure mode, re-verified not to recur by
-re-injecting the identical off-by-one bug and confirming the new assertions
-catch it. `measure_ascii_width()`/`ascii_offset_at_x()` are deleted outright,
-their shaping-aware replacements measured to agree with them exactly on
-every ASCII case 4-9 already hand-derived. Typing still costs a repaint and
-never a relayout - re-measured, not assumed, under CJK input specifically,
-confirming 4-9's fixed-width condition still holds unchanged for non-ASCII
-content. `dg::ByteOffset`/`Utf16Offset`/`GraphemeIndex` (design.md's
-strong-typed index spaces) were deliberately NOT built: every Skia call
-this slice's editing surface needs turned out, measured against the linked
-archive, to already be UTF-8-byte-offset-native, so there was no second
-index space for the type system to guard against confusing with the
-first - the day a caller needs Skia's UTF-16-native API, that is what would
-justify it. Zero new node/`RenderObject`/`WidgetKind` kinds were needed - a
-seventeenth consecutive slice. `doc/text-input.md` and `doc/text-layout.md`
-both carry cross-reference sections recording the decision without editing
-either document's original text.
-
-`TextField` can now **compose Chinese (and any other IME's) input, not
-just receive it already committed** - reading `SDL_EVENT_TEXT_EDITING`,
-the composition preview 4-9 named as P7's own job and left deliberately
-unread. A not-yet-committed preedit string is spliced inline at the point
-composition began and shown underlined - `composition_underline`, a
-fourth plain positioned child the same shape `caret`/`selection_highlight`
-already are, not a new paint primitive - and never touches the committed
-model until a real commit reaches the exact same `text_field_insert()`
-every other keystroke already goes through. A genuine platform finding,
-not an assumption: on this project's own development machine, with a
-real, correctly-configured IME (fcitx5 + rime) actually installed and
-running, composing real pinyin through it never sends this engine a
-composition event at all - the IME draws its own real, separate X11
-window instead, positioned using exactly the caret rectangle
-`start_text_input()` already reports (confirmed causally: moving that
-rectangle moves the IME's own window one-for-one). Building a second,
-redundant candidate-window UI was therefore declined by name rather than
-half-built past a platform behaviour this project does not control. The
-composition-preview code path itself is tested by driving a real,
-synthesized `SDL_EVENT_TEXT_EDITING` through the actual SDL event queue
-(`WindowManager::post_text_editing()`, the same synthetic-injection shape
-`post_text_input()`/`post_pointer_button()` already are) - proven to be
-read correctly, but honestly NOT proven end-to-end against a live
-composing IME, which no run performed for this slice ever observed. SDL's
-own documented unit for the event's cursor/length ("UTF-8 characters") is
-a third offset convention this project had not measured before, distinct
-from both halves 7-2b already found on Skia's own editing surface - one
-small, narrow conversion function was enough, not the general strong-typed
-index-space system design.md sketches, because one real caller needed
-exactly one seam. Composing costs zero relayout across several different
-preedit lengths in a row - the harder case than committed text, whose
-length changes only on insert/backspace - re-measured rather than assumed.
-Zero new node/`RenderObject`/`WidgetKind` kinds were needed - an
-eighteenth consecutive slice. `doc/ime.md` records the full investigation,
-including the real X11 window measurement, the honest testing-gap
-statement, and a defect-injection campaign that found one injection causes
-an actual crash rather than merely a wrong answer.
-
-`TextField` and every other interactive control can now be **reached and
-driven by keyboard alone** - Tab/Shift-Tab, wrapping, and a visible focus
-ring. `dg::focus_order()` needed no third tree to compute a DOM-shaped Tab
-sequence: `RenderTree`'s own `children()`/`parent()` (6-3's own addition)
-already are the tree Tab order and a popup's own focus boundary both walk,
-so the one new piece of state is a single optional scope-root `NodeId`
-inside `dg::Focus` itself - the identical "smallest structure that earns
-its place" argument this project's own `WidgetSet` and `ThemeBindings`
-already made against a fourth or fifth table. An explicit
-`Widget::tab_index` override (HTML's own `tabindex` semantics: positive
-values lead, ascending; unset/zero follow in tree order; negative values
-are focusable by a click but never a Tab stop) was built deliberately
-rather than left to tree order by accident, and a scene mixing
-`kButton`/`kCheckbox`/`kSlider`/`kTextField` with one non-focusable widget
-sandwiched between two focusable ones and one sibling whose Tab position
-reverses its tree position is what `examples/21_focus` demonstrates and
-verifies. Crossing into a popup turned out to need no new cross-window
-machinery: a native popup already forces its own separate `RenderTree`
-(5-2), so it gets its own separate `dg::Focus` too, and two independent
-`Focus` instances never share a `NodeId` numbering space to confuse; an
-overlay popup shares the host's own `RenderTree` and `Focus`, scoped by
-`enter_scope()`/`exit_scope()` so Tab cannot leak out of it, with
-`exit_scope()` blurring a still-focused widget when the popup closes - the
-exact popup-close hazard this project's own append-only `RenderTree`
-(nothing is ever removed, only clipped to empty) made real. Two further
-hazards this slice owns rather than assumes fixed: a focused widget in a
-virtualized `kList` whose pool slot gets recycled to a different logical
-item is blurred rather than left pointing at the wrong item's content, and
-Tab-ing away from a `TextField` mid-IME-composition cancels the
-composition end to end (re-verified through a real posted `SDLK_TAB`
-against a synthesized composition event, not assumed still correct from
-7-3). A focus change costs a repaint and never a relayout, measured after
-13 Tab/click-driven transitions in a row. Zero new node/`RenderObject`/
-`WidgetKind` kinds were needed - a nineteenth consecutive slice. `doc/
-focus.md` records the full decision set, including a real bug this
-slice's own build caught (an overlay popup's buttons must be attached to
-the HOST's `WidgetSet`, not a second one, for Tab order to ever see them)
-and a second one caught wiring Tab's own side effects (calling
-`dg::Focus::set()` a second time to derive a `FocusChange` after
-`focus_next()` had already performed the transition silently reported a
-no-op and skipped every side effect).
-
-Before touching any widget code, this phase settled design.md's own §12
-open question 6: does `Table` need a two-dimensional `RenderGrid`, or does
-Flex already suffice? **Both, depending which `Table` a caller means.**
-Caller-declared column widths need nothing new - an ordinary `kRow` per
-row, exactly the composition `doc/scrolling.md` already proved for `List`.
-Automatic column widths that must AGREE across every row genuinely cannot
-be expressed by Flex: a row's own size, per design.md's own layout
-invariant, depends only on its own constraints and content, never on a
-sibling row's - and "column N's width is the widest cell in column N,
-over every row" needs exactly that cross-sibling visibility before any
-row can be given its final widths. No caller across 19 prior slices, or
-this one's own four controls, needs the second case, so `Table` is not
-built - deferred with a decided answer, not left open, and the settled
-CSS-Grid trigger from §5.4.11 (re-evaluate Taffy, not self-build) stands
-ready the day a real caller does.
-
-`Dropdown` can now be **opened, browsed by keyboard or mouse, and
-selected from** - `WidgetKind::kDropdown`, a 9th kind earning its place
-the identical way `Slider` earned its own: an anchor plus a caller-declared
-option list plus a selected index that outlives the click that set it, a
-state no existing kind had anywhere to keep. `PopupHost` (5-2) is the
-whole of the popup mechanism a dropdown needed - `doc/form-controls.md`'s
-own three named prerequisites (a `Popup` window kind, the SDL3 popup-
-window backend, a `PlatformCaps` capability query) are each confirmed
-satisfied, not merely assumed satisfied because a later slice landed.
-`kList` (5-3) was evaluated and NOT reused for the option rows: its pool
-nodes carry no attached `Widget` at all, so they cannot be focused,
-clicked, or keyboard-highlighted without a second interaction layer this
-slice declined to build, on top of a virtualization threshold (measured
-past 100,000 items) six orders of magnitude beyond any dropdown's option
-count - the rows are ordinary `kButton`s in a plain stack instead, the
-same `kColumn`-of-plain-children composition `doc/scrolling.md` already
-proved for `List` itself. Keyboard Up/Down needed no new highlight-cursor
-state anywhere: it is `dg::Focus::focus_next()`/`focus_previous()`,
-7-4's own Tab traversal, called with two new keys instead of Tab/Shift-
-Tab, over the identical popup scope Tab already confines itself to -
-wraparound at both ends is 7-4's own mechanism doing exactly what it
-already did for a different caller. Two small platform additions became
-shared infrastructure: `Key::kUp`/`kDown`/`kEnter`, absent before this
-slice because nothing needed to navigate a menu with them yet. Checked
-rather than assumed, and declined by name with their own real
-prerequisite: a **Context menu** needs a button-identity field this
-engine's pointer plumbing does not carry anywhere - `PointerEvent` reports
-only the primary button, by construction, so "a right-click cannot
-activate a widget here" is not a routing gap but a genuinely missing
-platform-layer event; a **Tooltip** needs the `SDL_WINDOW_TOOLTIP` flag
-`WindowManager::open_popup()` never exposes (distinct from the
-`SDL_WINDOW_POPUP_MENU` flag every existing popup already uses, per 5-2's
-own measurement that only one of the two can take keyboard input) plus a
-home for hover-delay state that 6-1's animation clock could time but this
-slice found nowhere natural yet to keep; **`Dialog`'s** modal focus trap
-needs a genuinely new refusal mechanism in `dg::Focus` itself - 7-4
-explicitly built `enter_scope()`/`exit_scope()` to bound Tab only, never a
-click or a programmatic `set()`, and said so by name. All three are
-split into a named follow-up (7-5b) rather than half-built. Zero new
-node/`RenderObject`/`WidgetKind` kinds were needed for `kDropdown` itself
-- a twentieth consecutive slice. A defect-injection campaign against this
-slice's own new logic found one real coverage gap (`dropdown_set_options`'s
-range clamp had no test at all, and a boundary bug at the exact new-size
-edge survived undetected until a new regression test was written for it)
-and confirmed one injection is caught immediately by the existing suite.
-`doc/menus.md` records the full decision set, `doc/form-controls.md` and
-`doc/completeness.md` each carry an append-only cross-reference, and
-design.md §12 records the `Table`/`RenderGrid` resolution in place.
-
-`Dropdown`'s own three declines are now closed. **A context menu** opens
-at the pointer on a real right-click - `PointerEvent` gained a
-`PointerButton` field (`kPrimary`/`kSecondary`/`kMiddle`), a sibling field
-rather than a new `PointerAction` case, so every existing exhaustive
-switch over `PointerAction` needed no fixup at all and the SDL3 backend's
-own left-button path is untouched byte-for-byte - confirmed by the full
-inherited test suite staying green before a single new file existed. A
-secondary-button press is a parallel, non-activating channel: it never
-touches `dg::Interaction`'s hover/press state, only opens the menu.
-**A tooltip** shows after a continuous hover delay - `WindowManager::
-open_popup()` can now request `SDL_WINDOW_TOOLTIP` as well as
-`SDL_WINDOW_POPUP_MENU` (a real, measured SDL capability difference: only
-the latter can take keyboard focus), and the hover-delay state lives in a
-new, minimal `HoverTimer` value - a single `(node, timestamp)` pair, not a
-side table, for the identical reason `dg::Focus`'s own scope root and
-`dg::Interaction`'s own hovered-widget field are single values rather than
-per-node tables: at most one widget is ever hovered at a time. The
-hover-delay poll reuses 6-1's own idle-vs-active frame-loop shape, and the
-idle-CPU property was measured to survive it: 0.013% CPU blocked against a
-real display, the same order of magnitude as 6-1's own 0.009% baseline.
-**A modal `Dialog`** can now genuinely refuse to lose focus: `dg::Focus`
-gained `set_guarded()`, a second entry point alongside the unconditional
-`set()` every existing caller keeps using unchanged, which refuses a
-target outside an `enter_scope(root, /*modal=*/true)` scope - one more bit
-on 7-4's own scope mechanism, not a second concept. `WindowManager` gained
-`open_dialog()` (a real second OS window with genuine `SDL_SetWindowParent`/
-`SDL_SetWindowModal` ownership) and an opt-in `WindowSpec::
-cancellable_close`, which routes a close request through a new
-`PumpResult::close_requested` instead of destroying the window outright -
-proven cancellable by a direct test: a handler that declines to call the
-new `close_now()` leaves the window open indefinitely. Zero new
-`RenderObject`/node/`WidgetKind` kinds were needed for any of the three - a
-twenty-first consecutive slice. `doc/menus.md` section 12 records the full
-decision set; `doc/popup.md` and `doc/focus.md` each carry an append-only
-cross-reference.
-
-Phase 7 closes on its fourth stated priority and 6-2's own named gap:
-external theme packages are now **untrusted input, treated as such
-throughout** rather than a convenience wrapper with security bolted on
-afterward. `dg::ThemePackage` canonicalizes a third-party directory's root
-once and resolves every resource read against it - a `../`, an absolute
-path, and a symlink INSIDE the package pointing OUTSIDE it are all caught
-by the SAME check, because it compares the fully RESOLVED path against the
-resolved root rather than scanning the original string, and a symlink LOOP
-is a clean, immediate error rather than a hang; removing that one guard
-was confirmed, once and reverted, to fail three tests immediately, not
-zero. The resource tree gained bounds a single JSON document cannot have -
-file count and aggregate size, checked by `stat()` alone before any
-content is read - alongside `theme.json`'s own pre-existing depth/size
-limits, now re-verified to hold for a package rather than assumed carried
-over. Hot reload turned out to need no new invalidation mechanism at all:
-6-2's `ThemeBindings::apply()` already re-resolves and re-writes every
-binding, so "reload" is exactly "produce a fresh `dg::Theme` from
-`theme.json`'s current bytes and call the same `apply()` again" -
-settling design.md's own open question (whole-tree rebuild vs incremental
-patch) as neither, and re-confirming, on a theme genuinely reloaded from
-disk, 6-2's own finding that a colour-only change costs zero relayout
-while a bound integer token costs a real one, this time requiring TWO
-scene instances to isolate one claim from the other rather than one.
-File-change detection is a deliberate non-decision: an explicit reload
-call, never a background watcher or a poll interval threading through the
-frame loop, which is what makes the idle-CPU cost of a package that COULD
-hot-reload structurally zero rather than merely small - measured against
-the same dummy-driver floor 7-5b already established for an unrelated
-mechanism. SVG icons are declined by name (a second, larger untrusted
-parser this slice's own scope does not cover, matching `doc/image.md`'s
-own precedent for the decode side); resources are raster bytes reached
-through a path-traversal-safe primitive instead. The theme ABI 6-3
-declined by name for lacking a real caller now has one: `dg_theme_
-load_dir`/`load_memory`/`set_variant`/`override` and `dg_app_set_theme`,
-through 6-3's own generator, with token binding reusing `dg_node_set_prop()`
-unchanged via a new `DG_VALUE_TOKEN` value kind rather than a second,
-bind-shaped exported function - `examples/19_c_client`'s extended pure-C
-oracle is what proves the new surface compiles and runs as C, the same
-bar the original ABI slice set. Zero new `RenderObject`/node/`WidgetKind`
-kinds were needed - a twenty-second consecutive slice, and phase 7's own
-last one. `doc/theme-packages.md` records the full decision set,
-including the fuzz pass (2000 fixed-seed random-byte mutations of a valid
-`theme.json`, clean under `-DDG_SANITIZE=ON`) and everything explicitly
-declined (a new schema token type for images/fonts, a standalone bind-
-shaped ABI function, `IPlatform::watch_files`, Windows/macOS); `doc/
-theme.md`, `doc/abi.md` and `doc/completeness.md` each carry an
-append-only cross-reference, and design.md section 12 records both of
-its own theme-related open questions (`schema_version` migration,
-hot-reload granularity) resolved in place.
-
-**Phase 7 as a whole is now closed.** All four of the owner's stated
-priorities landed in order: multi-line text/CJK/IME (7-1 through 7-3),
-Tab order and the focus tree (7-4), the missing controls (7-5/7-5b), and
-theme completion (7-6, this paragraph). The line-622 acceptance bar (no
-new `RenderObject`/node kind needed to build a control) held across all
-nine of this phase's slices without exception - the streak now spans
-twenty-two consecutive slices since 4-8 first stated it, `WidgetKind`
-grew by exactly one (`kDropdown`, 7-5) across the entire phase, and every
-other control (multi-line text, IME composition, Tab/focus, context menu,
-tooltip, dialog, theme packages) needed zero. What phase 7 leaves for
-whichever phase follows, named rather than silently deferred: the gesture
-arena and the four-level shortcut/intent routing system (§5.16.3/§5.5,
-touched only at the edges by focus's own bubble-up target), `Table`/
-`RenderGrid` (settled as "not needed yet, re-evaluate Taffy the day a
-caller needs auto column-width agreement," 7-5), window-position/size/
-scroll persistence (design.md §12's own remaining open question, still
-unresolved), the JS/Bun/Node FFI framework layer (P6, `abi/drawgui.d.ts`
-is a settled target, not a consumer, for either `prop_id` or the theme
-ABI's now-completed `token_id` table), QuickJS binding stubs, a real
-`RenderTree`/`LayoutTree` node-removal primitive (named as a gap by 6-3,
-still the one thing `dg_node_remove()` cannot do), GPU/Ganesh-GL
-rendering (still CPU raster only), `transform`, and Windows/macOS
-verification of anything built across this entire phase.
-
-Added after phase 7's own closing note above, as a follow-on slice (7-7,
-not part of the four owner-stated priorities phase 7 itself closed):
-`examples/25_showcase` is where a new reader should start now. Every
-example before it, including phase 7's own nine, is a single-slice
-measuring instrument - `05_widgets` exists to run `--verify-widgets`/
-`--clip-probe`/`--damage-cost`, `16_complex_properties` is a 100-frame
-byte-identity suite, and so on. An audit commissioning this slice found
-that none of them puts two non-trivial features together in one running
-scene, which is a demo gap but more importantly a TEST gap: a class of
-defect that only appears when features compose had no example or CTest
-entry covering it at all. `examples/25_showcase` is one coherent screen -
-a "media library settings" layout using all 9 `WidgetKind` values, a
-context menu, a tooltip and a modal dialog, themed entirely through 6-2's
-tokens with a live light/dark switch, visible wrapped CJK text and a
-CJK-capable `TextField` - built specifically to combine features rather
-than isolate them, with `--verify-showcase` asserting the combinations by
-hand-derived exact value rather than "nothing crashed". Composing a
-dropdown's popup with an already-scrolled list, a modal dialog with an
-in-progress IME composition and its own focus trap, Tab traversal into a
-virtualized `kList` whose rows this slice deliberately made real,
-focusable `Widget`s (an extension `doc/menus.md` never forbade, only
-declined for a different consumer), and a drop shadow on a wrapped CJK
-paragraph all turned out to compose correctly - each verified by a
-specific assertion, not an absence of visible breakage, and the popup
-case closed structurally: an overlay popup's content always attaches at
-`RenderTree::root()`, never inside the anchor's own ancestor chain, so an
-opacity- or clip-carrying ancestor can never reach it, by construction
-rather than by a test that merely avoided the hazard. One combination
-this slice DID try surfaced a real, previously unrecognized interaction
-rather than a bug in either system alone: switching the theme while an
-`AnimationEngine` transition is actively running on the SAME bound
-property is overwritten by that transition's own very next `tick()`
-within one frame, because `ThemeBindings::apply()` and
-`AnimationEngine::tick()` each write through the identical
-`dg::set_prop()` door with no knowledge the other exists. Recorded rather
-than fixed - the fix is a real coupling between two systems that have
-never depended on each other, out of this slice's own scope, named for
-whichever future slice wants coordinated theme+animation invalidation.
-Zero new `RenderObject`/node/`WidgetKind` kinds - a twenty-third
-consecutive slice - and zero new theme tokens: every colour/radius/
-spacing value in the scene resolves against the 12 tokens 7-4/7-6 already
-shipped. `doc/showcase.md` records the full cross-feature account,
-including a defect injection against this slice's own oracle (the only
-new logic this slice wrote, since every mechanism it exercises already
-existed and is unit-tested elsewhere) and what was deliberately not
-built (a tooltip anchored inside a clipped/scrolled region; a native
-modal dialog in the interactive `--script` driver, unlike
-`examples/23_menu_tooltip_dialog`'s own dual-branch dialog).
+Rendering is CPU raster only - the linked Skia includes Ganesh/GL, but
+nothing in this codebase calls into it. The full development history, phase
+by phase, lives in `doc/*.md` and the git log; this section states only what
+is true today.
 
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
 deferred. Only Linux is wired into the build, and the window manager is SDL3
-on Linux with no conditional compilation for anything else - a second platform
-will be measured before it is abstracted over.
+on Linux with no conditional compilation for anything else - a second
+platform will be measured before it is abstracted over. There is also no
+platform abstraction ahead of a second backend, on purpose: an earlier
+attempt wrote twelve abstract platform headers before any backend existed,
+and they were removed because nothing had tested whether they described the
+machine. An interface is extracted from at least one working implementation,
+never written ahead of one.
 
 ## Build prerequisites
 
 - CMake >= 3.24
 - Ninja
 - clang or gcc with C++20 support
-- FreeType development headers (`libfreetype-dev`)
-- fontconfig development headers (`libfontconfig1-dev`) - new as of the
-  libskia2 dependency switch (`doc/skia-dependency.md`); see below for why
-  this is a *build*-time requirement without being a reversal of the
-  "no fontconfig for font selection" decision this section already recorded
-
-`libskia.a` references `SkTypeface_FreeType` unconditionally, so FreeType is
-required even though this phase draws no text.
+- FreeType development headers (`libfreetype-dev`) - `libskia.a` references
+  `SkTypeface_FreeType` unconditionally
+- fontconfig development headers (`libfontconfig1-dev`) - required to
+  configure the link against the prebuilt Skia (`skia2Config.cmake` needs it
+  on Linux), but `SkFontMgr_New_FontConfig` is never called anywhere in this
+  codebase; font fallback is built by hand instead so glyph selection stays a
+  property of the program, not of the host's `/etc/fonts`. `ldd` on every
+  drawgui binary confirms no runtime dependency on `libfontconfig`.
 
 The Skia distribution is `BBDXF/libskia2` (`cmake/FetchSkia2.cmake`), a
 purpose-built prebuilt Skia for self-drawn GUI frameworks; `doc/skia-
-dependency.md` records the full switch from the previous rust-skia-based
-setup, including why the golden-image hash did not change.
-
-FreeType and fontconfig are external libraries, and fontconfig is a build-
-time-only one: `skia2Config.cmake` requires `libfontconfig` and its headers
-to configure the link on Linux (Skia's own `BUILD.gn` never vendors it), but
-`SkFontMgr_New_FontConfig` is still not called anywhere in this codebase -
-`src/render/font_catalog.cpp` uses `SkFontMgr_New_Custom_Directory`
-exclusively - deliberately, for the same reason recorded below: fontconfig's
-per-language answers come from `/etc/fonts` on the host, so glyph selection
-would have become a property of the machine rather than of the program.
-drawgui builds the chain itself instead. Measured proof the property
-survived the dependency switch: `ldd` on every drawgui binary shows **no**
-runtime dependency on `libfontconfig` at all, because nothing in this
-codebase's object files references an `Fc*` symbol and the linker's
-`--as-needed` default drops the unused `DT_NEEDED` entry. `doc/font-
-fallback.md` records the measurements, the cost, and what would force the
-other choice; `doc/skia-dependency.md` section 6 records the fontconfig
-build-vs-runtime distinction in full.
-
-The prebuilt includes the Ganesh GL backend, but no OpenGL development package
-is needed: the build ships `GrGLMakeNativeInterface_none`, so every GL entry
-point is resolved at runtime through a proc loader the caller supplies, and
-nothing links against libGL.
+dependency.md` records the switch from the previous rust-skia-based setup.
+No OpenGL development package is needed - the prebuilt ships
+`GrGLMakeNativeInterface_none`, so GL entry points resolve at runtime through
+a caller-supplied proc loader and nothing links against libGL.
 
 ## Building
 
@@ -836,17 +94,10 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The first configure downloads libskia2's release tarball (one archive per
-platform, carrying all 7 static libraries, the full header tree and a
-generated CMake package) into `third_party/skia-prebuilt/`, verified by
-SHA256 against both the hash libskia2 itself publishes and a copy pinned in
-`cmake/FetchSkia2.cmake` - see `doc/skia-dependency.md` section 10 for why
-both checks run rather than trusting the published sidecar alone.
-
-It also downloads the doctest single header into `third_party/doctest-<version>/`,
-verified by SHA256 on every configure. Building without network access is
-possible once both are present; `-DDRAWGUI_BUILD_TESTS=OFF` skips doctest
-entirely.
+The first configure downloads libskia2's release tarball into
+`third_party/skia-prebuilt/` and the doctest single header into
+`third_party/doctest-<version>/`, both SHA256-verified. Once present, building
+without network access works; `-DDRAWGUI_BUILD_TESTS=OFF` skips doctest.
 
 Render a frame:
 
@@ -854,438 +105,52 @@ Render a frame:
 ./build/examples/drawgui_render_png out.png
 ```
 
-## The multi-window demo
-
-`examples/01_sdl3_multi_window/main.cpp` opens three windows at once, each a different size
-and flat colour, and exits when the last one is closed. Closing any one of
-them leaves the others running.
-
-```sh
-./build/examples/drawgui_multi_window
-```
-
-It needs a display, so there is no CTest entry for it - a GUI test would fail
-on every headless machine, and the only way to keep it green would be to stop
-asserting anything. The target is still built wherever SDL3 is present, so it
-cannot rot uncompiled.
-
-For a run that needs no human, `--auto-close-ms N` asks for one window to
-close every N milliseconds. It goes through the same close-request path the
-window manager's close button does, so the scripted sequence exercises the
-real code rather than a shortcut around it:
-
-```sh
-./build/examples/drawgui_multi_window --auto-close-ms 700
-```
-
-SDL3 is found through `pkg-config sdl3`. Without it the window manager and
-this demo are skipped and everything else still builds; the configure output
-says which way it went.
-
-## The Skia CPU gallery
-
-`examples/02_skia_cpu_gallery` draws sixteen labelled panels covering
-geometry, stroking, dashes, anti-aliasing, transforms, clipping, text
-(including measurement and CJK), compositing, gradients, blur, drop shadow and
-image decoding - all rasterized on the CPU and blitted to the window.
-
-```sh
-./build/examples/drawgui_skia_cpu_gallery              # resize it; it re-renders
-./build/examples/drawgui_skia_cpu_gallery --bench          # offscreen timings
-./build/examples/drawgui_skia_cpu_gallery --bench-present  # raster vs presentation
-./build/examples/drawgui_skia_cpu_gallery --dump-png out.png
-```
-
-It is the one example that links Skia directly, because its subject is Skia:
-it exists to show what the rasterizer does and to measure it, so that layout
-and widgets can be designed against real costs. It is not a template for
-application code, and it is deliberately not a golden-image baseline - it
-draws system fonts, so its output is a property of the host.
-
-The headline result, in Release on an i5-1145G7: a full-window repaint at
-1080p is 3.88 ms of rasterization plus 7.71 ms of presentation, while the
-same scene under a 260x72 damage rectangle is 0.12 ms and does not grow with
-resolution. See `doc/cpu-raster-findings.md`.
-
-## The font fallback demo
-
-`examples/06_font_fallback` draws Latin, Greek, Cyrillic, Hebrew, Arabic, Han,
-Kana, Hangul, Georgian, Armenian, symbols and colour emoji - all from **one
-named family**, `DejaVu Sans`, with no family named per script. A last row
-carries a codepoint nothing on the machine has, so what a missing glyph looks
-like is visible rather than theoretical.
-
-Below it, the same four Han characters are drawn twice, differing only in their
-BCP 47 language tag, and select two different faces.
-
-```sh
-./build/examples/drawgui_font_fallback
-./build/examples/drawgui_font_fallback --verify-fallback         # headless check
-./build/examples/drawgui_font_fallback --dump-png fallback.png
-```
-
-The honest caveat, which the demo prints on itself: this machine has no
-Japanese font, so the `ja` panel draws Japanese text in a Chinese face. What is
-proven is the routing, not the typography. There is also no shaping, no BiDi
-and no line breaking - Arabic renders in isolated forms - because those need
-HarfBuzz and ICU, which `doc/font-fallback.md` explains are deliberately still
-out.
-
-## The sizing demo
-
-`examples/09_sizing` puts each half of the second sizing stage on a row whose
-behaviour the window's own size drives: a toolbar of three buttons with the
-same base and different `shrink` weights, two thumbnails that derive their
-width from the height their row hands them, four declared bases that stop
-fitting, and a footer whose items reach the right edge only because its row
-fills the main axis.
-
-```sh
-./build/examples/drawgui_sizing                  # resize it, in both directions
-./build/examples/drawgui_sizing --size 620x700   # open already in deficit
-./build/examples/drawgui_sizing --verify-sizing  # headless check
-./build/examples/drawgui_sizing --dump-png out.png
-```
-
-## The scrolling demo
-
-`examples/10_scrolling` draws two independent viewports out of the same
-mechanism: a vertical list of 24 chips inside a `scroll_axis: vertical` leaf,
-and a horizontal strip of 14 wider chips inside a `scroll_axis: horizontal`
-one. Both overflow their viewport - that is the point - and both clip through
-the same `overflow` this project already had. Wheel over either scrolls it;
-click-drag inside one grabs its content; both clamp at their content's edges
-rather than overscrolling past them.
-
-```sh
-./build/examples/drawgui_scrolling                       # wheel or drag either strip
-./build/examples/drawgui_scrolling --scroll-vertical 300  # open pre-scrolled (offscreen modes)
-./build/examples/drawgui_scrolling --verify-scrolling     # headless check
-./build/examples/drawgui_scrolling --dump-png out.png
-```
-
-## The form controls demo
-
-`examples/11_form_controls` draws a checkbox, two independent radio groups
-(three options and two options, sharing group ids 1 and 2) and two sliders -
-one that widens with the window, one fixed-width and stepped. Clicking a
-radio option selects it and clears every other option in its own group,
-never the other group; dragging either slider's track moves its thumb
-continuously and clamps at both ends.
-
-```sh
-./build/examples/drawgui_form_controls                        # click/drag it
-./build/examples/drawgui_form_controls --preset-radio-a 1      # open with an option selected
-./build/examples/drawgui_form_controls --preset-volume 72      # open with a slider dragged
-./build/examples/drawgui_form_controls --verify-form-controls  # headless check
-./build/examples/drawgui_form_controls --dump-png out.png
-```
-
-## The text input demo
-
-`examples/12_text_input` draws two single-line `TextField`s: `field_a`
-pre-filled with a string wider than the field, showing an ellipsis-truncated
-prefix while unfocused and the full string scrolled to keep the caret visible
-while focused; `field_b` empty, for typing from scratch. Click a field to
-focus it and place the cursor there; type to insert; Left/Right/Home/End move
-the cursor and, held with Shift, extend a selection; drag to select with the
-pointer; Backspace/Delete edit; clicking the other field (or empty space)
-blurs the current one. Both fields accept arbitrary well-formed UTF-8, by
-whole grapheme cluster (7-2b) - `--verify-text-input`'s own headless check
-types CJK text and a ZWJ family emoji into `field_b` and confirms a single
-Backspace removes exactly one character each time. Field b can also show an
-in-progress IME composition (7-3) - a not-yet-committed preedit string
-spliced inline and underlined, never touching the committed model until a
-real commit arrives; Escape cancels it without committing anything.
-`--preset-compose-b` shows this deterministically; `doc/ime.md` records
-that a real IME on this project's own development machine draws its own
-composition window rather than sending this engine a preview at all, so
-the composition CODE PATH is exercised through a synthesized event instead
-(see `--script` below).
-
-```sh
-./build/examples/drawgui_text_input                          # click/type/select it
-./build/examples/drawgui_text_input --preset-field-b TEXT     # open field b pre-filled
-./build/examples/drawgui_text_input --preset-focus-a          # open with field a focused
-./build/examples/drawgui_text_input --preset-select-a         # open with a selection in field a
-./build/examples/drawgui_text_input --preset-compose-b        # open field b mid-IME-composition
-./build/examples/drawgui_text_input --verify-text-input       # headless check
-./build/examples/drawgui_text_input --dump-png out.png
-./build/examples/drawgui_text_input --script                  # real click/type/key + a synthesized
-                                                               # SDL_EVENT_TEXT_EDITING through SDL's queue
-```
-
-## The image demo
-
-`examples/13_image` draws five panels, static: `fill`/`contain`/`cover`/`none`
-each paint the same synthesized 64x64 source (four flat quadrants, generated
-in-process and PNG-encoded/decoded through the real codec path - no checked-in
-image asset) at a box shaped so that fit mode's own arithmetic is visibly
-distinct from the others; the fifth carries no source at all and paints the
-configured placeholder colour instead - never a hole.
-
-```sh
-./build/examples/drawgui_image                     # resize it
-./build/examples/drawgui_image --verify-image      # headless check
-./build/examples/drawgui_image --dump-png out.png
-```
-
-## The list demo
-
-`examples/15_list` draws a virtualized, 1000-item vertical list behind a
-fixed pool of 14 real nodes. Every item's fill, label and image cycle on
-three independent periods (12/none/3), so a recycling bug that leaves a
-node's previous content behind is visible rather than invisible; scrolling,
-jumping and scrolling back all recycle the same pool.
-
-```sh
-./build/examples/drawgui_list                      # wheel or click-drag the panel
-./build/examples/drawgui_list --jump 500            # open pre-scrolled to item 500
-./build/examples/drawgui_list --verify-list        # headless check
-./build/examples/drawgui_list --bench [N]          # measured against the pre-virtualization
-                                                    # baseline at N items (default 1000)
-./build/examples/drawgui_list --dump-png out.png
-```
-
-## The complex properties demo
-
-`examples/16_complex_properties` draws three panels, each built through the
-dedicated-setter channel rather than by writing node style fields directly:
-a linear gradient (three stops, red/green/blue); a hard-edged drop shadow
-(no blur, so the sliver it casts past the panel's own right and bottom edges
-is one solid colour rather than a soft one, byte-exact and hand-derivable);
-and a decoded two-colour image attached through the channel's id-based
-`dg::set_image()` rather than the plain C++ call a prior slice already
-proved. A fourth call, `dg::set_transform()`, is made once and its declined
-result printed - there is no fourth panel, because there is nothing yet to
-paint.
-
-```sh
-./build/examples/drawgui_complex_properties                          # resize it
-./build/examples/drawgui_complex_properties --verify-complex-properties  # headless check
-./build/examples/drawgui_complex_properties --dump-png out.png
-```
-
-## The animation demo
-
-`examples/17_animation` draws three panels, each a real client of
-`dg::AnimationEngine`: `slide` explicitly animates a chip's `left` back and
-forth, pausable/reversible/cancellable through its returned handle; `hover`
-declares an implicit transition on `background_color` and retargets smoothly
-if the pointer leaves mid-fade; `caret` blinks a text cursor through four
-chained one-shot animations, launched off each other's completion events.
-`--idle-probe-ms N` blocks in the window loop for `N` milliseconds with
-nothing animating and reports the process CPU time actually consumed - the
-measured answer to design.md's "wait_events() blocks, CPU 0%" claim.
-
-```sh
-./build/examples/drawgui_animation                       # resize it; hover the middle panel
-./build/examples/drawgui_animation --reduced-motion       # the slide finishes in one frame; the caret freezes solid
-./build/examples/drawgui_animation --idle-probe-ms 2000   # measure idle CPU over a real block
-./build/examples/drawgui_animation --verify-animation     # headless check
-./build/examples/drawgui_animation --dump-png out.png
-```
-
-## The theme demo
-
-`examples/18_theme` draws four panels, none carrying a literal colour or
-radius: every fill, border and corner radius is a `dg::bind_token()` binding
-against the shipped `themes/builtin/theme.json`. Click anywhere to switch
-light/dark at runtime - `dg::ThemeBindings::apply()` re-resolves every
-binding and repaints, with no widget tree rebuild and (measured, printed on
-every switch) zero relayout for this scene's colour-only bindings.
-
-```sh
-./build/examples/drawgui_theme                      # click to switch light/dark
-./build/examples/drawgui_theme --verify-theme        # headless check
-./build/examples/drawgui_theme --dump-png out.png
-```
-
-## The C client demo
-
-`examples/19_c_client` is a genuinely pure C program (compiled by a C front
-end, not a C++ one told to accept `.c` files) against `drawgui.h` alone -
-design.md's own acceptance bar for the C ABI, met literally: it opens two
-windows, each with a clickable button, and clicking either sets the OTHER
-window's background colour through `dg_node_set_prop`, driven by the
-`DG_EVENT_CLICK` event the click itself produced.
-
-```sh
-./build/examples/drawgui_c_client                     # click either button; close both to exit
-./build/examples/drawgui_c_client --verify-c-client   # headless check (SDL_VIDEODRIVER=dummy)
-```
-
-## The multiline text demo
-
-`examples/20_multiline_text` draws five panels against real system fonts
-(`/usr/share/fonts`, the same default `examples/06_font_fallback` scans):
-a long English sentence wrapped at ordinary word breaks; sixteen-plus
-UNSPACED Chinese characters wrapped purely by UAX#14's rule table (there is
-no space to fall back on); Latin, Chinese and a colour emoji mixed in one
-run of text through the same zero-fontconfig font-fallback chain 6-1 built;
-Arabic embedded in Latin, its run reordered right-to-left by BiDi while the
-panel itself (and the whole window) stays strictly left-to-right; and the
-same English sentence again, truncated to two lines with an ellipsis. Every
-panel's height is computed by `dg::Paragraph::build()` before its node
-exists - `LayoutTree` never measures a byte of text.
-
-```sh
-./build/examples/drawgui_multiline_text                              # resize it
-./build/examples/drawgui_multiline_text --font-dir DIR                # scan a different font directory
-./build/examples/drawgui_multiline_text --verify-multiline-text       # headless check
-./build/examples/drawgui_multiline_text --dump-png out.png
-```
-
-## The focus demo
-
-`examples/21_focus` draws a mixed-kind scene deliberately shaped so a
-wrong Tab order is visibly wrong: `btn_open` (kButton) - a non-focusable
-label - `checkbox` (kCheckbox) - `slider` (kSlider) on one row;
-`textfield` (kTextField) - `reversed` (kButton, `tab_index=1`) - `inert`
-(kButton, `tab_index=-1`) on the second. Tab/Shift-Tab cycles focus
-through `[reversed, btn_open, checkbox, slider, textfield]` and wraps at
-both ends; `inert` is reachable by a click but never by Tab. Clicking
-`btn_open` opens a popup through `PopupHost` - `--branch native|overlay`
-forces which branch, matching `examples/14_popup`'s own precedent - and
-Tab is confined inside it until it closes.
-
-```sh
-./build/examples/drawgui_focus                        # Tab/Shift-Tab it; click "open popup"
-./build/examples/drawgui_focus --branch overlay        # force the overlay popup branch
-./build/examples/drawgui_focus --verify-focus          # headless check
-./build/examples/drawgui_focus --dump-png out.png
-```
-
-## The dropdown demo
-
-`examples/22_dropdown_menu` draws a `before`/`dropdown`/`after` row - the
-dropdown between two real neighbours, so a wrong Tab order is visible
-against real siblings rather than nothing. Its five options (`Apple`,
-`Banana`, `Cherry`, `Date`, `Elderberry`) are each their own word, none a
-substring or rotation of another, so a selection bug at any one position
-is visible rather than provable only by coincidence. Clicking the anchor
-(or Tab-ing to it and pressing Down/Enter) opens the option list through
-`PopupHost` - `--branch native|overlay` forces which one, matching
-`examples/14_popup`/`examples/21_focus`'s own precedent. Up/Down moves the
-highlight (wrapping at both ends), Enter commits whichever option is
-highlighted, Escape or a click outside closes without changing the
-selection, and a direct click on any row commits that row regardless of
-what was highlighted.
-
-```sh
-./build/examples/drawgui_dropdown_menu                        # click it, or Tab to it and press Down
-./build/examples/drawgui_dropdown_menu --branch overlay        # force the overlay popup branch
-./build/examples/drawgui_dropdown_menu --verify-dropdown       # headless check
-./build/examples/drawgui_dropdown_menu --dump-png out.png
-```
-
-## The menu/tooltip/dialog demo
-
-`examples/23_menu_tooltip_dialog` draws five buttons in a row: `before`,
-`Right-click me` (a context menu, anchored at the pointer), `Hover me` (a
-tooltip after a continuous hover delay), `Open Dialog` (a modal dialog),
-`after`. `--branch native|overlay` picks which shape the context
-menu/tooltip/dialog take, matching every prior `PopupHost`-based example's
-own precedent - `native` opens the dialog as a real second OS window with
-genuine `SDL_SetWindowParent`/`SDL_SetWindowModal` ownership and a
-cancellable close request (a "Veto" toggle inside it decides whether its
-own Close button's request actually closes the window); `overlay` shows
-the dialog as a same-window backdrop-and-panel whose Tab/click/`Focus::
-set_guarded()` confinement is what this slice's own headless check
-exercises directly (`SDL_SetWindowParent`/`SDL_SetWindowModal`, like
-`SDL_CreatePopupWindow`, fail under a headless `SDL_VIDEODRIVER=dummy`
-driver - attempted once, reported loudly and specifically, never silently
-skipped).
-
-```sh
-./build/examples/drawgui_menu_tooltip_dialog                        # right-click, hover, or open the dialog
-./build/examples/drawgui_menu_tooltip_dialog --branch overlay       # force the overlay dialog/no real second OS window
-./build/examples/drawgui_menu_tooltip_dialog --tooltip-delay-ms 800 # a longer hover delay
-./build/examples/drawgui_menu_tooltip_dialog --verify-menus         # headless check
-./build/examples/drawgui_menu_tooltip_dialog --idle-probe-ms 2000   # measure idle CPU with the hover timer present but idle
-./build/examples/drawgui_menu_tooltip_dialog --dump-png out.png
-```
-
-## The theme package demo
-
-`examples/24_theme_package` loads `fixtures/mytheme/` - a real, checked-in
-directory containing its own `theme.json` and an `icons/` resource - through
-`dg::ThemePackage`, exactly the way a real, untrusted third-party theme
-package would be loaded, rather than the compiled-in builtin theme
-`examples/18_theme` binds against. Two panels are `$token`-bound; click
-either to switch light/dark. `--verify-theme-package` is where the
-interesting claims are checked: editing the package's own `theme.json` on
-disk and calling this engine's reload takes effect immediately with no
-widget-tree rebuild, a colour-only edit costs zero relayout while an
-int-token (`space.md`) edit relayouts the bound row and visibly moves a
-sibling panel, a legitimate resource read succeeds, and a path-traversal
-attempt against the same live package is rejected.
-
-```sh
-./build/examples/drawgui_theme_package                                # click to switch light/dark
-./build/examples/drawgui_theme_package --package-dir DIR              # load a different external package
-./build/examples/drawgui_theme_package --verify-theme-package         # headless check: hot reload cost split + security
-./build/examples/drawgui_theme_package --idle-probe-ms 2000           # measure idle CPU with the package loaded, nothing reloading
-./build/examples/drawgui_theme_package --dump-png out.png
-```
-
-## The showcase demo (7-7, start here)
-
-`examples/25_showcase` is a single coherent screen - a "media library
-settings" layout - combining every `WidgetKind` this project has (`kPanel`,
-`kLabel`, `kButton`, `kCheckbox` plain and radio-grouped, `kSlider`,
-`kTextField`, `kList`, `kDropdown`; `kScrollView` deliberately not attached -
-`doc/showcase.md` says why), a context menu, a tooltip and a modal dialog,
-themed entirely through 6-2's tokens with a live light/dark switch, visible
-wrapped CJK text under a drop shadow, and a CJK-capable `TextField`. Unlike
-every prior example, this one is built to combine features rather than
-isolate one: a dropdown's popup opening after the "recent files" list has
-scrolled, a modal dialog with an in-progress IME composition and its own
-focus trap, Tab traversal into virtualized `kList` rows this slice
-deliberately made real focusable `Widget`s, and a shadow on a wrapped CJK
-paragraph. `--verify-showcase` is where the interesting claims are checked,
-each an exact hand-derived value rather than "nothing crashed" - see
-`doc/showcase.md` for the full cross-feature account, including the one
-combination that surfaced a real (not fixed, recorded) emergent interaction
-between the theme system and the animation clock.
-
-```sh
-./build/examples/drawgui_showcase                              # Tab/click/scroll/hover it
-./build/examples/drawgui_showcase --branch overlay             # force the overlay popup/dialog branch
-./build/examples/drawgui_showcase --script --branch overlay    # drive a scripted sequence through real platform events
-./build/examples/drawgui_showcase --verify-showcase            # headless check: the cross-feature oracle
-./build/examples/drawgui_showcase --idle-probe-ms 2000         # measure idle CPU on this dense a scene
-./build/examples/drawgui_showcase --dump-png out.png
-```
-
-## The opacity demo
-
-`examples/08_opacity` draws four panels. The first two carry **the same three
-overlapping chips** and the same amount of translucency, asked for in the two
-different ways: the left one gives each chip an alpha of 128/255, the right one
-leaves the chips opaque and fades the group. The left panel shows five bands,
-because the overlaps blend; the right shows three, because the group resolves
-its overlaps before it fades. The third panel nests two fades, and the fourth
-animates one.
-
-```sh
-./build/examples/drawgui_opacity                    # resize it; hover the panels
-./build/examples/drawgui_opacity --fade-ms 2500     # watch one panel fade
-./build/examples/drawgui_opacity --freeze-at 0      # invisible, still clickable
-./build/examples/drawgui_opacity --verify-opacity   # headless check
-./build/examples/drawgui_opacity --dump-png out.png
-```
+## Examples
+
+26 examples, `examples/00_*` through `examples/25_*`. Most support
+`--dump-png out.png` (headless render) and a `--verify-*` flag (headless
+assertion, used in CTest); run any binary with `--help` for its full flag
+list. **Start with `examples/25_showcase`** - it is the only example that
+combines features in one scene rather than isolating one, and is the
+project's cross-feature regression bed.
+
+| # | Example | What it demonstrates | Verify flag |
+| --- | --- | --- | --- |
+| 00 | `cpu_raster_png` | Renders a PNG with no window, no layout - the raster floor everything else builds on | - |
+| 01 | `sdl3_multi_window` | Three independent SDL3 windows, closing one leaves the others running | - (needs a display) |
+| 02 | `skia_cpu_gallery` | 16 Skia panels (geometry, text, gradients, blur, shadow, image) with raster/present timings | `--bench` |
+| 03 | `damage_repaint` | Partial repaint: only the damaged rectangle is re-rasterized | `--verify-damage` |
+| 04 | `layout` | Incremental layout re-run under resize and content change | `--verify-layout` |
+| 05 | `widgets` | Property-id-driven layout/paint, clipping probes, damage cost | `--verify-widgets` |
+| 06 | `font_fallback` | One family name covers 12 scripts plus emoji; BCP 47 tag selects Han face | `--verify-fallback` |
+| 07 | `clipping` | `overflow` clips paint, hit testing and damage together, including rounded clips | `--verify-clipping` |
+| 08 | `opacity` | Per-object alpha vs. group `opacity` (saveLayer) side by side | `--verify-opacity` |
+| 09 | `sizing` | `basis`/`shrink`/`main_size`/`aspect_ratio` under a resizing window | `--verify-sizing` |
+| 10 | `scrolling` | Two independent scroll viewports, wheel and drag, clamped at content edges | `--verify-scrolling` |
+| 11 | `form_controls` | Checkbox, two radio groups, two sliders | `--verify-form-controls` |
+| 12 | `text_input` | Single-line editing, selection, ellipsis/scroll, IME composition preview | `--verify-text-input` |
+| 13 | `image` | Decode + four fit modes (`fill`/`contain`/`cover`/`none`) plus a placeholder colour | `--verify-image` |
+| 14 | `popup` | Native vs. overlay popup branches that later examples reuse | `--verify-popup` |
+| 15 | `list` | 1000-item virtualized list on a 14-node pool; `--bench` compares against a non-virtualized baseline | `--verify-list` |
+| 16 | `complex_properties` | Gradient, hard-edged shadow, id-based image attach through the dedicated-setter channel | `--verify-complex-properties` |
+| 17 | `animation` | Explicit animation, implicit hover transition, chained caret blink; `--idle-probe-ms` measures idle CPU | `--verify-animation` |
+| 18 | `theme` | Every visual token-bound; click to switch light/dark with zero relayout | `--verify-theme` |
+| 19 | `c_client` | Pure C program, two windows, cross-window click-to-recolour through the ABI | `--verify-c-client` |
+| 20 | `multiline_text` | Word wrap, unspaced CJK wrap, mixed-script/emoji, BiDi Arabic-in-Latin, ellipsis | `--verify-multiline-text` |
+| 21 | `focus` | Tab/Shift-Tab order, `tab_index` override, popup focus confinement | `--verify-focus` |
+| 22 | `dropdown_menu` | Keyboard/mouse dropdown selection between two real siblings | `--verify-dropdown` |
+| 23 | `menu_tooltip_dialog` | Context menu, hover tooltip, modal dialog (native and overlay branches) | `--verify-menus` |
+| 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
+| 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
 
 ## Unit tests
 
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
-testing, interaction, UTF-8 decoding, font fallback, text-field editing,
-multi-line paragraph layout, focus (Tab order, scopes, modal refusal, the
-ring), dropdown selection/option-list clamping, the tooltip hover-delay
-timer, and external theme package loading (path traversal, symlink
-escapes/loops, resource-tree bounds, and a fixed-seed fuzz pass). It
-can also be run directly for per-case output:
+testing, interaction, UTF-8 decoding, font fallback, text editing, paragraph
+layout, focus, dropdown, tooltip timing, and theme-package security
+(path traversal, symlink escapes/loops, resource bounds, a fixed-seed fuzz
+pass). Run it directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -1293,54 +158,55 @@ can also be run directly for per-case output:
 
 ## Golden-image tests
 
-Rendering is compared against committed PNG baselines pixel by pixel, at zero
-tolerance. CPU raster output is deterministic - it is byte-identical across
-gcc and clang - so any difference is a real change rather than driver noise.
+Rendering is compared against committed PNG baselines pixel by pixel, at
+**zero tolerance** - output is byte-identical across gcc and clang, so any
+difference is a real change, never driver noise.
 
 A failing comparison writes `<scene>.actual.png` and `<scene>.diff.png` into
-`build/tests/golden-output/`. To accept an intended rendering change, inspect
-the diff, then regenerate:
+`build/tests/golden-output/`. To accept an intended change, inspect the diff,
+then regenerate:
 
 ```sh
 cmake --build build --target golden_update
 ```
 
-`ctest` never regenerates baselines. A suite that can rewrite its own
-expectations proves nothing.
+`ctest` never regenerates baselines on its own; a suite that can rewrite its
+own expectations proves nothing.
 
 ## Documentation
 
 The full design document lives at `doc/design.md` (written in Chinese).
-
-Findings and decisions from each slice live beside it:
+Every other document in `doc/` records the findings and decisions from one
+development slice, in more depth than belongs here:
 
 | Document | Subject |
 | --- | --- |
+| `doc/development.md` | adding a property, the ABI lock, running the sanitized suite |
+| `doc/completeness.md` | the MVP-8 completeness audit and its qualified verdict |
 | `doc/cpu-raster-findings.md` | what CPU rasterization costs, and where it stops being enough |
-| `doc/damage-repaint.md` | partial repaint, and why rounded corners are a damage-granularity decision |
-| `doc/layout.md` | incremental layout, and the integer-device-pixel deviation |
-| `doc/widgets.md` | why there is no widget tree |
-| `doc/font-fallback.md` | why the fallback chain is built here rather than delegated to fontconfig |
-| `doc/properties.md` | the property system: reconciliation, boundary shape, and the gap report |
-| `doc/wrapping.md` | the wrapping arrangement, `align_self`, and per-side borders |
-| `doc/clipping.md` | `overflow`, and how a rounded clip composes with the anti-alias slack rule |
-| `doc/compositing.md` | `opacity` as group opacity, why a layer is not damage-atomic, and what `shadow` and `transform` still need |
-| `doc/sizing.md` | `basis`, `shrink`, `main_size`, `aspect_ratio`, and why a second sizing stage needed no second measurement |
-| `doc/scrolling.md` | `scroll_axis`, the runtime scroll offset, why scrolling costs a repaint and never a relayout, and what design.md's roadmap asks for that needs an animation clock this project does not have yet |
-| `doc/form-controls.md` | radio as a checkbox field, a slider needing no new RenderObject, why dropdown is declined and what its prerequisite is, and a real `LayoutTree` sizing constraint found while building it |
-| `doc/text-input.md` | a single-line `TextField`, why ASCII scoping satisfies design.md's grapheme-cluster requirement by construction, the IME hook as real plumbing rather than a placeholder, and the exact condition under which typing would force a relayout; section 10 (7-2b, append-only) records the ASCII scoping being superseded once libgrapheme made grapheme-cluster segmentation real |
-| `doc/development.md` | adding a property, the ABI lock, and running the sanitized suite |
-| `doc/completeness.md` | the phase-closing audit against design.md's MVP-8 widget list, the acceptance-criterion re-check, the consolidated decline and contradiction tables, and the qualified completeness verdict |
-| `doc/image.md` | the `Image` node-model decision (a `NodeStyle` field, not a new kind), the mandatory size-before-decode rule and its measured no-relayout property, the synthesized-source solution to the golden-test problem, and what a future async decode would and would not change |
-| `doc/list.md` | the `List` virtualization decision (`kList`, an 8th `WidgetKind`, a fixed recycled pool rather than a new node kind), why node removal was evaluated and not added, the data-source seam that needed no interface, the measured no-relayout property extended to recycling, and the 1000-item measurement against a real pre-virtualization baseline |
-| `doc/complex-properties.md` | the dedicated-setter channel (`dg::set_gradient`/`set_shadow`/`set_image`/`set_transform`), why `image_source` was built first as the prototype rather than last, the damage-atomicity argument that lets `shadow` paint outside a node's declared bounds without breaking partial repaint, and the `transform` decline with its three named blockers |
-| `doc/animation.md` | `dg::AnimationEngine` - the clock's value-based seam and why it needed no `virtual`, why `curve_id` is a plain constant set rather than generator-backed, the generation-counter handle lifetime and why 5-3's "never free" precedent does not transfer, the retarget-mid-transition proof, the measured idle-CPU number, and the honest §5.15.2 three-level-invalidation gap report |
-| `doc/theme.md` | The theme token system - `themes/schema.toml`'s generator family reused from `props/`, the JSON-parser decision (hand-rolled vs. nlohmann/json), `$token` live references as a `WidgetSet`-shaped side table rather than a generation-counter handle, the measured colour-only-vs-int-token relayout cost, `dg::Expected`-based load errors naming the exact JSON key path, and what CI's `tools/check_consistency.py` verifies |
-| `doc/abi.md` | The C ABI - `abi/drawgui.def.toml`'s generator family (reusing the props generator directly), how the generated try/catch wrapping is made provably uniform and how its removal was shown to crash rather than silently do nothing, why handle validation is append-only rather than AnimHandle's generation-counter shape, the two real engine gaps (no insertion-order or removal primitive) the ABI sketch does not admit to, and everything declined by name (theme ABI, animation ABI, callback events, QuickJS stubs) |
-| `doc/skia-dependency.md` | The libskia2 dependency switch (P7 7-1) - why the golden-image hash is unchanged and why that is credible rather than merely convenient, the empirical proof SkParagraph/SkUnicode link and initialize, the design.md §12 open-question-5 and §5.10.5-vs-§5.13.6 settlement (libgrapheme carries no `icudtl.dat` at all, verified rather than taken from the README), the fontconfig build-time-vs-runtime distinction, the newly-available-but-unwired capability inventory (SVG/WebP/GIF/Ganesh-GL/Windows), and the measured binary-size and clean-build-time deltas |
-| `doc/text-layout.md` | Multi-line `SkParagraph` layout, CJK/BiDi/mixed-script display (P7 7-2) - why `TextField`'s ASCII editing surface stays untouched (7-2b named as the follow-up), why `LayoutTree` gained zero text knowledge and the exactly-once-layout verdict this bought, why the golden PNG hash held for a structural reason confirmed by injection rather than an accident, the real hang found feeding ill-formed UTF-8 to `SkParagraph` and its fix, and reusing 6-1's font-fallback chain instead of `SkParagraph`'s own (broken, on this project's font manager) search; section 14 (7-2b, append-only) records that the follow-up landed and corrects section 10's prediction about `getGlyphClusterAt()`; section 15 (7-3, append-only) records that IME composition landed reusing 7-2b's grapheme seam unchanged, and the one narrow offset-unit question it raised |
-| `doc/ime.md` | IME composition (P7 7-3) - what SDL3 3.x actually delivers (`SDL_TextEditingEvent`/`SDL_TextEditingCandidatesEvent`) versus what design.md/4-9 assumed; the empirical finding, on this project's own development machine with a real running IME (fcitx5+rime), that the candidate/composition window is drawn by the platform itself and positioned using the caret rectangle 4-9 already reports (measured causally, twice); why a candidate-list UI is declined by name rather than duplicated; the synthetic-event testing answer (`WindowManager::post_text_editing()`) and the honest, explicit gap between it and a genuine composing IME; the one narrow byte-offset-unit conversion SDL's own "UTF-8 characters" convention forced, and why it did not reopen design.md §5.13.2's general type-index-space question; the re-measured relayout verdict under a preedit that changes length on every keystroke; and a defect-injection campaign that found one injection causes an actual crash rather than merely a wrong answer; section 14 (7-4, append-only) records that a window-level focus change now ends an in-progress composition, satisfying section 11's own named dependency |
-| `doc/focus.md` | Tab order and the focus tree (P7 7-4) - why no third tree was needed (`RenderTree`'s own `children()`/`parent()` already are the tree Tab order and a popup's own focus boundary walk, so the only new state is one optional scope-root `NodeId`); `dg::focus_order()`'s DOM-shaped default and the deliberate `Widget::tab_index` override (HTML's own tabindex semantics); which `WidgetKind`s are focusable and why `kScrollView`/`kList` are declined by name rather than overlooked; why Tab reaching a zero-opacity widget is the CONSISTENT reading of 4-5's own hit-test divergence, not a second one; `enter_scope()`/`exit_scope()` as the smallest mechanism that serves a popup's Tab boundary without being `Dialog`'s modal trap (7-5's own job); why crossing into a popup needed no `NodeId`-plus-`window_id` struct (a native popup gets its own separate `Focus` for its own separate `RenderTree`; an overlay popup shares the host's, scoped); the list-recycling and mid-composition-Tab-away hazards, both handled and tested rather than assumed already safe; the ring's four-strips-outside-the-bounds geometry and why a single rectangle would have silently made a focused widget unclickable; the measured zero-relayout finding; and two real bugs this slice's own build caught (an overlay popup's buttons needing the HOST's `WidgetSet`, and a double-`set()` call that silently skipped every focus-change side effect) |
-| `doc/menus.md` | Dropdown, the 9th `WidgetKind` (P7 7-5) - design.md §12 question 6 settled (`Table` composes from Flex for caller-declared column widths, genuinely needs 2D layout only for auto column-width agreement no working caller needs yet); why `kList` was evaluated and not reused for the option rows (its pool nodes carry no `Widget`, so they cannot be focused or clicked); why keyboard Up/Down is `dg::Focus::focus_next()`/`focus_previous()` unchanged, reused rather than reimplemented; `doc/form-controls.md` §2.4's three named prerequisites confirmed satisfied one at a time; and why Context menu (no button identity anywhere in the pointer plumbing), Tooltip (an unplumbed `SDL_WINDOW_TOOLTIP` flag) and `Dialog` (a genuinely new modal-focus-trap mechanism) were each checked and declined by name with their own real prerequisite, split into follow-up 7-5b; section 12 (7-5b, append-only) records all three landing - a `PointerButton` field on `PointerEvent` (not a new `PointerAction` case), `PopupWindowKind`/`SDL_WINDOW_TOOLTIP` plus a new `HoverTimer` value type, and `dg::Focus::set_guarded()` composed onto 7-4's own scope mechanism plus `WindowManager::open_dialog()`/`cancellable_close` |
-| `doc/theme-packages.md` | External theme packages, hot reload, and the theme ABI (P7 7-6, phase 7's last slice) - `dg::ThemePackage`'s path-traversal defence (resolve-then-compare, not scan-then-join, so a symlink escaping the root is caught the same way a literal `../` is, and a symlink loop is a clean error rather than a hang), the resource-tree's own file-count/aggregate-size bounds, design.md §12's `schema_version`-migration and hot-reload-granularity questions both settled in place, the measured two-scene-instance cost split (colour-only reload costs zero relayout, an int-token reload costs a real one), the explicit-call file-change-detection decision and its near-zero measured idle-CPU cost, the raster-only (not SVG) resource scope decision, and the theme ABI (`dg_theme_load_dir`/`load_memory`/`set_variant`/`override`, `dg_app_set_theme`, `DG_VALUE_TOKEN` reusing `dg_node_set_prop()` rather than a second bind-shaped function) exercised as pure C |
-| `doc/showcase.md` | `examples/25_showcase` (P7 7-7, added after phase 7's own closing note) - the cross-feature regression bed: which combinations composed for free (dropdown-over-scrolled-list, modal-dialog-plus-IME-composition, Tab-into-a-recycling-`kList`, wrapped-CJK-text-plus-shadow, opacity/clip structurally excluded from an overlay popup's own subtree), the one genuine cross-feature finding (a theme switch mid-flight of an active `AnimationEngine` transition on the same bound property is silently overwritten by that transition's own next `tick()`, recorded rather than fixed), the defect injection run against this slice's own oracle rather than against new engine code (none was written), and what was deliberately not built |
+| `doc/damage-repaint.md` | partial repaint and damage granularity |
+| `doc/layout.md` | incremental layout and the integer-device-pixel deviation |
+| `doc/widgets.md` | why there is no separate widget tree |
+| `doc/properties.md` | the property system: ids, generator, gap report |
+| `doc/wrapping.md` | flex wrap, `align_self`, per-side borders |
+| `doc/clipping.md` | `overflow` and rounded-clip damage |
+| `doc/compositing.md` | group `opacity`, why a layer isn't damage-atomic |
+| `doc/sizing.md` | `basis`/`shrink`/`main_size`/`aspect_ratio`, one measurement pass |
+| `doc/scrolling.md` | scroll viewports, runtime offset, zero-relayout scrolling |
+| `doc/form-controls.md` | checkbox/radio/slider, and why dropdown was deferred |
+| `doc/text-input.md` | single-line `TextField`, ASCII-then-grapheme editing |
+| `doc/font-fallback.md` | the hand-built fallback chain, vs. fontconfig |
+| `doc/image.md` | image decode/paint, size-before-decode, golden-test image source |
+| `doc/list.md` | list virtualization, the recycled pool, the 1000-item measurement |
+| `doc/complex-properties.md` | the dedicated-setter channel (gradient/shadow/image/transform) |
+| `doc/animation.md` | `dg::AnimationEngine`, the clock, idle-CPU measurement |
+| `doc/theme.md` | the theme token system, `$token` bindings, relayout cost |
+| `doc/abi.md` | the C ABI generator, handle validity, try/catch trampolines |
+| `doc/skia-dependency.md` | the libskia2 dependency switch and what it changed |
+| `doc/text-layout.md` | multi-line `SkParagraph` layout, CJK/BiDi, exactly-once layout |
+| `doc/ime.md` | IME composition, platform findings, the testing gap |
+| `doc/focus.md` | Tab order, focus scopes, popup/list/IME interactions |
+| `doc/menus.md` | dropdown (9th `WidgetKind`), and why context menu/tooltip/dialog were split out |
+| `doc/popup.md` | the popup host mechanism shared by dropdown, menu, tooltip, dialog |
+| `doc/theme-packages.md` | external theme packages, path-traversal defence, hot reload |
+| `doc/showcase.md` | the cross-feature regression bed and its one emergent finding |
