@@ -124,6 +124,18 @@ class LayoutTree {
   // next pass, and reading absolute_bounds() before then answers with zero.
   NodeId add_child(NodeId parent, const BoxStyle& box, const NodeStyle& style);
 
+  // Detaches `id`'s whole subtree from both trees at once - the render side
+  // through RenderTree::remove_child() (this class owns the RenderTree it
+  // wraps), the layout side by tombstoning the matching LayoutNode at every
+  // index RenderTree just tombstoned, since layout node i IS render
+  // NodeId{i} by this class's own standing invariant (this file's header
+  // comment). Marks the FORMER PARENT dirty so the next layout() call
+  // re-measures it without the removed child - exactly one relayout, not
+  // zero and not the whole tree. Returns false, and changes nothing, under
+  // the identical conditions RenderTree::remove_child() itself refuses
+  // (the root, or an already invalid `id`).
+  bool remove_child(NodeId id);
+
   [[nodiscard]] std::size_t node_count() const;
   [[nodiscard]] const BoxStyle& box(NodeId id) const;
 

@@ -309,14 +309,66 @@ NodeId LayoutTree::add_child(NodeId parent, const BoxStyle& box, const NodeStyle
   // looked plausible would paint one wrong frame before the first layout.
   const NodeId id = impl_->render.add_child(parent, PixelRect{}, style);
 
+  // `id.index` may be a REUSED slot (RenderTree::add_child()'s own
+  // free-list), not necessarily one past the end of `nodes` - resize
+  // rather than push_back, so this array's indices never drift out of
+  // step with RenderTree's, which is the whole of what lets every other
+  // method here trust `impl_->nodes[id.index]` unconditionally.
+  if (impl_->nodes.size() <= id.index) {
+    impl_->nodes.resize(id.index + 1);
+  }
   LayoutNode node;
   node.box = box;
   node.parent = parent.index;
   node.depth = impl_->nodes[parent.index].depth + 1;
-  impl_->nodes.push_back(std::move(node));
+  impl_->nodes[id.index] = std::move(node);
   impl_->nodes[parent.index].children.push_back(id.index);
   impl_->mark_needs_layout(id.index, true);
   return id;
+}
+
+bool LayoutTree::remove_child(NodeId id) {
+  if (!impl_->render.remove_child(id)) {
+    return false;
+  }
+
+  // RenderTree::remove_child() already validated `id`, walked its subtree
+  // and tombstoned every render node in it; this repeats the identical
+  // walk over LayoutNode's own `children` (the same indices, by this
+  // class's own append-in-lockstep invariant) so the two trees' dirty
+  // lists and parent links never disagree about which nodes still exist.
+  std::vector<std::uint32_t> subtree{id.index};
+  for (std::size_t i = 0; i < subtree.size(); ++i) {
+    for (const std::uint32_t child : impl_->nodes[subtree[i]].children) {
+      subtree.push_back(child);
+    }
+  }
+
+  const std::uint32_t parent_index = impl_->nodes[id.index].parent;
+  std::vector<std::uint32_t>& siblings = impl_->nodes[parent_index].children;
+  siblings.erase(std::remove(siblings.begin(), siblings.end(), id.index), siblings.end());
+
+  for (const std::uint32_t index : subtree) {
+    impl_->nodes[index] = LayoutNode{};
+  }
+  // A tombstoned node's stale `needs_layout` bit must never be picked up by
+  // the next run()'s dirty-roots pass - layout_node() indexes `nodes` by
+  // the SAME slot a later add_child() may have already reused for an
+  // unrelated node by the time that pass runs.
+  impl_->dirty.erase(std::remove_if(impl_->dirty.begin(), impl_->dirty.end(),
+                                    [&subtree](std::uint32_t index) {
+                                      return std::find(subtree.begin(), subtree.end(), index) !=
+                                             subtree.end();
+                                    }),
+                     impl_->dirty.end());
+
+  // Exactly one relayout of the FORMER PARENT: mark it dirty (own_style_
+  // changed = false, matching set_box()'s own "something inside you
+  // changed" call) so the next layout() call re-measures it - and only it
+  // and whatever boundary it bubbles up to - without the child that is now
+  // gone.
+  impl_->mark_needs_layout(parent_index, false);
+  return true;
 }
 
 std::size_t LayoutTree::node_count() const {
