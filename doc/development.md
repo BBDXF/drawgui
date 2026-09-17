@@ -23,6 +23,21 @@ that actually holds is `.github/workflows/ci.yml`'s `identity` job, which
 re-reads the author and committer of every pushed commit and cannot be skipped
 by the person making them.
 
+Then install the pinned formatter, because CI enforces it:
+
+```sh
+sudo apt-get install -y clang-format-18
+clang-format-18 --style=file -i <files you touched>
+```
+
+**The version matters and is pinned to 18.** clang-format releases disagree
+with each other on real constructs — 21 formats a pointer-to-member as
+`int C::* m`, 18 writes `int C::*m` — so running a different one reformats
+files CI considers correct, and CI then rejects files you consider correct.
+The tree is formatted by 18. If your distribution's default `clang-format` is
+something else, call `clang-format-18` explicitly rather than the unsuffixed
+name.
+
 ## Skia dependency
 
 Skia is consumed as `BBDXF/libskia2` via `cmake/FetchSkia2.cmake` +

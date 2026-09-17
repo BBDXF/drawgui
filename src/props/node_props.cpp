@@ -136,7 +136,7 @@ struct Target {
 // --------------------------------------------------------------------------
 
 [[nodiscard]] PropWrite box_scalar(Target& target, const PropValue& value,
-                                   int BoxStyle::* member, const std::string& what,
+                                   int BoxStyle::*member, const std::string& what,
                                    bool allow_negative) {
   const std::optional<int> pixels = to_pixels(value.scalar(), allow_negative);
   if (!pixels.has_value()) {
@@ -150,7 +150,7 @@ struct Target {
 }
 
 [[nodiscard]] PropWrite box_optional(Target& target, const PropValue& value,
-                                     std::optional<int> BoxStyle::* member,
+                                     std::optional<int> BoxStyle::*member,
                                      const std::string& what, bool allow_negative) {
   const std::optional<int> pixels = to_pixels(value.scalar(), allow_negative);
   if (!pixels.has_value()) {
@@ -164,7 +164,7 @@ struct Target {
 }
 
 [[nodiscard]] PropWrite box_edge(Target& target, const PropValue& value,
-                                 EdgeInsets BoxStyle::* group, int EdgeInsets::* side,
+                                 EdgeInsets BoxStyle::*group, int EdgeInsets::*side,
                                  const std::string& what) {
   const std::optional<int> pixels = to_pixels(value.scalar(), false);
   if (!pixels.has_value()) {
@@ -185,7 +185,7 @@ struct Target {
 // the MINIMUM of the four - the only choice that was always inside the box,
 // and exact only when the four agreed.
 [[nodiscard]] PropWrite border_edge(Target& target, const PropValue& value,
-                                    int EdgeInsets::* side, const std::string& what) {
+                                    int EdgeInsets::*side, const std::string& what) {
   PropWrite laid_out = box_edge(target, value, &BoxStyle::border, side, what);
   if (!laid_out.ok()) {
     return laid_out;
@@ -199,14 +199,14 @@ struct Target {
 }
 
 [[nodiscard]] PropWrite style_color(Target& target, const PropValue& value,
-                                    Color NodeStyle::* member) {
+                                    Color NodeStyle::*member) {
   target.style.*member = value.as_color();
   target.style_changed = true;
   return PropWrite{};
 }
 
 [[nodiscard]] PropWrite style_radius(Target& target, const PropValue& value,
-                                     float Radii::* corner, const std::string& what) {
+                                     float Radii::*corner, const std::string& what) {
   const float radius = value.scalar();
   if (!std::isfinite(radius) || radius < 0.0F || radius > kMaxLength) {
     return out_of_range(target,

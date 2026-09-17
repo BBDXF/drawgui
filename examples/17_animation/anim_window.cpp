@@ -356,7 +356,7 @@ int idle_probe(const Settings& settings, int idle_probe_ms, std::ostream& out) {
   // than measuring startup noise.
   (void)manager.pump(200);
 
-  struct rusage before{};
+  struct rusage before {};
   getrusage(RUSAGE_SELF, &before);
   const Clock::time_point wall_start = Clock::now();
 
@@ -378,7 +378,7 @@ int idle_probe(const Settings& settings, int idle_probe_ms, std::ostream& out) {
   }
 
   const double wall_ms = ms_since(wall_start);
-  struct rusage after{};
+  struct rusage after {};
   getrusage(RUSAGE_SELF, &after);
   const double cpu_ms = (to_ms(after.ru_utime) - to_ms(before.ru_utime)) +
                         (to_ms(after.ru_stime) - to_ms(before.ru_stime));

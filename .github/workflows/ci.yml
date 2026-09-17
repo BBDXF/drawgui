@@ -190,22 +190,27 @@ jobs:
       - name: Install clang-format
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-format
+          sudo apt-get install -y --no-install-recommends clang-format-18
 
       # Generated files are excluded: their formatting is the generator's
       # responsibility, and props.no_drift already guards their content.
-      # drawgui.h/drawgui_abi.generated.cpp have no "generated" infix on the
-      # HEADER's own name (it is the ABI deliverable a real host includes,
-      # <drawgui/abi/drawgui.h>, not an internal generated-file convention),
-      # but both still pass this check unmodified: tools/gen_abi.py's own
-      # output is written to already match .clang-format (verified against
-      # a real clang-format run, not assumed), so nothing needed excluding.
+      # drawgui.h has no "generated" infix on its own name (it is the ABI
+      # deliverable a real host includes, <drawgui/abi/drawgui.h>), so it IS
+      # checked here, and tools/gen_abi.py wraps its comments to ColumnLimit
+      # so its output passes unmodified. That was already claimed here once,
+      # against a clang-format version nobody recorded, and had silently
+      # stopped being true.
+      #
+      # The version is PINNED, and must be: 21 formats a pointer-to-member as
+      # `int C::* m` where 18 writes `int C::*m`, so an unpinned package makes
+      # a local run and a CI run flag different files. Contributors: install
+      # clang-format-18, per doc/development.md.
       - name: Check formatting
         run: |
           files=$(find include src tests examples -name '*.cpp' -o -name '*.h' \
                   | grep -v generated | sort)
           echo "$files"
-          clang-format --style=file --dry-run --Werror $files
+          clang-format-18 --style=file --dry-run --Werror $files
 
   generated:
     name: generated files are current

@@ -103,7 +103,8 @@ namespace {
       std::string message = path;
       message += ": '";
       message += key;
-      message += "' is an int token, not color - it belongs under 'base', not 'variants.<name>'";
+      message +=
+          "' is an int token, not color - it belongs under 'base', not 'variants.<name>'";
       return fail(ThemeLoadStatus::kTypeMismatch, std::move(message));
     }
     const std::string* str = value.as_string();

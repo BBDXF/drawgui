@@ -322,7 +322,7 @@ TEST_CASE("a property-driven frame repaints partially the same as it does fully"
   settle(reference.tree, *reference_surface);
 
   struct Write {
-    NodeId Scene::* node;
+    NodeId Scene::*node;
     dg_prop_id prop;
     PropValue value;
   };
