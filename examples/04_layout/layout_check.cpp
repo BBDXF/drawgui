@@ -371,8 +371,8 @@ void scope_table(const Config& config, bool rounded, std::ostream& out) {
   out << "\n  " << (rounded ? "ROUNDED" : "SQUARE ") << " containers, " << total << " nodes\n"
       << "  " << std::left << std::setw(38) << "change" << std::right << std::setw(9)
       << "entered" << std::setw(12) << "recomputed" << std::setw(8) << "moved" << std::setw(10)
-      << "% of all" << std::setw(12) << "damage px" << std::setw(12) << "repaint px"
-      << "\n  " << std::string(99, '-') << "\n";
+      << "% of all" << std::setw(12) << "damage px" << std::setw(12) << "repaint px" << "\n  "
+      << std::string(99, '-') << "\n";
 
   // Warmed up so the numbers describe steady state rather than the first
   // frame, where nothing has been laid out yet and everything is a miss.
@@ -505,8 +505,8 @@ void bench(int frames, std::ostream& out) {
       << "  is O(the boundary that contains the change), so the two curves diverge.\n\n"
       << "  " << std::left << std::setw(10) << "nodes" << std::right << std::setw(14)
       << "incremental" << std::setw(12) << "recomputed" << std::setw(14) << "full"
-      << std::setw(12) << "recomputed" << std::setw(10) << "speedup"
-      << "\n  " << std::string(72, '-') << "\n";
+      << std::setw(12) << "recomputed" << std::setw(10) << "speedup" << "\n  "
+      << std::string(72, '-') << "\n";
 
   for (const TreeLadder& shape : kTreeSizes) {
     Synthetic synthetic = build_synthetic(shape.rows, shape.columns);

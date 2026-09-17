@@ -179,8 +179,7 @@ void bench(int frames, std::ostream& out) {
   for (const Ladder& size : kSizes) {
     out << "\n  " << std::left << std::setw(30) << size.label << std::right << std::setw(10)
         << "median" << std::setw(10) << "p95" << std::setw(10) << "worst" << std::setw(14)
-        << "px/frame"
-        << "\n  " << std::string(74, '-') << "\n";
+        << "px/frame" << "\n  " << std::string(74, '-') << "\n";
 
     for (const Row& row : kRows) {
       Config config;

@@ -26,17 +26,22 @@ by the person making them.
 Then install the pinned formatter, because CI enforces it:
 
 ```sh
-sudo apt-get install -y clang-format-18
-clang-format-18 --style=file -i <files you touched>
+pip install "clang-format==18.1.3"     # or: uv tool install "clang-format==18.1.3"
+clang-format --style=file -i <files you touched>
 ```
 
-**The version matters and is pinned to 18.** clang-format releases disagree
-with each other on real constructs — 21 formats a pointer-to-member as
-`int C::* m`, 18 writes `int C::*m` — so running a different one reformats
-files CI considers correct, and CI then rejects files you consider correct.
-The tree is formatted by 18. If your distribution's default `clang-format` is
-something else, call `clang-format-18` explicitly rather than the unsuffixed
-name.
+**Install it from PyPI, not from your distribution, and take the exact patch
+version.** Both halves matter, and neither is obvious:
+
+- clang-format majors disagree on real constructs: 21 formats a
+  pointer-to-member as `int C::* m`, 18 writes `int C::*m`.
+- Patch releases disagree too: 18.1.3 keeps `<< "a" << "b"` on one line and
+  18.1.8 breaks it. Pinning only `18` is not enough — that was tried, and CI
+  still rejected files that passed locally.
+- Your distribution cannot give you the right one anyway. ubuntu-24.04 (which
+  CI runs) packages 18.1.3; newer Ubuntus package 18.1.8; apt offers no way to
+  ask for the other. The PyPI wheel is the same binary everywhere, which is
+  the only reason a contributor and CI can agree at all.
 
 ## Skia dependency
 

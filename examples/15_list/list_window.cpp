@@ -319,13 +319,13 @@ int bench(int item_count, std::ostream& out) {
   const dg::LayoutStats base_stats = baseline.tree.layout();
 
   out << "virtualized: " << steps << " scroll+repaint steps in " << virt_scroll_ms << " ms ("
-      << (virt_scroll_ms / steps) << " ms/step); after the loop, layout() "
-      << "visited " << virt_stats.nodes_visited << " and relaid out "
-      << virt_stats.nodes_relaid_out << " nodes\n"
+      << (virt_scroll_ms / steps) << " ms/step); after the loop, layout() " << "visited "
+      << virt_stats.nodes_visited << " and relaid out " << virt_stats.nodes_relaid_out
+      << " nodes\n"
       << "baseline:    " << steps << " scroll+repaint steps in " << base_scroll_ms << " ms ("
-      << (base_scroll_ms / steps) << " ms/step); after the loop, layout() "
-      << "visited " << base_stats.nodes_visited << " and relaid out "
-      << base_stats.nodes_relaid_out << " nodes\n";
+      << (base_scroll_ms / steps) << " ms/step); after the loop, layout() " << "visited "
+      << base_stats.nodes_visited << " and relaid out " << base_stats.nodes_relaid_out
+      << " nodes\n";
 
   constexpr double kFrameBudgetMs = 1000.0 / 60.0;
   out << "60fps frame budget: " << kFrameBudgetMs << " ms/frame\n"
