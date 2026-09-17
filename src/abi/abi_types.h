@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "drawgui/abi/drawgui.h"
+#include "drawgui/anim/animation_engine.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/action_scopes.h"
@@ -134,6 +135,17 @@ class WindowImpl {
   // one caller of that rule. `action_scopes` backs dg_node_scope_action().
   dg::Focus focus;
   dg::ActionScopes action_scopes;
+
+  // 8-5: this window's own AnimationEngine, present for exactly one
+  // reason - dg_node_remove()'s on_node_removed() call requires one as a
+  // NON-optional reference parameter (src/render/node_lifecycle.h's own
+  // header comment explains why cleanup takes every side table this way).
+  // There is still no animation ABI (section 6 of doc/abi.md declines
+  // dg_animate/dg_node_set_transition by name, unchanged by this slice),
+  // so nothing else in this file ever calls animate()/set_transition() on
+  // this instance - it only ever receives cancel_all_for() calls, which
+  // are no-ops against an engine with no slots.
+  dg::AnimationEngine animation;
 
   dg_window_t* self_handle = nullptr;
   std::size_t self_index = 0;

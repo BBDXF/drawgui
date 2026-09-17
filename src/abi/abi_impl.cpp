@@ -25,6 +25,7 @@
 #include "drawgui/window/window_manager.h"
 
 #include "abi_types.h"
+#include "render/node_lifecycle.h"
 
 namespace dg::abi {
 namespace {
@@ -874,14 +875,35 @@ std::int32_t node_remove(dg_node_t* node_h) {
   if (slot == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  // Invalidates the HANDLE (every later call on it is DG_ERR_INVALID_HANDLE).
-  // Does NOT detach the node from its window's tree: RenderTree/LayoutTree
-  // have no removal primitive at all (doc/list.md section 1 evaluated this
-  // exact question for list virtualization and found no caller that needed
-  // one), and inventing one here, ungrounded in a working caller, is the
-  // "twelve deleted platform headers" mistake design.md itself already
-  // names. doc/abi.md section 5 records this as a real, load-bearing scope
-  // boundary rather than a silent gap.
+  // A PENDING node was never attached to any window's tree at all
+  // (attach_pending_node() is the only thing that ever calls
+  // LayoutTree::add_child()), so there is nothing for on_node_removed() to
+  // detach or any side table to have an entry for - tombstoning the ABI
+  // handle below is the whole of what removing one requires.
+  if (slot->state == NodeSlot::State::kLive) {
+    AppImpl* impl = resolve_app(node_h->app);
+    WindowImpl& window = *impl->windows[slot->window_index];
+    if (!dg::on_node_removed(window.tree, slot->node_id, window.widgets, window.theme_bindings,
+                             window.focus, window.animation, window.action_scopes,
+                             window.interaction)) {
+      // The only way a LIVE slot's own node_id fails on_node_removed() is
+      // naming the window's structural root - LayoutTree::root(), which
+      // dg_window_set_root() never hands out as `window.root` (that field
+      // always names a CHILD of it, attach_pending_node()'s own parent_id
+      // argument) - so this is unreachable through today's ABI surface,
+      // but reported rather than asserted: a future caller path that
+      // somehow reached it gets an honest error instead of a silently
+      // un-detached node.
+      return DG_ERR_UNSUPPORTED;
+    }
+    if (window.root == slot->node_id) {
+      window.root.reset();
+    }
+  }
+  // Invalidates the HANDLE too (every later call on it is
+  // DG_ERR_INVALID_HANDLE), on top of the real detachment above - Gap 3
+  // (doc/abi.md section 5) is closed: this node is now actually gone from
+  // its window's tree, not merely unreachable through this one handle.
   slot->state = NodeSlot::State::kRemoved;
   return DG_ERR_OK;
 }

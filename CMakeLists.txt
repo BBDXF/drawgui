@@ -185,6 +185,7 @@ add_library(drawgui STATIC
   src/render/grapheme.cpp
   src/render/hit_test.cpp
   src/render/image_catalog.cpp
+  src/render/node_lifecycle.cpp
   src/render/paragraph.cpp
   src/render/paragraph_build.cpp
   src/render/paragraph_runs.cpp
