@@ -2,14 +2,20 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_ids.generated.h"
+#include "drawgui/shortcuts/clipboard_actions.h"
+#include "drawgui/shortcuts/logical_key.generated.h"
+#include "drawgui/shortcuts/router.h"
 
 #include "text_field_scene.h"
 
@@ -519,6 +525,141 @@ bool check_ime_composition_preview_and_commit(std::ostream& out) {
   return ok;
 }
 
+// --------------------------------------------------------------------------
+// Claim 8 (8-4): clipboard copy/cut/paste, through the ACTUAL event
+// pipeline - WindowManager::post_logical_key()'s real Mod+C/Mod+X/Mod+V
+// onto the real SDL3 event queue, pumped back as a real dg::KeyEvent, then
+// dg::route_key_event() (the shortcut router's third consumer, after 8-3c's
+// keyboard scrolling) and dg::apply_clipboard_action() - not a resolved
+// action built by hand, the same precedent scroll_check.cpp's own
+// check_keyboard_scroll_end_to_end() sets. The real OS clipboard is
+// exercised through dg::WindowManager::set_clipboard_text()/
+// get_clipboard_text(), same as everywhere else it is used in this project.
+//
+// SDL_VIDEODRIVER=dummy, forced here rather than left to whatever display
+// happens to be running this suite: this check needs no on-screen window
+// at all (focus_check.cpp's identical precedent for its own headless
+// key-event checks), and forcing it also keeps a real SDL/X11 clipboard
+// backend from touching the machine's actual desktop clipboard while
+// CTest runs - measured (this slice's own investigation) to behave
+// identically to a real X11 session for get/set/round-trip, and to reset
+// cleanly across SDL_Init()/SDL_Quit(), which is what makes it safe to
+// force here without leaking state into any other test in this binary.
+// --------------------------------------------------------------------------
+
+bool check_clipboard_copy_cut_paste_end_to_end(std::ostream& out) {
+  setenv("SDL_VIDEODRIVER", "dummy", 1);
+
+  dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
+  if (!made.has_value()) {
+    out << "  FAIL: could not start the window system: " << made.error().message << "\n";
+    return false;
+  }
+  dg::WindowManager manager = std::move(made.value());
+  dg::WindowSpec spec;
+  spec.title = "text input (headless, clipboard)";
+  spec.width = kSize.width;
+  spec.height = kSize.height;
+  const dg::Expected<dg::WindowId, dg::WindowError> window = manager.open(spec);
+  if (!window.has_value()) {
+    out << "  FAIL: could not open a window: " << window.error().message << "\n";
+    return false;
+  }
+
+  text_field_scene::Scene scene = text_field_scene::build(spec_for(kSize));
+  if (!scene.fonts.has_value()) {
+    out << "  SKIP: no system font found under /usr/share/fonts\n";
+    return true;
+  }
+  bool ok = true;
+  const dg::FontCatalog& fonts = *scene.fonts;
+  const NodeId field = scene.handles.field_b;
+  dg::RenderTree& tree = scene.tree.render();
+  const dg::TextFieldEditContext ctx{tree, fonts, scene.widgets, manager};
+
+  text_field_scene::set_focus(scene, field);
+  scene.widgets.text_field_insert(tree, fonts, field, "hello world");
+  // Select "hello" (bytes [0, 5)) so copy has something real to act on.
+  scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart, false);
+  for (int i = 0; i < 5; ++i) {
+    scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight, true);
+  }
+
+  const auto route_real_chord = [&](dg::LogicalKey key, dg_action_id expected_action_id,
+                                    const char* label) {
+    manager.post_logical_key(window.value(), /*down=*/true, key, dg::Modifier::kMod);
+    const dg::PumpResult pumped = manager.pump(200);
+    bool saw_key = false;
+    for (const dg::KeyEvent& event : pumped.key) {
+      if (event.logical_key != key) {
+        continue;
+      }
+      saw_key = true;
+      const dg::RoutingContext route_ctx{scene.tree.render(), scene.widgets,
+                                         scene.action_scopes, dg::all_shortcut_bindings()};
+      const dg::KeyRouteResult routed =
+          dg::route_key_event(event, window.value(), field, route_ctx);
+      if (routed.outcome != dg::KeyRouteOutcome::kRouted || !routed.action.has_value() ||
+          routed.action->action_id != expected_action_id) {
+        out << "  FAIL: the real posted " << label << " did not route to the expected action\n";
+        ok = false;
+        continue;
+      }
+      if (!dg::apply_clipboard_action(routed.action->action_id, field, ctx)) {
+        out << "  FAIL: apply_clipboard_action reported nothing happened for " << label << "\n";
+        ok = false;
+      }
+    }
+    if (!saw_key) {
+      out << "  FAIL: a posted " << label
+          << " never round-tripped through pump() as a KeyEvent\n";
+      ok = false;
+    }
+  };
+
+  // Real Mod+C: copies the real selection to the real OS clipboard.
+  route_real_chord(dg::LogicalKey::kC, DG_ACTION_COPY, "Mod+C");
+  if (manager.get_clipboard_text() != "hello") {
+    out << "  FAIL: the clipboard should hold \"hello\" after copy, got \""
+        << manager.get_clipboard_text() << "\"\n";
+    ok = false;
+  }
+
+  // Real Mod+V at the end of the field: paste APPENDS the copied text.
+  scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd, false);
+  route_real_chord(dg::LogicalKey::kV, DG_ACTION_PASTE, "Mod+V");
+  if (scene.widgets.text_field_text(field) != "hello worldhello") {
+    out << "  FAIL: paste should have appended the copied \"hello\", got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+
+  // Real Mod+A then Mod+X: select_all, then cut removes the WHOLE field and
+  // leaves it on the clipboard.
+  route_real_chord(dg::LogicalKey::kA, DG_ACTION_SELECT_ALL, "Mod+A");
+  route_real_chord(dg::LogicalKey::kX, DG_ACTION_CUT, "Mod+X");
+  if (!scene.widgets.text_field_text(field).empty()) {
+    out << "  FAIL: cut after select_all should empty the field, got \""
+        << scene.widgets.text_field_text(field) << "\"\n";
+    ok = false;
+  }
+  if (manager.get_clipboard_text() != "hello worldhello") {
+    out << "  FAIL: cut should leave the removed text on the clipboard, got \""
+        << manager.get_clipboard_text() << "\"\n";
+    ok = false;
+  }
+
+  manager.request_close(window.value());
+  (void)manager.pump(50);
+
+  if (ok) {
+    out << "  OK: real Mod+C/Mod+V/Mod+A/Mod+X, posted onto the platform's own event queue "
+           "and pumped back, routed through route_key_event() to copy/paste/select_all/cut "
+           "and moved real text through the real OS clipboard\n";
+  }
+  return ok;
+}
+
 }  // namespace
 
 int run(std::ostream& out) {
@@ -531,6 +672,7 @@ int run(std::ostream& out) {
   ok = check_identity(out) && ok;
   ok = check_cjk_and_zwj_emoji_editing(out) && ok;
   ok = check_ime_composition_preview_and_commit(out) && ok;
+  ok = check_clipboard_copy_cut_paste_end_to_end(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;
 }
