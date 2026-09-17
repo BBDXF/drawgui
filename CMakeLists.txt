@@ -210,6 +210,13 @@ if(DRAWGUI_HAVE_SDL3)
     src/platform/sdl3/window_manager.cpp
     src/window/popup_host.cpp
 
+    # 8-4's clipboard consumer: apply_clipboard_action() calls
+    # WindowManager::set_clipboard_text()/get_clipboard_text() directly,
+    # the same WindowManager-dependency reason popup_host.cpp sits in this
+    # SDL3-gated block rather than beside keyboard_scroll.cpp above (which
+    # needs no WindowManager at all).
+    src/shortcuts/clipboard_actions.cpp
+
     # The C ABI (design.md section 5.8): dg_app_t wraps dg::WindowManager,
     # so nothing here can exist without a real windowing backend. A build
     # without SDL3 has no C ABI at all - see doc/abi.md's own note on this.
