@@ -13,7 +13,7 @@ namespace dg {
 namespace {
 
 std::uint64_t transition_key(NodeId node, dg_prop_id prop_id) {
-  return (static_cast<std::uint64_t>(node.value) << 16U) | prop_id;
+  return (static_cast<std::uint64_t>(node.index) << 16U) | prop_id;
 }
 
 bool is_interpolatable(PropType type) {

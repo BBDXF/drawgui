@@ -274,7 +274,7 @@ bool check_main_size(std::ostream& out) {
 std::vector<std::vector<std::uint32_t>> children_of(const RenderTree& tree) {
   std::vector<std::vector<std::uint32_t>> children(tree.node_count());
   for (std::uint32_t index = 1; index < tree.node_count(); ++index) {
-    children[tree.parent(NodeId{index}).value].push_back(index);
+    children[tree.parent(NodeId{index}).index].push_back(index);
   }
   return children;
 }
@@ -331,7 +331,7 @@ bool check_hit_testing(std::ostream& out) {
           const dg::PixelPoint point{x, y};
           const std::optional<NodeId> hit = tree.hit_test(point);
           const std::uint32_t said =
-              hit.has_value() ? hit->value : static_cast<std::uint32_t>(tree.node_count());
+              hit.has_value() ? hit->index : static_cast<std::uint32_t>(tree.node_count());
           if (said != topmost_at(tree, order, absolute, point)) {
             out << "  FAIL at " << width << ", pixel " << x << "," << y
                 << ": hit testing disagrees with paint order\n";

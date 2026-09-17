@@ -173,7 +173,7 @@ std::string describe(const Scene& scene, dg::NodeId id) {
   if (id == scene.handles.field_b) {
     return "field b";
   }
-  return "node " + std::to_string(id.value);
+  return "node " + std::to_string(id.index);
 }
 
 void set_focus(Scene& scene, std::optional<dg::NodeId> target) {

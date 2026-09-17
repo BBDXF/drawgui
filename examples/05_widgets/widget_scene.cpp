@@ -417,7 +417,7 @@ Scene build(const Options& options) {
 
 std::string describe(const Scene& scene, NodeId id) {
   if (!scene.widgets.has(id)) {
-    return "node " + std::to_string(id.value);
+    return "node " + std::to_string(id.index);
   }
   const dg::Widget& widget = scene.widgets.at(id);
   const dg::TextStyle& text = scene.tree.render().style(id).text;
@@ -468,7 +468,7 @@ std::string describe(const Scene& scene, NodeId id) {
       }
     }
   }
-  return caption.empty() ? kind + " #" + std::to_string(id.value) : kind + " '" + caption + "'";
+  return caption.empty() ? kind + " #" + std::to_string(id.index) : kind + " '" + caption + "'";
 }
 
 void react(Scene& scene, const dg::Interaction& interaction,

@@ -300,7 +300,7 @@ std::string describe(const Scene& scene, dg::NodeId id) {
   if (id == scene.handles.label_between) {
     return "label_between (non-focusable)";
   }
-  return "node " + std::to_string(id.value);
+  return "node " + std::to_string(id.index);
 }
 
 void apply_focus_change(Scene& scene, dg::WindowManager& manager, dg::WindowId window,

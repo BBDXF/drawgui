@@ -226,7 +226,7 @@ std::string describe(const Scene& scene, NodeId id) {
       return "a chip of the " + owner;
     }
   }
-  return "node #" + std::to_string(id.value);
+  return "node #" + std::to_string(id.index);
 }
 
 }  // namespace clip_scene

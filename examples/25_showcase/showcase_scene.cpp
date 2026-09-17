@@ -600,7 +600,7 @@ std::string describe(const Scene& scene, dg::NodeId id) {
       return entry.name;
     }
   }
-  return "node " + std::to_string(id.value);
+  return "node " + std::to_string(id.index);
 }
 
 std::size_t switch_theme_variant(Scene& scene) {

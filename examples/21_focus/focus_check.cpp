@@ -312,7 +312,7 @@ void check_two_focus_instances_never_collide(std::ostream& out, bool& ok) {
   widget_b.kind = WidgetKind::kButton;
   widgets_b.attach(btn_b, widget_b);
 
-  check(btn_a.value == btn_b.value,
+  check(btn_a.index == btn_b.index,
         "both windows' first button gets the identical NodeId value", out, ok);
 
   focus_a.set(btn_a);

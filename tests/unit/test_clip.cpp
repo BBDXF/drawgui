@@ -111,7 +111,7 @@ std::string find_visible(const RenderTree& tree, const Painted& painted,
 
 std::uint32_t hit_index(const RenderTree& tree, PixelPoint point) {
   const std::optional<NodeId> hit = tree.hit_test(point);
-  return hit.value_or(NodeId{static_cast<std::uint32_t>(tree.node_count())}).value;
+  return hit.value_or(NodeId{static_cast<std::uint32_t>(tree.node_count())}).index;
 }
 
 // Every pixel of a rounded clip, split three ways. Fully covered and fully
@@ -152,7 +152,7 @@ CurveTally sweep_curve(const RenderTree& tree, const Painted& painted, NodeId ch
     for (int x = 0; x < viewport.width; ++x) {
       const PixelPoint point{x, y};
       const Color colour = painted.at(point);
-      const bool hit = hit_index(tree, point) == child.value;
+      const bool hit = hit_index(tree, point) == child.index;
       tally.covered += colour == kChild ? 1U : 0U;
       tally.blended += (colour != kChild && colour != kBack) ? 1U : 0U;
       const char* wrong = classify(colour, hit, in_round_corner(point));
@@ -180,7 +180,7 @@ std::string find_visible(const RenderTree& tree, const Painted& painted,
       }
       const std::uint32_t hit = hit_index(tree, point);
       const bool reachable =
-          std::ranges::any_of(hidden, [hit](NodeId id) { return hit == id.value; });
+          std::ranges::any_of(hidden, [hit](NodeId id) { return hit == id.index; });
       if (reachable) {
         return "a hidden node was hit at " + where;
       }
@@ -230,11 +230,11 @@ TEST_SUITE("clipping") {
     // right answer by accident.
     const PixelPoint beyond{70, 55};
     CHECK(painted.at(beyond) == kChild);
-    CHECK(hit_index(scene.tree, beyond) == scene.child.value);
+    CHECK(hit_index(scene.tree, beyond) == scene.child.index);
 
     // The far corner of the child, three pixels outside the parent's own.
     CHECK(painted.at(PixelPoint{79, 59}) == kChild);
-    CHECK(hit_index(scene.tree, PixelPoint{79, 59}) == scene.child.value);
+    CHECK(hit_index(scene.tree, PixelPoint{79, 59}) == scene.child.index);
   }
 
   TEST_CASE("overflow=clip cuts the child at the parent's edge, to the pixel") {
@@ -243,7 +243,7 @@ TEST_SUITE("clipping") {
     REQUIRE(painted.ok());
 
     const PixelRect parent = scene.tree.absolute_bounds(scene.parent);
-    const auto root = RenderTree::root().value;
+    const auto root = RenderTree::root().index;
 
     // Horizontally: the parent ends at x = 60, so column 59 is the last one
     // the child keeps and column 60 is the first it loses. Both rows are
@@ -251,7 +251,7 @@ TEST_SUITE("clipping") {
     const int y = 40;
     CHECK(parent.right() == 60);
     CHECK(painted.at(PixelPoint{59, y}) == kChild);
-    CHECK(hit_index(scene.tree, PixelPoint{59, y}) == scene.child.value);
+    CHECK(hit_index(scene.tree, PixelPoint{59, y}) == scene.child.index);
     CHECK(painted.at(PixelPoint{60, y}) == kBack);
     CHECK(hit_index(scene.tree, PixelPoint{60, y}) == root);
 
@@ -259,7 +259,7 @@ TEST_SUITE("clipping") {
     const int x = 50;
     CHECK(parent.bottom() == 50);
     CHECK(painted.at(PixelPoint{x, 49}) == kChild);
-    CHECK(hit_index(scene.tree, PixelPoint{x, 49}) == scene.child.value);
+    CHECK(hit_index(scene.tree, PixelPoint{x, 49}) == scene.child.index);
     CHECK(painted.at(PixelPoint{x, 50}) == kBack);
     CHECK(hit_index(scene.tree, PixelPoint{x, 50}) == root);
 
@@ -268,7 +268,7 @@ TEST_SUITE("clipping") {
     CHECK(painted.at(PixelPoint{70, 55}) == kBack);
     CHECK(hit_index(scene.tree, PixelPoint{70, 55}) == root);
     CHECK(painted.at(PixelPoint{30, 25}) == kParent);
-    CHECK(hit_index(scene.tree, PixelPoint{30, 25}) == scene.parent.value);
+    CHECK(hit_index(scene.tree, PixelPoint{30, 25}) == scene.parent.index);
   }
 
   // A clip inside a clip is the INTERSECTION of both. The two failure modes
@@ -298,21 +298,21 @@ TEST_SUITE("clipping") {
 
     const Painted painted{tree};
     REQUIRE(painted.ok());
-    const auto root = RenderTree::root().value;
+    const auto root = RenderTree::root().index;
 
     // Inside the intersection.
     CHECK(painted.at(PixelPoint{40, 15}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{40, 15}) == grandchild.value);
+    CHECK(hit_index(tree, PixelPoint{40, 15}) == grandchild.index);
     CHECK(painted.at(PixelPoint{69, 49}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{69, 49}) == grandchild.value);
+    CHECK(hit_index(tree, PixelPoint{69, 49}) == grandchild.index);
 
     // The INNER edges: one column left of the inner box and one row above it,
     // both still well inside the outer one. Only the inner clip can remove
     // these, so "the outermost wins" fails here.
     CHECK(painted.at(PixelPoint{39, 20}) == kParent);
-    CHECK(hit_index(tree, PixelPoint{39, 20}) == outer.value);
+    CHECK(hit_index(tree, PixelPoint{39, 20}) == outer.index);
     CHECK(painted.at(PixelPoint{45, 14}) == kParent);
-    CHECK(hit_index(tree, PixelPoint{45, 14}) == outer.value);
+    CHECK(hit_index(tree, PixelPoint{45, 14}) == outer.index);
 
     // The OUTER edges: the inner box and the grandchild both reach past x=70
     // and y=50, so only the outer clip can remove these. "The innermost wins"
@@ -346,14 +346,14 @@ TEST_SUITE("clipping") {
     // x = 46 is outside the immediate parent (which ends at 45) and inside
     // the grandparent (which ends at 50), so it must still be the child.
     CHECK(painted.at(PixelPoint{46, 25}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{46, 25}) == child.value);
+    CHECK(hit_index(tree, PixelPoint{46, 25}) == child.index);
 
     // x = 50 is inside the child's own bounds and outside the grandparent's.
     // Only an ancestor walk removes it.
     CHECK(painted.at(PixelPoint{50, 25}) == kBack);
-    CHECK(hit_index(tree, PixelPoint{50, 25}) == RenderTree::root().value);
+    CHECK(hit_index(tree, PixelPoint{50, 25}) == RenderTree::root().index);
     CHECK(painted.at(PixelPoint{84, 25}) == kBack);
-    CHECK(hit_index(tree, PixelPoint{84, 25}) == RenderTree::root().value);
+    CHECK(hit_index(tree, PixelPoint{84, 25}) == RenderTree::root().index);
   }
 
   // A clip of zero area removes everything, is hittable nowhere, and above all
@@ -386,7 +386,7 @@ TEST_SUITE("clipping") {
     // The clip that has area is still there and still works, so the sweep
     // above is not passing because the whole scene is empty.
     CHECK(painted.at(PixelPoint{65, 25}) == kParent);
-    CHECK(hit_index(tree, PixelPoint{65, 25}) == near.value);
+    CHECK(hit_index(tree, PixelPoint{65, 25}) == near.index);
   }
 
   // The rounded clip, checked against the rasterizer's own coverage.
@@ -434,9 +434,9 @@ TEST_SUITE("clipping") {
     // Both are inside the bounding box, so a clip that used it would keep
     // both and a clip that used the curve keeps exactly one.
     CHECK(painted.at(PixelPoint{22, 22}) == kBack);
-    CHECK(hit_index(tree, PixelPoint{22, 22}) != child.value);
+    CHECK(hit_index(tree, PixelPoint{22, 22}) != child.index);
     CHECK(painted.at(PixelPoint{26, 26}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{26, 26}) == child.value);
+    CHECK(hit_index(tree, PixelPoint{26, 26}) == child.index);
   }
 
   // Radii wider than the box they round. Skia scales all four by one factor
@@ -471,13 +471,13 @@ TEST_SUITE("clipping") {
     // hit test that skipped the scaling would be asking about a circle of
     // radius 100 centred at (100,100) and would refuse both.
     CHECK(painted.at(PixelPoint{0, 0}) == kBack);
-    CHECK(hit_index(tree, PixelPoint{0, 0}) != child.value);
+    CHECK(hit_index(tree, PixelPoint{0, 0}) != child.index);
     CHECK(painted.at(PixelPoint{4, 4}) == kBack);
-    CHECK(hit_index(tree, PixelPoint{4, 4}) != child.value);
+    CHECK(hit_index(tree, PixelPoint{4, 4}) != child.index);
     CHECK(painted.at(PixelPoint{6, 6}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{6, 6}) == child.value);
+    CHECK(hit_index(tree, PixelPoint{6, 6}) == child.index);
     CHECK(painted.at(PixelPoint{20, 3}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{20, 3}) == child.value);
+    CHECK(hit_index(tree, PixelPoint{20, 3}) == child.index);
   }
 
   // A negative radius is not a smaller corner, it is a value with no meaning,
@@ -499,9 +499,9 @@ TEST_SUITE("clipping") {
     REQUIRE(painted.ok());
 
     CHECK(painted.at(PixelPoint{10, 10}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{10, 10}) == child.value);
+    CHECK(hit_index(tree, PixelPoint{10, 10}) == child.index);
     CHECK(painted.at(PixelPoint{39, 39}) == kChild);
-    CHECK(hit_index(tree, PixelPoint{39, 39}) == child.value);
+    CHECK(hit_index(tree, PixelPoint{39, 39}) == child.index);
     CHECK(painted.at(PixelPoint{9, 9}) == kBack);
     CHECK(painted.at(PixelPoint{40, 40}) == kBack);
   }

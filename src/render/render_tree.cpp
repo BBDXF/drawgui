@@ -146,9 +146,9 @@ NodeId RenderTree::add_child(NodeId parent, const PixelRect& bounds, const NodeS
   node.local = bounds;
   node.style = style;
   node.clip_atomic = clips_atomically(style);
-  node.parent = parent.value;
+  node.parent = parent.index;
   impl_->nodes.push_back(std::move(node));
-  impl_->nodes[parent.value].children.push_back(index);
+  impl_->nodes[parent.index].children.push_back(index);
 
   impl_->reposition(index);
   impl_->invalidate(index);
@@ -164,15 +164,15 @@ PixelSize RenderTree::viewport() const {
 }
 
 const NodeStyle& RenderTree::style(NodeId id) const {
-  return impl_->nodes[id.value].style;
+  return impl_->nodes[id.index].style;
 }
 
 NodeId RenderTree::parent(NodeId id) const {
-  return NodeId{impl_->nodes[id.value].parent};
+  return NodeId{impl_->nodes[id.index].parent};
 }
 
 std::vector<NodeId> RenderTree::children(NodeId id) const {
-  const std::vector<std::uint32_t>& raw = impl_->nodes[id.value].children;
+  const std::vector<std::uint32_t>& raw = impl_->nodes[id.index].children;
   std::vector<NodeId> result;
   result.reserve(raw.size());
   for (const std::uint32_t index : raw) {
@@ -190,15 +190,15 @@ std::optional<NodeId> RenderTree::hit_test(PixelPoint point) const {
 }
 
 PixelRect RenderTree::local_bounds(NodeId id) const {
-  return impl_->nodes[id.value].local;
+  return impl_->nodes[id.index].local;
 }
 
 PixelRect RenderTree::absolute_bounds(NodeId id) const {
-  return impl_->nodes[id.value].absolute;
+  return impl_->nodes[id.index].absolute;
 }
 
 void RenderTree::set_style(NodeId id, const NodeStyle& style) {
-  Node& node = impl_->nodes[id.value];
+  Node& node = impl_->nodes[id.index];
 
   // A change to the clip is the one style change that moves pixels the node
   // does not own. Turning a clip ON hides descendants that were painted
@@ -220,58 +220,58 @@ void RenderTree::set_style(NodeId id, const NodeStyle& style) {
   const bool shadow_changed = shadow_reach(node.style) != shadow_reach(style);
 
   if (clip_changed || shadow_changed) {
-    impl_->damage_subtree(id.value);
+    impl_->damage_subtree(id.index);
   }
 
   node.style = style;
   node.clip_atomic = clips_atomically(style);
   if (clip_changed) {
-    impl_->reposition(id.value);
+    impl_->reposition(id.index);
   }
-  impl_->invalidate(id.value);
+  impl_->invalidate(id.index);
 }
 
 void RenderTree::set_fill(NodeId id, Color fill) {
-  impl_->nodes[id.value].style.fill = fill;
-  impl_->invalidate(id.value);
+  impl_->nodes[id.index].style.fill = fill;
+  impl_->invalidate(id.index);
 }
 
 void RenderTree::set_text(NodeId id, const TextStyle& text) {
-  NodeStyle& style = impl_->nodes[id.value].style;
+  NodeStyle& style = impl_->nodes[id.index].style;
   if (style.text == text) {
     return;
   }
   style.text = text;
-  impl_->nodes[id.value].clip_atomic = clips_atomically(style);
-  impl_->invalidate(id.value);
+  impl_->nodes[id.index].clip_atomic = clips_atomically(style);
+  impl_->invalidate(id.index);
 }
 
 void RenderTree::set_image(NodeId id, const ImageStyle& image) {
-  NodeStyle& style = impl_->nodes[id.value].style;
+  NodeStyle& style = impl_->nodes[id.index].style;
   if (style.image == image) {
     return;
   }
   style.image = image;
-  impl_->invalidate(id.value);
+  impl_->invalidate(id.index);
 }
 
 void RenderTree::set_local_bounds(NodeId id, const PixelRect& bounds) {
   // The vacated pixels are damaged before the move and the occupied ones
   // after it. Damaging only the destination is what leaves a trail of stale
   // paint behind a moving node.
-  impl_->damage_subtree(id.value);
-  impl_->nodes[id.value].local = bounds;
-  impl_->reposition(id.value);
-  impl_->invalidate(id.value);
+  impl_->damage_subtree(id.index);
+  impl_->nodes[id.index].local = bounds;
+  impl_->reposition(id.index);
+  impl_->invalidate(id.index);
 }
 
 void RenderTree::set_local_origin(NodeId id, int x, int y) {
-  const PixelRect& local = impl_->nodes[id.value].local;
+  const PixelRect& local = impl_->nodes[id.index].local;
   set_local_bounds(id, PixelRect{x, y, local.width, local.height});
 }
 
 void RenderTree::set_scroll_offset(NodeId id, PixelPoint offset) {
-  Node& node = impl_->nodes[id.value];
+  Node& node = impl_->nodes[id.index];
   if (node.scroll_offset == offset) {
     // A caller re-asserting the offset it already has is the common case in
     // an interaction loop that recomputes a clamp on every event, exactly as
@@ -284,14 +284,14 @@ void RenderTree::set_scroll_offset(NodeId id, PixelPoint offset) {
   // `invalidate()` damages the NEW positions. Skipping the first half is what
   // leaves a trail of the previous frame's content behind, the same defect
   // set_local_bounds() exists to avoid for an ordinary move.
-  impl_->damage_subtree(id.value);
+  impl_->damage_subtree(id.index);
   node.scroll_offset = offset;
-  impl_->reposition(id.value);
-  impl_->invalidate(id.value);
+  impl_->reposition(id.index);
+  impl_->invalidate(id.index);
 }
 
 PixelPoint RenderTree::scroll_offset(NodeId id) const {
-  return impl_->nodes[id.value].scroll_offset;
+  return impl_->nodes[id.index].scroll_offset;
 }
 
 void RenderTree::resize(PixelSize viewport) {

@@ -151,7 +151,7 @@ std::string describe(const Scene& scene, NodeId id) {
   if (id == scene.handles.body) {
     return "body";
   }
-  return "node " + std::to_string(id.value);
+  return "node " + std::to_string(id.index);
 }
 
 }  // namespace scroll_scene

@@ -311,11 +311,11 @@ NodeId LayoutTree::add_child(NodeId parent, const BoxStyle& box, const NodeStyle
 
   LayoutNode node;
   node.box = box;
-  node.parent = parent.value;
-  node.depth = impl_->nodes[parent.value].depth + 1;
+  node.parent = parent.index;
+  node.depth = impl_->nodes[parent.index].depth + 1;
   impl_->nodes.push_back(std::move(node));
-  impl_->nodes[parent.value].children.push_back(id.value);
-  impl_->mark_needs_layout(id.value, true);
+  impl_->nodes[parent.index].children.push_back(id.index);
+  impl_->mark_needs_layout(id.index, true);
   return id;
 }
 
@@ -324,13 +324,13 @@ std::size_t LayoutTree::node_count() const {
 }
 
 const BoxStyle& LayoutTree::box(NodeId id) const {
-  return impl_->nodes[id.value].box;
+  return impl_->nodes[id.index].box;
 }
 
 void LayoutTree::set_box(NodeId id, const BoxStyle& box) {
-  const bool parent_data_changed = differs_in_parent_data(impl_->nodes[id.value].box, box);
-  impl_->nodes[id.value].box = box;
-  impl_->mark_needs_layout(id.value, true);
+  const bool parent_data_changed = differs_in_parent_data(impl_->nodes[id.index].box, box);
+  impl_->nodes[id.index].box = box;
+  impl_->mark_needs_layout(id.index, true);
 
   // A parentData change has to reach the node that reads it. Marking only this
   // node is correct for everything it consumes itself, and silently wrong for
@@ -339,7 +339,7 @@ void LayoutTree::set_box(NodeId id, const BoxStyle& box) {
   // from the parent's point of view and which stops at the parent's own
   // relayout boundary rather than climbing to the root.
   if (parent_data_changed && id != root()) {
-    impl_->mark_needs_layout(impl_->nodes[id.value].parent, false);
+    impl_->mark_needs_layout(impl_->nodes[id.index].parent, false);
   }
 }
 
@@ -357,7 +357,7 @@ PixelRect LayoutTree::bounds(NodeId id) const {
 
 PixelRect LayoutTree::content_bounds(NodeId id) const {
   const PixelRect border_box = impl_->render.absolute_bounds(id);
-  const EdgeInsets insets = content_insets(impl_->nodes[id.value].box);
+  const EdgeInsets insets = content_insets(impl_->nodes[id.index].box);
   return PixelRect::from_edges(border_box.left() + insets.left, border_box.top() + insets.top,
                                border_box.right() - insets.right,
                                border_box.bottom() - insets.bottom);
@@ -387,7 +387,7 @@ const std::vector<std::string>& LayoutTree::diagnostics() const {
 }
 
 std::string LayoutTree::path_of(NodeId id) const {
-  return impl_->path_of(id.value);
+  return impl_->path_of(id.index);
 }
 
 }  // namespace dg

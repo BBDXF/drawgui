@@ -190,7 +190,7 @@ std::string describe(const Scene& scene, NodeId id) {
   if (id == scene.handles.footer) {
     return "footer";
   }
-  return "node " + std::to_string(id.value);
+  return "node " + std::to_string(id.index);
 }
 
 }  // namespace sizing_scene

@@ -247,7 +247,7 @@ bool run_identity(const Config& config, bool rounded, std::ostream& out) {
 std::vector<std::vector<std::uint32_t>> children_of(const dg::RenderTree& tree) {
   std::vector<std::vector<std::uint32_t>> children(tree.node_count());
   for (std::uint32_t index = 1; index < tree.node_count(); ++index) {
-    children[tree.parent(NodeId{index}).value].push_back(index);
+    children[tree.parent(NodeId{index}).index].push_back(index);
   }
   return children;
 }
@@ -306,7 +306,7 @@ bool run_hit_testing(const Config& config, PixelSize viewport, std::ostream& out
 
       const std::optional<NodeId> hit = tree.hit_test(point);
       const std::uint32_t actual =
-          hit.has_value() ? hit->value : static_cast<std::uint32_t>(tree.node_count());
+          hit.has_value() ? hit->index : static_cast<std::uint32_t>(tree.node_count());
       if (actual != topmost) {
         if (mismatches == 0) {
           first_x = static_cast<std::size_t>(x);
@@ -373,7 +373,7 @@ bool run_rasterizer_oracle(const Config& config, std::ostream& out) {
           (static_cast<std::size_t>(y) * view.row_bytes) + (static_cast<std::size_t>(x) * 4);
       const auto painted = static_cast<std::uint32_t>(view.pixels[offset + 2]) - 1;
       const std::optional<NodeId> hit = tree.hit_test(PixelPoint{x, y});
-      if (!hit.has_value() || hit->value != painted) {
+      if (!hit.has_value() || hit->index != painted) {
         if (mismatches == 0) {
           first_x = x;
           first_y = y;

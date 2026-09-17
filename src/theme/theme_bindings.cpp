@@ -69,7 +69,7 @@ namespace {
 }  // namespace
 
 void ThemeBindings::bind(NodeId node, dg_prop_id prop_id, dg_token_id token_id) {
-  const std::size_t index = node.value;
+  const std::size_t index = node.index;
   if (by_node_.size() <= index) {
     by_node_.resize(index + 1);
   }
@@ -84,10 +84,10 @@ void ThemeBindings::bind(NodeId node, dg_prop_id prop_id, dg_token_id token_id) 
 }
 
 std::optional<dg_token_id> ThemeBindings::token_for(NodeId node, dg_prop_id prop_id) const {
-  if (node.value >= by_node_.size()) {
+  if (node.index >= by_node_.size()) {
     return std::nullopt;
   }
-  for (const TokenBinding& binding : by_node_[node.value]) {
+  for (const TokenBinding& binding : by_node_[node.index]) {
     if (binding.prop_id == prop_id) {
       return binding.token_id;
     }
@@ -96,10 +96,10 @@ std::optional<dg_token_id> ThemeBindings::token_for(NodeId node, dg_prop_id prop
 }
 
 std::vector<TokenBinding> ThemeBindings::bindings_for(NodeId node) const {
-  if (node.value >= by_node_.size()) {
+  if (node.index >= by_node_.size()) {
     return {};
   }
-  return by_node_[node.value];
+  return by_node_[node.index];
 }
 
 std::size_t ThemeBindings::apply(LayoutTree& tree, const Theme& theme,

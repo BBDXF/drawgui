@@ -218,25 +218,25 @@ float clamp_slider_value(const Widget& widget, float value) {
 }  // namespace
 
 void WidgetSet::attach(NodeId id, const Widget& widget) {
-  if (widgets_.size() <= id.value) {
-    widgets_.resize(static_cast<std::size_t>(id.value) + 1);
+  if (widgets_.size() <= id.index) {
+    widgets_.resize(static_cast<std::size_t>(id.index) + 1);
   }
-  widgets_[id.value] = widget;
+  widgets_[id.index] = widget;
 }
 
 const Widget* WidgetSet::find(NodeId id) const {
-  if (id.value >= widgets_.size()) {
+  if (id.index >= widgets_.size()) {
     return nullptr;
   }
-  const std::optional<Widget>& slot = widgets_[id.value];
+  const std::optional<Widget>& slot = widgets_[id.index];
   return slot.has_value() ? &slot.value() : nullptr;
 }
 
 Widget* WidgetSet::find(NodeId id) {
-  if (id.value >= widgets_.size()) {
+  if (id.index >= widgets_.size()) {
     return nullptr;
   }
-  std::optional<Widget>& slot = widgets_[id.value];
+  std::optional<Widget>& slot = widgets_[id.index];
   return slot.has_value() ? &slot.value() : nullptr;
 }
 
@@ -304,7 +304,7 @@ std::vector<NodeId> WidgetSet::group_members(NodeId id) const {
   }
   for (std::size_t i = 0; i < widgets_.size(); ++i) {
     const std::optional<Widget>& slot = widgets_[i];
-    if (!slot.has_value() || i == id.value) {
+    if (!slot.has_value() || i == id.index) {
       continue;
     }
     if (slot->kind == WidgetKind::kCheckbox && slot->group == widget->group) {

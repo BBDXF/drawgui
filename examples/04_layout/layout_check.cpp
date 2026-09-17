@@ -180,7 +180,7 @@ namespace {
 std::vector<std::vector<std::uint32_t>> children_of(const dg::RenderTree& tree) {
   std::vector<std::vector<std::uint32_t>> children(tree.node_count());
   for (std::uint32_t index = 1; index < tree.node_count(); ++index) {
-    children[tree.parent(NodeId{index}).value].push_back(index);
+    children[tree.parent(NodeId{index}).index].push_back(index);
   }
   return children;
 }
@@ -227,13 +227,13 @@ bool hit_matches_oracle(layout_scene::Scene& scene, std::ostream& out) {
     absolute[index] = tree.absolute_bounds(NodeId{index});
   }
 
-  const PixelRect band = absolute[scene.handles.wrap_band.value];
+  const PixelRect band = absolute[scene.handles.wrap_band.index];
   for (int y = band.top(); y < band.bottom(); ++y) {
     for (int x = band.left(); x < band.right(); ++x) {
       const dg::PixelPoint point{x, y};
       const std::optional<NodeId> hit = tree.hit_test(point);
       const std::uint32_t said =
-          hit.has_value() ? hit->value : static_cast<std::uint32_t>(tree.node_count());
+          hit.has_value() ? hit->index : static_cast<std::uint32_t>(tree.node_count());
       const std::uint32_t expected = topmost_at(tree, order, absolute, point);
       if (said != expected) {
         out << "\n    FAIL at " << x << "," << y << ": hit test says " << said
@@ -253,8 +253,8 @@ std::size_t run_count_of(const layout_scene::Scene& scene) {
   const dg::RenderTree& tree = scene.tree.render();
   const std::vector<std::vector<std::uint32_t>> children = children_of(tree);
   std::vector<int> tops;
-  tops.reserve(children[scene.handles.wrap_band.value].size());
-  for (const std::uint32_t child : children[scene.handles.wrap_band.value]) {
+  tops.reserve(children[scene.handles.wrap_band.index].size());
+  for (const std::uint32_t child : children[scene.handles.wrap_band.index]) {
     tops.push_back(tree.absolute_bounds(NodeId{child}).top());
   }
   std::sort(tops.begin(), tops.end());

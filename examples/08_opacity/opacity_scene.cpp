@@ -234,7 +234,7 @@ std::string describe(const Scene& scene, NodeId id) {
   if (id == handles.fading_stage) {
     return "fading stage";
   }
-  return "panel or background #" + std::to_string(id.value);
+  return "panel or background #" + std::to_string(id.index);
 }
 
 }  // namespace opacity_scene

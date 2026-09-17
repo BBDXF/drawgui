@@ -339,7 +339,7 @@ std::string describe(const Scene& scene, std::optional<std::uint32_t> index) {
 // clang-analyzer cannot follow and a reader has to re-derive.
 std::uint32_t hit_index(const RenderTree& tree, PixelPoint point) {
   const std::optional<NodeId> hit = tree.hit_test(point);
-  return hit.value_or(NodeId{static_cast<std::uint32_t>(tree.node_count())}).value;
+  return hit.value_or(NodeId{static_cast<std::uint32_t>(tree.node_count())}).index;
 }
 
 // One pixel sweep, with the oracle supplied. Extracted so the two exhaustive
@@ -713,7 +713,7 @@ TEST_SUITE("hit testing") {
     tree.resize(PixelSize{200, 150});
 
     // The root grew, so a point that was outside the viewport now hits it.
-    CHECK(hit_index(tree, PixelPoint{180, 140}) == RenderTree::root().value);
+    CHECK(hit_index(tree, PixelPoint{180, 140}) == RenderTree::root().index);
     CHECK(hit_index(tree, PixelPoint{18, 18}) == 2);
   }
 }

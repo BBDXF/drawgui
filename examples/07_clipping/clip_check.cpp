@@ -73,7 +73,7 @@ std::uint32_t topmost(const RenderTree& tree, PixelPoint point, std::uint32_t mi
     }
     bool admitted = true;
     for (std::uint32_t walk = index; honour_clips && walk != 0;) {
-      walk = tree.parent(NodeId{walk}).value;
+      walk = tree.parent(NodeId{walk}).index;
       if (tree.style(NodeId{walk}).overflow == dg::Overflow::kClip &&
           !dg::contains(tree.absolute_bounds(NodeId{walk}), point)) {
         admitted = false;
@@ -89,7 +89,7 @@ std::uint32_t topmost(const RenderTree& tree, PixelPoint point, std::uint32_t mi
 
 std::uint32_t hit_index(const RenderTree& tree, PixelPoint point) {
   const std::optional<NodeId> hit = tree.hit_test(point);
-  return hit.value_or(NodeId{static_cast<std::uint32_t>(tree.node_count())}).value;
+  return hit.value_or(NodeId{static_cast<std::uint32_t>(tree.node_count())}).index;
 }
 
 // The four corner squares of the rounded panels, and nothing else.

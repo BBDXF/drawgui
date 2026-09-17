@@ -156,7 +156,7 @@ std::string describe(const Scene& scene, dg::NodeId id) {
   if (id == scene.handles.after) {
     return "after";
   }
-  return "node " + std::to_string(id.value);
+  return "node " + std::to_string(id.index);
 }
 
 void apply_focus_change(Scene& scene, std::optional<dg::NodeId> target) {
