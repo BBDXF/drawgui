@@ -591,3 +591,34 @@ had no way to spell `DG_ACTION_SCROLL_PAGE_UP` at all until this slice
 taught `gen_abi.py` to import `gen_shortcuts.load_definitions()` the
 identical way it already imports the other two, mirrored into
 `abi_lock.py` so the append-only guard covers it too.
+
+## 14. (8-5, append-only) Gap 3 closes: `dg_node_remove()` actually detaches
+
+Section 5's own Gap 3 named the boundary honestly: `dg_node_remove()`
+could only invalidate the ABI handle, because neither `RenderTree` nor
+`LayoutTree` had ever grown a removal primitive - painting and layout kept
+running over the "removed" node exactly as before. Slice 8-5
+(`doc/node-removal.md`) is the engine-layer slice Gap 3's own text named as
+the natural next step: `NodeId` gains `{index, generation}`,
+`RenderTree::remove_child()`/`LayoutTree::remove_child()` tombstone a whole
+subtree without compaction, and `dg::on_node_removed()` reaches every one
+of six `NodeId`-keyed side tables (`WidgetSet`, `ThemeBindings`, `Focus`,
+`AnimationEngine`, `ActionScopes`, and `Interaction` - the last found by
+reading the repo, not named by the original consultation).
+
+`node_remove()` (`abi_impl.cpp`) now calls this real primitive for a LIVE
+slot instead of only tombstoning the ABI handle: a removed node genuinely
+leaves its window's tree, is repainted around, and stops being laid out.
+The one case `on_node_removed()` itself refuses - the window's own
+structural root - is unreachable through today's ABI surface (`window.root`
+always names a child of the structural root, never the root itself), but
+is still reported as `DG_ERR_UNSUPPORTED` rather than assumed impossible,
+matching this document's own standing preference for a checked failure
+over an asserted one.
+
+Gap 2 (no insertion-order primitive, only append) is **not** touched by
+this slice and remains open - `doc/node-removal.md` section 8 names the
+same absence from the removal side, with the identical prerequisite this
+document's own Gap 2 text already names: a caller that genuinely needs to
+insert before an arbitrary sibling, which none of this project's examples
+do yet.
