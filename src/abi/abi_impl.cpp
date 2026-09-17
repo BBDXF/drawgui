@@ -18,6 +18,8 @@
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/props/node_props.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/chord.h"
+#include "drawgui/shortcuts/router.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
@@ -111,6 +113,16 @@ std::string& last_error_storage() {
 }
 
 std::string& dump_buffer_storage() {
+  static thread_local std::string buffer;
+  return buffer;
+}
+
+// 8-3d: dg_shortcut_label()'s returned `const char*` needs an owned, stable
+// buffer for the SAME reason dump_buffer_storage() above and
+// last_error_storage() do (dg::shortcut_label() returns a std::string BY
+// VALUE - there is no C++-side object outliving the call to point at)
+// rather than a second lifetime rule invented for one more function.
+std::string& shortcut_label_storage() {
   static thread_local std::string buffer;
   return buffer;
 }
@@ -414,10 +426,23 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
       change =
           window.interaction.moved_over(window.widgets.widget_at(window.tree.render(), at));
       break;
-    case dg::PointerAction::kDown:
-      change =
-          window.interaction.pressed_on(window.widgets.widget_at(window.tree.render(), at));
+    case dg::PointerAction::kDown: {
+      const std::optional<dg::NodeId> hit = window.widgets.widget_at(window.tree.render(), at);
+      change = window.interaction.pressed_on(hit);
+      // 8-3d: a press on a focusable widget focuses it (blurring whatever
+      // held focus before), a press anywhere else blurs - the identical
+      // rule examples/21_focus/focus_scene.cpp's own dispatch_pointer()
+      // already applies to its own Scene, generalised from one example's
+      // struct to this ABI's WindowImpl. This is what gives
+      // dg_node_scope_action() a real `focused` node to bubble FROM
+      // (design.md section 5.5.2 level 2): with no focus-follows-click
+      // anywhere in this ABI, a scoped action could only ever be reached at
+      // level 4 (the app-wide table, no target node), never level 2.
+      const bool hit_is_focusable = hit.has_value() && window.widgets.has(*hit) &&
+                                    dg::is_focusable(window.widgets.at(*hit).kind);
+      window.focus.set(hit_is_focusable ? hit : std::nullopt);
       break;
+    }
     case dg::PointerAction::kUp:
       change =
           window.interaction.released_on(window.widgets.widget_at(window.tree.render(), at));
@@ -439,6 +464,39 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
     out.y = event.y;
     impl.pending_events.push_back(out);
   }
+}
+
+// 8-3d: design.md section 5.5.2's four-level router, driven by a REAL
+// dg::KeyEvent this ABI's own SDL pump produced (or, for
+// dg_debug_post_key()'s own test injection, a real SDL key event posted
+// through the real queue exactly like dg_debug_post_pointer_button() does
+// for clicks) - the ABI's own second caller of dg::route_key_event(),
+// after examples/10_scrolling's C++ one (8-3c). Only KeyAction::kDown
+// reaches resolve_action(): route_key_event() itself is blind to
+// event.action (a chord fires identically whichever way this file calls
+// it), so gating here, once, is what keeps a single key press from firing
+// its resolved action twice - on press AND on release.
+void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& event) {
+  if (event.action != dg::KeyAction::kDown) {
+    return;
+  }
+  const dg::RoutingContext ctx{window.tree.render(), window.widgets, window.action_scopes,
+                               dg::all_shortcut_bindings()};
+  const dg::KeyRouteResult routed =
+      dg::route_key_event(event, window.sdl_window, window.focus.current(), ctx);
+  if (routed.outcome != dg::KeyRouteOutcome::kRouted || !routed.action.has_value()) {
+    return;
+  }
+  const dg::ResolvedAction& action = *routed.action;
+  dg_event out{};
+  out.size = sizeof(dg_event);
+  out.kind = DG_EVENT_ACTION;
+  out.window = window.self_handle;
+  out.node = action.target.has_value()
+                 ? find_node_handle(impl, window.self_index, *action.target)
+                 : nullptr;
+  out.action_id = action.action_id;
+  impl.pending_events.push_back(out);
 }
 
 void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
@@ -477,6 +535,13 @@ void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
     WindowImpl* window = find_window_by_sdl_id(impl, event.window);
     if (window != nullptr) {
       process_pointer_event(impl, *window, event);
+    }
+  }
+
+  for (const dg::KeyEvent& event : pumped.key) {
+    WindowImpl* window = find_window_by_sdl_id(impl, event.window);
+    if (window != nullptr) {
+      process_key_event(impl, *window, event);
     }
   }
 
@@ -821,6 +886,20 @@ std::int32_t node_remove(dg_node_t* node_h) {
   return DG_ERR_OK;
 }
 
+std::int32_t node_scope_action(dg_node_t* node_h, std::uint16_t action_id) {
+  NodeSlot* slot = resolve_node_slot(node_h);
+  if (slot == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (slot->state != NodeSlot::State::kLive) {
+    return DG_ERR_NO_WINDOW;
+  }
+  AppImpl* impl = resolve_app(node_h->app);
+  WindowImpl& window = *impl->windows[slot->window_index];
+  window.action_scopes.scope(slot->node_id, static_cast<dg_action_id>(action_id));
+  return DG_ERR_OK;
+}
+
 std::int32_t wait_events(dg_app_t* app, std::int32_t timeout_ms) {
   AppImpl* impl = resolve_app(app);
   if (impl == nullptr) {
@@ -871,6 +950,22 @@ const char* dump_layout_tree(dg_node_t* node_h) {
   std::string& buffer = dump_buffer_storage();
   buffer.clear();
   dump_node(window.tree, slot->node_id, buffer);
+  return buffer.c_str();
+}
+
+const char* shortcut_label(std::uint16_t action_id) {
+  // Fully-qualified `dg::shortcut_label` (chord.h): unqualified would resolve
+  // to THIS function (dg::abi::shortcut_label), recursing into itself - the
+  // wrap this function exists to perform, not a call it can make unqualified
+  // from inside its own namespace.
+  const std::optional<std::string> label =
+      dg::shortcut_label(static_cast<dg_action_id>(action_id), dg::Platform::kLinux);
+  if (!label.has_value()) {
+    set_last_error("dg_shortcut_label: action_id names no binding");
+    return nullptr;
+  }
+  std::string& buffer = shortcut_label_storage();
+  buffer = *label;
   return buffer.c_str();
 }
 
@@ -1030,6 +1125,31 @@ std::int32_t debug_post_pointer_button(dg_window_t* window_h, std::int32_t down,
   }
   AppImpl* impl = resolve_app(window_h->app);
   impl->wm.post_pointer_button(window->sdl_window, down != 0, x, y);
+  return DG_ERR_OK;
+}
+
+std::int32_t debug_post_key(dg_window_t* window_h, std::int32_t down,
+                            const char* logical_key_name) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (logical_key_name == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  // dg::parse_chord() is the ONE existing parser for this grammar
+  // (tests/unit/test_shortcuts.cpp already proves it correct) - reused
+  // rather than a second, hand-rolled name->LogicalKey lookup written
+  // just for this debug hook. A bare key name ("PageUp") parses to
+  // Chord{mods=kNone, key=...}; anything carrying a modifier is refused
+  // below, matching WindowManager::post_logical_key()'s own inability to
+  // inject one (see this function's def.toml summary).
+  const std::optional<dg::Chord> chord = dg::parse_chord(logical_key_name);
+  if (!chord.has_value() || chord->mods != dg::Modifier::kNone) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  AppImpl* impl = resolve_app(window_h->app);
+  impl->wm.post_logical_key(window->sdl_window, down != 0, chord->key);
   return DG_ERR_OK;
 }
 

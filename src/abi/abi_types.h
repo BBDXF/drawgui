@@ -39,9 +39,11 @@
 #include "drawgui/abi/drawgui.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/theme/theme.h"
 #include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/theme_package.h"
+#include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
@@ -120,6 +122,18 @@ class WindowImpl {
   // NodeId numbering space is per-window (dg::ThemeBindings is keyed by
   // NodeId), not per-app.
   dg::ThemeBindings theme_bindings;
+
+  // 8-3d: which node currently has keyboard focus, and which nodes scope
+  // which action_ids - the SAME per-window placement as theme_bindings
+  // immediately above, for the identical reason (design.md section 5.5.2's
+  // NodeId-keyed router state has no meaning outside the NodeId numbering
+  // space of one window's own RenderTree). `focus` is driven the same way
+  // examples/21_focus's own Scene drives it (focus_scene.cpp's
+  // dispatch_pointer(): a pointer press on a focusable widget focuses it,
+  // one anywhere else blurs) - process_pointer_event() below is this ABI's
+  // one caller of that rule. `action_scopes` backs dg_node_scope_action().
+  dg::Focus focus;
+  dg::ActionScopes action_scopes;
 
   dg_window_t* self_handle = nullptr;
   std::size_t self_index = 0;
