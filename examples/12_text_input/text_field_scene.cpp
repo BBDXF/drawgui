@@ -7,6 +7,7 @@
 
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/box.h"
+#include "drawgui/shortcuts/action_ids.generated.h"
 
 namespace text_field_scene {
 namespace {
@@ -50,8 +51,8 @@ NodeStyle field_style(bool focused) {
   return style;
 }
 
-NodeId add_field(dg::LayoutTree& tree, dg::WidgetSet& widgets, NodeId parent, dg::FontId font,
-                 const std::string& initial) {
+NodeId add_field(dg::LayoutTree& tree, dg::WidgetSet& widgets, dg::ActionScopes& action_scopes,
+                 NodeId parent, dg::FontId font, const std::string& initial) {
   BoxStyle field_box;
   field_box.kind = LayoutKind::kLeaf;
   field_box.width = kFieldWidth;
@@ -98,6 +99,17 @@ NodeId add_field(dg::LayoutTree& tree, dg::WidgetSet& widgets, NodeId parent, dg
   widget.text = initial;
   widget.cursor = static_cast<int>(initial.size());
   widgets.attach(field, widget);
+
+  // 8-4: this field scopes its own clipboard actions onto itself, the
+  // exact registration action_scopes.h's own header comment illustrates
+  // ("a TextField scoping both select_all and paste") - without this, a
+  // real Mod+C over a focused field would resolve to nothing at all: all
+  // four bind at ActionScope::kTextField, which has no app-level fallback
+  // (router.cpp's own level 4 loop only matches ActionScope::kApp).
+  action_scopes.scope(field, DG_ACTION_COPY);
+  action_scopes.scope(field, DG_ACTION_CUT);
+  action_scopes.scope(field, DG_ACTION_PASTE);
+  action_scopes.scope(field, DG_ACTION_SELECT_ALL);
   return field;
 }
 
@@ -121,6 +133,7 @@ Scene build(const Options& options) {
 
   LayoutTree tree{spec};
   dg::WidgetSet widgets;
+  dg::ActionScopes action_scopes;
   Handles handles;
 
   BoxStyle body_box;
@@ -130,10 +143,11 @@ Scene build(const Options& options) {
   handles.body = LayoutTree::root();
   tree.set_box(handles.body, body_box);
 
-  handles.field_a = add_field(tree, widgets, handles.body, ui, kFieldAInitial);
-  handles.field_b = add_field(tree, widgets, handles.body, ui, "");
+  handles.field_a = add_field(tree, widgets, action_scopes, handles.body, ui, kFieldAInitial);
+  handles.field_b = add_field(tree, widgets, action_scopes, handles.body, ui, "");
 
-  Scene scene{std::move(tree), std::move(widgets), dg::Focus{}, handles, std::move(fonts)};
+  Scene scene{std::move(tree), std::move(widgets),       dg::Focus{},
+              handles,         std::move(action_scopes), std::move(fonts)};
 
   scene.tree.layout_full();
 

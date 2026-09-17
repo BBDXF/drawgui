@@ -26,6 +26,7 @@
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/font_catalog.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
@@ -55,6 +56,15 @@ struct Scene {
   dg::WidgetSet widgets;
   dg::Focus focus;
   Handles handles;
+
+  // Each field scopes its own copy/cut/paste/select_all onto itself (8-4,
+  // input/shortcuts.toml's own "a TextField scoping both select_all and
+  // paste" example - action_scopes.h's own header comment names this
+  // exact scene shape) - the router's level 2 is what lets a real Mod+C
+  // over a focused field resolve at all; these four actions bind at
+  // ActionScope::kTextField with no app-level fallback, so a field that
+  // never scopes them can never fire one.
+  dg::ActionScopes action_scopes;
 
   // The scene's OWN copy of the catalog RenderTree paints with - FontCatalog
   // is a cheap, reference-counted handle to one table (its own header:
