@@ -243,6 +243,26 @@ jobs:
       - name: Check the property id lock still rejects tampering
         run: python3 tools/prop_lock_selftest.py
 
+      # design.md section 5.5.3: input/shortcuts.toml is the fourth
+      # generator family's single source of truth (action_id, LogicalKey,
+      # ActionScope), same shape as the property/theme families above.
+      - name: Check shortcut/action generation
+        run: python3 tools/gen_shortcuts.py --check
+
+      # design.md section 5.5.3: action_id is an ABI contract, append-only,
+      # never reused or renumbered - identical rule to prop_id/token_id.
+      - name: Check the shortcut action id lock
+        run: python3 tools/shortcut_lock.py --check
+
+      # Same reasoning as the property id lock selftest above: --check
+      # against an already-correct tree cannot tell a working check from one
+      # that always returns 0. This also covers design.md section 7's own
+      # shortcut CI check (no duplicate binding in one scope; every action
+      # bound on every platform), which is gen_shortcuts.py's job, not the
+      # lock's - see tools/shortcut_lock_selftest.py's own docstring.
+      - name: Check the shortcut generator/lock still reject tampering
+        run: python3 tools/shortcut_lock_selftest.py
+
   identity:
     name: commit identity
     runs-on: ubuntu-latest
