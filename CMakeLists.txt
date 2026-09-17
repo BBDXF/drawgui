@@ -47,6 +47,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateProps.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateTheme.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateAbi.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateShortcuts.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/FetchSkia2.cmake)
 
 # --- Warning configuration --------------------------------------------------
@@ -190,6 +191,7 @@ add_library(drawgui STATIC
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
   src/render/tree_paint.cpp
+  src/shortcuts/chord.cpp
   src/theme/mini_json.cpp
   src/theme/theme.cpp
   src/theme/theme_bindings.cpp
@@ -242,6 +244,9 @@ add_dependencies(drawgui drawgui_props_generate)
 
 # Likewise for the theme token header - see cmake/GenerateTheme.cmake.
 add_dependencies(drawgui drawgui_theme_generate)
+
+# Likewise for action_id/LogicalKey/ActionScope - see cmake/GenerateShortcuts.cmake.
+add_dependencies(drawgui drawgui_shortcuts_generate)
 
 # Likewise for drawgui.h / drawgui_abi.generated.cpp - see cmake/GenerateAbi.cmake.
 add_dependencies(drawgui drawgui_abi_generate)
