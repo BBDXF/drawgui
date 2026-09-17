@@ -433,7 +433,15 @@ jobs:
             examples/24_theme_package/main.cpp
             examples/24_theme_package/theme_package_check.cpp
             examples/24_theme_package/theme_package_scene.cpp
-            examples/24_theme_package/theme_package_window.cpp"
+            examples/24_theme_package/theme_package_window.cpp
+            examples/25_showcase/main.cpp
+            examples/25_showcase/context_menu.cpp
+            examples/25_showcase/profile_dialog.cpp
+            examples/25_showcase/showcase_check.cpp
+            examples/25_showcase/showcase_scene.cpp
+            examples/25_showcase/showcase_window.cpp
+            examples/25_showcase/sort_options.cpp
+            examples/25_showcase/tooltip_content.cpp"
           fi
           echo "$files"
           clang-tidy -p build $files
