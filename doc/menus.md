@@ -365,7 +365,7 @@ under-designed trap that the next slice would have to redo.
 
 ### 6.4 The follow-up
 
-`.omo/plans/drawgui-phase7.md` records **7-5b** as the named follow-up for
+**7-5b** is the named follow-up for
 all three, in the register `doc/form-controls.md`'s own Dropdown decline
 and 7-2's own split into 7-2b already established: a well-evidenced subset
 landed now, the remainder named with its real prerequisite rather than
@@ -473,7 +473,7 @@ all, section 6.1), Tooltip (`SDL_WINDOW_TOOLTIP` flag threading plus a home
 for hover-delay state, section 6.2), `Dialog` and modal focus trapping
 (a genuinely new `Focus` mechanism plus a cancellable close-request event,
 section 6.3) - all three named with their own real, checked (not assumed)
-prerequisite, and split into `.omo/plans/drawgui-phase7.md`'s own **7-5b**.
+prerequisite, and split into named follow-up slice **7-5b**.
 `Table`/`RenderGrid` - decided (section 1), not built, because no working
 caller in this slice's own scope needs even the fixed-column-width case.
 Nested/cascading submenus, menubars, toolbars, tab controls, tree views,

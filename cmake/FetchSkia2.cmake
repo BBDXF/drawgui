@@ -6,9 +6,8 @@
 # binary release asset (pinned by SHA256) and a rust-skia/skia header
 # checkout (pinned by a shallow git clone's HEAD commit) - and then hand-wrote
 # link order, include paths and system libraries for the result. Both halves
-# of that were the owner's problem to maintain, not upstream's; see 7-1 in
-# .omo/plans/drawgui-phase7.md and doc/skia-dependency.md for the full
-# rationale for switching providers.
+# of that were the owner's problem to maintain, not upstream's; see slice 7-1
+# and doc/skia-dependency.md for the full rationale for switching providers.
 #
 # libskia2 (https://github.com/BBDXF/libskia2) is a purpose-built Skia
 # distribution for exactly this kind of self-drawn GUI framework:
@@ -88,7 +87,7 @@ set(DRAWGUI_SKIA2_REPO "https://github.com/BBDXF/libskia2"
 # consumed by this project today (7-1's scope is Linux; design.md section 3.2
 # lists Windows too, and the windows-x64-msvc tarball's existence matters for
 # that goal, but wiring up an MSVC build/CI job is explicitly out of scope for
-# this slice - see .omo/plans/drawgui-phase7.md 7-1).
+# this slice (7-1).
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   set(_dg_skia2_target "linux-x64")
   set(_dg_skia2_sha256 "f3d698e92deb8b4c6c627a3a3dd132a95f89a6c8d5f5d5c8c27e4d02a55abb07")
@@ -97,7 +96,7 @@ else()
     "FetchSkia2.cmake: no libskia2 mapping for ${CMAKE_SYSTEM_NAME} / "
     "${CMAKE_SYSTEM_PROCESSOR}. Only linux-x64 is wired up in this slice; a "
     "windows-x64-msvc tarball is published upstream but its CMake consumption "
-    "(and CI) is out of scope for 7-1 - see .omo/plans/drawgui-phase7.md.")
+    "(and CI) is out of scope for 7-1.")
 endif()
 
 set(DRAWGUI_SKIA2_SHA256 "${_dg_skia2_sha256}"

@@ -1,7 +1,7 @@
 /* examples/19_c_client - a genuinely pure C program against drawgui's C ABI.
  *
- * This is P5's own acceptance criterion (design.md section 5.8, .omo/plans/
- * drawgui-phase6.md's 6-3): create two windows, respond to clicks, all
+ * This is P5's own acceptance criterion (design.md section 5.8, slice
+ * 6-3): create two windows, respond to clicks, all
  * through include/drawgui/abi/drawgui.h and nothing else. This file is
  * compiled as C (see CMakeLists.txt: `set_source_files_properties(main.c
  * PROPERTIES LANGUAGE C)` plus a C, not C++, compiler front end) and links

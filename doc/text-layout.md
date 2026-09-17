@@ -28,7 +28,7 @@ non-ASCII (item 7). Both are `TextField`-EDITING concerns - `Widget::cursor`,
 in `src/widget/widget_set.cpp` - and none of that code was touched here.
 7-2's whole surface is `TextStyle`/`RenderTree`/a new `dg::Paragraph`
 measurement API; `WidgetKind::kTextField` and everything under it is
-untouched. `.omo/plans/drawgui-phase7.md` names the remainder **7-2b:
+untouched. This phase's plan names the remainder **7-2b:
 grapheme-cluster `TextField` editing** explicitly, as a separate checkbox,
 because the reasoning that makes 4-9's ASCII filter safe to remove is a
 different, larger piece of work than the reasoning that makes multi-line
@@ -363,7 +363,7 @@ nothing in this codebase wires it to anything yet.
   wired to nothing.
 - **`TextField` grapheme-cluster cursor/selection/backspace, and revisiting
   ellipsize()/horizontal-scroll for non-ASCII** - named explicitly as
-  7-2b in `.omo/plans/drawgui-phase7.md`.
+  slice 7-2b.
 - **Caching a built `Paragraph`** - every measurement and every paint
   rebuilds one from scratch (a `skia::textlayout::ParagraphBuilder` call
   plus a `layout()`), matching this project's stated performance stance for
@@ -407,8 +407,8 @@ nothing in this codebase wires it to anything yet.
 
 ## 13. What this is not
 
-No IME (7-3). No `TextField` grapheme cursor/selection/backspace (7-2b,
-named in `.omo/plans/drawgui-phase7.md`). No rich-text editing (design.md
+No IME (7-3). No `TextField` grapheme cursor/selection/backspace (slice
+7-2b). No rich-text editing (design.md
 section 11). No RTL UI mirroring (section 11, 5.13.7). No vertical writing
 modes. No caching of built paragraphs. No shrink-to-fit wrapping label
 (section 6). No public multi-style-span API for rich-text display (section
@@ -418,8 +418,8 @@ surface to expose yet).
 
 ## 14. Cross-reference: 7-2b landed (append-only)
 
-Sections 1-13 above are 7-2's own record, unedited. 7-2b
-(`.omo/plans/drawgui-phase7.md`) is the follow-up section 1 and section 10
+Sections 1-13 above are 7-2's own record, unedited. Slice
+7-2b is the follow-up section 1 and section 10
 named, and it has now landed: `WidgetSet::text_field_insert/backspace/
 delete_forward/move/click` (`src/widget/widget_set.cpp`) are grapheme-
 cluster aware, `WidgetKind::kTextField` is no longer ASCII-scoped, and

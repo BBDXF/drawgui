@@ -473,9 +473,8 @@ wins.
 
 `examples/09_sizing` puts the four properties on four rows whose behaviour the
 window's own size drives, and `--verify-sizing` is the headless check against
-that same scene. On-screen evidence, with the numbers derived by hand and
-matching to the pixel, is in
-`.omo/evidence/drawgui-kernel/task-4-6-sizing.md`.
+that same scene. The on-screen result was verified by hand against the same
+derived numbers, matching to the pixel.
 
 ### 5.1 What the byte-identity gate can and cannot say
 

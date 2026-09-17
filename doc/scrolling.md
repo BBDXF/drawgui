@@ -492,7 +492,7 @@ campaigns to since the first one found stale-mtime false negatives.
 is byte-identical to what a real window would show, per
 `doc/cpu-raster-findings.md` - a dump is not a mockup of the on-screen result,
 it is the on-screen result, unpresented) and via a real SDL3/X11 window for
-interactive use. Evidence under `.omo/evidence/drawgui-kernel/scrolling-*.png`.
+interactive use. Verified by screenshot comparison across window sizes.
 
 | what | result |
 | --- | --- |

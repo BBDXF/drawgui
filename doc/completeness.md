@@ -260,7 +260,7 @@ readability; nothing here is re-ordered by importance.
 > `doc/text-layout.md`. "Non-ASCII input / grapheme clustering" and "Shrink-
 > to-fit TextField" remain OPEN exactly as recorded here - 7-2 touched no
 > `TextField` editing code at all, and the grapheme-cluster editing half is
-> named `.omo/plans/drawgui-phase7.md`'s 7-2b. "Caret blink" and "Tab order
+> named slice 7-2b. "Caret blink" and "Tab order
 > / focus tree" are unaffected by 7-2. The `icudtl.dat`
 > distribution question this row's "fontconfig" neighbour also touches was
 > already dissolved by 7-1 (`doc/skia-dependency.md` §5) - libgrapheme
@@ -376,8 +376,8 @@ this table shares.
 > nothing. What remains true of row 11 as originally written: `TextField`'s
 > OWN editing path still uses none of it - `src/widget/widget_set.cpp`'s
 > `text_field_*` functions are unchanged and still ASCII-scoped, per
-> `doc/text-layout.md` section 2's explicit scope decision and
-> `.omo/plans/drawgui-phase7.md`'s named 7-2b follow-up.
+> `doc/text-layout.md` section 2's explicit scope decision and the named
+> 7-2b follow-up.
 
 > **P7 7-2b cross-reference**: row 11 is now FULLY resolved - `TextField`'s
 > editing path (`src/widget/widget_set.cpp`) consumes `dg::Paragraph`
@@ -618,7 +618,7 @@ severe than an ordinary decline, "because every future popup-shaped
 control (`Dropdown`, `Menu`, `Tooltip`, `Dialog`) inherits the same missing
 prerequisite" - and 5-2's own update note already recorded that
 prerequisite closed, with Dropdown itself named as "the next slice's
-task." 7-5 (`.omo/plans/drawgui-phase7.md`, `doc/menus.md`) is that slice:
+task." Slice 7-5 (`doc/menus.md`) is that slice:
 `WidgetKind::kDropdown` (a 9th kind, zero new `RenderObject`/node kinds -
 the streak this section's own audit started measuring through 4-9 now
 extends to a twentieth consecutive slice). The other three named in that
@@ -636,8 +636,8 @@ name, each with its own real (not assumed) prerequisite, in
 ## Cross-reference: 7-5b landed — Context menu, Tooltip, `Dialog` (append-only)
 
 The prior section named three prerequisites, each checked and confirmed
-real by 7-5 rather than assumed to fall out of `PopupHost`. 7-5b
-(`.omo/plans/drawgui-phase7.md`, `doc/menus.md` section 12) closed all
+real by 7-5 rather than assumed to fall out of `PopupHost`. Slice 7-5b
+(`doc/menus.md` section 12) closed all
 three in one slice: a `PointerButton` field on `PointerEvent` (context
 menu), `PopupWindowKind`/`SDL_WINDOW_TOOLTIP` threaded through
 `WindowManager::open_popup()`/`PopupHost::show()` plus a new `HoverTimer`
@@ -653,8 +653,8 @@ full record.
 The theme system section 5's own audit found empty ("no theme system") was
 closed by 6-2 for the ONE compiled-in builtin theme; 6-2's own closing
 table named external packages, hot reload, resource directories, security
-limits, and the theme ABI as explicitly not built. 7-6
-(`.omo/plans/drawgui-phase7.md`, `doc/theme-packages.md`) closes all five
+limits, and the theme ABI as explicitly not built. Slice 7-6
+(`doc/theme-packages.md`) closes all five
 in one slice: `dg::ThemePackage` (path-traversal-safe, size/count-bounded
 untrusted-directory loading), `dg::reload_theme_package()` (hot reload,
 settling design.md section 12's own open question that neither a

@@ -1,8 +1,8 @@
 // dg::Focus's own new job: Tab order, scopes, the popup-close/list-recycle
 // hazards, and the ring - all over a scene deliberately shaped so a wrong
 // answer is VISIBLE rather than a uniform list of identical widgets (the
-// "missing scene shape" failure mode .omo/plans/drawgui-kernel.md's own
-// catalogue names as the one that bites hardest here): mixed WidgetKinds,
+// "missing scene shape" failure mode this project's own catalogue names as
+// the one that bites hardest here): mixed WidgetKinds,
 // a container nesting two levels deep, a non-focusable label sandwiched
 // between two focusable siblings, a zero-area widget, a negative-tab_index
 // widget, and one sibling whose Tab position is the REVERSE of its tree

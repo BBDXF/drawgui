@@ -405,8 +405,7 @@ written* one does. On the demo's default 760x420 scene:
 
 ### 6.3 On screen
 
-`.omo/evidence/drawgui-kernel/form-controls-{idle,radio-group,slider-dragged}.png`,
-via `--dump-png` (byte-identical to a real window's output on this CPU-raster
+Verified via `--dump-png` (byte-identical to a real window's output on this CPU-raster
 backend, per doc/cpu-raster-findings.md) and a real SDL3/X11 window for
 interactive use.
 
@@ -494,8 +493,8 @@ criteria did not ask for).
 
 Section 2.4 named the exact prerequisite this decline was blocked on: a
 `PopupHost` abstraction with a `Popup` window kind and a `PlatformCaps`
-capability query. 5-2 built it; 7-5 (`.omo/plans/drawgui-phase7.md`,
-`doc/menus.md`) is the slice that used it - `WidgetKind::kDropdown`, a 9th
+capability query. 5-2 built it; slice 7-5
+(`doc/menus.md`) is the slice that used it - `WidgetKind::kDropdown`, a 9th
 kind earning its place by the identical "state that outlives the click"
 argument section 1.2 above already made for `kSlider`. `doc/menus.md`
 section 2.3 confirms this section's three named prerequisites satisfied

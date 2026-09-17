@@ -511,7 +511,7 @@ different platform) to close that gap for real.
 Section 11 named one thing a future `FocusManager` should guarantee: "a
 window-level focus change also ends any in-progress composition on that
 window, the way this slice's own `text_field_set_focus(false)` already
-does at the widget level." 7-4 (`.omo/plans/drawgui-phase7.md`) is that
+does at the widget level." Slice 7-4 is that
 `FocusManager`, and it satisfies this directly rather than by accident:
 `examples/21_focus`'s `focus_scene::apply_side_effects()` calls
 `WidgetSet::text_field_set_focus(..., false)` — this slice's own function,

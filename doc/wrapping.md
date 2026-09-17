@@ -253,7 +253,7 @@ resizing re-breaks the runs in front of a human rather than only in a test. The
 band has no height of its own, so a change in the number of runs resizes it and
 moves everything below.
 
-Captured under WSLg at four window sizes (`.omo/evidence/drawgui-kernel/`):
+Captured under WSLg at four window sizes:
 
 | window | runs | band height |
 | --- | --- | --- |

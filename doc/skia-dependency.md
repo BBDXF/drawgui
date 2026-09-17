@@ -2,7 +2,7 @@
 
 7-1 is a pure build-system slice: it replaces the Skia provider, ships no new
 engine feature, and its whole job is answered by this document plus
-`cmake/FetchSkia2.cmake`. `.omo/plans/drawgui-phase7.md` 7-1 has the
+`cmake/FetchSkia2.cmake`. Slice 7-1 has the
 one-paragraph summary; this file has the full evidence trail.
 
 ## 1. What changed and why
@@ -244,7 +244,7 @@ blocked on exactly these:
 | Capability | Evidence it now exists | Blocked-on-this, previously | Status after 7-1 |
 | --- | --- | --- | --- |
 | SkParagraph / SkShaper / SkUnicode(libgrapheme) | §4 | 7-2 (multiline/BiDi/shaping/CJK), 7-3 (IME) | Linked and proven to initialize; **not** wired into any `NodeStyle`/render path |
-| SVG (`SkSVGDOM` + `SkPathOps` + `skresources`) | `libsvg.a`, `libskresources.a` present in the tarball, declared by `skia2Config.cmake` | Image formats/vector-icon work named in `.omo/plans/drawgui-phase7.md`'s "not in this phase" list | Available; **no** SVG decode/paint path exists in `ImageCatalog` |
+| SVG (`SkSVGDOM` + `SkPathOps` + `skresources`) | `libsvg.a`, `libskresources.a` present in the tarball, declared by `skia2Config.cmake` | Image formats/vector-icon work named in this phase's "not in this phase" list | Available; **no** SVG decode/paint path exists in `ImageCatalog` |
 | WebP + GIF decode | `key.txt`: `skia_use_libwebp_decode=true`, `skia_use_wuffs=true` (GIF) | Same "not in this phase" list | Available through the same `SkCodec` path `ImageCatalog` already uses for PNG/JPEG; **not** exercised by any test or example yet |
 | Ganesh + GL | `key.txt`: `skia_enable_ganesh=true skia_use_gl=true skia_use_x11=false skia_use_egl=false`, `GrGLMakeNativeInterface_none` confirmed (§2) | GPU backend named out-of-phase since P1 (`third_party/` had a GL-capable asset sitting unused even before this slice) | Same as before this slice: available, unused; CPU raster is the only path any code takes |
 | Windows (`windows-x64-msvc` tarball) | Confirmed to exist and download in the v0.1.0 release (`libskia2-0.1.0-windows-x64-msvc.tar.gz`, 22,549,036 bytes, own `.sha256` sidecar) | design.md §3.2 cross-platform goal | Tarball exists upstream; `cmake/FetchSkia2.cmake` explicitly refuses any non-`linux-x64` triple today (`message(FATAL_ERROR ...)`) - wiring an MSVC job is out of scope for 7-1 by name |
@@ -426,7 +426,7 @@ All run once, per the owner's narrowed verification scope:
 
 ## 13. What this slice explicitly did not do
 
-Per the task's scope boundary and `.omo/plans/drawgui-phase7.md`'s own
+Per the task's scope boundary and this phase's own
 "not in this phase" convention: no `NodeStyle`/render-tree wiring for text
 layout, multiline, shaping, BiDi rendering, line breaking or grapheme
 cursor movement (7-2); no IME composition handling (7-3); no GL/GPU

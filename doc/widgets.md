@@ -461,8 +461,8 @@ code that consumes one.
 - **`-DDG_SANITIZE=ON`** clean on the whole suite, both compilers, plus a
   multi-minute interactive run under ASan+UBSan+LSan driven by real X input:
   zero diagnostics.
-- **Real display, real input.** Screenshots under
-  `.omo/evidence/drawgui-kernel/widgets-*.png` were captured with a scratch
+- **Real display, real input.** Screenshots
+  captured with a scratch
   Xlib/XTest tool that injects motion and button events **at the X server**, so
   the demo receives ordinary hardware events and nothing inside the process is
   synthesized. (`XGetImage` on the root window still fails with `BadMatch` under

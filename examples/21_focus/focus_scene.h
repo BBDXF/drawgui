@@ -3,8 +3,8 @@
 // two of them, and one sibling whose Tab position (tab_index=1) is the
 // REVERSE of its tree position - deliberately shaped so a wrong Tab order
 // permutes visibly distinct widgets rather than a row of identical chips
-// (the "missing scene shape" failure mode named in .omo/plans/drawgui-
-// kernel.md's own catalogue).
+// (the "missing scene shape" failure mode this project's own defect-
+// injection catalogue names).
 //
 //   row1: btn_open (kButton) | label_between (no Widget at all - non-
 //         focusable) | checkbox (kCheckbox) | slider (kSlider)

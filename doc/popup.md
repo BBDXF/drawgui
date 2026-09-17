@@ -332,8 +332,8 @@ before it (`doc/damage-repaint.md`, `doc/compositing.md`'s own examples).
 ## 9. Cross-reference: 7-4 landed — window-level focus tracking (append-only)
 
 Section 5 named the one real, un-worked edge this slice found: "nothing
-wires window-level (as opposed to widget-level) focus tracking yet." 7-4
-(`.omo/plans/drawgui-phase7.md`) is that follow-up, and the answer it
+wires window-level (as opposed to widget-level) focus tracking yet." Slice
+7-4 is that follow-up, and the answer it
 found is structural rather than a new mechanism: a native popup already
 forces a second `RenderTree` instance (section 3 above), so 7-4 gives it
 an entirely separate `dg::Focus` (and `WidgetSet`) too, rather than a
@@ -363,8 +363,7 @@ because `WidgetSet` predates 7-4's own Tab-order consumer of it.
 ## 10. Cross-reference: 7-5b landed — `SDL_WINDOW_TOOLTIP` threaded, and `Dialog`'s own window (append-only)
 
 Section 6's own declined-by-name list named `SDL_WINDOW_TOOLTIP` and
-`WindowKind::kDialog` explicitly. 7-5b (`.omo/plans/drawgui-phase7.md`,
-`doc/menus.md` section 12) is that follow-up. `WindowManager::open_popup()`
+`WindowKind::kDialog` explicitly. Slice 7-5b (`doc/menus.md` section 12) is that follow-up. `WindowManager::open_popup()`
 gained a trailing `PopupWindowKind kind = PopupWindowKind::kMenu`
 parameter — every existing call site (this document's own, and every
 popup/dropdown client since) keeps requesting `SDL_WINDOW_POPUP_MENU`

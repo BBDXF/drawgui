@@ -22,8 +22,7 @@ family per script and no family per language.
 
 The same four Han codepoints under `language = "zh-Hans"` and `language = "ja"`
 select two different faces and produce **5,940 differing pixels** in the demo's
-two panels. Evidence:
-`.omo/evidence/drawgui-kernel/font-fallback-han-unification.png`.
+two panels, confirmed by screenshot comparison.
 
 The dependency list is still exactly one: `-lfreetype`.
 

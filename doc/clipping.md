@@ -368,7 +368,8 @@ clip code branches on, with the unclipped control and the square-clipped panel
 built from **one description with one flag different** so that what is between
 them is the property and nothing else.
 
-Evidence under `.omo/evidence/drawgui-kernel/clipping-*.png`.
+Verified on screen by comparing the unclipped and square-clipped panels'
+screenshots pixel by pixel.
 
 | what | result |
 | --- | --- |

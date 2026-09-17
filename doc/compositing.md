@@ -47,8 +47,7 @@ translucency:
   opaque, so the topmost simply wins, and only then is the whole picture
   faded.
 
-`.omo/evidence/drawgui-kernel/opacity-group-vs-per-object-2x.png` is that
-comparison magnified.
+A screenshot comparison of that same magnified region confirms the count.
 
 ### The values, derived rather than recorded
 
@@ -466,7 +465,7 @@ not.
 carry the same three overlapping chips and the same amount of translucency
 asked for in the two different ways.
 
-Evidence under `.omo/evidence/drawgui-kernel/opacity-*`.
+Verified by screenshot comparison during development.
 
 | what | result |
 | --- | --- |

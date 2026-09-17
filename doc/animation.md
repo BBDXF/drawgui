@@ -514,10 +514,10 @@ then reverted before the next one:
 
 **8 of 10 caught immediately; 1 survived and was closed with a new,
 deliberately-shaped regression test; 1 survived and was diagnosed as provably
-inert** (the third and sixth of this project's now-six catalogued injection
-failure modes, per `.omo/plans/drawgui-kernel.md`'s running list, are both
-represented here: "场景缺形状" for #9, and the already-known
-"该项无可观测后果，能证明" pattern - 4-7/4-9's own precedent - for #10).
+inert** (the third and sixth of this project's now-six catalogued
+defect-injection failure modes are both represented here: "场景缺形状" for
+#9, and the already-known "该项无可观测后果，能证明" pattern - 4-7/4-9's own
+precedent - for #10).
 
 ## 11. Counts
 

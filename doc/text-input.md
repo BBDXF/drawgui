@@ -581,7 +581,7 @@ design.md section 5.10.5 already flags as a P3/P4 cost this project has not
 taken on." That fact stopped being true at slice 7-1: `SkUnicode`'s
 libgrapheme backend links, initializes, and (`tests/unit/
 test_skia_textlayout_smoke.cpp`) demonstrably segments a ZWJ family emoji
-into one grapheme cluster. Slice 7-2b (`.omo/plans/drawgui-phase7.md`) is
+into one grapheme cluster. Slice 7-2b is
 the follow-up section 1.2 itself named ("Lifting this restriction needs
 `SkUnicode`'s grapheme API wired into `dg::Focus`-adjacent cursor math - a
 real, scoped slice of its own") and it does exactly that:
@@ -645,8 +645,8 @@ what 7-2b's own justification for changing course rests on.
 ## 11. Cross-reference: 7-3 landed - IME composition (append-only)
 
 Section 1.3 above named `SDL_EVENT_TEXT_EDITING` as "the actual IME
-feature" this slice deliberately left unread, assigned to P7. 7-3
-(`.omo/plans/drawgui-phase7.md`) is that follow-up, and it has now landed:
+feature" this slice deliberately left unread, assigned to P7. Slice 7-3
+is that follow-up, and it has now landed:
 `WindowManager::pump()` reports a fourth event vector,
 `PumpResult::text_editing`, and `WidgetSet::text_field_composition_update()`
 turns it into an inline preview spliced into the display without touching
@@ -677,7 +677,7 @@ over.
 Section 3 above introduced `dg::Focus` "from nothing... one optional
 `NodeId`, exclusive, no tab order, no focus tree" and named design.md
 section 5.2's per-window `FocusManager` as P4 scope, not this slice's.
-7-4 (`.omo/plans/drawgui-phase7.md`) is that follow-up, and it has now
+Slice 7-4 is that follow-up, and it has now
 landed: `dg::focus_order()`/`Focus::focus_next()`/`focus_previous()` (a
 pre-order walk of `RenderTree`'s own `children()`, overridden by an
 explicit `Widget::tab_index`), wrapping, popup-scoped Tab boundaries, and
