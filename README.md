@@ -34,16 +34,22 @@ raster path with no GPU dependency.
 - **Widgets**: 9 `WidgetKind` values - panel, label, button, checkbox (radio
   is a `group` field on it), slider, scroll view, text field, virtualized
   list, dropdown - plus a context menu, tooltip and modal dialog through a
-  shared popup host. No new `RenderObject`/node kind has been needed across
-  23 consecutive development slices, the acceptance bar `doc/design.md` set
-  for its own primitive set.
+  shared popup host. No new `RenderObject`/node/`LayoutKind` kind has been
+  needed across 31 consecutive development slices, the acceptance bar
+  `doc/design.md` set for its own primitive set.
 - **Text**: single- and multi-line, with CJK/BiDi/complex-script shaping via
   `SkParagraph` + libgrapheme (no `icudtl.dat` needed), grapheme-cluster-
   correct editing, and IME composition.
 - **Focus**: Tab order via a focus-scope model, with a visible focus ring.
+- **Shortcuts / clipboard**: a generated `action_id` family (8 intent
+  actions - copy/cut/paste/select_all, keyboard scrolling) resolved through
+  a four-level router (IME isolation, focused-node bubble, app-wide table),
+  and a real platform clipboard seam on `WindowManager`.
+- **Node removal**: `NodeId{index, generation}`; removing a node detaches
+  both trees and cleans up every one of six `NodeId`-keyed side tables.
 - **Theming**: 12 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI**: 21 exported functions; `examples/19_c_client` is a pure C
+- **C ABI**: 24 exported functions; `examples/19_c_client` is a pure C
   program that opens two windows and cross-updates them on click.
 
 All 35 CTest entries pass. The golden-image sha256
@@ -148,9 +154,13 @@ project's cross-feature regression bed.
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
 testing, interaction, UTF-8 decoding, font fallback, text editing, paragraph
-layout, focus, dropdown, tooltip timing, and theme-package security
+layout, focus, dropdown, tooltip timing, theme-package security
 (path traversal, symlink escapes/loops, resource bounds, a fixed-seed fuzz
-pass). Run it directly for per-case output:
+pass), shortcut routing, clipboard, and node removal - **544 test cases**
+(the binary's own `[doctest] unskipped test cases passing the current
+filters` summary line is the source of truth; `--list-test-cases` also
+prints four decoration lines, so a naive `| wc -l` overcounts by four). Run
+it directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -210,3 +220,6 @@ development slice, in more depth than belongs here:
 | `doc/popup.md` | the popup host mechanism shared by dropdown, menu, tooltip, dialog |
 | `doc/theme-packages.md` | external theme packages, path-traversal defence, hot reload |
 | `doc/showcase.md` | the cross-feature regression bed and its one emergent finding |
+| `doc/shortcuts.md` | the intent-binding system, `action_id`, `LogicalKey`, four-level routing |
+| `doc/clipboard.md` | the clipboard seam, copy/cut/paste/select_all as intents |
+| `doc/node-removal.md` | `NodeId{index, generation}`, `remove_child()`, the six side tables |
