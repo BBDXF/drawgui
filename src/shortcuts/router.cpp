@@ -14,6 +14,17 @@ namespace {
   if (kind != WidgetKind::kTextField) {
     return false;
   }
+  // Deliberately blind to `event.mods`, and that is a real limitation worth
+  // naming rather than discovering later: with a TextField focused, `Mod+Home`
+  // is swallowed here exactly as bare `Home` is, so an app-scoped action bound
+  // to `Mod+Home` would silently never fire while a field has focus.
+  //
+  // Nothing binds a modified form of these six keys today, so this costs
+  // nothing yet, and the direction matches design.md section 5.5.1's own
+  // framing - it lists `Ctrl+Backspace`/`Option+Delete` (delete-previous-word)
+  // as belonging to a TextField's editing intents, NOT to the shortcut table.
+  // The day a caller does want a modified chord over one of these keys, the
+  // fix is to consult `mods` here, not to special-case it at the call site.
   switch (key) {
     case Key::kLeft:
     case Key::kRight:
