@@ -329,6 +329,7 @@ would look with it included.
 | Real `dg_node_insert_before` with a non-null `ref` | Section 5, gap 2: the engine has no insertion-order primitive underneath it. |
 | Real `dg_node_remove` tree detachment | Section 5, gap 3: the engine has no removal primitive underneath it. |
 | `dg_window_destroy` | Windows close via the user's own close button, observed through `dg_poll_events`' `DG_EVENT_WINDOW_CLOSED` (mirroring `WindowManager::request_close()`'s own async-via-`pump()` shape) - matching every prior example's own multi-window convention (`examples/01_sdl3_multi_window`), rather than inventing a second, synchronous close path nothing in this project's window layer offers. |
+| `dg_app_bind_shortcut` | design.md section 5.5.3's runtime-rebinding signature (`dg_app_t*, const dg_shortcut*, uint16_t`). 8-1 made the binding table GENERATED at build time from `input/shortcuts.toml`, and every shipped action already has a binding there - no host anywhere in this project needs a chord DIFFERENT from the generated table, so a C `dg_shortcut` struct here would be ABI surface invented for a caller that does not exist. PREREQUISITE: a host that genuinely needs a binding the generated table does not provide - a user-configurable keymap is the obvious one. |
 
 ## 7. `dg_dump_layout_tree`: what it actually reports, and what it honestly cannot
 
@@ -514,3 +515,79 @@ new surface compiles as C the same way the original acceptance criterion
 did. `abi.abi_lock` (this document's own section 1) correctly flagged the
 unrecorded append before `--write` was run - the mechanical proof this
 slice did not silently widen the ABI surface.
+
+## 13. (8-3d, append-only) The shortcut/action ABI lands
+
+design.md section 5.5.3 names four things; this slice builds three and
+declines the fourth (section 6's own new `dg_app_bind_shortcut` row).
+
+`dg_node_scope_action(dg_node_t*, uint16_t action_id)` wraps
+`dg::ActionScopes::scope()` unchanged - a new per-window side table
+(`WindowImpl::action_scopes`, the same per-window placement
+`theme_bindings` already has, for the identical reason: a `NodeId`
+numbering space belongs to one window's `RenderTree`). It requires a LIVE
+node (`DG_ERR_NO_WINDOW` otherwise), because `ActionScopes` is keyed by
+`dg::NodeId`, which a pending node does not have yet - the same rule
+`dg_node_set_prop()`'s `DG_VALUE_TOKEN` path already applies for the
+identical reason.
+
+`dg_shortcut_label(uint16_t action_id)` wraps `dg::shortcut_label()`
+(chord.h, unit-tested since 8-1/8-2) rather than re-implementing label
+generation, fixed to `Platform::kLinux` (the only backend this project
+builds - README's own "no platform abstraction ahead of a second backend").
+Its `const char*` lifetime is solved the SAME way `dg_last_error()` and
+`dg_dump_layout_tree()` already solve theirs: a `thread_local std::string`
+(`shortcut_label_storage()`) the C++ side owns, valid until the next call
+on that thread. An action_id no binding names returns NULL - a real lookup
+failure (mirroring `dg::shortcut_label()`'s own `std::optional` empty
+case), deliberately not an empty string, which would instead claim "this
+action has a binding with no displayable text", a different fact this ABI
+never needs to state.
+
+`DG_EVENT_ACTION` (`event_kind` = 3) is delivered through the existing
+`dg_poll_events()` queue - `dg_event::node` is the resolved target (null
+for a level-4 app-wide action), `dg_event::action_id` is the new field
+`dg_event` gained (appended after `y`; `abi.abi_lock`'s own append-only
+rule allows a struct field append unconditionally, confirmed by running
+`tools/abi_lock.py --check` against the addition before recording it).
+Producing it needed two small pieces of new plumbing inside `abi_impl.cpp`,
+neither of them new ABI surface: `WindowImpl` gained a `dg::Focus` (a
+pointer press on a focusable widget focuses it, blurring otherwise - the
+same rule `examples/21_focus`'s own `Scene::dispatch_pointer()` already
+applies, generalised to this ABI's own `process_pointer_event()`) so that
+`dg::route_key_event()`'s `focused` parameter has a real answer, and
+`process_key_event()`, this ABI's second caller of `route_key_event()`
+after `examples/10_scrolling`'s C++ one (8-3c) - gated to `KeyAction::kDown`
+only, since `route_key_event()` itself does not discriminate on it and a
+single key press must not fire its resolved action twice.
+
+Exercising this over a real SDL key event from pure C needed one more
+`dg_debug_*` function, the same narrow, named exception this file's own
+header already grants `dg_debug_warp_pointer`/`dg_debug_post_pointer_button`:
+`dg_debug_post_key()` wraps `WindowManager::post_logical_key()`, parsing its
+`logical_key_name` argument with `dg::parse_chord()` (the one existing
+parser for this grammar) and refusing a modifier chord or an unknown name
+with `DG_ERR_INVALID_ARGUMENT` - `post_logical_key()` itself has no
+modifier parameter, so this hook only ever exercises an unmodified app-scope
+chord (`PageUp`/`PageDown`/`Home`/`End`), not an arbitrary shortcut.
+
+`examples/19_c_client`'s `--verify-c-client` gained ten checks (10-3, 10-4):
+handle-validity for `dg_node_scope_action` (null and already-removed),
+scoping `DG_ACTION_SCROLL_PAGE_UP` onto a live button, focusing it with a
+real click, posting a real `PageUp` key, and receiving `DG_EVENT_ACTION`
+naming the right `action_id` and target node - plus `dg_shortcut_label()`
+for both a bound and an unassigned `action_id`. `dg_event::node`'s own
+summary in `abi/drawgui.def.toml` is corrected in the same change (it used
+to read "DG_EVENT_CLICK only; null otherwise", which `DG_EVENT_ACTION`'s
+own target-node use makes false), and `abi.no_drift`/`abi.abi_lock` both
+stayed green throughout - the append-only proof this slice, like 7-6
+before it, did not silently widen the ABI surface beyond what it records.
+
+`action_id` itself needed one generator addition this slice's own task
+description did not name up front: `tools/gen_abi.py` had re-emitted
+`prop_id`/`token_id` as C-compatible `#define`s from `gen_props`/`gen_theme`
+since 6-3/7-6, but never `action_id` from `gen_shortcuts` - a pure C caller
+had no way to spell `DG_ACTION_SCROLL_PAGE_UP` at all until this slice
+taught `gen_abi.py` to import `gen_shortcuts.load_definitions()` the
+identical way it already imports the other two, mirrored into
+`abi_lock.py` so the append-only guard covers it too.
