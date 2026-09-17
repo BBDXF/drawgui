@@ -224,6 +224,18 @@ class AnimationEngine {
   // apart: the first call did something.
   [[nodiscard]] AnimControlStatus cancel(AnimHandle handle);
 
+  // The per-node cancel node_lifecycle.h's on_node_removed() needs and
+  // this class did not have: every slot (explicit animate() or an
+  // in-flight implicit transition) currently animating `node`, cancelled -
+  // raising AnimEventKind::kCancelled for each exactly like cancel() does -
+  // and every DECLARED transition on `node` forgotten too, since a
+  // removed node has nothing left to retarget when a later add_child()
+  // reuses its numeric index for an unrelated one. A scan, not a lookup:
+  // `node` may be driving several (node, prop_id) pairs at once, the same
+  // reason ThemeBindings/ActionScopes keep a small vector per node rather
+  // than one slot.
+  void cancel_all_for(NodeId node);
+
   [[nodiscard]] bool is_active(AnimHandle handle) const;
 
   // dg_node_set_transition(). Persists until overwritten or cleared -
@@ -313,10 +325,16 @@ class AnimationEngine {
   std::vector<AnimSlot> slots_;
   std::vector<std::size_t> free_list_;
 
-  // Key: (node.value << 16) | prop_id - both fit comfortably (NodeId is a
-  // uint32_t but this project's scenes are nowhere near 2^16 nodes, and
-  // prop_id is a uint16_t by definition), and a combined integer key avoids a
-  // pair-hashing helper for a project with none anywhere else.
+  // Key: (node.index << 16) | prop_id. This is exact for the FULL 32-bit
+  // range of NodeId::index, not merely "comfortable" for a scene nowhere
+  // near 2^16 nodes - a claim this comment used to make and which 8-5's
+  // NodeId{index, generation} split makes worth re-deriving rather than
+  // re-typing: the shift promotes `node.index` to std::uint64_t BEFORE
+  // shifting it left 16 bits, so the result occupies bits 16..47 of a
+  // 64-bit key with no truncation at any index value a std::uint32_t can
+  // hold. The only real width constraint is on `prop_id`, which is
+  // uint16_t by definition and therefore always fits the low 16 bits with
+  // no possible collision against the shifted index above it.
   std::unordered_map<std::uint64_t, AnimTransition> transitions_;
   std::unordered_map<std::uint64_t, std::size_t> running_transition_slot_;
 

@@ -240,6 +240,34 @@ AnimControlStatus AnimationEngine::cancel(AnimHandle handle) {
   return AnimControlStatus::kOk;
 }
 
+void AnimationEngine::cancel_all_for(NodeId node) {
+  for (std::size_t i = 0; i < slots_.size(); ++i) {
+    AnimSlot& slot = slots_[i];
+    if (!slot.alive || slot.node != node) {
+      continue;
+    }
+    AnimEvent event;
+    event.node = slot.node;
+    event.prop_id = slot.prop_id;
+    event.kind = AnimEventKind::kCancelled;
+    if (slot.implicit) {
+      running_transition_slot_.erase(transition_key(slot.node, slot.prop_id));
+    } else {
+      event.handle = AnimHandle{static_cast<std::uint32_t>(i), slot.generation};
+    }
+    pending_events_.push_back(event);
+    free_slot(i);
+  }
+
+  for (auto it = transitions_.begin(); it != transitions_.end();) {
+    if ((it->first >> 16U) == node.index) {
+      it = transitions_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 bool AnimationEngine::is_active(AnimHandle handle) const {
   return valid(handle);
 }

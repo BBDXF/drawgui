@@ -91,6 +91,12 @@ class ThemeBindings {
   // diagnostic that wants to enumerate what one node is bound to.
   [[nodiscard]] std::vector<TokenBinding> bindings_for(NodeId node) const;
 
+  // node_lifecycle.h's on_node_removed() calls this on removal - the same
+  // "clear whatever this node had, so a recycled index does not inherit a
+  // stranger's bindings" shape ActionScopes::forget() already has. A no-op
+  // for a node that never had a binding.
+  void forget(NodeId node);
+
   // Re-resolves EVERY recorded binding against `theme`/`variant` and writes
   // the result through dg::set_prop() - the whole of a theme switch. Nodes
   // with no binding are untouched, exactly like an ordinary property write

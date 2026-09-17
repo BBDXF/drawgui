@@ -351,6 +351,14 @@ class WidgetSet {
  public:
   void attach(NodeId id, const Widget& widget);
 
+  // Drops `id`'s attached widget entirely, if any - node_lifecycle.h's
+  // on_node_removed() calls this so a slot RenderTree recycles for a later
+  // add_child() never inherits the removed occupant's Widget by accident.
+  // A no-op for an id that never had one attached (including one past the
+  // end of the table), the same "forget what was never there" shape
+  // ActionScopes::forget()/ThemeBindings::forget() already have.
+  void forget(NodeId id);
+
   [[nodiscard]] bool has(NodeId id) const;
   [[nodiscard]] std::size_t count() const;
   [[nodiscard]] const Widget& at(NodeId id) const;

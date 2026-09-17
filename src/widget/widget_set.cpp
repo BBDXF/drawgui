@@ -224,6 +224,13 @@ void WidgetSet::attach(NodeId id, const Widget& widget) {
   widgets_[id.index] = widget;
 }
 
+void WidgetSet::forget(NodeId id) {
+  if (id.index >= widgets_.size()) {
+    return;
+  }
+  widgets_[id.index].reset();
+}
+
 const Widget* WidgetSet::find(NodeId id) const {
   if (id.index >= widgets_.size()) {
     return nullptr;

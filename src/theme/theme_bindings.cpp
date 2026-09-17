@@ -102,6 +102,13 @@ std::vector<TokenBinding> ThemeBindings::bindings_for(NodeId node) const {
   return by_node_[node.index];
 }
 
+void ThemeBindings::forget(NodeId node) {
+  if (node.index >= by_node_.size()) {
+    return;
+  }
+  by_node_[node.index].clear();
+}
+
 std::size_t ThemeBindings::apply(LayoutTree& tree, const Theme& theme,
                                  ThemeVariant variant) const {
   std::size_t unresolved = 0;

@@ -79,4 +79,14 @@ PointerState Interaction::state_of(NodeId id) const {
   return state;
 }
 
+void Interaction::forget(NodeId id) {
+  if (hovered_ == id) {
+    hovered_.reset();
+  }
+  if (holding_ == id) {
+    holding_.reset();
+    holding_inside_ = false;
+  }
+}
+
 }  // namespace dg
