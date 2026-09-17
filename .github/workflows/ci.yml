@@ -43,8 +43,6 @@
 
 name: CI
 
-name: CI
-
 on:
   # master, not main - this repository's default branch. Listening on a branch
   # that does not exist is a workflow that never runs, silently.
