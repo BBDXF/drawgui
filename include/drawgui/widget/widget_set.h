@@ -577,6 +577,19 @@ class WidgetSet {
   bool text_field_move(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                        TextFieldMove move, bool extend_selection);
 
+  // Selects the field's ENTIRE text - anchor at byte 0, cursor at the end
+  // (input/shortcuts.toml's select_all, "Mod+A", ActionScope::kTextField;
+  // TextField is this action's own second consumer alongside 8-4's
+  // clipboard, per that file's own consumer field). Suppressed while
+  // composing, matching text_field_move()'s identical reasoning (selection
+  // navigation belongs to the IME's own clause/candidate selection while
+  // one is active). A no-op on an EMPTY field: there is nothing to select,
+  // and reporting a zero-width selection would look identical to no
+  // selection at all to every reader of TextSelection - the same "was
+  // this worth a repaint" signal scroll_by()/set_slider_value() already
+  // give a caller.
+  bool text_field_select_all(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
   // Click-to-position: sets the cursor to the byte offset of whichever
   // grapheme-cluster boundary is nearest `pointer_x` (ABSOLUTE device
   // pixels - the same coordinate a PointerEvent carries) - never a byte

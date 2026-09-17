@@ -1052,6 +1052,24 @@ bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, Node
   return true;
 }
 
+bool WidgetSet::text_field_select_all(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
+    return false;
+  }
+  const int size = static_cast<int>(widget->text.size());
+  if (size == 0) {
+    return false;
+  }
+  if (widget->selection_anchor == 0 && widget->cursor == size) {
+    return false;
+  }
+  widget->selection_anchor = 0;
+  widget->cursor = size;
+  text_field_refresh_display(tree, fonts, id, *widget, true);
+  return true;
+}
+
 bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                  int pointer_x, bool extend_selection) {
   Widget* widget = find(id);
