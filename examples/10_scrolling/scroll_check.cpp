@@ -11,6 +11,12 @@
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_ids.generated.h"
+#include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/shortcuts/keyboard_scroll.h"
+#include "drawgui/shortcuts/logical_key.generated.h"
+#include "drawgui/shortcuts/router.h"
+#include "drawgui/window/window_manager.h"
 
 #include "scroll_scene.h"
 
@@ -318,6 +324,92 @@ bool check_identity(std::ostream& out) {
   return true;
 }
 
+// --------------------------------------------------------------------------
+// Claim 6: keyboard scrolling (8-3c), through the ACTUAL event pipeline -
+// WindowManager::post_key()/post_logical_key() onto the real SDL3 event
+// queue, pump()'d back as a real dg::KeyEvent, then dg::route_key_event()
+// (the shortcut router's second consumer) and dg::apply_keyboard_scroll() -
+// not a KeyEvent built by hand, matching examples/21_focus's own
+// check_real_tab_key_event() precedent for proving a path a user actually
+// takes rather than one shaped to make the code look good.
+// --------------------------------------------------------------------------
+
+bool check_keyboard_scroll_end_to_end(std::ostream& out) {
+  dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
+  if (!made.has_value()) {
+    out << "  FAIL: could not start the window system: " << made.error().message << "\n";
+    return false;
+  }
+  dg::WindowManager manager = std::move(made.value());
+  dg::WindowSpec spec;
+  spec.title = "scrolling (headless, keyboard)";
+  spec.width = kSize.width;
+  spec.height = kSize.height;
+  const dg::Expected<dg::WindowId, dg::WindowError> window = manager.open(spec);
+  if (!window.has_value()) {
+    out << "  FAIL: could not open a window: " << window.error().message << "\n";
+    return false;
+  }
+
+  scroll_scene::Scene scene = scroll_scene::build(spec_for(kSize));
+  // No dg::Focus here, on purpose: route_key_event()'s `focused` parameter
+  // is just the NodeId level 2 bubbles from, the identical thing this
+  // file's own check_hit_follows_offset() passes a plain NodeId for above -
+  // whether that id came from dg::Focus::current() or, as here, from
+  // "whichever item the test wants focused" makes no difference to the
+  // router, which never calls into dg::Focus at all.
+  const dg::NodeId focused = scene.handles.vertical_items[7];
+  const dg::PixelRect viewport_content =
+      scene.tree.content_bounds(scene.handles.vertical_viewport);
+
+  manager.post_logical_key(window.value(), /*down=*/true, dg::LogicalKey::kPageDown);
+  const dg::PumpResult pumped = manager.pump(200);
+
+  bool saw_page_down = false;
+  bool ok = true;
+  for (const dg::KeyEvent& event : pumped.key) {
+    if (event.logical_key != dg::LogicalKey::kPageDown) {
+      continue;
+    }
+    saw_page_down = true;
+
+    const dg::ActionScopes scopes;  // these four actions are app-scope; none is registered
+    const dg::RoutingContext ctx{scene.tree.render(), scene.widgets, scopes,
+                                 dg::all_shortcut_bindings()};
+    const dg::KeyRouteResult routed = dg::route_key_event(event, window.value(), focused, ctx);
+    if (routed.outcome != dg::KeyRouteOutcome::kRouted || !routed.action.has_value() ||
+        routed.action->action_id != DG_ACTION_SCROLL_PAGE_DOWN) {
+      out << "  FAIL: the real posted PageDown did not route to scroll_page_down\n";
+      ok = false;
+      continue;
+    }
+    if (!dg::apply_keyboard_scroll(routed.action->action_id, focused, scene.tree,
+                                   scene.widgets)) {
+      out << "  FAIL: apply_keyboard_scroll reported no movement for a fresh viewport\n";
+      ok = false;
+    }
+  }
+  if (!saw_page_down) {
+    out << "  FAIL: a posted SDLK_PAGEDOWN never round-tripped through pump() as a KeyEvent\n";
+    ok = false;
+  }
+
+  const dg::PixelPoint offset =
+      scene.tree.render().scroll_offset(scene.handles.vertical_viewport);
+  if (offset.y != viewport_content.height) {
+    out << "  FAIL: keyboard PageDown moved the vertical viewport by " << offset.y
+        << " px, expected exactly one viewport height (" << viewport_content.height << ")\n";
+    ok = false;
+  }
+
+  if (ok) {
+    out << "  OK: a real SDLK_PAGEDOWN, posted onto the platform's own event queue and pumped "
+           "back, routed through route_key_event() to scroll_page_down and scrolled the "
+           "focused item's scroll view by exactly one viewport height\n";
+  }
+  return ok;
+}
+
 }  // namespace
 
 int run(std::ostream& out) {
@@ -329,6 +421,7 @@ int run(std::ostream& out) {
   ok = check_horizontal_axis(out) && ok;
   ok = check_no_relayout(out) && ok;
   ok = check_identity(out) && ok;
+  ok = check_keyboard_scroll_end_to_end(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;
 }
