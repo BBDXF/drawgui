@@ -604,7 +604,8 @@ def render_header(defs: Definitions) -> str:
     lines.append("#define DG_TOKEN_INVALID 0")
     lines.append("")
     for token in defs.tokens.tokens:
-        lines.append(f"/* {token.summary} */")
+        for wrapped in _wrap(token.summary):
+            lines.append(f"/* {wrapped} */")
         lines.append(f"#define {token.constant} {token.id}")
     lines.append("")
     lines.append("#endif /* !__cplusplus */")

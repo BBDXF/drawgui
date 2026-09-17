@@ -362,7 +362,8 @@ typedef uint16_t dg_prop_id;
 typedef uint16_t dg_token_id;
 #define DG_TOKEN_INVALID 0
 
-/* The default background a panel/window paints - NodeStyle::fill's usual source. */
+/* The default background a panel/window paints - NodeStyle::fill's usual */
+/* source. */
 #define DG_TOKEN_COLOR_SURFACE 1
 /* Text/icon colour painted on top of color.surface. */
 #define DG_TOKEN_COLOR_ON_SURFACE 2
@@ -372,9 +373,11 @@ typedef uint16_t dg_token_id;
 #define DG_TOKEN_COLOR_PRIMARY 4
 /* Text/icon colour painted on top of color.primary. */
 #define DG_TOKEN_COLOR_ON_PRIMARY 5
-/* color.primary's hovered state - a distinct token per section 5.11.4, not an alpha expression. */
+/* color.primary's hovered state - a distinct token per section 5.11.4, not an */
+/* alpha expression. */
 #define DG_TOKEN_COLOR_PRIMARY_HOVER 6
-/* color.primary's pressed state - a distinct token per section 5.11.4, not an alpha expression. */
+/* color.primary's pressed state - a distinct token per section 5.11.4, not an */
+/* alpha expression. */
 #define DG_TOKEN_COLOR_PRIMARY_PRESSED 7
 /* A small corner radius - chips, small controls. */
 #define DG_TOKEN_RADIUS_SM 8
@@ -384,7 +387,11 @@ typedef uint16_t dg_token_id;
 #define DG_TOKEN_SPACE_SM 10
 /* The default spacing unit - ordinary gaps and padding. */
 #define DG_TOKEN_SPACE_MD 11
-/* The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (doc/focus.md section 5: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are). */
+/* The keyboard focus indicator (7-4) - a visible ring outset around whichever */
+/* widget dg::Focus currently names, read directly via Theme::color_value() */
+/* rather than through a $token live binding (doc/focus.md section 5: the ring */
+/* is paint/positioning state with no LayoutTree node of its own, the same shape */
+/* TextField's caret/selection_highlight already are). */
 #define DG_TOKEN_COLOR_FOCUS_RING 12
 
 #endif /* !__cplusplus */
