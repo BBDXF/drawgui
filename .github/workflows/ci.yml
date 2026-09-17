@@ -13,8 +13,10 @@
 name: CI
 
 on:
+  # master, not main - this repository's default branch. Listening on a branch
+  # that does not exist is a workflow that never runs, silently.
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 concurrency:
@@ -445,3 +447,46 @@ jobs:
           fi
           echo "$files"
           clang-tidy -p build $files
+
+  identity:
+    name: commit identity
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 because this checks EVERY commit, not just the tip.
+      # A shallow clone would let an older bad commit ride in unexamined,
+      # which is the case a force-push is most likely to introduce.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # This repository's history was once rewritten wholesale to remove an
+      # employer address that a machine's global git identity had written into
+      # 184 of 185 commits. .githooks/pre-commit refuses the first wrong commit
+      # locally, but a client-side hook is skipped by `--no-verify` and does not
+      # travel with a clone. This job is the check that cannot be bypassed by
+      # the person making the commit, so it is the one that actually holds.
+      #
+      # Author AND committer are both checked: a rebase, an amend or a
+      # cherry-pick rewrites the committer while leaving the author alone, so
+      # checking only one leaves half the surface open.
+      - name: Every commit is authored by this repository's identity
+        run: |
+          expected='BBDXF <4433613+BBDXF@users.noreply.github.com>'
+          bad=0
+          while IFS='|' read -r sha author committer; do
+            if [ "$author" != "$expected" ]; then
+              echo "::error::$sha author is '$author', expected '$expected'"
+              bad=1
+            fi
+            if [ "$committer" != "$expected" ]; then
+              echo "::error::$sha committer is '$committer', expected '$expected'"
+              bad=1
+            fi
+          done <<< "$(git log --format='%H|%an <%ae>|%cn <%ce>')"
+          if [ "$bad" -ne 0 ]; then
+            echo "Rewriting published history is the only fix once this lands," >&2
+            echo "which is why .githooks/pre-commit exists. Enable it with:" >&2
+            echo "  git config core.hooksPath .githooks" >&2
+            exit 1
+          fi
+          echo "$(git rev-list --count HEAD) commits, all correctly attributed."

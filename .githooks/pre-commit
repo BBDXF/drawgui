@@ -1,0 +1,58 @@
+#!/bin/sh
+# Refuse a commit authored by anyone but this repository's single identity.
+#
+# WHY THIS EXISTS: this repository's history was once written under a machine's
+# global git identity, which carried an employer address into 184 of 185
+# commits and had to be removed by rewriting every one of them. Rewriting
+# published history is the expensive fix; refusing the first wrong commit is
+# the cheap one. A global `user.email` is inherited silently by any clone whose
+# owner forgets to set a local one, so the failure mode is not carelessness but
+# a default doing exactly what it is designed to do.
+#
+# WHAT THIS CANNOT DO, stated plainly rather than discovered later:
+#
+#   1. `git commit --no-verify` skips it. Every client-side hook can be
+#      bypassed by the person running it, so this is a guardrail against
+#      accident, never a control against intent.
+#   2. It does not travel with a clone. `.git/hooks/` is not tracked, which is
+#      why this file lives in `.githooks/` and needs one command per clone:
+#          git config core.hooksPath .githooks
+#      `doc/development.md` names that command in the setup steps.
+#   3. It sees only the commit being made now. History already written is out
+#      of its reach.
+#
+# The check that closes all three is server-side: `.github/workflows/ci.yml`'s
+# `identity` job re-reads every pushed commit's author and committer. A commit
+# that slips past this hook still fails there.
+
+set -eu
+
+expected_name='BBDXF'
+expected_email='4433613+BBDXF@users.noreply.github.com'
+
+# `git var` is used rather than `git config user.email` because it resolves the
+# identity the commit will ACTUALLY carry - including the EMAIL/GIT_AUTHOR_EMAIL
+# environment overrides and the local/global/system config precedence chain.
+# Reading the config alone would pass a commit that the environment then
+# authored under a different address, which is the exact case worth catching.
+actual_author=$(git var GIT_AUTHOR_IDENT | sed 's/ [0-9]* [-+][0-9]*$//')
+actual_committer=$(git var GIT_COMMITTER_IDENT | sed 's/ [0-9]* [-+][0-9]*$//')
+expected="${expected_name} <${expected_email}>"
+
+fail() {
+  echo "pre-commit: refusing this commit." >&2
+  echo >&2
+  echo "  expected $2: ${expected}" >&2
+  echo "  actual   $2: $1" >&2
+  echo >&2
+  echo "Set this repository's own identity - not the global one, which is" >&2
+  echo "what this hook exists to stop leaking in:" >&2
+  echo >&2
+  echo "  git config --local user.name  '${expected_name}'" >&2
+  echo "  git config --local user.email '${expected_email}'" >&2
+  echo >&2
+  exit 1
+}
+
+[ "${actual_author}" = "${expected}" ] || fail "${actual_author}" "author"
+[ "${actual_committer}" = "${expected}" ] || fail "${actual_committer}" "committer"

@@ -1,5 +1,28 @@
 # Development
 
+## First thing after cloning
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`.git/hooks/` is not tracked, so a hook cannot travel with a clone; this command
+is what points git at the tracked `.githooks/` directory instead. It is one
+command and it is easy to skip, which is precisely why the check it enables is
+not the only one — see below.
+
+`.githooks/pre-commit` refuses a commit whose author or committer is not this
+repository's identity. It exists because a machine's global `user.email` is
+inherited silently by any clone without a local one, and this project has
+already paid for that once: an employer address reached 184 of 185 commits and
+came out only by rewriting every one of them.
+
+A client-side hook is a guardrail, not a control — `git commit --no-verify`
+skips it, and someone who never ran the command above never had it. The check
+that actually holds is `.github/workflows/ci.yml`'s `identity` job, which
+re-reads the author and committer of every pushed commit and cannot be skipped
+by the person making them.
+
 ## Skia dependency
 
 Skia is consumed as `BBDXF/libskia2` via `cmake/FetchSkia2.cmake` +
