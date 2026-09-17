@@ -1,8 +1,13 @@
 // Shortcut/intent generator family (8-1, design.md sections 5.5.1-5.5.3):
 // action_id, LogicalKey, ActionScope, the binding table, and the chord
 // parser/formatter that proves the `Mod` substitution rule without a
-// macOS machine. Deliberately does NOT touch routing, KeyEvent, or the C
-// ABI - none of that exists yet (8-2/8-3/8-3d).
+// macOS machine. 8-2 (the "compose a KeyEvent into a Chord" case below)
+// extends this file rather than adding tests/unit/test_key_event.cpp: this
+// file already owns Modifier/Chord/LogicalKey's identity, and the one new
+// property 8-2 adds - a real KeyEvent's mods+logical_key equal a real
+// parsed Chord - is a fact about those same three types, not a new
+// subsystem. Routing (walking Focus/RenderTree/app tables) and the C ABI
+// are still out of scope here (8-3/8-3d).
 //
 // `dg_shortcut_label`'s ABI export is declined for this slice by name (see
 // include/drawgui/shortcuts/chord.h's own comment); shortcut_label() below
@@ -18,6 +23,7 @@
 #include "drawgui/shortcuts/action_scope.generated.h"
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/logical_key.generated.h"
+#include "drawgui/window/window_manager.h"
 
 namespace {
 
@@ -133,4 +139,50 @@ TEST_CASE("no two actions share a chord within the same scope") {
       CHECK_FALSE((same_scope && same_chord));
     }
   }
+}
+
+TEST_CASE("KeyEvent::mods reports each Modifier bit independently") {
+  // 8-2: `mods` replaced KeyEvent's old single `shift` bool with the same
+  // dg::Modifier bitmask chord.h already defines - this proves has() reads
+  // it exactly as any other Modifier set, with no KeyEvent-specific logic
+  // in between.
+  dg::KeyEvent event;
+  event.mods = Modifier::kMod | Modifier::kShift;
+  CHECK(dg::has(event.mods, Modifier::kMod));
+  CHECK(dg::has(event.mods, Modifier::kShift));
+  CHECK_FALSE(dg::has(event.mods, Modifier::kAlt));
+}
+
+TEST_CASE("KeyEvent::mods defaults to kNone, which reports every bit absent") {
+  const dg::KeyEvent event;
+  CHECK(event.mods == Modifier::kNone);
+  CHECK_FALSE(dg::has(event.mods, Modifier::kMod));
+  CHECK_FALSE(dg::has(event.mods, Modifier::kShift));
+  CHECK_FALSE(dg::has(event.mods, Modifier::kAlt));
+}
+
+TEST_CASE("a KeyEvent's mods and logical_key compose into the Chord a binding parses to") {
+  // This is the exact operation 8-3's router will perform against a real
+  // KeyEvent: build a Chord from what the platform layer already
+  // populated, then compare it to a parsed binding. Proving it here, on a
+  // hand-built KeyEvent rather than a real SDL one, is what makes 8-2's
+  // plumbing independently meaningful - see this file's own top comment.
+  dg::KeyEvent event;
+  event.mods = Modifier::kMod | Modifier::kShift;
+  event.logical_key = LogicalKey::kC;
+
+  const Chord from_event{event.mods, event.logical_key};
+  const auto parsed = dg::parse_chord("Mod+Shift+C");
+  REQUIRE(parsed.has_value());
+  CHECK(from_event == *parsed);
+}
+
+TEST_CASE("KeyEvent::logical_key defaults to kInvalid for a key with no shortcut binding") {
+  // dg::Key::kEscape has an editing-intent meaning (PopupHost dismissal)
+  // but is not itself a shortcut binding in input/shortcuts.toml, so a
+  // KeyEvent nobody has assigned a logical_key to reports kInvalid -
+  // LogicalKey's own generated header's "no enumerator without a real
+  // consumer" policy, restated as a default rather than a mapping.
+  const dg::KeyEvent event{dg::WindowId{}, dg::KeyAction::kDown, dg::Key::kEscape};
+  CHECK(event.logical_key == LogicalKey::kInvalid);
 }
