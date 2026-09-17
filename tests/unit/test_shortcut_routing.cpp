@@ -288,4 +288,44 @@ TEST_SUITE("shortcut routing") {
       CHECK(routed.action->action_id == DG_ACTION_SCROLL_TO_START);
     }
   }
+
+  TEST_CASE(
+      "8-3b IME isolation, proven by defect injection: composing makes the router "
+      "unreachable even for a chord the focused node itself scopes") {
+    // The field scopes DG_ACTION_SELECT_ALL onto ITSELF and the event below
+    // is exactly Mod+A - if route_key_event()'s composing check were ever
+    // skipped, level 2 would find this and resolve it. That is the whole
+    // point of the fixture: a router that "accidentally" ran during
+    // composition would not go unnoticed by returning nullopt for an
+    // unrelated chord, it would visibly fire select_all.
+    FieldScene scene = build_field("hello");
+    scene.widgets.text_field_composition_update(scene.tree, scene.fonts, scene.field, "X", 0,
+                                                1);
+    REQUIRE(scene.widgets.text_field_is_composing(scene.field));
+
+    ActionScopes scopes;
+    scopes.scope(scene.field, DG_ACTION_SELECT_ALL);
+    const RoutingContext ctx{scene.tree, scene.widgets, scopes, dg::all_shortcut_bindings()};
+
+    const KeyEvent select_all_event{kWindow, KeyAction::kDown, Key::kOther, Modifier::kMod,
+                                    LogicalKey::kA};
+    const dg::KeyRouteResult routed_select_all =
+        dg::route_key_event(select_all_event, kWindow, scene.field, ctx);
+    CHECK(routed_select_all.outcome == KeyRouteOutcome::kIme);
+    CHECK_FALSE(routed_select_all.action.has_value());
+
+    // design.md 5.5.2: Escape belongs to the candidate window during
+    // composition too, even though outside composition it is PopupHost's
+    // own dismissal key and carries no shortcut binding at all.
+    const KeyEvent escape_event{kWindow, KeyAction::kDown, Key::kEscape, Modifier::kNone,
+                                LogicalKey::kInvalid};
+    const dg::KeyRouteResult routed_escape =
+        dg::route_key_event(escape_event, kWindow, scene.field, ctx);
+    CHECK(routed_escape.outcome == KeyRouteOutcome::kIme);
+    CHECK_FALSE(routed_escape.action.has_value());
+
+    // Neither call touched the composition - it survives exactly as it was.
+    CHECK(scene.widgets.text_field_is_composing(scene.field));
+    CHECK(scene.widgets.text_field_composition_text(scene.field) == "X");
+  }
 }
