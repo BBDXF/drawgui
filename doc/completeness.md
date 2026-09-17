@@ -669,3 +669,23 @@ row. Zero new `RenderObject`/node/`WidgetKind` kinds - the streak this
 section's own audit measured through 7-5b (a twenty-first consecutive
 slice) extends to a **twenty-second**, and phase 7 closes here.
 `doc/theme-packages.md` has the full record.
+
+> **P7 7-7 cross-reference (append-only; added AFTER phase 7's own closing
+> note above - the closing note itself was not wrong, this slice was
+> commissioned afterward)**: `examples/25_showcase` is the first example
+> to combine two or more non-trivial features in one running scene rather
+> than measuring one at a time, closing the gap this whole document's own
+> methodology (one audit, one feature at a time) never named because it
+> was never asked to. Zero new `RenderObject`/node/`WidgetKind` kinds - a
+> twenty-third consecutive slice, `WidgetKind` still exactly 9. One real,
+> previously-unobserved cross-feature interaction was found and recorded
+> rather than fixed: a theme switch mid-flight of an active
+> `AnimationEngine` transition on the SAME bound property is overwritten
+> by the transition's own next `tick()` within one frame - neither system
+> is wrong per its own contract, and no prior slice's own test or example
+> ever ran both against the same property at once to notice. Full record,
+> including which combinations composed for free (dropdown-over-scrolled-
+> list, modal-dialog-plus-IME-composition, Tab-into-a-recycling-kList,
+> wrapped-CJK-text-plus-shadow) and which were deliberately not built
+> (a tooltip anchored inside a clipped/scrolled region; a native dialog in
+> the interactive driver), in `doc/showcase.md`.
