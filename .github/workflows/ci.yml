@@ -10,6 +10,17 @@
 # A job would be red by construction otherwise, so it is added together with
 # the mapping rather than before it. See doc/skia-dependency.md section 7.
 
+# The build and sanitize matrices are gcc-only, halving CI wall-clock at the
+# owner's request. clang is still installed for the clang-tidy job, which is
+# a linter with no gcc equivalent, so that toolchain stays exercised.
+#
+# One documented property loses its continuous check by this: the golden
+# images are byte-identical across gcc AND clang, which is what makes
+# zero-tolerance pixel comparison defensible. That is still true and is still
+# the reason for zero tolerance, but only the gcc half is verified on every
+# push now. Restore a clang build job if a golden baseline is ever suspected
+# of being compiler-dependent.
+
 name: CI
 
 on:
@@ -25,12 +36,11 @@ concurrency:
 
 jobs:
   build:
-    name: linux / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    name: linux / gcc / ${{ matrix.build_type }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc, clang]
         build_type: [Debug, Release]
 
     steps:
@@ -40,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build clang clang-tidy libfreetype-dev libfontconfig1-dev
+            ninja-build libfreetype-dev libfontconfig1-dev
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
@@ -64,12 +74,10 @@ jobs:
           key: skia-${{ runner.os }}-${{ hashFiles('cmake/FetchSkia2.cmake') }}
 
       - name: Configure
+        env:
+          CC: gcc
+          CXX: g++
         run: |
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
-            export CC=clang CXX=clang++
-          else
-            export CC=gcc CXX=g++
-          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DDRAWGUI_WERROR=ON
@@ -86,17 +94,13 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: golden-output-${{ matrix.compiler }}-${{ matrix.build_type }}
+          name: golden-output-gcc-${{ matrix.build_type }}
           path: build/tests/golden-output/
           if-no-files-found: ignore
 
   sanitize:
-    name: sanitize / ${{ matrix.compiler }} / ASan+UBSan
+    name: sanitize / gcc / ASan+UBSan
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        compiler: [gcc, clang]
 
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +109,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build clang clang-tidy libfreetype-dev libfontconfig1-dev
+            ninja-build libfreetype-dev libfontconfig1-dev
 
       # Allowed to be absent. libsdl3-dev first appears in the Ubuntu archive
       # in questing (25.10) and the runner image is older, so on today's image
@@ -129,12 +133,10 @@ jobs:
       # DG_SANITIZE forces -g independently of the build type, so the traces
       # carry line numbers either way.
       - name: Configure
+        env:
+          CC: gcc
+          CXX: g++
         run: |
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
-            export CC=clang CXX=clang++
-          else
-            export CC=gcc CXX=g++
-          fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DDRAWGUI_WERROR=ON \
@@ -153,7 +155,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: golden-output-sanitize-${{ matrix.compiler }}
+          name: golden-output-sanitize-gcc
           path: build/tests/golden-output/
           if-no-files-found: ignore
 
