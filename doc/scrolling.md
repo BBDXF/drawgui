@@ -540,3 +540,81 @@ MVP controls.
 ordinals, refused where a node arranges its own children, refused on an
 out-of-range ordinal. The scroll OFFSET itself was never a property
 candidate; section 2 is the argument.
+
+## 12. Cross-reference: 8-3c landed - keyboard scrolling, closing section 1's own decline (append-only)
+
+Sections 1-11 above are 4-7's own record, unedited. Section 1 named the
+precondition in full: "design.md routes these through the intent mechanism
+(§5.5.1). §5.5.1 does not exist... this is not a scoping choice this slice
+makes; it is a precondition the intent-binding slice has to supply first."
+8-1/8-2/8-3/8-3b (`input/shortcuts.toml`, `KeyEvent::mods`/`logical_key`,
+`dg::route_key_event()`) built that precondition; 8-3c is the slice that
+consumes it, as the router's SECOND real consumer (its first being its own
+IME-isolation proof, 8-3b's defect-injection test).
+
+**The target is the nearest scrollable ancestor of the FOCUSED node, not
+the pointer** - a DIFFERENT half of design.md's own keyboard-scrolling row
+from the "wheel targets the ancestor under the pointer" half section 1
+already built and closed. `dg::is_focusable()` (`widget/focus.h`) returns
+false for `kScrollView`, so "scroll the focused viewport" was never
+available; the only coherent reading left is climbing from whatever
+non-scrollable widget DOES hold focus to its nearest scrollable ancestor -
+`WidgetSet::scrollable_owner_of()`, the SAME climb wheel scrolling already
+uses, started from a different node. No second mechanism, matching this
+document's own standing argument (section 5, section 7) that a shape
+already built composes rather than needing a sibling built to match it.
+`src/shortcuts/keyboard_scroll.cpp`'s `apply_keyboard_scroll()` is the one
+new function this needed: given a resolved `scroll_page_up/down/
+to_start/to_end` action and the focused node, it re-derives the target
+from `focused` (never from `ResolvedAction::target`, which is always
+`std::nullopt` for these four app-scope actions) and calls the existing
+`WidgetSet::scroll_by()` - clamping is inherited, not reimplemented.
+
+**Vertical axis only, declined by the same mechanism rather than a special
+case.** PageUp/PageDown/Home/End are this project's (and every desktop
+toolkit's) vertical-scroll convention; `input/shortcuts.toml` defines
+exactly these four actions, none for a horizontal equivalent, so none was
+built. No code decides this: `apply_keyboard_scroll()` always passes
+`dx = 0`, and `scroll_by()`'s own axis gate - "Only the axis `scroll_axis`
+names moves; the other delta is ignored", unchanged since section 1 -
+already makes a horizontal-only scrollable ancestor a silent no-op through
+the identical path a vertical one is scrolled by.
+
+**A legitimate no-op, proven rather than assumed.** Nothing focused, or a
+focused node with no scrollable ancestor, both return `false` from
+`apply_keyboard_scroll()` and move nothing - no fallback target ("the
+first/only scroll view in the tree") was invented, matching this
+document's own section 1 precedent for nested-scroll delegation ("a small,
+well-scoped addition once there is a real ... scene to drive it" - here,
+there is no real caller for a fallback target at all, so none exists).
+
+**Zero relayout, re-measured for the keyboard path specifically.** Section
+4's claim - `RenderTree::set_scroll_offset()` never reaches
+`LayoutTree::set_box()`/`mark_needs_layout()` - was established for wheel
+scrolling and nested-scroll geometry; `apply_keyboard_scroll()` calls the
+identical `scroll_by()`, so the claim carries over unchanged, and
+`examples/10_scrolling --verify-scrolling`'s new keyboard-scroll check
+confirms it directly: `LayoutStats::nodes_visited == 0` and
+`nodes_relaid_out == 0` across a keyboard PageDown, the same two numbers
+section 4 already reports for a wheel scroll.
+
+**One platform seam this slice needed and section 1 did not anticipate:**
+driving a real `PageDown` through `WindowManager::post_key()` (the way
+every other headless CTest check in this project proves a path a user
+actually takes, not a hand-built `KeyEvent`) found that `post_key()`'s
+existing signature takes a `dg::Key` (window_manager.h's own editing-intent
+enum), which has no PageUp/PageDown enumerator at all - correctly, since
+neither is a text-editing intent. `WindowManager::post_logical_key()` is
+the new, narrow overload this needed, and `from_logical_key()`
+(`src/platform/sdl3/window_manager.cpp`) is the reverse of `to_logical_key()` -
+a mapping 8-2's own comment had explicitly declined to build ("nothing
+calls it yet"), closed here by its first real caller, the same "declined
+by name until a real consumer" discipline this document's own section 1
+already modelled for six other rows.
+
+Section 10's "what this does not do" list is corrected by exactly one
+word: keyboard scrolling is no longer on it. Fling/decay, overscroll
+rebound animation, nested-scroll delegation, scroll anchoring and
+scrollbar-geometry-as-layout-input remain exactly as section 1 left them -
+this paragraph closes one gap, not five.
+
