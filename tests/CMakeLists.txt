@@ -90,6 +90,7 @@ add_executable(drawgui_unit_test
   unit/test_dropdown.cpp
   unit/test_tooltip.cpp
   unit/test_shortcuts.cpp
+  unit/test_shortcut_routing.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp

@@ -191,7 +191,9 @@ add_library(drawgui STATIC
   src/render/render_tree.cpp
   src/render/skia_paint.cpp
   src/render/tree_paint.cpp
+  src/shortcuts/action_scopes.cpp
   src/shortcuts/chord.cpp
+  src/shortcuts/router.cpp
   src/theme/mini_json.cpp
   src/theme/theme.cpp
   src/theme/theme_bindings.cpp
