@@ -235,12 +235,7 @@ Modifier to_modifier(SDL_Keymod sdl_mods) {
 // platform-defined set, so `default:` is what reports "no shortcut key"
 // here, the same way to_key()'s own `default:` reports "no editing intent" -
 // LogicalKey itself is the closed side of this mapping, not this switch's
-// input. A reverse mapping (LogicalKey -> SDL_Keycode, from_key()'s own
-// shape) is declined for this slice by name: nothing calls it yet - 8-2
-// only needs a real SDL key event to acquire a LogicalKey, never the other
-// direction - and an unused function that only exists to be "exhaustive"
-// would fail this project's own -Wunused gate the moment it is added
-// without a caller.
+// input.
 LogicalKey to_logical_key(SDL_Keycode keycode) {
   switch (keycode) {
     case SDLK_A:
@@ -262,6 +257,38 @@ LogicalKey to_logical_key(SDL_Keycode keycode) {
     default:
       return LogicalKey::kInvalid;
   }
+}
+
+// LogicalKey -> SDL_Keycode, from_key()'s own shape, over the identical
+// set to_logical_key() maps in the other direction - post_logical_key()'s
+// own real caller (8-3c's keyboard-scrolling check, examples/10_scrolling)
+// is what makes this worth building now: PageUp/PageDown have no `Key`
+// (this file's own editing-intent enum) enumerator at all, so post_key()'s
+// existing `from_key()` cannot drive them onto the platform's own event
+// queue. `kInvalid` falls to `SDLK_UNKNOWN`, the same "no real key behind
+// this value" answer `from_key(Key::kOther)` already gives for itself.
+SDL_Keycode from_logical_key(LogicalKey key) {
+  switch (key) {
+    case LogicalKey::kA:
+      return SDLK_A;
+    case LogicalKey::kC:
+      return SDLK_C;
+    case LogicalKey::kEnd:
+      return SDLK_END;
+    case LogicalKey::kHome:
+      return SDLK_HOME;
+    case LogicalKey::kPageDown:
+      return SDLK_PAGEDOWN;
+    case LogicalKey::kPageUp:
+      return SDLK_PAGEUP;
+    case LogicalKey::kV:
+      return SDLK_V;
+    case LogicalKey::kX:
+      return SDLK_X;
+    case LogicalKey::kInvalid:
+      break;
+  }
+  return SDLK_UNKNOWN;
 }
 
 // PointerButton <-> SDL_BUTTON_*, 7-5b's own prerequisite (doc/menus.md
@@ -768,6 +795,20 @@ void WindowManager::post_key(WindowId id, bool down, Key key, bool shift) {
   event.key.windowID = id.value;
   event.key.key = from_key(key);
   event.key.mod = shift ? SDL_KMOD_SHIFT : SDL_KMOD_NONE;
+  event.key.down = down;
+  SDL_PushEvent(&event);
+}
+
+void WindowManager::post_logical_key(WindowId id, bool down, LogicalKey key) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  SDL_Event event{};
+  event.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+  event.key.windowID = id.value;
+  event.key.key = from_logical_key(key);
+  event.key.mod = SDL_KMOD_NONE;
   event.key.down = down;
   SDL_PushEvent(&event);
 }

@@ -606,6 +606,22 @@ class WindowManager {
   // either.
   void post_key(WindowId id, bool down, Key key, bool shift);
 
+  // The identical route post_key() uses, for a key that carries a
+  // `LogicalKey` (8-3c's own shortcut keys - PageUp/PageDown, which
+  // input/shortcuts.toml binds and `Key` (this file's own editing-intent
+  // enum, above) has no case for) rather than a `dg::Key` editing intent.
+  // Kept a separate overload rather than widening `Key` with a PageUp/
+  // PageDown enumerator: `Key`'s own comment already states every
+  // enumerator needs a real editing-intent consumer, and neither
+  // `is_text_editing_intent()` (router.cpp) nor any other switch over `Key`
+  // would ever gain a case for a key that is a shortcut, not an editing
+  // intent - the identical "no enumerator without a real consumer" policy
+  // `LogicalKey`'s own generated header already states for itself. Gives
+  // `to_logical_key()`'s reverse mapping (SDL3's own window_manager.cpp)
+  // its first real caller - previously declined by name for exactly that
+  // reason ("nothing calls it yet").
+  void post_logical_key(WindowId id, bool down, LogicalKey key);
+
   // Puts committed text on the platform's own event queue as a real
   // SDL_EVENT_TEXT_INPUT, the same route post_key() uses.
   void post_text_input(WindowId id, const std::string& text);
