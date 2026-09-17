@@ -733,6 +733,55 @@ still the one thing `dg_node_remove()` cannot do), GPU/Ganesh-GL
 rendering (still CPU raster only), `transform`, and Windows/macOS
 verification of anything built across this entire phase.
 
+Added after phase 7's own closing note above, as a follow-on slice (7-7,
+not part of the four owner-stated priorities phase 7 itself closed):
+`examples/25_showcase` is where a new reader should start now. Every
+example before it, including phase 7's own nine, is a single-slice
+measuring instrument - `05_widgets` exists to run `--verify-widgets`/
+`--clip-probe`/`--damage-cost`, `16_complex_properties` is a 100-frame
+byte-identity suite, and so on. An audit commissioning this slice found
+that none of them puts two non-trivial features together in one running
+scene, which is a demo gap but more importantly a TEST gap: a class of
+defect that only appears when features compose had no example or CTest
+entry covering it at all. `examples/25_showcase` is one coherent screen -
+a "media library settings" layout using all 9 `WidgetKind` values, a
+context menu, a tooltip and a modal dialog, themed entirely through 6-2's
+tokens with a live light/dark switch, visible wrapped CJK text and a
+CJK-capable `TextField` - built specifically to combine features rather
+than isolate them, with `--verify-showcase` asserting the combinations by
+hand-derived exact value rather than "nothing crashed". Composing a
+dropdown's popup with an already-scrolled list, a modal dialog with an
+in-progress IME composition and its own focus trap, Tab traversal into a
+virtualized `kList` whose rows this slice deliberately made real,
+focusable `Widget`s (an extension `doc/menus.md` never forbade, only
+declined for a different consumer), and a drop shadow on a wrapped CJK
+paragraph all turned out to compose correctly - each verified by a
+specific assertion, not an absence of visible breakage, and the popup
+case closed structurally: an overlay popup's content always attaches at
+`RenderTree::root()`, never inside the anchor's own ancestor chain, so an
+opacity- or clip-carrying ancestor can never reach it, by construction
+rather than by a test that merely avoided the hazard. One combination
+this slice DID try surfaced a real, previously unrecognized interaction
+rather than a bug in either system alone: switching the theme while an
+`AnimationEngine` transition is actively running on the SAME bound
+property is overwritten by that transition's own very next `tick()`
+within one frame, because `ThemeBindings::apply()` and
+`AnimationEngine::tick()` each write through the identical
+`dg::set_prop()` door with no knowledge the other exists. Recorded rather
+than fixed - the fix is a real coupling between two systems that have
+never depended on each other, out of this slice's own scope, named for
+whichever future slice wants coordinated theme+animation invalidation.
+Zero new `RenderObject`/node/`WidgetKind` kinds - a twenty-third
+consecutive slice - and zero new theme tokens: every colour/radius/
+spacing value in the scene resolves against the 12 tokens 7-4/7-6 already
+shipped. `doc/showcase.md` records the full cross-feature account,
+including a defect injection against this slice's own oracle (the only
+new logic this slice wrote, since every mechanism it exercises already
+existed and is unit-tested elsewhere) and what was deliberately not
+built (a tooltip anchored inside a clipped/scrolled region; a native
+modal dialog in the interactive `--script` driver, unlike
+`examples/23_menu_tooltip_dialog`'s own dual-branch dialog).
+
 The eventual target is Linux and Windows desktop, with macOS, Android and iOS
 deferred. Only Linux is wired into the build, and the window manager is SDL3
 on Linux with no conditional compilation for anything else - a second platform
@@ -1180,6 +1229,35 @@ attempt against the same live package is rejected.
 ./build/examples/drawgui_theme_package --dump-png out.png
 ```
 
+## The showcase demo (7-7, start here)
+
+`examples/25_showcase` is a single coherent screen - a "media library
+settings" layout - combining every `WidgetKind` this project has (`kPanel`,
+`kLabel`, `kButton`, `kCheckbox` plain and radio-grouped, `kSlider`,
+`kTextField`, `kList`, `kDropdown`; `kScrollView` deliberately not attached -
+`doc/showcase.md` says why), a context menu, a tooltip and a modal dialog,
+themed entirely through 6-2's tokens with a live light/dark switch, visible
+wrapped CJK text under a drop shadow, and a CJK-capable `TextField`. Unlike
+every prior example, this one is built to combine features rather than
+isolate one: a dropdown's popup opening after the "recent files" list has
+scrolled, a modal dialog with an in-progress IME composition and its own
+focus trap, Tab traversal into virtualized `kList` rows this slice
+deliberately made real focusable `Widget`s, and a shadow on a wrapped CJK
+paragraph. `--verify-showcase` is where the interesting claims are checked,
+each an exact hand-derived value rather than "nothing crashed" - see
+`doc/showcase.md` for the full cross-feature account, including the one
+combination that surfaced a real (not fixed, recorded) emergent interaction
+between the theme system and the animation clock.
+
+```sh
+./build/examples/drawgui_showcase                              # Tab/click/scroll/hover it
+./build/examples/drawgui_showcase --branch overlay             # force the overlay popup/dialog branch
+./build/examples/drawgui_showcase --script --branch overlay    # drive a scripted sequence through real platform events
+./build/examples/drawgui_showcase --verify-showcase            # headless check: the cross-feature oracle
+./build/examples/drawgui_showcase --idle-probe-ms 2000         # measure idle CPU on this dense a scene
+./build/examples/drawgui_showcase --dump-png out.png
+```
+
 ## The opacity demo
 
 `examples/08_opacity` draws four panels. The first two carry **the same three
@@ -1265,3 +1343,4 @@ Findings and decisions from each slice live beside it:
 | `doc/focus.md` | Tab order and the focus tree (P7 7-4) - why no third tree was needed (`RenderTree`'s own `children()`/`parent()` already are the tree Tab order and a popup's own focus boundary walk, so the only new state is one optional scope-root `NodeId`); `dg::focus_order()`'s DOM-shaped default and the deliberate `Widget::tab_index` override (HTML's own tabindex semantics); which `WidgetKind`s are focusable and why `kScrollView`/`kList` are declined by name rather than overlooked; why Tab reaching a zero-opacity widget is the CONSISTENT reading of 4-5's own hit-test divergence, not a second one; `enter_scope()`/`exit_scope()` as the smallest mechanism that serves a popup's Tab boundary without being `Dialog`'s modal trap (7-5's own job); why crossing into a popup needed no `NodeId`-plus-`window_id` struct (a native popup gets its own separate `Focus` for its own separate `RenderTree`; an overlay popup shares the host's, scoped); the list-recycling and mid-composition-Tab-away hazards, both handled and tested rather than assumed already safe; the ring's four-strips-outside-the-bounds geometry and why a single rectangle would have silently made a focused widget unclickable; the measured zero-relayout finding; and two real bugs this slice's own build caught (an overlay popup's buttons needing the HOST's `WidgetSet`, and a double-`set()` call that silently skipped every focus-change side effect) |
 | `doc/menus.md` | Dropdown, the 9th `WidgetKind` (P7 7-5) - design.md §12 question 6 settled (`Table` composes from Flex for caller-declared column widths, genuinely needs 2D layout only for auto column-width agreement no working caller needs yet); why `kList` was evaluated and not reused for the option rows (its pool nodes carry no `Widget`, so they cannot be focused or clicked); why keyboard Up/Down is `dg::Focus::focus_next()`/`focus_previous()` unchanged, reused rather than reimplemented; `doc/form-controls.md` §2.4's three named prerequisites confirmed satisfied one at a time; and why Context menu (no button identity anywhere in the pointer plumbing), Tooltip (an unplumbed `SDL_WINDOW_TOOLTIP` flag) and `Dialog` (a genuinely new modal-focus-trap mechanism) were each checked and declined by name with their own real prerequisite, split into follow-up 7-5b; section 12 (7-5b, append-only) records all three landing - a `PointerButton` field on `PointerEvent` (not a new `PointerAction` case), `PopupWindowKind`/`SDL_WINDOW_TOOLTIP` plus a new `HoverTimer` value type, and `dg::Focus::set_guarded()` composed onto 7-4's own scope mechanism plus `WindowManager::open_dialog()`/`cancellable_close` |
 | `doc/theme-packages.md` | External theme packages, hot reload, and the theme ABI (P7 7-6, phase 7's last slice) - `dg::ThemePackage`'s path-traversal defence (resolve-then-compare, not scan-then-join, so a symlink escaping the root is caught the same way a literal `../` is, and a symlink loop is a clean error rather than a hang), the resource-tree's own file-count/aggregate-size bounds, design.md §12's `schema_version`-migration and hot-reload-granularity questions both settled in place, the measured two-scene-instance cost split (colour-only reload costs zero relayout, an int-token reload costs a real one), the explicit-call file-change-detection decision and its near-zero measured idle-CPU cost, the raster-only (not SVG) resource scope decision, and the theme ABI (`dg_theme_load_dir`/`load_memory`/`set_variant`/`override`, `dg_app_set_theme`, `DG_VALUE_TOKEN` reusing `dg_node_set_prop()` rather than a second bind-shaped function) exercised as pure C |
+| `doc/showcase.md` | `examples/25_showcase` (P7 7-7, added after phase 7's own closing note) - the cross-feature regression bed: which combinations composed for free (dropdown-over-scrolled-list, modal-dialog-plus-IME-composition, Tab-into-a-recycling-`kList`, wrapped-CJK-text-plus-shadow, opacity/clip structurally excluded from an overlay popup's own subtree), the one genuine cross-feature finding (a theme switch mid-flight of an active `AnimationEngine` transition on the same bound property is silently overwritten by that transition's own next `tick()`, recorded rather than fixed), the defect injection run against this slice's own oracle rather than against new engine code (none was written), and what was deliberately not built |
