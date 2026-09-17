@@ -198,6 +198,35 @@ ctest --test-dir build --output-on-failure
 the same two commands directly in the `generated` job, so a stale or
 contract-breaking commit fails before it reaches a build matrix.
 
+## Running clang-tidy (local only - no longer a CI gate)
+
+The `clang-tidy` CI job was removed; `doc/design.md` section 7.1 records that
+decision, what it cost, and how to restore it properly. `.clang-tidy` itself
+is still here, so the checks can be run on demand:
+
+```sh
+CC=clang CXX=clang++ cmake -B build-tidy -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-tidy --target drawgui_props_generate
+python3 - <<'PY' > /tmp/tidy-files.txt
+import json, os
+root = os.getcwd()
+for e in json.load(open("build-tidy/compile_commands.json")):
+    f = e["file"]
+    if f.startswith(root) and "/third_party/" not in f and "generated" not in f:
+        print(f)
+PY
+clang-tidy -p build-tidy $(cat /tmp/tidy-files.txt)
+```
+
+Deriving the file list from `compile_commands.json` like this is deliberate,
+and is what the old CI job should have done: its hand-maintained list had
+drifted to 187 entries against 195 first-party translation units, so eight
+files were never linted by a gate that looked complete.
+
+Expect findings. Nothing enforces this any more, so the tree is not
+guaranteed clean against whichever clang-tidy version you have - and versions
+disagree, which is the other half of why the job was removed.
+
 ## Running the sanitized suite
 
 design.md section 7 puts ASan + UBSan over the test suite as part of
