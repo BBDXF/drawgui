@@ -259,6 +259,28 @@ LogicalKey to_logical_key(SDL_Keycode keycode) {
   }
 }
 
+// dg::Modifier -> SDL_Keymod, the reverse of to_modifier() above -
+// post_logical_key()'s own real caller for a non-kNone `mods` (8-4's real
+// end-to-end clipboard check, examples/12_text_input) is what makes this
+// worth building now, the identical "a real caller is what justifies the
+// reverse mapping" precedent from_logical_key() below already sets for
+// LogicalKey itself. Only the three bits dg::Modifier carries are
+// translated; SDL_Keymod's own other bits (Caps/Num/GUI/...) have no
+// source in a `Modifier` value to set them from.
+SDL_Keymod from_modifier(Modifier mods) {
+  SDL_Keymod sdl_mods = SDL_KMOD_NONE;
+  if (has(mods, Modifier::kMod)) {
+    sdl_mods = static_cast<SDL_Keymod>(sdl_mods | SDL_KMOD_CTRL);
+  }
+  if (has(mods, Modifier::kShift)) {
+    sdl_mods = static_cast<SDL_Keymod>(sdl_mods | SDL_KMOD_SHIFT);
+  }
+  if (has(mods, Modifier::kAlt)) {
+    sdl_mods = static_cast<SDL_Keymod>(sdl_mods | SDL_KMOD_ALT);
+  }
+  return sdl_mods;
+}
+
 // LogicalKey -> SDL_Keycode, from_key()'s own shape, over the identical
 // set to_logical_key() maps in the other direction - post_logical_key()'s
 // own real caller (8-3c's keyboard-scrolling check, examples/10_scrolling)
@@ -799,7 +821,7 @@ void WindowManager::post_key(WindowId id, bool down, Key key, bool shift) {
   SDL_PushEvent(&event);
 }
 
-void WindowManager::post_logical_key(WindowId id, bool down, LogicalKey key) {
+void WindowManager::post_logical_key(WindowId id, bool down, LogicalKey key, Modifier mods) {
   const auto entry = impl_->find(id.value);
   if (entry == impl_->windows.end()) {
     return;
@@ -808,7 +830,7 @@ void WindowManager::post_logical_key(WindowId id, bool down, LogicalKey key) {
   event.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
   event.key.windowID = id.value;
   event.key.key = from_logical_key(key);
-  event.key.mod = SDL_KMOD_NONE;
+  event.key.mod = from_modifier(mods);
   event.key.down = down;
   SDL_PushEvent(&event);
 }
@@ -864,6 +886,30 @@ PumpResult WindowManager::pump(int timeout_ms) {
     have_event = SDL_PollEvent(&event);
   }
 
+  return result;
+}
+
+bool WindowManager::set_clipboard_text(std::string_view text) {
+  // SDL_SetClipboardText wants a NUL-terminated `const char*`; `text` is a
+  // view and may not be one (it can point into the middle of a larger
+  // buffer with no terminator at `text.size()`), so it is copied into an
+  // owned std::string first rather than reinterpreted.
+  const std::string owned{text};
+  return SDL_SetClipboardText(owned.c_str());
+}
+
+std::string WindowManager::get_clipboard_text() const {
+  // Heap-allocated by SDL (SDL_clipboard.h's own doc comment: "This should
+  // be freed with SDL_free()") - this is the one call in this file that
+  // owns memory SDL, not this project's allocator, handed out, so it is
+  // freed here rather than at any caller, which is what keeps the public
+  // signature a plain std::string with no matching "and now free it" step.
+  char* text = SDL_GetClipboardText();
+  if (text == nullptr) {
+    return {};
+  }
+  std::string result{text};
+  SDL_free(text);
   return result;
 }
 

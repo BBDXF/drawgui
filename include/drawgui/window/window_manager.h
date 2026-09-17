@@ -620,7 +620,15 @@ class WindowManager {
   // `to_logical_key()`'s reverse mapping (SDL3's own window_manager.cpp)
   // its first real caller - previously declined by name for exactly that
   // reason ("nothing calls it yet").
-  void post_logical_key(WindowId id, bool down, LogicalKey key);
+  // `mods` defaults to Modifier::kNone, so 8-3c's own existing call site
+  // (examples/10_scrolling, PageUp/PageDown - neither binding carries a
+  // modifier) keeps posting exactly the unmodified event it always did with
+  // no source change. 8-4's own real end-to-end clipboard check
+  // (examples/12_text_input) is what makes a real modifier worth carrying
+  // here: `Mod+C`/`Mod+X`/`Mod+V`/`Mod+A` cannot be posted onto the actual
+  // SDL event queue at all without one.
+  void post_logical_key(WindowId id, bool down, LogicalKey key,
+                        Modifier mods = Modifier::kNone);
 
   // Puts committed text on the platform's own event queue as a real
   // SDL_EVENT_TEXT_INPUT, the same route post_key() uses.
@@ -640,6 +648,45 @@ class WindowManager {
   // through verbatim as SDL's own ints - TextEditingEvent's own comment is
   // where the unit question is recorded.
   void post_text_editing(WindowId id, const std::string& text, int start, int length);
+
+  // Puts UTF-8 text on the platform clipboard (8-4, design.md section
+  // 5.5.1's clipboard seam). A METHOD on WindowManager, not a free
+  // function: SDL's own clipboard calls require the video subsystem to be
+  // initialised, and this manager is the only thing in this codebase that
+  // guarantees that (this file's own top comment) - a free function would
+  // compile fine and silently do nothing without a live WindowManager,
+  // where a method makes the dependency a structural fact the caller
+  // cannot get around. `std::string_view` in, never a `const char*`
+  // reinterpreted from SDL's own type: no SDL type crosses this header,
+  // matching every other method on this class.
+  //
+  // Returns false on an SDL-reported failure (SDL_SetClipboardText itself
+  // returns bool, true on success - SDL3's own convention, not SDL2's
+  // 0-on-success int, the same distinction WindowManager::create() already
+  // states for SDL_Init). No WindowError is threaded through: nothing here
+  // has a caller that branches on the failure REASON specifically, only on
+  // whether it happened at all - see WindowError's own comment for why a
+  // message rather than a code is this project's default, and see this
+  // method's own boolean return for why even a message is not built ahead
+  // of a caller that reads it.
+  bool set_clipboard_text(std::string_view text);
+
+  // The platform clipboard's current text, decoded as UTF-8 - SDL's own
+  // encoding (SDL_GetClipboardText's documented return). Empty for every
+  // "nothing to paste" case this project has measured: nothing was ever
+  // set, an X11/Wayland source application's own clipboard ownership has
+  // lapsed (the clipboard is served lazily by whichever process last
+  // copied, and that process can exit), or any other SDL-reported failure -
+  // SDL_GetClipboardText's own documented behaviour is to return an empty
+  // string rather than NULL for "nothing here", verified against the
+  // installed SDL3 header (SDL_clipboard.h) rather than assumed from
+  // SDL2's differently-shaped API. A caller therefore gets the identical
+  // answer for every absence case rather than a second one to handle -
+  // never a hang, a crash, or a null dereference, which is the actual
+  // guarantee this method exists to make (a lazily-served, since-exited
+  // source process is a normal condition on this platform, not a bug to
+  // detect).
+  [[nodiscard]] std::string get_clipboard_text() const;
 
   // The size a frame for this window must be rasterized at, right now.
   //
