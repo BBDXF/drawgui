@@ -154,6 +154,36 @@ extern "C" DG_EXPORT int32_t dg_node_remove(dg_node_t* node) {
   }
 }
 
+extern "C" DG_EXPORT int32_t dg_node_scope_action(dg_node_t* node, uint16_t action_id) {
+  try {
+    return dg::abi::node_scope_action(node, action_id);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_scope_action: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_scope_action: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_scope_action: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT const char* dg_shortcut_label(uint16_t action_id) {
+  try {
+    return dg::abi::shortcut_label(action_id);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_shortcut_label: out of memory");
+    return nullptr;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_shortcut_label: ") + e.what());
+    return nullptr;
+  } catch (...) {
+    dg::abi::set_last_error("dg_shortcut_label: unknown exception");
+    return nullptr;
+  }
+}
+
 extern "C" DG_EXPORT int32_t dg_wait_events(dg_app_t* app, int32_t timeout_ms) {
   try {
     return dg::abi::wait_events(app, timeout_ms);
@@ -320,6 +350,22 @@ extern "C" DG_EXPORT int32_t dg_debug_post_pointer_button(dg_window_t* window, i
     return DG_ERR_INTERNAL;
   } catch (...) {
     dg::abi::set_last_error("dg_debug_post_pointer_button: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_debug_post_key(dg_window_t* window, int32_t down,
+                                               const char* logical_key_name) {
+  try {
+    return dg::abi::debug_post_key(window, down, logical_key_name);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_debug_post_key: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_debug_post_key: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_debug_post_key: unknown exception");
     return DG_ERR_INTERNAL;
   }
 }

@@ -55,6 +55,7 @@ export interface dg_event {
   node: dg_node_t | null;
   x: number;
   y: number;
+  action_id: number;
 }
 
 // 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed.
@@ -87,6 +88,7 @@ export const value_type = {
 export const event_kind = {
   WINDOW_CLOSED: 1,
   CLICK: 2,
+  ACTION: 3,
 } as const;
 
 // Every dg_*() status-returning function's result.
@@ -214,6 +216,21 @@ export declare namespace DrawguiAbi {
   // Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not
   // detach a live node's tree structure - see doc/abi.md section 5.
   function dg_node_remove(node: dg_node_t | null): number;
+  // 8-3d: declares that `node` consumes `action_id` (design.md section 5.5.3) -
+  // wraps dg::ActionScopes::scope() unchanged. `node` must be LIVE
+  // (DG_ERR_NO_WINDOW otherwise): ActionScopes is keyed by dg::NodeId, which a
+  // pending node does not have yet. A no-op, not an error, if `node` already
+  // scopes `action_id`.
+  function dg_node_scope_action(node: dg_node_t | null, action_id: number): number;
+  // 8-3d: the platform accelerator text for `action_id` (e.g. "Ctrl+A"),
+  // generated from the SAME binding table dg::shortcut_label() (chord.h,
+  // unit-tested since 8-1/8-2) already builds - this wraps it rather than
+  // re-implementing label generation. Returns NULL for an action_id no binding
+  // names (dg::shortcut_label()'s own std::optional empty case) - see doc/abi.md
+  // section 13 for why NULL rather than an empty string. Valid until the next
+  // dg_shortcut_label() call on this thread, matching dg_last_error()'s own
+  // lifetime rule.
+  function dg_shortcut_label(action_id: number): string | null;
   // Blocks up to timeout_ms (negative: forever), pumps every window, returns the
   // number of events now pollable.
   function dg_wait_events(app: dg_app_t | null, timeout_ms: number): number;
@@ -258,6 +275,18 @@ export declare namespace DrawguiAbi {
   // TEST-ONLY. WindowManager::post_pointer_button() at the ABI boundary - see the
   // file header.
   function dg_debug_post_pointer_button(window: dg_window_t | null, down: number, x: number, y: number): number;
+  // TEST-ONLY. WindowManager::post_logical_key() at the ABI boundary, driving a
+  // real SDL key event through the real queue exactly as
+  // dg_debug_post_pointer_button() does for clicks - see the file header.
+  // `logical_key_name` is one bare key name from
+  // src/shortcuts/logical_key_table.generated.inc (e.g. "PageUp"), parsed with
+  // dg::parse_chord(); a name carrying a modifier ("Mod+C") or one the generated
+  // table does not list is DG_ERR_INVALID_ARGUMENT, because post_logical_key()
+  // itself has no modifier parameter (the injected event always carries
+  // SDL_KMOD_NONE) - this hook exists only to exercise 8-3d's own DG_EVENT_ACTION
+  // plumbing over an unmodified app-scope chord (PageUp/PageDown/Home/End), not
+  // to simulate arbitrary modified shortcuts headlessly.
+  function dg_debug_post_key(window: dg_window_t | null, down: number, logical_key_name: string | null): number;
   // TEST-ONLY. Unconditionally throws (1=bad_alloc, 2=runtime_error, else an int)
   // - the exception-boundary test's own fault injector.
   function dg_debug_trigger_exception(kind: number): number;

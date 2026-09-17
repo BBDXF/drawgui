@@ -52,6 +52,7 @@ CONST_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gen_props  # noqa: E402  (needs the sys.path line above)
+import gen_shortcuts  # noqa: E402  (8-3d: action_id re-emission, same reuse shape as gen_props)
 import gen_theme  # noqa: E402  (7-6: token_id re-emission, same reuse shape as gen_props)
 
 
@@ -126,6 +127,7 @@ class Definitions:
     functions: tuple[Function, ...]
     props: gen_props.Definitions
     tokens: gen_theme.Definitions
+    actions: gen_shortcuts.Definitions
 
 
 # --------------------------------------------------------------------------
@@ -282,7 +284,9 @@ def _parse_function(entry: dict, index: int, known_types: set[str]) -> Function:
     return Function(name=name, ret=ret, impl=impl, summary=summary, params=params)
 
 
-def load_definitions(toml_path: Path, props_toml_path: Path, theme_toml_path: Path) -> Definitions:
+def load_definitions(
+    toml_path: Path, props_toml_path: Path, theme_toml_path: Path, shortcuts_toml_path: Path
+) -> Definitions:
     try:
         raw = tomllib.loads(toml_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -337,6 +341,7 @@ def load_definitions(toml_path: Path, props_toml_path: Path, theme_toml_path: Pa
 
     props_defs = gen_props.load_definitions(props_toml_path)
     theme_defs = gen_theme.load_definitions(theme_toml_path)
+    shortcuts_defs = gen_shortcuts.load_definitions(shortcuts_toml_path)
 
     return Definitions(
         schema_version=schema_version,
@@ -348,6 +353,7 @@ def load_definitions(toml_path: Path, props_toml_path: Path, theme_toml_path: Pa
         functions=functions,
         props=props_defs,
         tokens=theme_defs,
+        actions=shortcuts_defs,
     )
 
 
@@ -530,7 +536,8 @@ def render_header(defs: Definitions) -> str:
             # problem, matching how every other kind below (opaque types,
             # functions) already documents itself.
             if f.summary:
-                lines.append(f"  /* {f.summary} */")
+                for wrapped in _wrap(f.summary):
+                    lines.append(f"  /* {wrapped} */")
             lines.append(f"  {f.type} {f.name};")
         lines.append(f"}} {struct.name};")
         lines.append("")
@@ -607,6 +614,29 @@ def render_header(defs: Definitions) -> str:
         for wrapped in _wrap(token.summary):
             lines.append(f"/* {wrapped} */")
         lines.append(f"#define {token.constant} {token.id}")
+    lines.append("")
+    lines.append("#endif /* !__cplusplus */")
+    lines.append("")
+
+    lines.append("/* -- Shortcut/action ids (input/shortcuts.toml) " + "-" * 14 + " */")
+    lines.append("")
+    lines.append("/* 8-3d: re-emitted here in C-compatible #define form from the SAME")
+    lines.append(" * validated input/shortcuts.toml tools/gen_shortcuts.py already generates")
+    lines.append(" * include/drawgui/shortcuts/action_ids.generated.h from - design.md section")
+    lines.append(" * 5.5.3's own \"action_id 与 prop_id/token_id 同源同构\" decision, applied the")
+    lines.append(" * same way decision 5 already applies to prop_id/token_id above. Same")
+    lines.append(" * #ifndef __cplusplus guard, same reason: action_ids.generated.h ALSO")
+    lines.append(" * declares DG_ACTION_* as an `inline constexpr dg_action_id`, not a macro. */")
+    lines.append("")
+    lines.append("#ifndef __cplusplus")
+    lines.append("")
+    lines.append("typedef uint16_t dg_action_id;")
+    lines.append("#define DG_ACTION_INVALID 0")
+    lines.append("")
+    for action in defs.actions.actions:
+        for wrapped in _wrap(action.summary):
+            lines.append(f"/* {wrapped} */")
+        lines.append(f"#define {action.constant} {action.id}")
     lines.append("")
     lines.append("#endif /* !__cplusplus */")
     lines.append("")
@@ -834,9 +864,10 @@ def main(argv: list[str]) -> int:
     toml_path = (args.toml if args.toml is not None else root / TOML_RELPATH).resolve()
     props_toml_path = root / gen_props.TOML_RELPATH
     theme_toml_path = root / gen_theme.TOML_RELPATH
+    shortcuts_toml_path = root / gen_shortcuts.TOML_RELPATH
 
     try:
-        defs = load_definitions(toml_path, props_toml_path, theme_toml_path)
+        defs = load_definitions(toml_path, props_toml_path, theme_toml_path, shortcuts_toml_path)
         outputs = build_outputs(defs, root)
     except GenError as exc:
         print(f"error: {exc}", file=sys.stderr)

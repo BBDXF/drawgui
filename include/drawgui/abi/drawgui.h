@@ -101,12 +101,24 @@ typedef struct dg_event {
   uint32_t kind;
   /* which window this event is about. */
   dg_window_t* window;
-  /* DG_EVENT_CLICK only; null otherwise. */
+  /* DG_EVENT_CLICK: the clicked node. DG_EVENT_ACTION: the resolved action's */
+  /* target node - design.md section 5.5.2 level 2, a focused node's own */
+  /* dg_node_scope_action() binding - or null for a level-4 app-wide action, which */
+  /* names no node. Null for every other kind. */
   dg_node_t* node;
-  /* DG_EVENT_CLICK only: the pointer position, device pixels. */
+  /* DG_EVENT_CLICK only: the pointer position, device pixels. 0 for every other */
+  /* kind, including DG_EVENT_ACTION, which carries no pointer position at all. */
   int32_t x;
-  /* DG_EVENT_CLICK only: the pointer position, device pixels. */
+  /* DG_EVENT_CLICK only: the pointer position, device pixels. 0 for every other */
+  /* kind, including DG_EVENT_ACTION, which carries no pointer position at all. */
   int32_t y;
+  /* 8-3d: DG_EVENT_ACTION only - the resolved dg_action_id (input/shortcuts.toml, */
+  /* design.md section 5.5.3). DG_ACTION_INVALID (0) for every other kind. */
+  /* Appended at the end of the struct, after `y` - dg_event's own `size` field */
+  /* (design.md section 5.8 decision 4) is exactly the mechanism that makes this */
+  /* an allowed MINOR addition rather than a break; see abi/drawgui_abi.lock's own */
+  /* append-only rule. */
+  uint16_t action_id;
 } dg_event;
 
 /* 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed. */
@@ -153,6 +165,11 @@ typedef struct dg_theme_err {
 /* A press and its release landed on the same node - */
 /* dg::InteractionChange::clicked. */
 #define DG_EVENT_CLICK 2u
+/* 8-3d: a key resolved to a bound intent through design.md section 5.5.2's */
+/* four-level router (dg::route_key_event()/resolve_action()) - */
+/* dg_event::action_id names which one, dg_event::node its target (null for an */
+/* app-level action). */
+#define DG_EVENT_ACTION 3u
 
 /* Every dg_*() status-returning function's result. */
 /* Success. */
@@ -396,6 +413,40 @@ typedef uint16_t dg_token_id;
 
 #endif /* !__cplusplus */
 
+/* -- Shortcut/action ids (input/shortcuts.toml) -------------- */
+
+/* 8-3d: re-emitted here in C-compatible #define form from the SAME
+ * validated input/shortcuts.toml tools/gen_shortcuts.py already generates
+ * include/drawgui/shortcuts/action_ids.generated.h from - design.md section
+ * 5.5.3's own "action_id 与 prop_id/token_id 同源同构" decision, applied the
+ * same way decision 5 already applies to prop_id/token_id above. Same
+ * #ifndef __cplusplus guard, same reason: action_ids.generated.h ALSO
+ * declares DG_ACTION_* as an `inline constexpr dg_action_id`, not a macro. */
+
+#ifndef __cplusplus
+
+typedef uint16_t dg_action_id;
+#define DG_ACTION_INVALID 0
+
+/* Copy the current selection to the clipboard. */
+#define DG_ACTION_COPY 1
+/* Cut the current selection to the clipboard. */
+#define DG_ACTION_CUT 2
+/* Paste the clipboard's text at the caret. */
+#define DG_ACTION_PASTE 3
+/* Select the field's entire text. */
+#define DG_ACTION_SELECT_ALL 4
+/* Scroll the target scrollable up by one page. */
+#define DG_ACTION_SCROLL_PAGE_UP 5
+/* Scroll the target scrollable down by one page. */
+#define DG_ACTION_SCROLL_PAGE_DOWN 6
+/* Scroll the target scrollable to its content start. */
+#define DG_ACTION_SCROLL_TO_START 7
+/* Scroll the target scrollable to its content end. */
+#define DG_ACTION_SCROLL_TO_END 8
+
+#endif /* !__cplusplus */
+
 /* -- Functions ------------------------------------------------------------- */
 
 /* MAJOR<<16 | MINOR - design.md section 5.8's own dg_abi_version() line. */
@@ -430,6 +481,23 @@ DG_EXPORT int32_t dg_node_insert_before(dg_node_t* parent, dg_node_t* child, dg_
 /* Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not */
 /* detach a live node's tree structure - see doc/abi.md section 5. */
 DG_EXPORT int32_t dg_node_remove(dg_node_t* node);
+
+/* 8-3d: declares that `node` consumes `action_id` (design.md section 5.5.3) - */
+/* wraps dg::ActionScopes::scope() unchanged. `node` must be LIVE */
+/* (DG_ERR_NO_WINDOW otherwise): ActionScopes is keyed by dg::NodeId, which a */
+/* pending node does not have yet. A no-op, not an error, if `node` already */
+/* scopes `action_id`. */
+DG_EXPORT int32_t dg_node_scope_action(dg_node_t* node, uint16_t action_id);
+
+/* 8-3d: the platform accelerator text for `action_id` (e.g. "Ctrl+A"), */
+/* generated from the SAME binding table dg::shortcut_label() (chord.h, */
+/* unit-tested since 8-1/8-2) already builds - this wraps it rather than */
+/* re-implementing label generation. Returns NULL for an action_id no binding */
+/* names (dg::shortcut_label()'s own std::optional empty case) - see doc/abi.md */
+/* section 13 for why NULL rather than an empty string. Valid until the next */
+/* dg_shortcut_label() call on this thread, matching dg_last_error()'s own */
+/* lifetime rule. */
+DG_EXPORT const char* dg_shortcut_label(uint16_t action_id);
 
 /* Blocks up to timeout_ms (negative: forever), pumps every window, returns the */
 /* number of events now pollable. */
@@ -488,6 +556,20 @@ DG_EXPORT int32_t dg_debug_warp_pointer(dg_window_t* window, int32_t x, int32_t 
 /* file header. */
 DG_EXPORT int32_t dg_debug_post_pointer_button(dg_window_t* window, int32_t down, int32_t x,
                                                int32_t y);
+
+/* TEST-ONLY. WindowManager::post_logical_key() at the ABI boundary, driving a */
+/* real SDL key event through the real queue exactly as */
+/* dg_debug_post_pointer_button() does for clicks - see the file header. */
+/* `logical_key_name` is one bare key name from */
+/* src/shortcuts/logical_key_table.generated.inc (e.g. "PageUp"), parsed with */
+/* dg::parse_chord(); a name carrying a modifier ("Mod+C") or one the generated */
+/* table does not list is DG_ERR_INVALID_ARGUMENT, because post_logical_key() */
+/* itself has no modifier parameter (the injected event always carries */
+/* SDL_KMOD_NONE) - this hook exists only to exercise 8-3d's own DG_EVENT_ACTION */
+/* plumbing over an unmodified app-scope chord (PageUp/PageDown/Home/End), not */
+/* to simulate arbitrary modified shortcuts headlessly. */
+DG_EXPORT int32_t dg_debug_post_key(dg_window_t* window, int32_t down,
+                                    const char* logical_key_name);
 
 /* TEST-ONLY. Unconditionally throws (1=bad_alloc, 2=runtime_error, else an int) */
 /* - the exception-boundary test's own fault injector. */
