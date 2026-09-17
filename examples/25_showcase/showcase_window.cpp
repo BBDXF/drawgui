@@ -341,10 +341,11 @@ void Runner::handle_key_dialog(const dg::KeyEvent& event) {
   }
   if (event.key == dg::Key::kTab) {
     const dg::FocusChange change =
-        event.shift ? scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets,
-                                                  dialog_handles_->panel)
-                    : scene_.focus.focus_next(scene_.tree.render(), scene_.widgets,
-                                              dialog_handles_->panel);
+        dg::has(event.mods, dg::Modifier::kShift)
+            ? scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets,
+                                          dialog_handles_->panel)
+            : scene_.focus.focus_next(scene_.tree.render(), scene_.widgets,
+                                      dialog_handles_->panel);
     if (change.any()) {
       refresh_ring();
     }
@@ -376,11 +377,11 @@ void Runner::handle_key_dialog(const dg::KeyEvent& event) {
       break;
     case dg::Key::kLeft:
       scene_.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft,
-                                     event.shift);
+                                     dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kRight:
       scene_.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight,
-                                     event.shift);
+                                     dg::has(event.mods, dg::Modifier::kShift));
       break;
     default:
       break;

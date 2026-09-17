@@ -27,6 +27,7 @@
 #include "drawgui/base/expected.h"
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/types.h"
+#include "drawgui/shortcuts/chord.h"
 
 namespace dg {
 
@@ -251,11 +252,14 @@ struct PointerEvent {
 // Which key changed. Not a full keyboard map - only the editing intents
 // design.md section 5.5.2 names as belonging to a text field rather than to
 // a shortcut table (`MoveCaretLineStart`, `DeleteWordBackward`, and this
-// slice's smaller set of them). Everything else is `kOther` and dropped
-// before it becomes a KeyEvent, the identical policy PointerAction already
-// has for a non-primary mouse button: an enumerator naming a key nothing
-// consumes would be a promise this engine does not keep, because there is no
-// intent-binding system (design.md section 5.5.1) to route it through yet.
+// slice's smaller set of them). Everything else is `kOther`, the identical
+// policy PointerAction already has for a non-primary mouse button: an
+// enumerator naming a key nothing consumes as an EDITING INTENT would be a
+// promise this engine does not keep. `kOther` no longer means "dropped
+// before it becomes a KeyEvent" as of 8-2, though: a key with no editing
+// intent can still carry a real `LogicalKey` (KeyEvent::logical_key below) -
+// 'C' is `kOther` here and `LogicalKey::kC` there, and 8-3's router is what
+// will eventually read the second field, not this one.
 enum class Key : std::uint8_t {
   kOther,
   kLeft,
@@ -271,7 +275,7 @@ enum class Key : std::uint8_t {
   // this enum's own comment states applies to it too.
   kEscape,
 
-  // 7-4's Tab/Shift-Tab (`shift` on KeyEvent below already carries the
+  // 7-4's Tab/Shift-Tab (`mods` on KeyEvent below already carries the
   // distinction). design.md section 5.5.2 lists Tab under "焦点树 + 显式
   // tab_index" (section 5.5), not under a text field's own editing intents
   // - it is the one keyboard input this project routes through
@@ -301,16 +305,31 @@ enum class KeyAction : std::uint8_t {
 
 // One key changing state on one window.
 //
-// `shift` is the only modifier carried, because it is the only one this
-// slice's editing intents consult (Shift+arrow/Home/End extends a
-// selection). Ctrl/Alt/Cmd are absent for the same reason `kOther` exists:
-// nothing here would read them, and a field nobody reads is a field nobody
-// can trust stayed correct.
+// `mods` is design.md section 5.5.1's own bitmask (dg::Modifier,
+// drawgui/shortcuts/chord.h) - Shift/Mod/Alt, not just Shift, because 8-3's
+// router needs the full set to build a dg::Chord and match it against
+// dg::all_shortcut_bindings(). Replacing the single `shift` bool this field
+// used to be, rather than adding `mods` alongside it: two fields carrying
+// overlapping truth (`shift` and `has(mods, Modifier::kShift)`) could
+// disagree, and this struct's own prior comment already argued against
+// exactly that ("a field nobody reads is a field nobody can trust stayed
+// correct" - the same reasoning applies to two fields that both claim to
+// answer the same question).
+//
+// `logical_key` is design.md section 5.5.2's OTHER routing level: `key`
+// above is an editing intent a widget consumes directly, and `logical_key`
+// is the shortcut-table half a dg::Chord is built from - two separate
+// fields for two separate levels, per chord.h's own comment and
+// LogicalKey's own generated header. `LogicalKey::kInvalid` means this key
+// has no entry in input/shortcuts.toml at all, the identical "no
+// enumerator/mapping without a real consumer" policy `Key::kOther` already
+// states for itself.
 struct KeyEvent {
   WindowId window;
   KeyAction action = KeyAction::kDown;
   Key key = Key::kOther;
-  bool shift = false;
+  Modifier mods = Modifier::kNone;
+  LogicalKey logical_key = LogicalKey::kInvalid;
 };
 
 // Committed text from the platform's text-input mechanism, UTF-8 as SDL

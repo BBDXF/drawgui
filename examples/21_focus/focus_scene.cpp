@@ -368,7 +368,7 @@ void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
     return;
   }
   if (event.key == dg::Key::kTab) {
-    tab(scene, manager, window, event.shift);
+    tab(scene, manager, window, dg::has(event.mods, dg::Modifier::kShift));
     return;
   }
   if (!scene.focus.is_focused(scene.handles.textfield) || !scene.fonts.has_value()) {
@@ -380,19 +380,19 @@ void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
   switch (event.key) {
     case dg::Key::kLeft:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kRight:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kHome:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kEnd:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kBackspace:
       scene.widgets.text_field_backspace(tree, fonts, field);

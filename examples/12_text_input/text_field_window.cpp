@@ -200,19 +200,19 @@ void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& even
   switch (event.key) {
     case dg::Key::kLeft:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kRight:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kHome:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kEnd:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd,
-                                    event.shift);
+                                    dg::has(event.mods, dg::Modifier::kShift));
       break;
     case dg::Key::kBackspace:
       scene.widgets.text_field_backspace(tree, fonts, field);

@@ -206,6 +206,64 @@ SDL_Keycode from_key(Key key) {
   return SDLK_UNKNOWN;
 }
 
+// SDL_Keymod -> dg::Modifier (design.md section 5.5.1). `Mod` is Linux's own
+// Ctrl per that section ("Mod 是 macOS 的 Cmd，其它平台的 Ctrl") - this
+// backend is Linux-only (this file's own top comment), so the substitution
+// this project's generator otherwise performs at label-text time
+// (chord.h's mod_label()) is simply which physical key IS `Mod` here, done
+// once at the one place a real SDL_Keymod ever reaches this engine. Only
+// the three modifiers dg::Modifier itself names are read - Caps/Num/Scroll/
+// Level5/AltGr/GUI carry no bit in dg::Modifier because nothing in
+// input/shortcuts.toml binds against them.
+Modifier to_modifier(SDL_Keymod sdl_mods) {
+  Modifier mods = Modifier::kNone;
+  if ((sdl_mods & SDL_KMOD_CTRL) != 0) {
+    mods = mods | Modifier::kMod;
+  }
+  if ((sdl_mods & SDL_KMOD_SHIFT) != 0) {
+    mods = mods | Modifier::kShift;
+  }
+  if ((sdl_mods & SDL_KMOD_ALT) != 0) {
+    mods = mods | Modifier::kAlt;
+  }
+  return mods;
+}
+
+// SDL_Keycode -> LogicalKey, covering exactly the eight keys
+// input/shortcuts.toml's bindings reference (LogicalKey's own generated
+// header lists them). Same shape as to_key() above: SDL_Keycode is an open,
+// platform-defined set, so `default:` is what reports "no shortcut key"
+// here, the same way to_key()'s own `default:` reports "no editing intent" -
+// LogicalKey itself is the closed side of this mapping, not this switch's
+// input. A reverse mapping (LogicalKey -> SDL_Keycode, from_key()'s own
+// shape) is declined for this slice by name: nothing calls it yet - 8-2
+// only needs a real SDL key event to acquire a LogicalKey, never the other
+// direction - and an unused function that only exists to be "exhaustive"
+// would fail this project's own -Wunused gate the moment it is added
+// without a caller.
+LogicalKey to_logical_key(SDL_Keycode keycode) {
+  switch (keycode) {
+    case SDLK_A:
+      return LogicalKey::kA;
+    case SDLK_C:
+      return LogicalKey::kC;
+    case SDLK_END:
+      return LogicalKey::kEnd;
+    case SDLK_HOME:
+      return LogicalKey::kHome;
+    case SDLK_PAGEDOWN:
+      return LogicalKey::kPageDown;
+    case SDLK_PAGEUP:
+      return LogicalKey::kPageUp;
+    case SDLK_V:
+      return LogicalKey::kV;
+    case SDLK_X:
+      return LogicalKey::kX;
+    default:
+      return LogicalKey::kInvalid;
+  }
+}
+
 // PointerButton <-> SDL_BUTTON_*, 7-5b's own prerequisite (doc/menus.md
 // section 6.1). std::nullopt is what X1/X2 ("back"/"forward") map to - still
 // dropped, unchanged from before this slice, matching the file's own
@@ -409,10 +467,16 @@ struct WindowManager::Impl {
       return;
     }
     const Key key = to_key(event.key.key);
-    // kOther is dropped, matching PointerAction's identical policy for a
-    // non-primary mouse button: nothing routes it, so reporting it would be
-    // a promise this engine does not keep.
-    if (key == Key::kOther) {
+    const LogicalKey logical_key = to_logical_key(event.key.key);
+    // Dropped only when NEITHER routing level names this key: no editing
+    // intent (Key::kOther) AND no shortcut binding (LogicalKey::kInvalid) -
+    // matching PointerAction's identical policy for a non-primary mouse
+    // button, extended to two independent "does anything consume this"
+    // questions instead of one. A letter key like 'C' is exactly the case
+    // that now survives this check where it did not before 8-2: kOther as
+    // an editing intent, but LogicalKey::kC as a shortcut key 8-3's router
+    // will read.
+    if (key == Key::kOther && logical_key == LogicalKey::kInvalid) {
       return;
     }
     const auto entry = find(event.key.windowID);
@@ -421,8 +485,8 @@ struct WindowManager::Impl {
     }
     const KeyAction action =
         event.key.type == SDL_EVENT_KEY_DOWN ? KeyAction::kDown : KeyAction::kUp;
-    const bool shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
-    result.key.push_back(KeyEvent{WindowId{entry->sdl_id}, action, key, shift});
+    const Modifier mods = to_modifier(event.key.mod);
+    result.key.push_back(KeyEvent{WindowId{entry->sdl_id}, action, key, mods, logical_key});
   }
 
   std::vector<OwnedWindow> windows;

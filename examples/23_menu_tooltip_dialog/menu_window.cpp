@@ -584,10 +584,11 @@ void Runner::handle_key_dialog_overlay(const dg::KeyEvent& event) {
   }
   if (event.key == dg::Key::kTab) {
     const dg::FocusChange change =
-        event.shift ? scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets,
-                                                  dialog_handles_->panel)
-                    : scene_.focus.focus_next(scene_.tree.render(), scene_.widgets,
-                                              dialog_handles_->panel);
+        dg::has(event.mods, dg::Modifier::kShift)
+            ? scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets,
+                                          dialog_handles_->panel)
+            : scene_.focus.focus_next(scene_.tree.render(), scene_.widgets,
+                                      dialog_handles_->panel);
     if (change.any()) {
       refresh_menu_ring();
     }

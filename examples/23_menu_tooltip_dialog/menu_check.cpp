@@ -233,7 +233,7 @@ void check_context_menu(std::ostream& out, bool& ok) {
   check(scene.focus.current() == rows[2], "Up from the first item WRAPS to the last", out, ok);
 
   // Escape closes without a selection - PopupHost's own dismissal, unchanged.
-  const dg::KeyEvent escape{window.value(), dg::KeyAction::kDown, dg::Key::kEscape, false};
+  const dg::KeyEvent escape{window.value(), dg::KeyAction::kDown, dg::Key::kEscape};
   const bool escape_closed = host.handle_key(handle, window.value(), escape, PopupFlags{});
   check(escape_closed, "Escape closes the menu (PopupHost's own dismissal, unmodified)", out,
         ok);

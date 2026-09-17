@@ -231,12 +231,13 @@ void Runner::handle_key(const dg::KeyEvent& event) {
     }
     if (popup_->is_native) {
       if (event.window == popup_->window) {
-        dispatch_popup_native_tab(event.shift);
+        dispatch_popup_native_tab(dg::has(event.mods, dg::Modifier::kShift));
       }
       return;
     }
     if (event.window == host_window_) {
-      focus_scene::tab(scene_, *manager_, host_window_, event.shift);
+      focus_scene::tab(scene_, *manager_, host_window_,
+                       dg::has(event.mods, dg::Modifier::kShift));
     }
     return;
   }

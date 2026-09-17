@@ -197,7 +197,7 @@ void dispatch_key(Scene& scene, const dg::KeyEvent& event) {
   if (event.action != dg::KeyAction::kDown || event.key != dg::Key::kTab) {
     return;
   }
-  tab(scene, event.shift);
+  tab(scene, dg::has(event.mods, dg::Modifier::kShift));
 }
 
 }  // namespace menu_scene

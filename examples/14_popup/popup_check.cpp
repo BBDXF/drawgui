@@ -199,7 +199,7 @@ int check_overlay_and_equivalence(std::ostream& out, bool& ok) {
         ok);
 
   // Escape closes it.
-  const dg::KeyEvent escape{host_window.value(), dg::KeyAction::kDown, dg::Key::kEscape, false};
+  const dg::KeyEvent escape{host_window.value(), dg::KeyAction::kDown, dg::Key::kEscape};
   const bool dismissed_by_escape =
       host.handle_key(reopened_handle, host_window.value(), escape, PopupFlags{});
   check(dismissed_by_escape && !reopened_handle.open, "Escape dismisses the overlay", out, ok);
