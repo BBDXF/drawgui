@@ -97,6 +97,17 @@ add_executable(drawgui_unit_test
   ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets/widget_scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/10_scrolling/scroll_scene.cpp)
 
+# 8-4's clipboard tests construct a real dg::WindowManager (the seam is
+# METHODS ON IT, not a free function - window_manager.h's own comment on
+# why), which exists only when SDL3 was found - this test file is added
+# conditionally rather than unconditionally, matching every other place in
+# this build that depends on dg::WindowManager (src/window/popup_host.cpp,
+# src/abi/abi_impl.cpp) rather than assuming SDL3 is always present the way
+# every OTHER file in this list already gets to.
+if(DRAWGUI_HAVE_SDL3)
+  target_sources(drawgui_unit_test PRIVATE unit/test_clipboard.cpp)
+endif()
+
 target_include_directories(drawgui_unit_test PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/golden
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint
