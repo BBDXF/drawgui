@@ -402,7 +402,104 @@ static int run_verify(void) {
           "dg_theme_override with a colour value for an int token is DG_ERR_TYPE_MISMATCH");
   }
 
-  /* 10. Teardown safety: dg_app_destroy must not crash even though window_a/
+  /* 10. The shortcut/action ABI (8-3d, design.md section 5.5.3):
+   * dg_node_scope_action()/dg_shortcut_label()/DG_EVENT_ACTION, exercised
+   * end to end - scope a real app-scope action onto a real live node,
+   * focus that node with a real click (the same debug hook check 6 already
+   * used), post a real SDL key event via dg_debug_post_key(), and pump it
+   * through dg::route_key_event()'s level-2 bubbling for real. */
+  {
+    int32_t got_action = 0;
+    int32_t action_count = 0;
+
+    /* Handle validity: a null handle and a REMOVED handle (`stray`, taken
+     * out in check 7) both fail cleanly rather than crashing. */
+    status = dg_node_scope_action(NULL, DG_ACTION_SCROLL_PAGE_UP);
+    check(status == DG_ERR_INVALID_HANDLE, "dg_node_scope_action(NULL, ...) is invalid-handle");
+    status = dg_node_scope_action(stray, DG_ACTION_SCROLL_PAGE_UP);
+    check(status == DG_ERR_INVALID_HANDLE,
+          "dg_node_scope_action on an already-removed node is invalid-handle");
+
+    status = dg_node_scope_action(button_a, DG_ACTION_SCROLL_PAGE_UP);
+    check(status == DG_ERR_OK, "dg_node_scope_action(button_a, SCROLL_PAGE_UP) succeeds");
+
+    /* Focus button_a via a real click - the same debug injection check 6
+     * already used, but this time the click's SIDE EFFECT this test cares
+     * about is dg::Focus::set(), not the DG_EVENT_CLICK it also produces.
+     * Drain that click event so it cannot be mistaken for the action event
+     * this check looks for below. */
+    dg_debug_warp_pointer(window_a, 10, 10);
+    dg_debug_post_pointer_button(window_a, 1, 10, 10);
+    dg_debug_post_pointer_button(window_a, 0, 10, 10);
+    for (i = 0; i < 20; ++i) {
+      dg_event drain[8];
+      int32_t pending = dg_wait_events(app, 20);
+      if (pending < 0) {
+        break;
+      }
+      pending = dg_poll_events(app, drain, 8);
+      if (pending == 0 && i > 2) {
+        break;
+      }
+    }
+
+    /* A modifier chord and an unknown key name are both refused - see
+     * dg_debug_post_key's own def.toml summary for why (post_logical_key()
+     * itself has no modifier parameter). */
+    status = dg_debug_post_key(window_a, 1, "Mod+C");
+    check(status == DG_ERR_INVALID_ARGUMENT,
+          "dg_debug_post_key refuses a modifier chord it cannot inject");
+    status = dg_debug_post_key(window_a, 1, "NotARealKey");
+    check(status == DG_ERR_INVALID_ARGUMENT, "dg_debug_post_key refuses an unknown key name");
+
+    status = dg_debug_post_key(window_a, 1, "PageUp");
+    check(status == DG_ERR_OK, "dg_debug_post_key(down, \"PageUp\") succeeds");
+    status = dg_debug_post_key(window_a, 0, "PageUp");
+    check(status == DG_ERR_OK, "dg_debug_post_key(up, \"PageUp\") succeeds");
+
+    for (i = 0; i < 20; ++i) {
+      dg_event events[8];
+      int32_t pending = dg_wait_events(app, 50);
+      int32_t j = 0;
+      if (pending < 0) {
+        break;
+      }
+      pending = dg_poll_events(app, events, 8);
+      for (j = 0; j < pending; ++j) {
+        if (events[j].kind == DG_EVENT_ACTION) {
+          ++action_count;
+          if (events[j].action_id == DG_ACTION_SCROLL_PAGE_UP && events[j].node == button_a &&
+              events[j].window == window_a) {
+            got_action = 1;
+          }
+        }
+      }
+      if (action_count >= 1 && i > 5) {
+        break;
+      }
+    }
+    check(got_action,
+          "a scoped action, focused and keyed for real, arrives as DG_EVENT_ACTION naming its "
+          "action_id and target node");
+    check(action_count == 1,
+          "the key-up half of the same posted key does not fire a second DG_EVENT_ACTION "
+          "(only KeyAction::kDown reaches the router)");
+
+    /* dg_shortcut_label(): the generated binding table's own text, wrapped
+     * rather than reimplemented (chord.h's format_chord(), already
+     * unit-tested). An action_id no binding names returns NULL - a real
+     * lookup failure, not "this action has no accelerator" (which would be
+     * an empty string, a different claim this ABI does not need to make). */
+    {
+      const char* label = dg_shortcut_label(DG_ACTION_SCROLL_PAGE_UP);
+      check(label != NULL && strcmp(label, "PageUp") == 0,
+            "dg_shortcut_label(SCROLL_PAGE_UP) reports the generated binding's own text");
+    }
+    check(dg_shortcut_label(60000) == NULL,
+          "dg_shortcut_label with an unassigned action_id returns NULL, not a crash");
+  }
+
+  /* 11. Teardown safety: dg_app_destroy must not crash even though window_a/
    * window_b/button_a/button_b/stray_child handles are all still held by
    * this function, and a handle used AFTER destroy must report
    * DG_ERR_INVALID_HANDLE exactly like an individually removed node does
