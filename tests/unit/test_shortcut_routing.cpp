@@ -33,10 +33,13 @@
 #include "drawgui/shortcuts/action_ids.generated.h"
 #include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/shortcuts/chord.h"
+#include "drawgui/shortcuts/keyboard_scroll.h"
 #include "drawgui/shortcuts/logical_key.generated.h"
 #include "drawgui/shortcuts/router.h"
 #include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
+
+#include "scroll_scene.h"
 
 namespace {
 
@@ -49,10 +52,13 @@ using dg::Key;
 using dg::KeyAction;
 using dg::KeyEvent;
 using dg::KeyRouteOutcome;
+using dg::LayoutStats;
+using dg::LayoutTree;
 using dg::LogicalKey;
 using dg::Modifier;
 using dg::NodeId;
 using dg::NodeStyle;
+using dg::PixelPoint;
 using dg::PixelRect;
 using dg::PixelSize;
 using dg::RenderTree;
@@ -156,6 +162,17 @@ FieldScene build_field(const std::string& initial) {
   widgets.attach(field, widget);
 
   return FieldScene{std::move(tree), std::move(widgets), std::move(fonts), field};
+}
+
+// --- 8-3c's own fixture: the real scene examples/10_scrolling puts on
+// screen (scroll_scene::build()), reused rather than a hand-rolled one so a
+// pass here is also a witness against the actual scene, matching this
+// file's own precedent of testing over dg::all_shortcut_bindings() rather
+// than a fixture table. ---
+scroll_scene::Scene build_scroll_scene() {
+  TreeSpec spec;
+  spec.viewport = PixelSize{900, 760};
+  return scroll_scene::build(spec);
 }
 
 }  // namespace
@@ -327,5 +344,106 @@ TEST_SUITE("shortcut routing") {
     // Neither call touched the composition - it survives exactly as it was.
     CHECK(scene.widgets.text_field_is_composing(scene.field));
     CHECK(scene.widgets.text_field_composition_text(scene.field) == "X");
+  }
+}
+
+// 8-3c: keyboard scrolling as the router's second consumer, over
+// dg::apply_keyboard_scroll() (shortcuts/keyboard_scroll.h) - the target is
+// the nearest scrollable ancestor of the FOCUSED node, never the pointer,
+// per that file's own header comment.
+TEST_SUITE("keyboard scrolling (8-3c)") {
+  TEST_CASE("PageDown advances a focused item's scroll view by one viewport height") {
+    scroll_scene::Scene scene = build_scroll_scene();
+    const NodeId focused =
+        scene.handles.vertical_items[5];  // any item, not the viewport itself
+
+    const dg::PixelRect viewport_content =
+        scene.tree.content_bounds(scene.handles.vertical_viewport);
+
+    const dg::KeyEvent event{kWindow, dg::KeyAction::kDown, dg::Key::kOther, Modifier::kNone,
+                             LogicalKey::kPageDown};
+    const dg::ActionScopes scopes;
+    const dg::RoutingContext ctx{scene.tree.render(), scene.widgets, scopes,
+                                 dg::all_shortcut_bindings()};
+    const dg::KeyRouteResult routed = dg::route_key_event(event, kWindow, focused, ctx);
+    REQUIRE(routed.outcome == KeyRouteOutcome::kRouted);
+    REQUIRE(routed.action.has_value());
+    CHECK(routed.action->action_id == DG_ACTION_SCROLL_PAGE_DOWN);
+
+    const bool moved =
+        dg::apply_keyboard_scroll(routed.action->action_id, focused, scene.tree, scene.widgets);
+    CHECK(moved);
+    const PixelPoint offset =
+        scene.tree.render().scroll_offset(scene.handles.vertical_viewport);
+    CHECK(offset.y == viewport_content.height);
+    CHECK(offset.x == 0);  // PageDown never touches the horizontal axis
+  }
+
+  TEST_CASE("scroll_to_end then scroll_to_start clamps at both ends, never overshoots") {
+    scroll_scene::Scene scene = build_scroll_scene();
+    const NodeId focused = scene.handles.vertical_items[0];
+    const dg::PixelRect viewport_content =
+        scene.tree.content_bounds(scene.handles.vertical_viewport);
+    const dg::PixelRect content = scene.tree.bounds(scene.handles.vertical_content);
+    const int max_offset = content.height - viewport_content.height;
+
+    CHECK(
+        dg::apply_keyboard_scroll(DG_ACTION_SCROLL_TO_END, focused, scene.tree, scene.widgets));
+    CHECK(scene.tree.render().scroll_offset(scene.handles.vertical_viewport).y == max_offset);
+
+    CHECK(dg::apply_keyboard_scroll(DG_ACTION_SCROLL_TO_START, focused, scene.tree,
+                                    scene.widgets));
+    CHECK(scene.tree.render().scroll_offset(scene.handles.vertical_viewport).y == 0);
+
+    // A further nudge past either clamp is the same honest no-op scroll_by()
+    // itself already reports for wheel scrolling - not a second rule.
+    CHECK_FALSE(dg::apply_keyboard_scroll(DG_ACTION_SCROLL_TO_START, focused, scene.tree,
+                                          scene.widgets));
+  }
+
+  TEST_CASE("nothing focused: the action resolves, nothing scrolls, nothing crashes") {
+    scroll_scene::Scene scene = build_scroll_scene();
+
+    const dg::KeyEvent event{kWindow, dg::KeyAction::kDown, dg::Key::kOther, Modifier::kNone,
+                             LogicalKey::kPageDown};
+    const dg::ActionScopes scopes;
+    const dg::RoutingContext ctx{scene.tree.render(), scene.widgets, scopes,
+                                 dg::all_shortcut_bindings()};
+    const dg::KeyRouteResult routed = dg::route_key_event(event, kWindow, std::nullopt, ctx);
+    REQUIRE(routed.outcome == KeyRouteOutcome::kRouted);
+    REQUIRE(routed.action.has_value());
+    CHECK(routed.action->action_id == DG_ACTION_SCROLL_PAGE_DOWN);
+
+    const bool moved = dg::apply_keyboard_scroll(routed.action->action_id, std::nullopt,
+                                                 scene.tree, scene.widgets);
+    CHECK_FALSE(moved);
+    CHECK(scene.tree.render().scroll_offset(scene.handles.vertical_viewport).y == 0);
+  }
+
+  TEST_CASE("a focused widget with no scrollable ancestor is the identical, honest no-op") {
+    scroll_scene::Scene scene = build_scroll_scene();
+    const NodeId focused = scene.handles.body;  // outside both viewports
+
+    const bool moved = dg::apply_keyboard_scroll(DG_ACTION_SCROLL_PAGE_DOWN, focused,
+                                                 scene.tree, scene.widgets);
+    CHECK_FALSE(moved);
+    CHECK(scene.tree.render().scroll_offset(scene.handles.vertical_viewport).y == 0);
+    CHECK(scene.tree.render().scroll_offset(scene.handles.horizontal_viewport).y == 0);
+  }
+
+  TEST_CASE(
+      "a keyboard scroll costs zero relayout - the same claim doc/scrolling.md makes "
+      "for wheel scrolling") {
+    scroll_scene::Scene scene = build_scroll_scene();
+    scene.tree.layout();  // settle any leftover dirt from build()
+    const NodeId focused = scene.handles.vertical_items[3];
+
+    const bool moved = dg::apply_keyboard_scroll(DG_ACTION_SCROLL_PAGE_DOWN, focused,
+                                                 scene.tree, scene.widgets);
+    REQUIRE(moved);
+
+    const LayoutStats stats = scene.tree.layout();
+    CHECK(stats.nodes_visited == 0);
+    CHECK(stats.nodes_relaid_out == 0);
   }
 }

@@ -94,13 +94,19 @@ add_executable(drawgui_unit_test
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
-  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets/widget_scene.cpp)
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets/widget_scene.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/10_scrolling/scroll_scene.cpp)
 
 target_include_directories(drawgui_unit_test PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}/golden
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout
   ${CMAKE_CURRENT_LIST_DIR}/../examples/05_widgets
+
+  # 8-3c's keyboard-scrolling test reuses examples/10_scrolling's own scene
+  # (scroll_scene::build()) rather than a second, hand-rolled fixture - the
+  # identical precedent the two directories above already set.
+  ${CMAKE_CURRENT_LIST_DIR}/../examples/10_scrolling
 
   # src/ so that the clip geometry can be tested DIRECTLY rather than only
   # through the pixels it produces. Two of the fifteen defect injections for
