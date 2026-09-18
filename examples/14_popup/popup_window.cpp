@@ -59,6 +59,26 @@ void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::Ren
   (void)manager.present(window, image, tree.painted().rects());
 }
 
+// repaint_full() ends by retiring the tree's damage (RenderTree::repaint_full()'s
+// own doc comment: "discarding accumulated damage"), so right after it runs
+// tree.damage() is already empty and present_if_damaged()'s guard above would
+// drop the frame entirely - the pixels sit rasterized in `surface` with
+// nothing ever pushed to the window, which is the exact first-frame black-
+// window bug this sibling exists to avoid. It presents unconditionally,
+// using tree.painted() - which repaint_full() has just set to the whole
+// viewport - because the frame is already painted; there is nothing left to
+// repaint.
+void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::RenderTree& tree,
+                     dg::RasterSurface& surface) {
+  const dg::PixelView view = surface.peek_pixels();
+  if (view.pixels == nullptr || !view.is_bgra8888) {
+    return;
+  }
+  const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
+                            dg::PixelFormat::kBgra8888};
+  (void)manager.present(window, image, tree.painted().rects());
+}
+
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId host_window, const Settings& settings,
@@ -147,7 +167,7 @@ int Runner::run() {
     return 1;
   }
   host_tree_.repaint_full(host_surface_.value());
-  present_if_damaged(*manager_, host_window_, host_tree_, host_surface_.value());
+  present_painted(*manager_, host_window_, host_tree_, host_surface_.value());
 
   while (manager_->open_window_count() > 0) {
     if (settings_.run_ms > 0 && ms_since(started) >= settings_.run_ms) {
