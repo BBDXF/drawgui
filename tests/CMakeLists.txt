@@ -106,7 +106,8 @@ add_executable(drawgui_unit_test
 # src/abi/abi_impl.cpp) rather than assuming SDL3 is always present the way
 # every OTHER file in this list already gets to.
 if(DRAWGUI_HAVE_SDL3)
-  target_sources(drawgui_unit_test PRIVATE unit/test_clipboard.cpp)
+  target_sources(drawgui_unit_test PRIVATE unit/test_clipboard.cpp
+    unit/test_first_frame_present.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

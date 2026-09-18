@@ -700,6 +700,19 @@ class WindowManager {
   // broken - see PixelFormat.
   [[nodiscard]] Expected<PixelFormat, WindowError> surface_format(WindowId id) const;
 
+  // True until this window's first successful present() - see present()'s
+  // own comment ("presenting is what stops the window showing its
+  // WindowSpec::fill"). This is a narrow, test-only observation point onto
+  // state the window manager already tracks for its own real purpose
+  // (deciding whether to redraw the flat fill colour on an expose event);
+  // it exists so a regression test can prove "a frame was actually pushed to
+  // the window" rather than merely inferring it from the absence of a
+  // WindowError, which present() never returns just because a CALLER chose
+  // not to call it at all - exactly the shape of the first-frame bug this
+  // observation point was added to catch (see
+  // tests/unit/test_first_frame_present.cpp).
+  [[nodiscard]] Expected<bool, WindowError> showing_fill(WindowId id) const;
+
   // Copies `dirty` out of `image` onto the window and puts it on screen.
   //
   // `image` must cover the whole window - `dirty` selects the part of it that

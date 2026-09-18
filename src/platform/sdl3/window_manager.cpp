@@ -949,6 +949,14 @@ Expected<PixelFormat, WindowError> WindowManager::surface_format(WindowId id) co
   return PixelFormat::kBgra8888;
 }
 
+Expected<bool, WindowError> WindowManager::showing_fill(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return entry->shows_fill;
+}
+
 Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView& image,
                                                    const PixelRect& dirty) {
   return present(id, image, std::span<const PixelRect>{&dirty, 1});
