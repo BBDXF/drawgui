@@ -323,3 +323,29 @@ cmake --build build
 # the same equivalence check as a CTest entry, no display needed
 ctest --test-dir build -R 'unit|damage'
 ```
+
+## Addendum: `repaint_full()` retires damage — a present helper must not assume otherwise
+
+Found the hard way, reported as "the window is black until the mouse moves":
+five examples (`14_popup`, `21_focus`, `22_dropdown_menu`, `23_menu_tooltip_dialog`,
+`25_showcase`) painted their first frame with `repaint_full()` and then presented
+through a helper guarded on `tree.damage().is_empty()`.
+
+`repaint_full()`'s own doc comment says it discards accumulated damage, and it
+does so by construction: it paints, then calls `retire_damage()`, which sets
+`painted` to what was just drawn and resets `damage` to empty
+(`src/render/render_tree.cpp`). A present helper written for the ORDINARY
+case — call after some damage has accumulated, present only if there is any —
+is exactly wrong immediately after `repaint_full()`: the frame IS fully
+painted, but the damage that would normally trigger a present has already
+been retired to empty. The pixels sit correct in the surface and are never
+pushed to the window.
+
+The fix is not to re-dirty the tree (`damage_all()` before presenting) — that
+would repaint everything again next frame too, silently giving up the
+partial-repaint property this whole document measures. The fix is a second,
+unconditional present helper for exactly this one moment: present from
+`painted()`, which `repaint_full()` has just set to the whole viewport, with
+no damage check at all. `tests/unit/test_first_frame_present.cpp` is the
+regression test, and it was confirmed to fail against the pre-fix pattern
+before the fix landed, not merely written to pass either way.
