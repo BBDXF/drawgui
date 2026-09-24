@@ -2,14 +2,14 @@
 //
 // SkParagraph resolves a font by asking its FontCollection for a family NAME;
 // this project's FontMgr (SkFontMgr_New_Custom_Directory) cannot answer
-// matchFamilyStyleCharacter() (doc/font-fallback.md), so handing SkParagraph
+// matchFamilyStyleCharacter(), so handing SkParagraph
 // one family and letting it search is not an option here the way it would be
 // on a fontconfig-backed manager. Instead this file reuses the per-codepoint
 // decision FontCatalog::resolve() already makes for the plain SkFont paint
 // path (font_fallback.cpp) and turns it into per-run family names up front,
 // so SkParagraph never has to search at all - it is TOLD which family to use
 // for each stretch of text, the same "the chain drawgui builds" argument
-// doc/font-fallback.md already made, extended to a second consumer rather
+// already made, extended to a second consumer rather
 // than re-derived for it.
 //
 // Skia-free: this header and its .cpp name no Skia type, because everything

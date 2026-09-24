@@ -28,14 +28,12 @@
 // implemented by including src/render/prop_dispatch.generated.inc, so every
 // property in the TOML gets a case whether or not anybody remembered it, and
 // a property added to the table without a decision here is a COMPILE ERROR
-// naming the missing handler rather than a silent no-op. doc/properties.md
-// records the decision, the disagreements the reconciliation exposed, and the
-// per-property gap report.
+// naming the missing handler rather than a silent no-op.
 //
 // NOT EVERY PROPERTY IS IMPLEMENTED, on purpose. Several describe capability
 // the engine does not have - aspect_ratio, shadow, transform, overflow, flex
-// wrapping. Those report kUnsupported, observably, one line of code each, and
-// doc/properties.md says what each of them needs. That list is the input to
+// wrapping. Those report kUnsupported, observably, one line of code each.
+// That list is the input to
 // the next slice.
 
 #pragma once
@@ -108,7 +106,7 @@ enum class PropStatus : std::uint8_t {
   // The engine does not implement this property yet. Distinct from every
   // status above because it is a statement about drawgui, not about the
   // caller: the same write becomes kApplied when a later slice lands the
-  // capability. doc/properties.md lists every one and what it needs.
+  // capability.
   kUnsupported,
 };
 
@@ -258,7 +256,7 @@ PropWrite set_prop(LayoutTree& tree, NodeId node, dg_prop_id prop_id, const Prop
 // mechanism that already rejects `DG_PROP_WIDTH` sent as a colour.
 //
 // THE FIRST PROTOTYPE, BUILT BEFORE THE SHAPE WAS EXTRACTED: `set_image()`.
-// doc/image.md section 7 named `image_source` as a candidate for either the
+// `image_source` was named as a candidate for either the
 // channel's fourth client or its first prototype; this slice picked
 // PROTOTYPE, because slice 5-1 had already built and proven the entire
 // decode/paint/layout path underneath it (`ImageCatalog`, `carries_image()`,
@@ -287,8 +285,7 @@ PropWrite set_prop(LayoutTree& tree, NodeId node, dg_prop_id prop_id, const Prop
 // prelude as the other three (so a caller gets a real, consistent answer
 // rather than a missing symbol) and then reports `kUnsupported` naming the
 // specific blocker, exactly as `dg::set_prop()`'s own `apply_transform` case
-// already does for the scalar door. doc/complex-properties.md section 4 is
-// the full argument for why this is a decline rather than a half-built
+// already does for the scalar door - a decline rather than a half-built
 // feature.
 
 // The ABI shape design.md section 5.9.6 already specifies for `transform`:
@@ -326,14 +323,13 @@ struct TransformDesc {
                                      const LinearGradientStyle& gradient);
 
 // An outer drop shadow. `blur_radius` is capped - BUDGETED, not merely
-// bounds-checked - because doc/cpu-raster-findings.md measured blur at 52% of
-// a frame's raster time; doc/complex-properties.md section 3 names the
-// number and the reasoning behind it.
+// bounds-checked - because blur was measured at 52% of
+// a frame's raster time.
 [[nodiscard]] PropWrite set_shadow(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
                                    const ShadowStyle& shadow);
 
 // Always reports kUnsupported, naming the specific blocker - see the
-// channel-level comment above and doc/complex-properties.md section 4.
+// channel-level comment above.
 [[nodiscard]] PropWrite set_transform(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
                                       const TransformDesc& transform);
 

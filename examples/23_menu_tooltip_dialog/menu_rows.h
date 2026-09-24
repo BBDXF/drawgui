@@ -2,7 +2,7 @@
 // item label, stacked in a plain kColumn - identical shape and identical
 // argument to examples/22_dropdown_menu/dropdown_options.{h,cpp} (kList's
 // pool nodes carry no attached Widget, so they cannot be focused/clicked -
-// doc/menus.md section 3 - rows are plain kButtons instead). A second copy
+// rows are plain kButtons instead). A second copy
 // rather than reusing dropdown_options.{h,cpp} directly: that file's own
 // `size_for()`/`build()` are dropdown-shaped by name and by directory
 // (examples/22_dropdown_menu/), and this project's own precedent is a

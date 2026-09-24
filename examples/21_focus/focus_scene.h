@@ -67,7 +67,7 @@ Scene build(const Options& options);
 // Applies a NEW focus target: updates dg::Focus, the ring (always moved to
 // scene.focus.current(), whatever this call left it as), and the
 // kTextField side effects (design.md section 5.2's own event-routing
-// context; doc/focus.md section 6) - start/stop the platform's text-input
+// context) - start/stop the platform's text-input
 // mechanism on gain/loss, and clear the platform's own IME state on loss
 // alongside the model-level cancellation dg::WidgetSet::text_field_set_
 // focus(false) already performs internally. A no-op (aside from the ring

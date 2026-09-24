@@ -53,7 +53,7 @@ NodeStyle bordered(std::uint32_t fill, std::uint32_t border, float radius) {
 
 // One clickable toggle: a 32x32 box (hover/press feedback on its own fill)
 // holding a 20x20 indicator (checked/unchecked feedback on ITS fill) - the
-// exact shape doc/widgets.md's checkbox already has. `group` unset makes a
+// exact shape the checkbox already has. `group` unset makes a
 // plain checkbox; set, it makes a radio option sharing that group id -
 // "checkbox plus one field", not a second construction.
 NodeId add_toggle(Scene& scene, NodeId parent, std::optional<int> group,

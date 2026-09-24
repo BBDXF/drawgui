@@ -33,8 +33,7 @@ double ms_since(Clock::time_point started) {
 
 // The frame-pacer interval WindowManager::pump() is handed while an
 // animation is active - a CPU-side approximation of 60Hz vsync, because
-// there is no GPU backend here to hand the real signal off to. See
-// doc/animation.md section on "no GPU, so no real vsync" for why this is
+// there is no GPU backend here to hand the real signal off to. This is
 // candid about that rather than calling it vsync.
 constexpr int kFramePacerMs = 16;
 

@@ -14,10 +14,10 @@
 //               scroll_axis: kHorizontal leaf.
 //
 // NEITHER VIEWPORT IS A NEW NODE KIND. Each is composed from three existing
-// mechanisms - a kLeaf's `scroll_axis` (this slice), `overflow: kClip`
-// (doc/clipping.md), and `RenderTree::set_scroll_offset` (runtime state) -
-// plus a plain kColumn/kRow holding the items. `doc/scrolling.md` section 1
-// is the argument for why that composition is the whole feature.
+// mechanisms - a kLeaf's `scroll_axis` (this slice), `overflow: kClip`,
+// and `RenderTree::set_scroll_offset` (runtime state) -
+// plus a plain kColumn/kRow holding the items. That composition is the
+// whole feature.
 //
 // NO TEXT. Items are distinguished by a colour ramp rather than a label, the
 // same simplification examples/09_sizing made for the same reason: a font

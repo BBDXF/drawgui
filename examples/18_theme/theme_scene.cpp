@@ -47,7 +47,7 @@ Scene build(const dg::TreeSpec& spec) {
   handles.row = tree.add_child(root, row, NodeStyle{});
   // The row's gap is READ from space.md once, here - a plain literal, NOT
   // a $token binding - deliberately, so that THIS demo's own light/dark
-  // switch measures a pure colour-token case (see doc/theme.md section 5's
+  // switch measures a pure colour-token case (the
   // "colour-only" LayoutStats row). Binding `gap` to a token too is real
   // and supported (dg::bind_token(tree, bindings, row, DG_PROP_GAP, ...)
   // works exactly like every other binding in this file), but

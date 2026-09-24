@@ -40,8 +40,7 @@
 // table) to reach for. Cut shares this decision for the identical reason:
 // no selection, nothing happens, the clipboard is not touched.
 //
-// PASTE IS text_field_insert() UNCHANGED (doc/text-input.md's own cross-
-// reference, restated in drawgui-p0.md): it already deletes an active
+// PASTE IS text_field_insert() UNCHANGED: it already deletes an active
 // selection before inserting, so a selected paste-target is replaced with
 // no separate primitive. It also already drops ASCII control characters
 // (0x00-0x1F, 0x7F) - PRE-EXISTING behaviour this slice does not change,

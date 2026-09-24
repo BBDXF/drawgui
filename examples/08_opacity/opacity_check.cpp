@@ -228,7 +228,7 @@ bool check_group_versus_per_object(const Frame& frame, std::ostream& out) {
   // chip's colour once; group opacity rasterizes the chip opaque into an
   // eight-bit layer and multiplies that, so the group's answer carries one
   // extra quantization. Measured across this scene the two agree exactly or
-  // differ by a single level, never more - doc/compositing.md records it.
+  // differ by a single level, never more.
   if (seen.worst_single_delta > 1) {
     out << "    FAIL where ONE chip covers, the panels differ by " << seen.worst_single_delta
         << " levels; at most one is rounding\n";
@@ -304,7 +304,7 @@ bool check_nested_multiplies(const Frame& frame, std::ostream& out) {
       pixel_at(view, PixelPoint{middle(band).x, nested_box.bottom() + 4});
 
   // Asked of the scene rather than written down again here. A second copy of
-  // the chip's colour is exactly the drift doc/properties.md exists to remove,
+  // the chip's colour is exactly the drift this pattern exists to remove,
   // and it would make this check pass against a scene it no longer describes.
   const std::uint32_t chip =
       frame.scene.tree.render().style(frame.scene.handles.nested_chips[0]).fill.argb() &
@@ -438,9 +438,9 @@ int run(std::ostream& out) {
   ok = check_invisible_is_still_clickable(size, out) && ok;
 
   // A ladder that produced one layout would be four runs of one case, which is
-  // the failure doc/wrapping.md records for the wrapping ladder.
+  // the failure this ladder guards against.
   // A ladder that produced one layout would be six runs of one case, which is
-  // the failure doc/wrapping.md records for the wrapping ladder. Both the SIZE
+  // the failure this ladder guards against. Both the SIZE
   // of a layer's extent and its POSITION have to vary: an extent computed in
   // local rather than absolute coordinates is wrong only in its position.
   if (distinct_extent_widths.size() < 3 || distinct_chip_origins.size() < 4) {

@@ -69,8 +69,8 @@ struct WindowSpec {
   Color fill;
 
   // design.md section 5.2's own `on_close_request` being cancellable (the
-  // unsaved-changes-prompt case) - 7-5b's own prerequisite for `Dialog`
-  // (doc/menus.md section 6.3). False, the default, preserves every
+  // unsaved-changes-prompt case) - 7-5b's own prerequisite for `Dialog`.
+  // False, the default, preserves every
   // existing window's behaviour byte-for-byte: request_close()/the user's
   // own close button still destroy the window immediately and report it
   // through PumpResult::closed, exactly as before this field existed. True
@@ -115,7 +115,7 @@ struct ImageView {
 };
 
 // Which physical button produced a kDown/kUp PointerEvent - 7-5b's own
-// prerequisite for a context menu (doc/menus.md section 6.1): before this
+// prerequisite for a context menu: before this
 // slice, `PointerEvent` carried no button identity anywhere, and the SDL3
 // backend dropped every button except the primary one before a PointerEvent
 // was ever constructed, so "a right-click cannot activate a widget here" was
@@ -146,7 +146,7 @@ enum class PointerButton : std::uint8_t {
 // because nothing routed them and an enumerator naming a button no widget
 // could receive would have been a promise. `PointerEvent::button` (below)
 // is the fix: the SECONDARY button now also produces kDown/kUp events - for
-// a context menu, doc/menus.md's own follow-up (7-5b) - and the MIDDLE
+// a context menu, a follow-up (7-5b) - and the MIDDLE
 // button is passed through for the identical "measured, not assumed"
 // reason (SDL reports it with the same enum, and dropping a value nothing
 // asked for yet is a decision a future caller can still make, not one this
@@ -193,8 +193,8 @@ struct PointerEvent {
   // kMove/kLeave/kWheel carry no real button of their own (a motion or a
   // leave is not "a button doing something"), so the default kPrimary on
   // those three is a don't-care value, never read by anything this project
-  // ships: doc/menus.md section 6.1 names the routing decision this field
-  // exists to answer - a secondary-button kDown does NOT feed
+  // ships: the routing decision this field exists to answer is that a
+  // secondary-button kDown does NOT feed
   // dg::Interaction's hover/press/click machine the way a primary-button one
   // does (it is a PARALLEL, non-activating channel that only ever opens a
   // context menu), so every caller that already only ever constructed a
@@ -247,7 +247,7 @@ enum class Key : std::uint8_t {
   kTab,
 
   // 7-5's Dropdown/menu keyboard navigation (design.md section 5.6's
-  // Dropdown/Menu, doc/menus.md): arrow-key highlight movement and Enter to
+  // Dropdown/Menu): arrow-key highlight movement and Enter to
   // activate the highlighted option. Neither existed before this slice
   // because nothing here had a list of options to move a highlight through
   // - the identical "only what has a real consumer" policy this enum's own
@@ -304,10 +304,10 @@ struct KeyEvent {
 // "just in case" for a later slice. A composed, non-ASCII character an IME
 // commits still arrives here as ordinary committed text - this library does
 // not distinguish "typed" from "IME-committed", and a TextField widget's
-// text_field_insert() (doc/text-input.md, doc/ime.md) is the single place
+// text_field_insert() is the single place
 // either kind lands, unchanged by which one it was.
 //
-// 7-3 (doc/ime.md) is what now also reads TextEditingEvent below for the
+// 7-3 is what now also reads TextEditingEvent below for the
 // PREVIEW half of composition - this struct's own job (the COMMIT half) is
 // untouched by that: a real IME still delivers a TextInputEvent exactly like
 // this at the moment it commits, whether or not any TextEditingEvent ever
@@ -319,8 +319,7 @@ struct TextInputEvent {
 
 // The IME's in-progress, NOT YET COMMITTED composition/preedit string -
 // SDL_EVENT_TEXT_EDITING, unread by 4-9 and named there as P7's own job
-// (design.md line ~1719); this is 7-3 reading it. doc/ime.md section 2 is
-// the full investigation; the short version:
+// (design.md line ~1719); this is 7-3 reading it. The short version:
 //
 // `text` is UTF-8, exactly like TextInputEvent::text - empty means
 // composition just ended WITHOUT committing anything (SDL's own convention:
@@ -337,8 +336,8 @@ struct TextInputEvent {
 // legacy API it never calls) - "UTF-8 characters" reads as a codepoint
 // count, not a byte offset, which is exactly the trigger 7-2b's own
 // cross-reference said to watch for. `-1` is SDL's documented sentinel for
-// "not set" on either field. doc/ime.md records plainly that this could NOT
-// be verified against a genuine composition sequence on this project's own
+// "not set" on either field. This could NOT be verified against a genuine
+// composition sequence on this project's own
 // development machine - every real IME probed here never delivers this
 // event at all (section 2) - so WidgetSet::text_field_composition_update()
 // converts these units to a byte offset by walking codepoints (the only
@@ -394,9 +393,9 @@ struct PumpResult {
   std::vector<KeyEvent> key;
   std::vector<TextInputEvent> text_input;
 
-  // Composition-preview events (7-3, doc/ime.md) - SDL_EVENT_TEXT_EDITING.
+  // Composition-preview events (7-3) - SDL_EVENT_TEXT_EDITING.
   // Ordinary on every platform this project has measured; on the one it
-  // develops on, doc/ime.md section 2 records that a real IME never
+  // develops on, a real IME never
   // produces one at all (it draws its own composition window instead), so
   // this vector is empty in every real run so far and is exercised by
   // WindowManager::post_text_editing()'s synthetic injection instead.
@@ -423,16 +422,15 @@ class WindowManager {
   // Opens an ordinary top-level window that is also `owner`'s CHILD - real
   // SDL_SetWindowParent()/SDL_SetWindowModal() ownership, not a convention
   // this engine invents on top of an unrelated window - design.md section
-  // 5.2's `Dialog` window kind ("有 owner，可模态"), 7-5b's own prerequisite
-  // (doc/menus.md section 6.3). `owner` must already be open. This is the
+  // 5.2's `Dialog` window kind ("有 owner，可模态"), 7-5b's own prerequisite.
+  // `owner` must already be open. This is the
   // window's OS-level shape only: the modal FOCUS trap this engine's own
   // dg::Focus enforces (set_guarded(), focus.h) is a separate, necessary
   // mechanism, because SDL's own modal enforcement (blocking input to the
   // owner at the platform level) and this engine's own click/set() routing
   // are two different layers - a headless/dummy-driver backend, in
   // particular, has no platform-level modal enforcement to fall back on at
-  // all (doc/popup.md section 1) - see doc/menus.md section 6.3 for the
-  // measurement on THIS call specifically.
+  // all - measured on THIS call specifically.
   [[nodiscard]] Expected<WindowId, WindowError> open_dialog(const WindowSpec& spec,
                                                             WindowId owner);
 
@@ -479,8 +477,8 @@ class WindowManager {
   // same route request_close() uses for a close. `button` defaults to
   // kPrimary, so every call site written before 7-5b keeps posting exactly
   // the primary-button event it always did with no source change; a caller
-  // driving the secondary-button context-menu path (doc/menus.md section
-  // 6.1) passes kSecondary explicitly.
+  // driving the secondary-button context-menu path passes kSecondary
+  // explicitly.
   //
   // Pushed rather than synthesized at the device, because no windowing system
   // offers a "press the button" call - warping the pointer is as far as the
@@ -516,19 +514,19 @@ class WindowManager {
   // on this call regardless of whether an IME is active), so it is real
   // plumbing this slice needs for plain ASCII typing, not a placeholder
   // reserved for a later one. `rect` is the on-screen caret rectangle IMEs
-  // use to position a candidate window - doc/ime.md section 3 confirms,
-  // empirically, on this project's own development machine, that this rect
+  // use to position a candidate window - confirmed empirically, on this
+  // project's own development machine, that this rect
   // is exactly what the real IME (fcitx5) reads to place its OWN, real X11
   // composition window: moving `caret_rect` moves that window one-for-one.
   // No composition PREVIEW is read here - see TextEditingEvent's own
-  // comment (doc/ime.md) for that half, which 7-3 built as a separate
+  // comment for that half, which 7-3 built as a separate
   // pump()-reported event rather than folding it into this call.
   void start_text_input(WindowId id, const PixelRect& caret_rect);
   void stop_text_input(WindowId id);
 
   // SDL_ClearComposition - tells the platform's own IME to abandon whatever
   // it is composing, without committing it. 7-3's own cancellation path
-  // (Escape mid-composition, doc/ime.md section 6) calls this alongside
+  // (Escape mid-composition) calls this alongside
   // WidgetSet::text_field_cancel_composition() so both halves - this
   // engine's model and the platform's own IME state - agree; calling only
   // one would leave the other one ahead, showing (or expecting) a
@@ -573,7 +571,7 @@ class WindowManager {
   // queue - the SAME precedent post_text_input()/post_pointer_button()
   // already establish for driving a real event through the real queue and
   // this manager's own dispatch() deterministically. This is 7-3's answer
-  // to the testing problem doc/ime.md section 5 states plainly: a real IME
+  // to the testing problem: a real IME
   // on this development machine never produces a genuine
   // SDL_EVENT_TEXT_EDITING at all (section 2), so this is the only
   // deterministic way this project has to exercise the composition-preview

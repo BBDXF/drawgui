@@ -6,7 +6,7 @@
 // own "wait forever" convention for SDL_WaitEventTimeout) whenever
 // `engine_.has_active()` is false, and a short frame-pacer interval whenever
 // it is true. There is no GPU here and therefore no real vsync signal to
-// wait on - see doc/animation.md for why the frame-pacer interval is
+// wait on - the frame-pacer interval is
 // candidly a CPU-side approximation of vsync rather than the real thing.
 //
 // `--idle-probe-ms N` is the measurement the task asks for by name: how much

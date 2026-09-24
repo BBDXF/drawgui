@@ -1,7 +1,7 @@
 // The window half of examples/14_popup: a real host window with one
 // clickable "menu" panel that opens an overlay popup through PopupHost.
 //
-// PopupHost is overlay-only (doc/popup.md) - there is no second branch to
+// PopupHost is overlay-only - there is no second branch to
 // choose between any more, so this Settings struct carries no
 // force_overlay/native switch. This example's remaining job is what its own
 // header comment in popup_scene.h and popup_check.cpp now record: the

@@ -37,7 +37,7 @@ void legend(std::ostream& out) {
       << "  design.md section 5.9.5) rather than by writing NodeStyle fields\n"
       << "  directly. The shadow panel's sliver past its own right/bottom edges IS\n"
       << "  the property painting outside its declared bounds - budgeted, hard-edged\n"
-      << "  here for a byte-exact oracle (see doc/complex-properties.md).\n";
+      << "  here for a byte-exact oracle.\n";
 }
 
 void log_transform(std::ostream& out, const dg::PropWrite& result) {

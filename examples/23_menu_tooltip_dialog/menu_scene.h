@@ -60,7 +60,7 @@ void tab(Scene& scene, bool backwards);
 // A PRIMARY-button down/up: ordinary dg::Interaction hover/press bookkeeping
 // plus a focus change on kDown - exactly examples/22_dropdown_menu's own
 // dispatch_pointer(). SECONDARY-button events are NOT this function's job
-// at all: doc/menus.md section 6.1's own routing decision is that a
+// at all: the routing decision made is that a
 // right-click is a PARALLEL, non-activating channel, so the window driver
 // (menu_window.cpp) intercepts PointerButton::kSecondary BEFORE this
 // function ever sees it, and this function's own switch over PointerAction

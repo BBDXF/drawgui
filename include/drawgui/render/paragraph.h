@@ -1,7 +1,7 @@
 // Measuring how tall a wrapped paragraph of text will be, before any node
 // carrying it is laid out.
 //
-// doc/text-layout.md section 2 is the full argument; the short version: this
+// The full argument, in short: this
 // project's LayoutTree (include/drawgui/layout/box.h) knows nothing about
 // text at all - BoxStyle carries no font, no string, nothing render_tree.h's
 // TextStyle owns - and 7-2 keeps it that way rather than teaching it to ask a
@@ -67,7 +67,7 @@ class Paragraph {
   // a caret sitting at BYTE offset `offset` would be drawn - the
   // shaping-aware replacement for 4-9's measure_ascii_width()/
   // ascii_offset_at_x() per-substring SkFont::measureText calls
-  // (doc/text-input.md's 7-2b cross-reference), built on skia::textlayout::
+  // (7-2b's own investigation), built on skia::textlayout::
   // Paragraph's own byte-offset-native "Editing API"
   // (getGlyphClusterAt) - confirmed byte-offset-native (not the UTF-16-
   // offset legacy Flutter API design.md section 5.13.2 warns about) by

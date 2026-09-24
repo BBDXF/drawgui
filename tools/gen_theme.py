@@ -23,7 +23,7 @@ all - `.d.ts` describes a JS binding that has no host to bind to yet, and an
 "ABI constant table" is a table of exported symbols for an ABI this project
 has not exported. token_id itself (this file's whole output) is what 6-3
 will fold into `prop_id`/`action_id`'s shared generated family, exactly as
-doc/animation.md already deferred `curve_id` for the identical reason.
+`curve_id` was already deferred for the identical reason.
 
 Usage:
   python3 tools/gen_theme.py            regenerate all three outputs

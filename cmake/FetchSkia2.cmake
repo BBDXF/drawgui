@@ -7,7 +7,7 @@
 # checkout (pinned by a shallow git clone's HEAD commit) - and then hand-wrote
 # link order, include paths and system libraries for the result. Both halves
 # of that were the owner's problem to maintain, not upstream's; see slice 7-1
-# and doc/skia-dependency.md for the full rationale for switching providers.
+# for the full rationale for switching providers.
 #
 # libskia2 (https://github.com/BBDXF/libskia2) is a purpose-built Skia
 # distribution for exactly this kind of self-drawn GUI framework:
@@ -32,9 +32,7 @@
 #     project previously pinned by tag - not a regression, because the header
 #     package now travels inside the SAME tarball as the binaries it matches,
 #     so there is no longer a "do these two pins agree" question to ask.
-#   - Text stack is libgrapheme, not ICU: no icudtl.dat anywhere. See
-#     doc/skia-dependency.md for the settlement of design.md section 12 open
-#     question 5.
+#   - Text stack is libgrapheme, not ICU: no icudtl.dat anywhere.
 #
 # --- Verification design ----------------------------------------------------
 #

@@ -4,8 +4,7 @@
 // Ambient ABI declarations for a future Bun/Node FFI binding (design.md
 // section 6, phase P6). NOTHING in this project's own build reads this
 // file yet - there is no JS framework layer to bind through - so treat
-// it as a settled TARGET shape rather than a proven one; doc/abi.md
-// section 6 records that scoping decision explicitly.
+// it as a settled TARGET shape rather than a proven one.
 // ==========================================================================
 
 // One drawgui application: the window manager and every window/node arena it
@@ -211,10 +210,10 @@ export declare namespace DrawguiAbi {
   // dg::set_prop() at the ABI boundary. Works on pending or live nodes.
   function dg_node_set_prop(node: dg_node_t | null, prop_id: number, value: dg_value): number;
   // Attaches pending `child` under live `parent`. `ref` must be null this slice
-  // (append-only; see doc/abi.md section 5).
+  // (append-only).
   function dg_node_insert_before(parent: dg_node_t | null, child: dg_node_t | null, ref: dg_node_t | null): number;
   // Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not
-  // detach a live node's tree structure - see doc/abi.md section 5.
+  // detach a live node's tree structure.
   function dg_node_remove(node: dg_node_t | null): number;
   // 8-3d: declares that `node` consumes `action_id` (design.md section 5.5.3) -
   // wraps dg::ActionScopes::scope() unchanged. `node` must be LIVE
@@ -226,10 +225,9 @@ export declare namespace DrawguiAbi {
   // generated from the SAME binding table dg::shortcut_label() (chord.h,
   // unit-tested since 8-1/8-2) already builds - this wraps it rather than
   // re-implementing label generation. Returns NULL for an action_id no binding
-  // names (dg::shortcut_label()'s own std::optional empty case) - see doc/abi.md
-  // section 13 for why NULL rather than an empty string. Valid until the next
-  // dg_shortcut_label() call on this thread, matching dg_last_error()'s own
-  // lifetime rule.
+  // names (dg::shortcut_label()'s own std::optional empty case) rather than an
+  // empty string. Valid until the next dg_shortcut_label() call on this thread,
+  // matching dg_last_error()'s own lifetime rule.
   function dg_shortcut_label(action_id: number): string | null;
   // Blocks up to timeout_ms (negative: forever), pumps every window, returns the
   // number of events now pollable.
@@ -240,8 +238,7 @@ export declare namespace DrawguiAbi {
   // The message from the most recent failing call on this thread. Valid until the
   // next drawgui call on it.
   function dg_last_error(): string | null;
-  // This node's subtree as JSON (type/bounds/parentData). See doc/abi.md section
-  // 7 for exactly what is and is not included.
+  // This node's subtree as JSON (type/bounds/parentData).
   function dg_dump_layout_tree(node: dg_node_t | null): string | null;
   // 7-6: loads an EXTERNAL, untrusted theme package directory (design.md section
   // 5.7.4/5.7.5 via dg::ThemePackage) - path traversal/size/resource-count bounds
@@ -267,7 +264,7 @@ export declare namespace DrawguiAbi {
   // 7-6: makes `theme` this app's active theme and immediately re-applies every
   // window's ThemeBindings against it - this IS hot reload's second half: reload
   // with dg_theme_load_dir()/load_memory() again, then call this again with the
-  // fresh handle (design.md section 5.7.6, settled in doc/theme-packages.md).
+  // fresh handle (design.md section 5.7.6).
   function dg_app_set_theme(app: dg_app_t | null, theme: dg_theme_t | null): number;
   // TEST-ONLY. WindowManager::warp_pointer() at the ABI boundary - see the file
   // header.

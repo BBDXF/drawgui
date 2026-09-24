@@ -92,8 +92,7 @@ class Runner {
   // last was, so a move reports the DELTA rather than the absolute position.
   // No drag threshold and no gesture arena (design.md section 5.16.3) - this
   // scene's list items carry no click semantics of their own, so there is
-  // nothing for a drag to compete against. doc/scrolling.md section 3 names
-  // this decline.
+  // nothing for a drag to compete against.
   std::optional<dg::NodeId> dragging_;
   dg::PixelPoint drag_last_;
 };

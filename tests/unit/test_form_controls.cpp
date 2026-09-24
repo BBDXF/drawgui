@@ -177,7 +177,7 @@ constexpr int kTrackWidth = 200;
 // pill-track-with-overlapping-round-thumb shape: a track the same height as
 // its thumb makes `(track.height - thumb.height) / 2` always zero, which
 // cannot tell a correct centering formula from a broken one. This was
-// caught empirically, not anticipated - see doc/form-controls.md section 4.
+// caught empirically, not anticipated.
 constexpr int kTrackHeight = 8;
 constexpr int kThumbSize = 20;
 

@@ -329,7 +329,7 @@ TEST_CASE("scroll_axis on a node whose own extent is unbounded is a diagnostic")
   // derived a child's maximum from its parent's - so the ONLY way to reach a
   // node whose own extent is genuinely unbounded is to nest it inside another
   // scrolling viewport. That nesting is itself a free consequence of how
-  // scroll_axis composes (doc/scrolling.md section 5) and this is its
+  // scroll_axis composes and this is its
   // misuse case: `host` asks to scroll vertically but never settles its own
   // height, so there is nothing bounded to scroll it within.
   BoxStyle outer = stack_of(LayoutKind::kLeaf);
@@ -689,8 +689,8 @@ TEST_CASE("an inset change reaches the absolute container that positions with it
 // BOTH axes, which is exactly the state that absorbs a child's own style
 // change - so without the parentData rule the row that decides whether to
 // stretch this child is never told to reconsider, and the child keeps a height
-// a full pass would have taken away. That is the same shape doc/properties.md
-// section 3.7 records for `grow`, one field over.
+// a full pass would have taken away. That is the same shape recorded
+// for `grow`, one field over.
 TEST_CASE("an align_self change reaches the row that would have stretched it") {
   LayoutTree incremental{spec_of(317, 223)};
   const NodeId flexible = build_flex_row(incremental);

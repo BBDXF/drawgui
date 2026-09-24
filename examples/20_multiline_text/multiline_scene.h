@@ -3,8 +3,8 @@
 // FIVE PANELS, each `TextStyle::wrap = true` at the same declared width, and
 // each panel's HEIGHT computed by `dg::Paragraph::build()` BEFORE the node is
 // constructed - the same "know your size before your content is resolved"
-// discipline design.md section 5.10.3 already forces on a decoded image
-// (doc/image.md), extended to wrapped text (doc/text-layout.md section 2).
+// discipline design.md section 5.10.3 already forces on a decoded image,
+// extended to wrapped text.
 // LayoutTree itself never measures a byte of text; it only ever sees a
 // declared `height` like any other box.
 //
@@ -28,14 +28,14 @@
 //               merely asserted.
 //   ellipsized  the same long sentence as `latin`, `max_lines = 2` - the
 //               multi-line counterpart of the single-line TextField's
-//               ellipsize() (doc/text-input.md section 1.4), now built on
+//               ellipsize(), now built on
 //               SkParagraph's own truncation rather than a hand-rolled one.
 //
 // Every panel uses a REAL SYSTEM FONT directory (`/usr/share/fonts`, the
 // same default examples/06_font_fallback already scans), not the generated
 // test fonts test_paragraph.cpp uses - because the point of this demo is to
 // show what this project's own font-fallback chain draws on a real machine,
-// the same honesty argument doc/font-fallback.md's "this machine has no
+// the same honesty argument the "this machine has no
 // Japanese font" caveat already established for a static screenshot.
 
 #pragma once

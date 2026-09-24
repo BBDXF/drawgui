@@ -4,9 +4,9 @@
 // Deliberately textless: the point of this demo is PopupHost itself
 // (placement, dismissal), not a widget - a future slice building the
 // Dropdown widget on top of PopupHost is where text belongs.
-// `doc/popup.md` records this scoping decision by name.
+// This scoping decision is by name.
 //
-// PopupHost is overlay-only (doc/popup.md's B-1/B-2 finding): there is no
+// PopupHost is overlay-only: there is no
 // second (native) branch left to hold this content's geometry equal
 // against, so build_menu_content() is called exactly once per popup open,
 // against whichever RenderTree/content_root PopupHost::show() handed back -

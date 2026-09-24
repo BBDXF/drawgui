@@ -5,7 +5,7 @@
 // 4-9 built the smallest thing ITS demo needed: one optional NodeId, no
 // order, no containment. This slice builds the rest, and the header comment
 // that used to say "No tab order, no focus TREE" is corrected here rather
-// than left stale - doc/focus.md records the decision in full; the short
+// than left stale; the short
 // form:
 //
 // THERE IS NO THIRD TREE. design.md section 5.2 says "焦点树", but asking
@@ -25,7 +25,7 @@
 // STILL ONE FOCUSED WIDGET AT A TIME, still per-window (one `Focus` instance
 // per `RenderTree`/window, matching design.md's own per-window
 // `FocusManager` literally): originally, this section justified a second
-// `Focus` instance per popup by a native popup (doc/popup.md) being a
+// `Focus` instance per popup by a native popup being a
 // genuinely separate `RenderTree` in a genuinely separate OS window. 48c9cd3
 // deleted that native branch - PopupHost is overlay-only now, and an overlay
 // popup shares the host's own `RenderTree`/`Focus` instance; Tab must not let
@@ -49,7 +49,7 @@
 // focus still needs NO NodeId-plus-window-id struct because there is, again,
 // only one window's `RenderTree` involved.
 //
-// 7-5b (doc/menus.md section 6.3) grows exactly one more bit onto the SAME
+// 7-5b grows exactly one more bit onto the SAME
 // scope: `enter_scope(root, modal)`'s `modal` flag, and `set_guarded()`
 // alongside `set()`, is `Dialog`'s modal focus trap - closing the gap 7-4
 // named and deliberately left open ("the smaller mechanism a modal trap
@@ -87,8 +87,8 @@ struct FocusChange {
 //
 // kButton/kCheckbox/kSlider/kTextField: yes - each is the kind of thing a
 // desktop toolkit puts a tab stop on, and each already has a visible,
-// steady-state APPEARANCE that does not depend on the pointer being over it
-// (doc/focus.md section 2). kDropdown (7-5, doc/menus.md) joins this list
+// steady-state APPEARANCE that does not depend on the pointer being over it.
+// kDropdown (7-5) joins this list
 // for the identical reason kButton is on it - it is an ordinary interactive
 // anchor with a steady-state appearance (the currently selected label).
 //
@@ -99,13 +99,13 @@ struct FocusChange {
 // kScrollView/kList: no, DECLINED rather than overlooked. A desktop toolkit
 // conventionally makes a scrollable region a tab stop so arrow/Page keys can
 // scroll it without a pointer - but this project has no keyboard-scrolling
-// code AT ALL yet (doc/scrolling.md section 1 named the precondition,
-// design.md section 5.5.1's intent mechanism, as still absent), and this
+// code AT ALL yet (design.md section 5.5.1's intent mechanism names this
+// precondition as still absent), and this
 // project's own standing rule is that an interface is extracted from a
 // working implementation, never written ahead of one. Making these
 // focusable now would draw a visible ring around a widget that Tab can
 // reach but no key can then act on - worse than not reaching it at all.
-// doc/focus.md section 3 names this as unblocked-but-not-built.
+// This is unblocked-but-not-built.
 [[nodiscard]] constexpr bool is_focusable(WidgetKind kind) {
   switch (kind) {
     case WidgetKind::kButton:
@@ -150,7 +150,7 @@ struct FocusChange {
 // Skipped entirely, at any tab_index: a node with no attached Widget, a
 // Widget whose `kind` is_focusable() rejects, and a ZERO-AREA node
 // (`RenderTree::absolute_bounds().is_empty()`) - the mechanism that makes a
-// popup closed by clipping its container to empty (doc/popup.md section 3)
+// popup closed by clipping its container to empty
 // or a not-yet-assigned kList pool slot fall out of Tab order for free,
 // with no special-case code naming either one.
 //
@@ -158,7 +158,7 @@ struct FocusChange {
 // header records, by name, that hit testing ignores opacity entirely - a
 // click still reaches a fully faded widget - and Tab reaching the identical
 // set of widgets a click can reach is the CONSISTENT reading of that rule,
-// not a divergence from it (doc/focus.md section 3 restates 4-5's own
+// not a divergence from it (4-5's own
 // argument for why: opacity is a continuous animated quantity with no
 // natural threshold to place an interaction cutoff at).
 [[nodiscard]] std::vector<NodeId> focus_order(const RenderTree& tree, const WidgetSet& widgets,
@@ -173,7 +173,7 @@ class Focus {
   //
   // Takes NO RenderTree, on purpose - unconditional, exactly the shape 4-9
   // built and every one of this class's existing five call sites (as of
-  // 7-4) already assume. `Dialog`'s modal trap (doc/menus.md section 6.3)
+  // 7-4) already assume. `Dialog`'s modal trap
   // needed a version that CAN refuse a target outside an active modal
   // scope, and that check needs a tree (is_within() takes one) - rather
   // than thread one through every existing call site to reason about a flag
@@ -182,7 +182,7 @@ class Focus {
   // calls; every caller here before 7-5b keeps calling this one, unchanged.
   FocusChange set(std::optional<NodeId> target);
 
-  // set()'s modal-aware sibling (doc/menus.md section 6.3): identical to
+  // set()'s modal-aware sibling: identical to
   // set(target) UNLESS a modal scope is active (enter_scope(root, true))
   // AND `target` has a value that is NOT is_within() that scope's root, in
   // which case this REFUSES - returns FocusChange{} (no change at all,
@@ -226,8 +226,7 @@ class Focus {
   // matching exit_scope() - the popup case: Tab inside an open dropdown/menu
   // must not walk back out into the window that opened it.
   //
-  // `modal` (default false) is 7-5b's own addition (doc/menus.md section
-  // 6.3): false is 7-4's original, unchanged meaning - nothing refuses a
+  // `modal` (default false) is 7-5b's own addition: false is 7-4's original, unchanged meaning - nothing refuses a
   // direct click or a plain set() from escaping, only Tab/Shift-Tab's own
   // traversal is bounded, so every existing caller (a plain popup/dropdown
   // scope) is unaffected by this parameter existing. true additionally
@@ -239,7 +238,7 @@ class Focus {
   // boundary twice.
   //
   // A SINGLE ACTIVE SCOPE, not a stack: PopupHost itself never nests one
-  // popup inside another (doc/popup.md section 6, "no second popup ever
+  // popup inside another ("no second popup ever
   // opens from within a first one" - `PopupHost` "holds no parent-popup
   // relationship"), so a stack of depth greater than one has no working
   // caller to justify it, matching this project's own "extracted from a
@@ -251,7 +250,7 @@ class Focus {
   // flag too. If the currently focused widget is `is_within()` the scope's
   // own root, it is BLURRED first - the popup-close hazard the task names by
   // name: an overlay popup's own container is not removed on close, only
-  // clipped to an empty rectangle (doc/popup.md section 3), so a widget
+  // clipped to an empty rectangle, so a widget
   // focus still names is not a dangling NodeId (the node object still
   // exists) but IS one nobody can see, click, or usefully route a keystroke
   // to any more. Leaving Focus pointed at it would keep painting a ring
@@ -272,7 +271,7 @@ class Focus {
     return scope_root_.value_or(default_root);
   }
 
-  // --- The list-recycling hazard (doc/list.md section 1's pool nodes are
+  // --- The list-recycling hazard (5-3's pool nodes are
   // never freed, only reassigned to a different logical item) ---
 
   // Blurs the current focus if it names any id in `recycled` - the ids
@@ -304,7 +303,7 @@ class Focus {
 // THIS USED TO SAY THE OPPOSITE - "in the margin OUTSIDE a widget's own
 // bounds, never overlapping it" - and the reasoning for that has been
 // superseded, not merely edited around. Recorded here in full because this
-// project's own documentation discipline (doc/focus.md) requires a reversed
+// project's own documentation discipline requires a reversed
 // decision to say so explicitly rather than silently rewrite history:
 //
 // THE OLD ARGUMENT: RenderTree::hit_test() has no "ignore me" flag, so a
@@ -356,7 +355,7 @@ class Focus {
 // unchanged, only WHERE the pixels are moved to.
 //
 // PERMANENT, LAZILY CREATED, NEVER REMOVED, matching 5-3's list pool and
-// PopupHost's own overlay-close precedent (doc/popup.md section 3): a ring
+// PopupHost's own overlay-close precedent: a ring
 // unused after a scope exits (e.g. a popup's own ring after the popup
 // closes) is collapsed to an empty rect rather than deleted, because
 // RenderTree has no removal primitive at all.
@@ -370,7 +369,7 @@ struct FocusRing {
 
 // Creates `ring`'s four strip nodes under `parent` the first time this is
 // called (paint order: added AFTER whatever `parent` already holds, so the
-// ring always outdraws older siblings - see doc/focus.md section 5 for why
+// ring always outdraws older siblings - see below for why
 // a NEW FocusRing, not the same one, is created for a popup's own content
 // rather than reusing the host window's), then repositions them:
 //
@@ -378,8 +377,7 @@ struct FocusRing {
 //                        INSIDE: the ring's outermost edge sits `gap` pixels
 //                        in from the target's own edge, and occupies
 //                        `thickness` more pixels further toward the
-//                        target's center (doc/focus.md's own "why inward"
-//                        section, and FocusRing's own header comment
+//                        target's center (FocusRing's own header comment
 //                        above, record why this replaced an earlier
 //                        outward geometry). If `bounds` is too small on
 //                        either axis for `2*(gap+thickness)` to fit without
@@ -390,7 +388,7 @@ struct FocusRing {
 //   target == nullopt    collapses all four strips to an empty PixelRect -
 //                        invisible and, being empty, unhittable too (the
 //                        same "empty rect removes a subtree from painting
-//                        and hit testing" rule doc/clipping.md already
+//                        and hit testing" rule already
 //                        established for a closed overlay popup).
 //
 // `parent` need not sit at the origin of `tree`'s coordinate space, and its
@@ -410,7 +408,7 @@ struct FocusRing {
 // dependency on drawgui/theme (a ring node is exactly the kind of
 // paint/positioning-only state TextField's caret and selection_highlight
 // already are, and neither of those goes through ThemeBindings/
-// dg::set_prop() either - doc/focus.md section 5).
+// dg::set_prop() either).
 void update_focus_ring(RenderTree& tree, NodeId parent, FocusRing& ring,
                        std::optional<NodeId> target, Color ring_color, int thickness = 2,
                        int gap = 2);

@@ -1,6 +1,6 @@
 // A minimal JSON parser, scoped exactly to what theme.json needs.
 //
-// SEE doc/theme.md for the decision this settles (design.md section 12
+// The decision this settles (design.md section 12
 // open question 3, "JSON 解析器选型... P3 前定案"): drawgui has pulled in
 // exactly three third-party dependencies in its whole history (Skia, SDL3,
 // FreeType - and doctest for tests only), and theme.json's own grammar is a
@@ -11,8 +11,7 @@
 // small enough grammar that a purpose-built parser is both correct and
 // auditable in about 200 lines - not a subset that happens to be convenient
 // to hand-roll, a subset chosen because THIS is what theme.json actually
-// needs (icons/fonts/images arrays are named out of this slice's scope,
-// doc/theme.md section on scope).
+// needs (icons/fonts/images arrays are named out of this slice's scope).
 //
 // This file still parses the FULL JSON GRAMMAR (objects, arrays, strings,
 // numbers, true/false/null) rather than only the theme.json subset, on

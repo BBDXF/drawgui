@@ -1,7 +1,7 @@
 // The interactive half of examples/21_focus: a host window with the mixed-
 // kind scene focus_scene.h builds, plus a "open popup" button that opens a
 // popup through PopupHost - overlay-only (native OS popup windows were
-// removed; see doc/popup.md).
+// removed).
 
 #pragma once
 

@@ -9,8 +9,8 @@
 // A REAL dg::WindowManager, matching tests/unit/test_clipboard.cpp's own
 // precedent (its own comment explains why: a free function/fake would let a
 // test construct nothing at all and still compile). SDL_VIDEODRIVER=dummy
-// opens an ordinary window headlessly (doc/popup.md section 1's own
-// measurement: dummy fails only SDL_CreatePopupWindow, not an ordinary
+// opens an ordinary window headlessly (measured: dummy fails only
+// SDL_CreatePopupWindow, not an ordinary
 // window), which is what makes the actual first-frame present path
 // reachable here at all.
 //

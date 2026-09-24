@@ -4,7 +4,6 @@
 // "1000 项列表" acceptance bar, section 5's P3 row) logical rows behind a
 // PERMANENT pool of only `kPoolSize` real nodes - enough to cover the
 // viewport plus a couple of spare rows, never one node per logical item.
-// `doc/list.md` is the decision record this scene exists to demonstrate.
 //
 // EVERY RECYCLED FIELD DIFFERS BY DESIGN, so a residue bug (a stale fill,
 // label or image surviving a recycle) is VISIBLE rather than invisible:
@@ -107,7 +106,7 @@ Scene build_baseline(const Options& options);
 
 // Applies `slots` (whatever list_sync()/list_scroll_by() just returned) by
 // calling style_for()/RenderTree::set_style() for each - the whole of this
-// slice's data-source seam (doc/list.md section 4). A slot that did not
+// slice's data-source seam. A slot that did not
 // change is never in `slots`, so it is never repainted.
 void refresh(Scene& scene, const std::vector<dg::ListSlot>& slots);
 

@@ -125,7 +125,7 @@ TEST_CASE("scroll offset shifts children's absolute position, not their local on
 
   // The node CARRYING the offset does not move itself - only its children -
   // the same shape a clip confines descendants but not its own paint
-  // (doc/clipping.md section 2) and a parent applies margin but is not
+  // and a parent applies margin but is not
   // shrunk by it (design.md section 5.9.4).
   CHECK(tree.absolute_bounds(handles.viewport) ==
         PixelRect{10, 10, kViewportWidth, kViewportHeight});
@@ -167,7 +167,7 @@ TEST_CASE("hit testing follows the offset: scrolled out means not hittable") {
   CHECK(tree.hit_test(PixelPoint{20, 15}) == handles.items[0]);
 
   // Scroll down by 160: item 0 is now at absolute y -150..-114, entirely
-  // above the viewport - clipped away, and per doc/clipping.md a pixel not
+  // above the viewport - clipped away, and a pixel not
   // painted because it was clipped is not hittable. Item 4 has moved to
   // absolute y 10..46, exactly where item 0 used to be, and IS hittable
   // there.
@@ -312,7 +312,7 @@ TEST_CASE("scrolling stays byte-identical between an incremental and a full repa
 }
 
 TEST_CASE("scrolling stays byte-identical under a one-rectangle damage cap") {
-  // The always-union policy (doc/damage-repaint.md), which is the harshest
+  // The always-union policy, which is the harshest
   // case for a stale-pixel bug: everything lands in one rectangle, so a
   // clipping or offset mistake that only shows up when damage is TIGHT would
   // be invisible here and this case would falsely pass. It is included

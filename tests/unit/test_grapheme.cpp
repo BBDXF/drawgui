@@ -1,6 +1,6 @@
 // dg::grapheme_boundaries (7-2b): the font-independent grapheme-cluster
 // boundary source cursor movement/backspace/delete/click-snapping are built
-// on (doc/text-input.md's cross-reference to doc/text-layout.md section 2).
+// on.
 //
 // The acceptance shape the task itself names: a ZWJ family emoji, a
 // skin-tone-modified emoji and a regional-indicator flag pair each count as

@@ -193,8 +193,8 @@ std::vector<FontFallbackRule> FontCatalog::default_fallback_rules() {
       "Noto Sans CJK JP", "Source Han Sans JP", "Noto Sans JP", "Hiragino Sans", "Yu Gothic",
       "Meiryo", "IPAGothic", "TakaoPGothic", "Droid Sans Japanese",
       // Last, and knowingly wrong: a Chinese face draws Japanese Han with
-      // Chinese glyph shapes. It is still preferred over a tofu box, and
-      // doc/font-fallback.md says so out loud rather than letting a reader
+      // Chinese glyph shapes. It is still preferred over a tofu box, and this
+      // says so out loud rather than letting a reader
       // believe the ja chain succeeded.
       "WenQuanYi Zen Hei", "Droid Sans Fallback"};
   const std::vector<std::string> korean = {

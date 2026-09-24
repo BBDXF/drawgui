@@ -127,7 +127,7 @@ binding = "Mod+A"
 summary = "Select the field's entire text."
 
 # ---------------------------------------------------------------------------
-# Keyboard scrolling (8-3c), closing doc/scrolling.md section 4's named
+# Keyboard scrolling (8-3c), closing a named
 # decline ("design.md routes PageUp/Down/Home/End through the intent
 # mechanism (5.5.1). 5.5.1 does not exist" - it does now). `app` scope: no
 # ScrollView registers a component-level scope in this slice (that is 8-3's

@@ -242,7 +242,7 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
 
   // --- the measured relayout cost: every operation above went through
   // RenderTree alone (dropdown_select()'s tree.set_text(), the popup rows'
-  // own direct RenderTree::add_child() calls per doc/popup.md section 3) -
+  // own direct RenderTree::add_child() calls) -
   // LayoutTree::layout() should find nothing dirty.
   const dg::LayoutStats stats = scene.tree.layout();
   out << "  LayoutStats after opening/closing the dropdown six times and five selection "

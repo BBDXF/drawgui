@@ -1,5 +1,5 @@
 // dg::HoverTimer's own job: "how long has the pointer sat continuously over
-// one widget" - 7-5b's prerequisite for Tooltip (doc/menus.md section 6.2).
+// one widget" - 7-5b's prerequisite for Tooltip.
 // No window, no surface: a HoverTimer is a plain value tested exactly the
 // way dg::Focus/dg::Interaction already are.
 

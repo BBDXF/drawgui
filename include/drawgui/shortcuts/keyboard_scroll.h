@@ -1,7 +1,7 @@
 // Keyboard scrolling (8-3c): applying one of the four already-generated
 // scroll_page_up/scroll_page_down/scroll_to_start/scroll_to_end actions
 // (input/shortcuts.toml ids 5-8) once route_key_event() (router.h) has
-// resolved a chord to one of them. This closes doc/scrolling.md's own named
+// resolved a chord to one of them. This closes a previously named
 // decline ("design.md routes PageUp/Down/Home/End through the intent
 // mechanism... 5.5.1 does not exist" - it does now, as the router).
 //
@@ -44,7 +44,7 @@
 // resolved ancestor is already at scroll_by()'s own clamp (or is
 // horizontal-only, per the paragraph above). None of these invents a
 // fallback target ("scroll the only/first scroll view in the tree") -
-// design.md names no such rule, and doc/scrolling.md's own standing
+// design.md names no such rule, and the standing
 // argument against inventing a caller that does not exist applies here
 // exactly as it did to nested-scroll delegation.
 

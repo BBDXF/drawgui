@@ -153,7 +153,7 @@ bool check_radio_exclusivity(std::ostream& out) {
 // Found the hard way: the demo's own --preset-radio-a originally called
 // toggle() directly and never repainted anything, so a preset changed the
 // stored `checked` bit but the screenshot looked untouched. toggle() has no
-// RenderTree to paint with by design (doc/form-controls.md section 1), so
+// RenderTree to paint with by design, so
 // repainting is a caller obligation - this pins it against the actual
 // dispatch() path a real click takes, not only the raw primitive.
 // --------------------------------------------------------------------------
@@ -234,7 +234,7 @@ bool check_slider_clamps_and_geometry(std::ostream& out) {
   // round overlapping thumb), so the thumb must be centred on the track's
   // vertical midpoint rather than merely placed at its top - the two only
   // disagree because the two heights differ, which is exactly why they were
-  // made to differ (doc/form-controls.md section 4).
+  // made to differ.
   const int expected_y = (volume_track.height - volume_thumb.height) / 2;
   if (volume_thumb.y != expected_y) {
     out << "  FAIL: volume thumb sits at y=" << volume_thumb.y << ", expected " << expected_y
@@ -369,7 +369,7 @@ bool check_resize_reflows_thumb(std::ostream& out) {
 
 // --------------------------------------------------------------------------
 // Claim 5: dragging a slider costs a repaint, never a relayout - the same
-// claim doc/scrolling.md section 4 measured for the scroll offset.
+// claim 10_scrolling's own check measured for the scroll offset.
 // --------------------------------------------------------------------------
 
 bool check_no_relayout_during_drag(std::ostream& out) {

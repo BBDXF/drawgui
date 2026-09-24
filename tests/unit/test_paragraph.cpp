@@ -5,7 +5,7 @@
 //
 // DgTest Latin is a monospaced test font: 600/1000 em advance at any size,
 // so at size 20 every glyph (including a space) is EXACTLY 12 device pixels
-// wide - doc/text-input.md section 6.2 already established this is what
+// wide - already established this is what
 // makes an expected pixel value something a reader can check by counting
 // characters rather than trusting a rendered screenshot.
 
@@ -75,7 +75,7 @@ TEST_CASE("paragraph: a string wider than the width wraps to more than one line"
   CHECK(metrics.line_count > 1);
 
   // The height grows with the line count - the "reflowing text is height-
-  // determined-by-width" shape doc/text-layout.md section 2 measures. One
+  // determined-by-width" shape this measures. One
   // line at this font/size is a single, fixed line-box height; N lines is
   // N times that height (SkParagraph does not add inter-line leading here),
   // so a caller can predict the box height from the width alone.
@@ -238,7 +238,7 @@ TEST_CASE(
 
 // ----------------------------------------------------------------------------
 // Paragraph::caret_x (7-2b): the shaping-aware pixel-position primitive
-// TextField editing is built on (doc/text-input.md's cross-reference), on
+// TextField editing is built on, on
 // the SAME monospaced test font (12px/glyph at size 20) 4-9's
 // measure_ascii_width()/ascii_offset_at_x() were hand-derived against, so
 // every expected value below is the identical integer those tests already
@@ -267,9 +267,8 @@ TEST_CASE("caret_x is exactly cursor_offset * glyph_width on the monospaced test
 TEST_CASE("caret_x lands at the true start of a grapheme cluster even without font coverage") {
   // DgTest Latin covers none of these codepoints - the whole point: a
   // TextField's caret position must not depend on whether its font can
-  // render a ZWJ family emoji as one ligature glyph (doc/text-input.md's
-  // cross-reference to doc/text-layout.md section 2 records the
-  // measurement that found SkParagraph's OWN glyph clustering IS
+  // render a ZWJ family emoji as one ligature glyph (a prior
+  // measurement found SkParagraph's OWN glyph clustering IS
   // font-dependent). caret_x() itself does no grapheme snapping (its own
   // doc-comment says so) - this test calls it only at offsets
   // dg::grapheme_boundaries() already reports as real cluster starts,

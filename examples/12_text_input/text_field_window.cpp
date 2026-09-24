@@ -221,7 +221,7 @@ void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& even
       scene.widgets.text_field_delete_forward(tree, fonts, field);
       break;
     case dg::Key::kEscape:
-      // 7-3 (doc/ime.md section 6): Escape cancels an in-progress
+      // 7-3: Escape cancels an in-progress
       // composition without committing it - both halves, this engine's own
       // model AND the platform's real IME state, so neither is left ahead
       // of the other.
@@ -456,7 +456,7 @@ int script(const Settings& settings, std::ostream& out) {
 
   // A SYNTHESIZED SDL_EVENT_TEXT_EDITING, pushed the same route
   // post_pointer_button()/post_text_input() already prove out - the
-  // deterministic testing answer doc/ime.md section 5 records: a real IME
+  // deterministic testing answer: a real IME
   // on THIS development machine never produces one at all (it draws its
   // own composition window instead), so this is the only way this project
   // has to exercise the composition-preview code path through the real SDL
@@ -465,7 +465,7 @@ int script(const Settings& settings, std::ostream& out) {
   // end-to-end against a genuine composing IME.
   manager.post_text_editing(window, "h", 1, 0);
   const dg::PumpResult editing_events = manager.pump(200);
-  out << "  composed \"h\" (SYNTHESIZED SDL_EVENT_TEXT_EDITING - doc/ime.md section 5: no "
+  out << "  composed \"h\" (SYNTHESIZED SDL_EVENT_TEXT_EDITING - no "
          "real IME on this machine ever produces one): "
       << editing_events.text_editing.size() << " event(s) delivered\n";
 

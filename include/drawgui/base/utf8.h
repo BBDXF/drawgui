@@ -107,8 +107,8 @@ constexpr bool is_continuation(unsigned char byte) {
 // This is 7-2's own substitution (src/render/paragraph_build.cpp, doc/
 // text-layout.md section 3: handing SkParagraph::addText() an ill-formed
 // byte range hangs the process rather than crashing it), promoted here so
-// 7-2b's TextField-editing boundary (WidgetSet::text_field_insert(),
-// doc/text-input.md's cross-reference to this slice) calls the SAME
+// 7-2b's TextField-editing boundary (WidgetSet::text_field_insert()) calls
+// the SAME
 // function rather than a second hand-rolled copy of the identical loop -
 // design.md section 5.13.3's "no silent U+FFFD rewrite" rule is about an ABI
 // caller with an error channel waiting on a return value; neither of this

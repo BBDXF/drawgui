@@ -42,8 +42,8 @@ namespace dg {
 // Identifies one node in one tree. A struct rather than a bare index so it
 // cannot be passed where a count or a coordinate was meant.
 //
-// `{index, generation}`, not a bare index - doc/widgets.md's own recorded
-// choice from years before removal existed: "a generation counter in NodeId
+// `{index, generation}`, not a bare index - a design choice recorded from
+// years before removal existed: "a generation counter in NodeId
 // ... the one that also catches use-after-remove in the C ABI, where a host
 // can hold an id indefinitely". `AnimHandle{index, generation}`
 // (animation_engine.h) is the working precedent this mirrors exactly, and
@@ -89,8 +89,7 @@ enum class TextAlign : std::uint8_t {
 //   at zero slack and text differs by ZERO. Glyphs are rasterized into masks
 //   and blitted, so a clip masks the blit instead of changing the coverage.
 //   A label may therefore be cut in half by a damage rectangle, which is worth
-//   1.57x of the widget demo's damage. `--clip-probe` reprints the table and
-//   doc/widgets.md records it.
+//   1.57x of the widget demo's damage. `--clip-probe` reprints the table.
 //
 //   The node does NOT size itself to the text. Sub-step 2 excluded intrinsic
 //   sizing deliberately (see LayoutTree), so a label is given a box and the
@@ -126,13 +125,13 @@ struct TextStyle {
   int inset = 0;
 
   // Routes this run through SkParagraph instead of the plain SkFont path
-  // above when true - 7-2's multi-line/shaping/BiDi/CJK substrate
-  // (doc/text-layout.md). FALSE BY DEFAULT, and that default is what keeps
+  // above when true - 7-2's multi-line/shaping/BiDi/CJK substrate. FALSE BY
+  // DEFAULT, and that default is what keeps
   // every scene built through 7-1 byte-for-byte unaffected: paint_text()
   // only calls into skia_paint.cpp's paragraph path when a caller opts in,
   // so the golden `drawgui_render_png` hash cannot move by this field
-  // existing. A wrapping node's HEIGHT is not derived here - doc/text-
-  // layout.md section 2 is the argument for why that stays the caller's
+  // existing. A wrapping node's HEIGHT is not derived here - that stays
+  // the caller's
   // job (a `dg::Paragraph::build()` measurement before the node is
   // constructed), the same shape design.md section 5.10.3 already forces
   // on `ImageStyle`: a box must know its own size before its content is
@@ -181,13 +180,13 @@ enum class ImageFit : std::uint8_t {
 // One decoded bitmap, painted inside the node that carries it.
 //
 // THIS IS CONTENT, NOT A NEW NODE KIND - the same shape TextStyle already is
-// one field over, and the argument is the identical one doc/clipping.md
-// section 6 and doc/compositing.md section 5 already made for `overflow` and
+// one field over, and the argument is the identical one already made for
+// `overflow` and
 // `opacity`: a clip, a fade and now an image all need painting, hit testing
 // and (for image, uniquely) layout to agree on ONE rule, and the only shape
 // that guarantees agreement is a field every reader already sees, not a
 // second node kind a reader would have to be taught about separately.
-// doc/image.md records the decision in full, including why `Image` being
+// `Image` being
 // named in design.md's MVP-8 does not automatically make it a `WidgetKind`
 // the way `Box`/`Row`/`Column` are correctly not ones either.
 struct ImageStyle {
@@ -224,7 +223,7 @@ struct ImageStyle {
 // from disagreeing the way three private copies of "does this count as an
 // image" could: LayoutTree::Impl::measure() (the size-before-decode
 // diagnostic, box_layout.cpp), skia_paint.cpp's paint_node() (whether to call
-// paint_image() at all) and doc/image.md's own description of the rule.
+// paint_image() at all).
 [[nodiscard]] constexpr bool carries_image(const ImageStyle& image) {
   return image.source.is_valid() || image.placeholder.alpha() != 0;
 }
@@ -251,7 +250,7 @@ struct GradientStop {
 // background_image case).
 //
 // LINEAR ONLY. design.md section 5.9.6 names radial and sweep too;
-// doc/complex-properties.md declines both by name - a linear axis is the one
+// this implementation declines both by name - a linear axis is the one
 // case whose damage story is trivial (paints strictly inside the node's own
 // box, exactly like a flat fill), and CSS's own linear-gradient direction
 // convention (`angle_deg`: 0 = left-to-right, 90 = top-to-bottom, clockwise)
@@ -273,18 +272,18 @@ struct LinearGradientStyle {
 // design.md section 5.9.5's decoration order puts `shadow` first, underneath
 // the background colour/gradient/border.
 //
-// BUDGETED, not free. doc/cpu-raster-findings.md measured blur and drop
-// shadow at 52% of a dense scene's raster time - the single most expensive
+// BUDGETED, not free. Blur and drop shadow were measured at 52% of a dense
+// scene's raster time - the single most expensive
 // thing this engine can be asked to paint - so `blur_radius` is capped by the
-// dedicated setter (`dg::set_shadow()`, doc/complex-properties.md) rather than
+// dedicated setter (`dg::set_shadow()`) rather than
 // left open, and it is why this is a per-node OPT-IN field (`std::optional`,
 // absent by default) rather than a primitive every node carries the cost of.
 //
 // PAINTS OUTSIDE THE NODE'S DECLARED BOUNDS BY DEFINITION - the one property
 // in this table that does, alongside `transform` (still not implemented).
 // `render_tree.cpp`'s `shadow_reach()`/`declared_paint_bounds()` are what
-// teach damage tracking about the outset; doc/complex-properties.md section
-// 3 is the argument for why that is safe rather than a hazard.
+// teach damage tracking about the outset, which is what makes that safe
+// rather than a hazard.
 struct ShadowStyle {
   float offset_x = 0.0F;
   float offset_y = 0.0F;
@@ -317,8 +316,7 @@ struct ShadowStyle {
 // the render tree is the layer that does not know what padding is. Clipping at
 // the padding box would put a second copy of layout's insets in NodeStyle and
 // make a clipping container look different from a non-clipping one along its
-// own border, which has nothing to do with overflow. doc/clipping.md records
-// the deviation and what would force the other choice.
+// own border, which has nothing to do with overflow.
 //
 // WHAT IS CLIPPED: the descendants, not the node itself. Everything the node
 // paints is inside its bounds by construction - the fill and border are drawn
@@ -336,7 +334,7 @@ enum class Overflow : std::uint8_t {
 // Fills, borders, one run of text, one decoded image, one linear gradient and
 // one budgeted drop shadow. Blur - the shadow's own blur, and any general
 // background blur - is deliberately still not an unconditional primitive: it
-// is 52% of a frame's raster time (doc/cpu-raster-findings.md), so it exists
+// is 52% of a frame's raster time (measured), so it exists
 // here only behind an opt-in `std::optional` field with a capped radius
 // (`ShadowStyle::blur_radius`, validated by `dg::set_shadow()`), never as
 // something every node pays for by default.
@@ -426,7 +424,7 @@ struct NodeStyle {
   // default, so every scene built before this slice is byte-for-byte
   // unaffected - `set_prop()`'s scalar `background_color` path is completely
   // untouched by this field's existence. Set only through the dedicated
-  // `dg::set_gradient()` channel (doc/complex-properties.md), never through
+  // `dg::set_gradient()` channel, never through
   // `dg::set_prop()` - a multi-stop list does not fit `PropValue`'s scalar
   // tagged union any more than an `ImageId` does for a different reason.
   std::optional<LinearGradientStyle> background_gradient;
@@ -435,9 +433,9 @@ struct NodeStyle {
   // border), extending OUTSIDE the node's own declared bounds by definition -
   // design.md section 5.9.5's decoration order puts `shadow` first for
   // exactly this reason: it sits behind and around the shape, not on top of
-  // it. Absent by default; `dg::set_shadow()` is the only writer
-  // (doc/complex-properties.md), and it caps `blur_radius` because
-  // doc/cpu-raster-findings.md measured blur at 52% of a frame's raster time.
+  // it. Absent by default; `dg::set_shadow()` is the only writer, and it
+  // caps `blur_radius` because blur was measured at 52% of a frame's raster
+  // time.
   //
   // TEACHES DAMAGE TRACKING A NEW FACT: a node's painted pixels are no longer
   // always contained in its own `absolute` rectangle. `shadow_reach()` and
@@ -445,8 +443,8 @@ struct NodeStyle {
   // that know it, and `Node::visible_bounds()` is where the outset actually
   // reaches every reader (damage, the opacity layer's subtree extent, the
   // "wanted" test in `paint_node_and_children`) through one shared rule
-  // rather than a private one - the same argument doc/clipping.md section 6
-  // and doc/compositing.md section 5 already made for `overflow` and
+  // rather than a private one - the same argument already made for
+  // `overflow` and
   // `opacity`.
   std::optional<ShadowStyle> shadow;
 };
@@ -572,8 +570,7 @@ class RenderTree {
 
   // Detaches `id`'s whole subtree (id included) from the tree: dropped from
   // its parent's children, every node in the subtree tombstoned and its
-  // generation bumped, none of it compacted - doc/widgets.md's own
-  // recorded reason (compacting would silently reattach every node whose
+  // generation bumped, none of it compacted - the recorded reason (compacting would silently reattach every node whose
   // index shifted). Returns false, and changes nothing, for the root
   // (`id == root()`, which has no parent to detach from) or an already
   // invalid `id` - a reported failure a caller can check, not a silent
@@ -685,7 +682,7 @@ class RenderTree {
   // Shifts `id`'s CHILDREN - not `id` itself - by `offset`, the same way
   // margin is applied by a parent rather than by the child carrying it
   // (design.md section 5.9.4) and a clip confines descendants rather than the
-  // clipping node's own paint (doc/clipping.md section 2). A child's
+  // clipping node's own paint. A child's
   // `local_bounds()` never changes; only the absolute position `reposition()`
   // derives from it does, exactly as it already does for an ordinary move.
   //
@@ -693,21 +690,20 @@ class RenderTree {
   // for this, on purpose: an offset is inherently the thing a wheel or a drag
   // mutates every frame, which is the same shape hover and press already are
   // in `WidgetSet` - interaction state that outlives one event, not a
-  // declarative style a caller writes once. `doc/scrolling.md` section 2 is
-  // the argument in full.
+  // declarative style a caller writes once.
   //
   // NOT CLAMPED HERE. This tree has no notion of a scrollable child's full
   // content extent - it only ever sees `local_bounds()`, which does not
   // change - so an offset past what there is to scroll is the caller's
-  // mistake to prevent, exactly as this tree does not know what padding is
-  // (doc/clipping.md section 2). `WidgetSet::scroll_by()` is where the
+  // mistake to prevent, exactly as this tree does not know what padding is.
+  // `WidgetSet::scroll_by()` is where the
   // clamp lives.
   //
   // Damages the old positions of every descendant, then the new ones - the
   // same damage-then-move shape `set_local_bounds()` already has, and NO
   // layout pass runs: `reposition()` only recomputes `absolute` and
   // `clip_bounds`, it never calls `measure()`, so a scroll costs a repaint,
-  // never a relayout. `doc/scrolling.md` section 4 measures this.
+  // never a relayout.
   void set_scroll_offset(NodeId id, PixelPoint offset);
   [[nodiscard]] PixelPoint scroll_offset(NodeId id) const;
 

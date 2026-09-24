@@ -1,8 +1,7 @@
 // Widgets: state attached to nodes that already exist.
 //
 // THERE IS NO WIDGET TREE. This is the architectural decision sub-step 3 was
-// asked to make, and doc/widgets.md argues it in full; the short form is that
-// Flutter's Widget and Element trees exist to make a declarative REBUILD cheap
+// asked to make. Flutter's Widget and Element trees exist to make a declarative REBUILD cheap
 // - throwaway configuration objects diffed against persistent elements - and
 // this project has no rebuild to make cheap. Nodes are created and mutated
 // imperatively, which is also what the eventual C ABI will do, so the middle
@@ -13,8 +12,8 @@
 // way. It adds no node, no identity and no traversal. Widget identity IS
 // NodeId, and that is sound because the node vectors are append-only - nothing
 // is ever removed, so an index never shifts under a widget that is holding it.
-// THE DAY REMOVAL ARRIVES that stops being true, and doc/widgets.md names the
-// generation counter it will need.
+// THE DAY REMOVAL ARRIVES that stops being true, and a generation counter
+// will be needed then.
 //
 // A widget owns a SUBTREE, not a node: a button is a box with a label inside
 // it. So the pointer lands on some descendant and owner_of() climbs to the
@@ -80,23 +79,22 @@ enum class WidgetKind : std::uint8_t {
   // acceptance bar for exactly this control). Earns its place over reusing
   // kCheckbox the way kScrollView did: dragging accumulates a value across an
   // unbounded stream of pointer deltas, which the stateless Interaction
-  // machine cannot hold - doc/form-controls.md section 2.
+  // machine cannot hold.
   kSlider,
 
   // A single-line text field, editable in whole grapheme clusters (7-2b) -
-  // 4-9 originally scoped this to printable ASCII, a restriction 7-2b lifted
-  // (doc/text-input.md's cross-reference to doc/text-layout.md section 2).
+  // 4-9 originally scoped this to printable ASCII, a restriction 7-2b lifted.
   // Composition, not a new primitive: `content` (a plain text-bearing
   // child), `caret`, `selection_highlight` and `composition_underline`
   // (plain fill-only children the widget positions) are exactly the shape
   // kCheckbox's `indicator` and kSlider's `thumb` already are, and the
   // field's own node is a kLeaf with `overflow: kClip` - the clip
-  // doc/clipping.md built, reused verbatim to confine all four children,
-  // the same way doc/scrolling.md reused it for a viewport. Earns a kind of
-  // its own over reusing kSlider or kCheckbox because it needs FOCUS
+  // mechanism reused verbatim to confine all four children, the same way
+  // scrolling reused it for a viewport. Earns a kind of its own over
+  // reusing kSlider or kCheckbox because it needs FOCUS
   // (keyboard routing) and a MODEL string, neither of which any existing
-  // kind carries - doc/text-input.md section 3. IME composition (7-3,
-  // doc/ime.md) needed no fifth child kind and no new WidgetKind either -
+  // kind carries. IME composition (7-3) needed no fifth child kind and
+  // no new WidgetKind either -
   // just one more positioned plain child and more runtime state, the same
   // shape every extension to this control has taken so far.
   kTextField,
@@ -105,25 +103,23 @@ enum class WidgetKind : std::uint8_t {
   // reused verbatim) whose children are a small, PERMANENT pool of item
   // nodes - never one node per logical item. `list_pool.size()` is bounded
   // by the VIEWPORT, not by `list_item_count`, and stays that way at 1000
-  // items exactly as it is at 10; the recycling doc/list.md section 2
-  // argues for is what makes that true. Earns a kind of its own over
+  // items exactly as it is at 10 - the recycling is what makes that true. Earns a kind of its own over
   // extending kScrollView because it needs RUNTIME BOOKKEEPING no existing
   // kind carries (`list_assigned` - which logical index each pool slot
   // currently shows) and because a kScrollView's `scroll_content` is one
   // already-measured child, which is exactly the thing a virtualized list
-  // cannot have (doc/list.md section 1).
+  // cannot have.
   kList,
 
   // An anchor (this node, interactive like kButton) plus a caller-declared
   // list of option strings and a selected index that OUTLIVES the click
   // that set it - the same "state a checkbox's checked or a slider's value
-  // already earns a kind over" argument doc/form-controls.md section 1.2
-  // made for kSlider, one control over: kButton alone has nowhere to keep
+  // already earns a kind over" argument made for kSlider, one control over: kButton alone has nowhere to keep
   // "which option is selected" once the popup that showed the choice has
   // closed. The open/closed popup itself is NOT part of this state -
   // PopupHost's own handle already owns that, matching every other popup
-  // client (doc/popup.md) - and the option ROWS are ordinary kButton
-  // widgets built fresh each time the popup opens (doc/menus.md), not a
+  // client - and the option ROWS are ordinary kButton
+  // widgets built fresh each time the popup opens, not a
   // second array of NodeIds this kind tracks itself. Keyboard highlight
   // navigation while the popup is open reuses dg::Focus::focus_next()/
   // focus_previous() over the popup's own scope verbatim - the identical
@@ -173,8 +169,8 @@ struct Widget {
   // matching every desktop toolkit) and clears `checked` on every OTHER
   // kCheckbox sharing the same group id. This is the entire feature: a radio
   // is "checkbox plus one field", not a new WidgetKind, the same way
-  // doc/scrolling.md found scrolling was three existing mechanisms composed
-  // rather than a fourth one - doc/form-controls.md section 1.
+  // scrolling was found to be three existing mechanisms composed rather
+  // than a fourth one.
   std::optional<int> group;
 
   // kScrollView only. `scroll_axis` mirrors BoxStyle::scroll_axis - the same
@@ -183,7 +179,7 @@ struct Widget {
   // is the single child laid out at its full, possibly viewport-exceeding
   // size; its `local_bounds()` is what `scroll_by()` clamps the offset
   // against. NOT the offset itself - RenderTree::scroll_offset() is the only
-  // copy of that, on purpose (doc/scrolling.md section 2).
+  // copy of that, on purpose.
   ScrollAxis scroll_axis = ScrollAxis::kNone;
   NodeId scroll_content;
 
@@ -194,7 +190,7 @@ struct Widget {
   // continuous).
   //
   // `value` is RUNTIME STATE, not a property, for the identical reason
-  // RenderTree's scroll offset is (doc/scrolling.md section 2): it
+  // RenderTree's scroll offset is: it
   // accumulates across an unbounded stream of drag deltas rather than being
   // declared once, so putting it in props/drawgui.props.toml would turn
   // every drag pixel into a dg_node_set_prop call across the eventual C
@@ -202,8 +198,8 @@ struct Widget {
   // `min_value`/`max_value`/`step` ARE declarative and long-lived, and would
   // be the natural property candidates the day a caller sets them through
   // the C ABI; they stay plain construction-time fields here because nothing
-  // consumes them through set_prop() yet - doc/properties.md's own standard
-  // for every property already implemented: a representation is not added
+  // consumes them through set_prop() yet - the standard for every property
+  // already implemented: a representation is not added
   // before the code that consumes it exists.
   NodeId thumb;
   float min_value = 0.0F;
@@ -218,9 +214,9 @@ struct Widget {
   // second copy of it: it may show an ellipsis-truncated prefix while
   // unfocused, or the full string scrolled by `scroll_x` while focused - the
   // same relationship `checked`/the indicator's fill and `value`/the thumb's
-  // position already have. doc/text-input.md section 3 is the argument.
+  // position already have.
   //
-  // `composition_underline` is 7-3's own addition (doc/ime.md) - a fourth
+  // `composition_underline` is 7-3's own addition - a fourth
   // plain positioned child, same shape as the three above it: a thin bar
   // under the IME's in-progress preedit span, the conventional visual
   // distinction between composing and committed text. No new RenderObject
@@ -231,16 +227,15 @@ struct Widget {
   NodeId composition_underline;
 
   // The MODEL. RUNTIME STATE, not a property - the identical argument
-  // doc/scrolling.md section 2 and doc/form-controls.md section 1.3 already
-  // make for the scroll offset and the slider's value: this accumulates
+  // already made for the scroll offset and the slider's value: this
+  // accumulates
   // across an unbounded stream of keystrokes rather than being declared
   // once. Well-formed UTF-8, sanitized at every mutation entry point
   // (WidgetSet::text_field_insert()); `cursor`/`selection_anchor` are byte
   // offsets that ALWAYS land on a grapheme-cluster boundary (dg::
   // grapheme_boundaries()), enforced by construction because every mutator
   // only ever places them via a grapheme-boundary query, never raw
-  // arithmetic - 7-2b lifted 4-9's ASCII-only restriction (doc/text-
-  // input.md's cross-reference to doc/text-layout.md section 2) once
+  // arithmetic - 7-2b lifted 4-9's ASCII-only restriction once
   // libgrapheme's segmentation (7-1) made real grapheme-cluster boundaries
   // available; design.md's mandatory minimum edit unit (line ~1001) is now
   // honoured by that segmentation rather than by ASCII's byte-offset
@@ -250,7 +245,7 @@ struct Widget {
   std::optional<int> selection_anchor;  // set => a selection [min(anchor,cursor), max(...))
   int scroll_x = 0;                     // device pixels; DERIVED, never declared
 
-  // 7-3's own composition state (doc/ime.md), RUNTIME STATE for the
+  // 7-3's own composition state, RUNTIME STATE for the
   // identical reason `text`/`cursor` above already are - SDL delivers one
   // SDL_EVENT_TEXT_EDITING per keystroke while an IME composes, an
   // unbounded stream exactly like committed keystrokes. Deliberately
@@ -280,16 +275,16 @@ struct Widget {
   int composition_replace_end = 0;
 
   // kList only. `list_pool` is the PERMANENT pool of item nodes - built once,
-  // never grown or shrunk (this engine has no node-removal path at all;
-  // doc/list.md section 1 is the argument for why a fixed pool sidesteps
-  // that question rather than answering it). `list_assigned` is a parallel
+  // never grown or shrunk (this engine has no node-removal path at all,
+  // which is why a fixed pool sidesteps that question rather than
+  // answering it). `list_assigned` is a parallel
   // array, one entry per pool slot: which LOGICAL item index that slot
   // currently displays, or -1 for "not yet assigned" (the state right after
   // `attach()`, before the first `list_sync()`). The pool-slot a logical
   // index L is assigned to is always `L % list_pool.size()` (never searched
-  // for) - doc/list.md section 2 is the ring-buffer argument in full.
+  // for) - a ring-buffer assignment.
   // `list_item_count`/`list_item_extent` are the FIXED-EXTENT content model
-  // this slice declines to generalize (doc/list.md section 3): every item is
+  // this slice declines to generalize: every item is
   // exactly `list_item_extent` device pixels along `list_axis`, which is
   // what lets the scrollable extent be `list_item_count * list_item_extent`
   // - arithmetic, never a measured child, because there is no real "content"
@@ -322,9 +317,9 @@ struct TextSelection {
 
 // One pool slot's new identity after `WidgetSet::list_sync()`/
 // `list_scroll_by()` reassigned it. `node` never changes once the pool is
-// built (doc/list.md section 1); `logical_index` is what the caller must now
-// paint there - the whole of the data-source seam this slice needed
-// (doc/list.md section 4): the engine reports WHICH node needs WHICH item's
+  // built; `logical_index` is what the caller must now
+// paint there - the whole of the data-source seam this slice needed:
+  // the engine reports WHICH node needs WHICH item's
 // content, and the caller writes that content through the exact same
 // `RenderTree::set_fill`/`set_text`/`set_image` calls an unrecycled node
 // would use. No callback, no interface, `virtual`-free by construction
@@ -338,8 +333,8 @@ struct ListSlot {
 // 5.5.2's "text-editing keys are not shortcuts, they are editing intents the
 // TextField itself registers" (line ~595), applied at the smallest scope
 // this slice needs rather than through the intent-binding system design.md
-// asks for, which does not exist yet (doc/scrolling.md section 1 already
-// named this precondition for keyboard scrolling; it is still absent).
+  // asks for, which does not exist yet (this precondition for keyboard
+  // scrolling was already named elsewhere; it is still absent).
 enum class TextFieldMove : std::uint8_t {
   kCharLeft,
   kCharRight,
@@ -444,7 +439,7 @@ class WidgetSet {
   // "did this change" itself.
   //
   // The one call site both `attach()`-time initial fill (top_index == 0)
-  // and a post-layout resync (doc/list.md section 6 - a kLeaf's children
+  // and a post-layout resync (a kLeaf's children
   // are re-placed at its content origin on every relayout, exactly like a
   // slider's thumb, so a caller must call this again after any layout()
   // that touched this node) and list_scroll_by() (below) route through -
@@ -460,7 +455,7 @@ class WidgetSet {
   // Returns list_sync()'s vector verbatim - empty both when the offset did
   // not move at all (already clamped) AND when it moved by less than one
   // item's extent (an ordinary sub-item wheel notch, which set_scroll_offset
-  // alone already paints correctly - doc/list.md section 5).
+  // alone already paints correctly).
   std::vector<ListSlot> list_scroll_by(RenderTree& tree, NodeId id, int viewport_extent, int dx,
                                        int dy);
 
@@ -484,9 +479,8 @@ class WidgetSet {
   // track is a plain kLeaf with no padding, so its own local_bounds() already
   // IS the room the thumb may travel in, and no LayoutTree dependency is
   // needed to ask a second time. A padded track would need one, for the
-  // identical reason scroll_by() needs `viewport_content` - doc/form-
-  // controls.md section 2 names this as declined rather than silently
-  // assumed away.
+  // identical reason scroll_by() needs `viewport_content` - declined
+  // rather than silently assumed away.
   bool set_slider_value(RenderTree& tree, NodeId id, float value);
 
   [[nodiscard]] float slider_value(NodeId id) const;
@@ -510,7 +504,7 @@ class WidgetSet {
   // plain set_slider_value() call would skip re-deriving once the stored
   // value itself has not changed. This is the slider's counterpart of
   // widget_scene::resync() re-running a stale cached hover after a reflow
-  // (doc/widgets.md section 4) - a caller obligation LayoutTree cannot
+  // - a caller obligation LayoutTree cannot
   // discharge on its own, because it has no notion that this leaf's child
   // position is anything but the ordinary default it just computed.
   void resync_sliders(RenderTree& tree) const;
@@ -561,8 +555,7 @@ class WidgetSet {
   [[nodiscard]] std::optional<TextSelection> text_field_selection(NodeId id) const;
 
   // Replaces the current selection (if any) or inserts at the cursor.
-  // `input` is sanitized before it touches the model (7-2b, doc/text-
-  // input.md's cross-reference): malformed UTF-8 (a lone continuation byte,
+  // `input` is sanitized before it touches the model (7-2b): malformed UTF-8 (a lone continuation byte,
   // a truncated lead, an overlong encoding, a surrogate) is repaired to
   // U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
   // paragraph_build.cpp substitution, reused rather than a second policy -
@@ -605,28 +598,27 @@ class WidgetSet {
   // `extend_selection` is a shift-click or a drag continuation: the anchor
   // is preserved rather than reset, so dragging from an initial click
   // extends a selection one pointer-move event at a time - the same shape
-  // a slider's drag already has (doc/form-controls.md section 1.4), reused
+  // a slider's drag already has, reused
   // here for a text selection rather than a value.
   bool text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id, int pointer_x,
                         bool extend_selection);
 
-  // Applies the focused/unfocused display mode (doc/text-input.md section
-  // 5): focused shows the full string scrolled so the cursor stays visible
+  // Applies the focused/unfocused display mode: focused shows the full string scrolled so the cursor stays visible
   // and draws a steady (non-blinking - no animation clock exists, matching
-  // doc/scrolling.md's declined fling for the identical reason) caret;
+  // the declined fling for the identical reason) caret;
   // unfocused shows an ellipsis-truncated prefix when the string overflows
   // the field's width, and hides the caret and any selection highlight.
   // FOCUS ITSELF lives in the separate dg::Focus class, not here - the same
   // separation dg::Interaction's hover/press state already has from
   // WidgetSet, so this takes the answer as a parameter rather than storing
   // a second copy of it. Losing focus also ends any in-progress
-  // composition (7-3, doc/ime.md section 6) without committing it - the
+  // composition (7-3) without committing it - the
   // same rule Escape (text_field_cancel_composition()) and a click
   // (text_field_click()) both apply.
   void text_field_set_focus(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                             bool focused);
 
-  // --- kTextField, IME composition (7-3, doc/ime.md) ---
+  // --- kTextField, IME composition (7-3) ---
 
   // Applies one SDL_EVENT_TEXT_EDITING to `id`'s composition preview.
   // `text` is the IME's not-yet-committed preedit string - sanitized

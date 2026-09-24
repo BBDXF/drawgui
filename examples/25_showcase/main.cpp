@@ -67,7 +67,7 @@ bool parse_value_flag(const std::string& arg, const std::vector<std::string>& ar
 }
 
 // std::nullopt means "--branch was present but named something other than
-// overlay". Native popup windows were removed - see doc/popup.md - so
+// overlay". Native popup windows were removed, so
 // "native" is now a loud, non-zero-exit-code failure rather than a silently
 // accepted no-op.
 std::optional<bool> parse_branch_value(const std::string& branch) {
@@ -76,7 +76,7 @@ std::optional<bool> parse_branch_value(const std::string& branch) {
   }
   if (branch == "native") {
     std::cerr << "--branch native is no longer supported: native popup windows were removed; "
-                 "popups are overlay-only now. See doc/popup.md.\n";
+                 "popups are overlay-only now.\n";
   }
   return std::nullopt;
 }

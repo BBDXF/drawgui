@@ -127,8 +127,8 @@ int run(std::ostream& out) {
   out << "  line-count claims: " << (lines_ok ? "PASS" : "FAIL") << "\n";
   ok = ok && lines_ok;
 
-  // The exactly-once-layout verdict, doc/text-layout.md section 2's own
-  // question, answered with LayoutStats numbers rather than an argument.
+  // The exactly-once-layout verdict,
+  // answered with LayoutStats numbers rather than an argument.
   const LayoutStats built = scene.stats_after_build;
   out << "  after building the scene (one layout_full() call): nodes_total="
       << built.nodes_total << " nodes_visited=" << built.nodes_visited

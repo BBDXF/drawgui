@@ -302,9 +302,8 @@ NodeId add_dropdown(Scene& scene, NodeId parent, int width) {
 }
 
 // The description panel: a wrapping paragraph (7-2's display path) UNDER a
-// drop shadow (5-4's `dg::set_shadow()`) - a combination doc/text-layout.md
-// and doc/complex-properties.md each document on their own but never
-// together (see doc/showcase.md's own cross-feature section 6).
+// drop shadow (5-4's `dg::set_shadow()`) - a combination each system
+// documents on its own but never together (this is the cross-feature case).
 NodeId add_description_panel(Scene& scene, NodeId parent, int width) {
   constexpr int kPadding = 14;
   const int inner_width = width - (2 * kPadding);
@@ -361,11 +360,10 @@ NodeId add_description_panel(Scene& scene, NodeId parent, int width) {
 }
 
 // The virtualized "recent files" kList, its pool nodes each carrying a
-// REAL attached kButton Widget - the extension doc/menus.md section 3
+// REAL attached kButton Widget - the extension that was
 // evaluated and declined for dropdown/menu rows, but never actually
 // forbade in general. This is what gives 7-4's Focus::blur_if_any_of() a
-// genuine caller for the first time (doc/focus.md section 6 records it as
-// unit-tested only).
+// genuine caller for the first time (unit-tested only until now).
 NodeId add_recent_list(Scene& scene, NodeId parent, int width) {
   BoxStyle list_box;
   list_box.kind = LayoutKind::kLeaf;
@@ -739,7 +737,7 @@ void dispatch_wheel(Scene& scene, const dg::PointerEvent& event) {
 }
 
 // A secondary-button (right-click) press: a PARALLEL, non-activating
-// channel exactly like doc/menus.md section 6.1's own routing decision - it
+// channel exactly like the routing decision made for context menus - it
 // never touches dg::Interaction's hover/press state, only signals the
 // caller (the window driver) that a context menu should open.
 bool secondary_click_on_info_button(Scene& scene, const dg::PointerEvent& event) {

@@ -7,8 +7,8 @@
 // the comment above its assertions, where a wrong answer is a wrong answer
 // rather than a consistent one.
 //
-// The first case in the file is the one that matters most. doc/sizing.md
-// section 1 claims this slice adds no second measurement of anything, and
+// The first case in the file is the one that matters most. This engine
+// claims this slice adds no second measurement of anything, and
 // LayoutStats reports nodes entered and nodes recomputed separately, so the
 // claim is directly checkable: on a full pass of a tree using all four
 // properties at once, both must equal the node count. A design that measured a
@@ -137,8 +137,8 @@ TEST_CASE("a tree using the whole second sizing stage is still laid out exactly 
   const LayoutStats stats = tree.layout_full();
 
   // A full pass visits every node once and recomputes every node once. A
-  // second measurement of any child - the loose-then-tight shape doc/sizing.md
-  // section 1.3 costs out - shows up here as a count larger than the tree.
+  // second measurement of any child - the loose-then-tight shape it costs
+  // out - shows up here as a count larger than the tree.
   CHECK(stats.nodes_total == tree.node_count());
   CHECK(stats.nodes_visited == stats.nodes_total);
   CHECK(stats.nodes_relaid_out == stats.nodes_total);
@@ -207,8 +207,8 @@ TEST_CASE("a grow child starts from its basis and takes its share on top") {
 }
 
 // A grow child's base is its explicit `basis` and NOTHING ELSE - never its own
-// width, which is what CSS's flex-basis: auto would make it. doc/sizing.md
-// section 1.8 item 3 records the deviation; this is what makes it observable.
+// width, which is what CSS's flex-basis: auto would make it. The
+// deviation this makes observable; item 3 of the rule.
 //
 // One grow child cannot show it, because the total is conserved either way:
 // extent = base + (room - used - base). It takes TWO weights.
@@ -257,7 +257,7 @@ TEST_CASE("a grow child's own width is not its base") {
 //
 // They add up to exactly 200. The extra pixel lands on the LAST child rather
 // than being lost, which is the mirror image of grow's 33/33/34 - and losing
-// it is precisely the defect doc/layout.md records against a per-child
+// it is precisely the defect against a per-child
 // division.
 TEST_CASE("a deficit is split by prefix sums so no pixel is invented or lost") {
   LayoutTree tree{spec_of(400, 200)};
@@ -350,7 +350,7 @@ TEST_CASE("a child that hits its minimum stops absorbing and the residual is rep
   CHECK(any_diagnostic_contains(tree, "children overrun the main axis by 5 px"));
 }
 
-// The refusal doc/sizing.md section 1.6 is built around, and the reason the
+// The refusal this is built around, and the reason the
 // whole slice keeps L3.
 //
 // The first child has no declared base at all - it shrink-wraps a 150-wide
@@ -420,7 +420,7 @@ TEST_CASE("a weight total past 31 bits is reduced and still splits the deficit e
 // Order independence
 // --------------------------------------------------------------------------
 
-// doc/sizing.md section 1.7 claims the result does not depend on the order the
+// This claims the result does not depend on the order the
 // children are measured in. This is the case that would expose it if it did:
 // the same two children, added the other way round, must produce mirrored
 // extents. A distribution leaking state between children - a running remainder
@@ -578,7 +578,7 @@ TEST_CASE("a settled width derives the height") {
   CHECK(tree.diagnostics().empty());
 }
 
-// The sharp direction, and the one doc/sizing.md section 4.1 is written
+// The sharp direction, and the one this is written
 // around: the settled axis is the CROSS one, handed down by a stretching row,
 // and the ratio derives the MAIN one from it. Row height 40, ratio 1.5, so the
 // child is 60 wide - and the row's own content width becomes 60 with it.

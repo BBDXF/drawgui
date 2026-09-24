@@ -37,8 +37,8 @@ LOCK_TOOL = ROOT / "tools" / "prop_lock.py"
 TOML_SOURCE = ROOT / "props" / "drawgui.props.toml"
 LOCK_SOURCE = ROOT / "props" / "prop_ids.lock"
 
-# Appended with an id past every assigned one, exactly as doc/development.md
-# tells a contributor to do it.
+# Appended with an id past every assigned one, exactly as a contributor
+# is told to do it.
 APPENDED = """
 [[property]]
 name = "selftest_probe"

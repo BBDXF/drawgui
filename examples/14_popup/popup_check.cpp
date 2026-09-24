@@ -112,8 +112,8 @@ void check_placement(std::ostream& out, bool& ok) {
 }
 
 // The overlay branch driven through the real API against a real (dummy
-// video driver) WindowManager - PopupHost is overlay-only now (doc/popup.md
-// B-1/B-2), so there is no second branch left to hold this equal against;
+// video driver) WindowManager - PopupHost is overlay-only now,
+// so there is no second branch left to hold this equal against;
 // what this checks is that PopupHost::show()/close()/handle_pointer()/
 // handle_key() behave correctly end to end against a real host window and
 // a real placement flip, which is the whole of what a caller needs from
@@ -267,8 +267,8 @@ int run(std::ostream& out) {
   setenv("SDL_VIDEODRIVER", "dummy", 1);
 
   out << "POPUP: placement math standalone, then the same math exercised through the real "
-         "overlay API (PopupHost is overlay-only now - doc/popup.md's B-1/B-2 finding deleted "
-         "the native branch this check used to also hold equal).\n\n";
+         "overlay API (PopupHost is overlay-only now - the native branch this check used to "
+         "also hold equal was deleted).\n\n";
 
   bool ok = true;
   check_placement(out, ok);

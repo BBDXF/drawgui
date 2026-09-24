@@ -15,7 +15,7 @@
 // The honest caveat, repeated on screen because it matters: this machine has
 // no Japanese font. The ja panel therefore draws Japanese text in a Chinese
 // face, and the scene says so. What is proven here is the ROUTING, not the
-// typography - doc/font-fallback.md states exactly what is still missing.
+// typography - a real Japanese font is what is still missing.
 //
 // No SDL, no Skia, no display. The demo and the headless check compile this
 // same file, for the reason sub-steps 1 to 3 all established: the verification

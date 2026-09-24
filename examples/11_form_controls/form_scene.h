@@ -43,7 +43,7 @@ namespace form_scene {
 // declared taller than its track would silently be measured back down to
 // the track's height rather than overlapping it. This was found
 // empirically while trying to build a thin-rail-under-a-round-thumb look;
-// doc/form-controls.md section 4 records it, and tests/unit/test_form_controls.cpp's
+// tests/unit/test_form_controls.cpp's
 // slider cases use unequal heights DELIBERATELY, built directly on
 // RenderTree rather than through LayoutTree, which is the one construction
 // path this constraint does not apply to.
@@ -100,7 +100,7 @@ dg::InteractionChange dispatch(Scene& scene, dg::Interaction& interaction,
                                const dg::PointerEvent& event);
 
 // Re-resolves hover at a fixed point without moving anything - the resync a
-// resize needs (doc/widgets.md section 4), reused verbatim.
+// resize needs, reused verbatim.
 dg::InteractionChange resync(Scene& scene, dg::Interaction& interaction, dg::PixelPoint at);
 
 }  // namespace form_scene

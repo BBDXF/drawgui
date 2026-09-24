@@ -23,10 +23,10 @@
 // slice does not have the scope to convergence-test the way mini_json.h's
 // ~300 lines already are. Raster decoding reuses a decoder this project
 // already fuzzed by construction (SkCodec, exercised since 5-1); SVG is
-// declined BY NAME rather than half-built - see doc/theme-packages.md.
+// declined BY NAME rather than half-built.
 //
 // Also NOT built: a font token type, and an ABI/schema type for "this
-// token names an image" - see doc/theme-packages.md for why extending
+// token names an image" - extending
 // TokenType is a separate, larger decision (a new schema type ripples
 // through the generator, the ABI value_type, and every consumer of
 // TokenType's two-way switch) this slice does not make. What IS built is
@@ -124,7 +124,7 @@ class ThemePackage {
 
 // Hot reload (design.md section 5.7.6), in full: re-reads and re-validates
 // `package`'s theme.json from disk, exactly as load_theme_json() did the
-// first time. See doc/theme-packages.md for why this is the WHOLE
+// first time. This is the WHOLE
 // mechanism - no tree rebuild, no incremental-patch machinery beyond what
 // dg::ThemeBindings::apply() (6-2) already is, settling design.md section
 // 12's hot-reload-granularity open question.

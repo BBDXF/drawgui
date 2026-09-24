@@ -40,7 +40,7 @@
 // enumerator and a query for a service nobody had answered with the
 // system tray. Plain constants have neither problem and need no NOLINT:
 // the dispatch switches on a uint16_t and its default arm is what decides
-// an id is unknown. doc/properties.md records the reasoning in full.
+// an id is unknown.
 using dg_prop_id = std::uint16_t;
 
 // Reserved. A write with this id is always an error.
@@ -227,7 +227,7 @@ inline constexpr dg_prop_id DG_PROP_IMAGE_PLACEHOLDER_COLOR = 49;
 // given above: an ordinal also arrives from outside the process.
 //
 // props/prop_ids.lock does NOT yet cover these orderings.
-// doc/properties.md records that as a known gap.
+// This is a known gap.
 // overflow
 inline constexpr std::uint32_t DG_OVERFLOW_VISIBLE = 0;
 inline constexpr std::uint32_t DG_OVERFLOW_CLIP = 1;

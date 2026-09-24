@@ -475,11 +475,11 @@ DG_EXPORT dg_node_t* dg_node_create(dg_app_t* app, uint16_t type_id);
 DG_EXPORT int32_t dg_node_set_prop(dg_node_t* node, uint16_t prop_id, const dg_value* value);
 
 /* Attaches pending `child` under live `parent`. `ref` must be null this slice */
-/* (append-only; see doc/abi.md section 5). */
+/* (append-only). */
 DG_EXPORT int32_t dg_node_insert_before(dg_node_t* parent, dg_node_t* child, dg_node_t* ref);
 
 /* Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not */
-/* detach a live node's tree structure - see doc/abi.md section 5. */
+/* detach a live node's tree structure. */
 DG_EXPORT int32_t dg_node_remove(dg_node_t* node);
 
 /* 8-3d: declares that `node` consumes `action_id` (design.md section 5.5.3) - */
@@ -493,10 +493,9 @@ DG_EXPORT int32_t dg_node_scope_action(dg_node_t* node, uint16_t action_id);
 /* generated from the SAME binding table dg::shortcut_label() (chord.h, */
 /* unit-tested since 8-1/8-2) already builds - this wraps it rather than */
 /* re-implementing label generation. Returns NULL for an action_id no binding */
-/* names (dg::shortcut_label()'s own std::optional empty case) - see doc/abi.md */
-/* section 13 for why NULL rather than an empty string. Valid until the next */
-/* dg_shortcut_label() call on this thread, matching dg_last_error()'s own */
-/* lifetime rule. */
+/* names (dg::shortcut_label()'s own std::optional empty case) rather than an */
+/* empty string. Valid until the next dg_shortcut_label() call on this thread, */
+/* matching dg_last_error()'s own lifetime rule. */
 DG_EXPORT const char* dg_shortcut_label(uint16_t action_id);
 
 /* Blocks up to timeout_ms (negative: forever), pumps every window, returns the */
@@ -511,8 +510,7 @@ DG_EXPORT int32_t dg_poll_events(dg_app_t* app, dg_event* out, int32_t max);
 /* next drawgui call on it. */
 DG_EXPORT const char* dg_last_error(void);
 
-/* This node's subtree as JSON (type/bounds/parentData). See doc/abi.md section */
-/* 7 for exactly what is and is not included. */
+/* This node's subtree as JSON (type/bounds/parentData). */
 DG_EXPORT const char* dg_dump_layout_tree(dg_node_t* node);
 
 /* 7-6: loads an EXTERNAL, untrusted theme package directory (design.md section */
@@ -545,7 +543,7 @@ DG_EXPORT int32_t dg_theme_override(dg_theme_t* theme, uint16_t token_id,
 /* 7-6: makes `theme` this app's active theme and immediately re-applies every */
 /* window's ThemeBindings against it - this IS hot reload's second half: reload */
 /* with dg_theme_load_dir()/load_memory() again, then call this again with the */
-/* fresh handle (design.md section 5.7.6, settled in doc/theme-packages.md). */
+/* fresh handle (design.md section 5.7.6). */
 DG_EXPORT int32_t dg_app_set_theme(dg_app_t* app, dg_theme_t* theme);
 
 /* TEST-ONLY. WindowManager::warp_pointer() at the ABI boundary - see the file */

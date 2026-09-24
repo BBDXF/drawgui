@@ -1,6 +1,6 @@
 // A tooltip's own popup content: one plain, non-interactive text label -
-// no kButton, no Widget attached at all, because a tooltip accepts NO input
-// (doc/popup.md section 1), so nothing in its content could ever be clicked
+// no kButton, no Widget attached at all, because a tooltip accepts NO input,
+// so nothing in its content could ever be clicked
 // or focused regardless of what WidgetKind it carried.
 
 #pragma once

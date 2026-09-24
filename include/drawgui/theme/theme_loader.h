@@ -18,14 +18,14 @@
 // theme PACKAGES (a directory with fonts/icons/images - design.md section
 // 5.7.4's "mytheme/" layout), path-traversal defence (meaningful only for an
 // untrusted EXTERNAL package; the one theme this slice loads is compiled
-// into the binary - see doc/theme.md), SVG/icon caching, and hot reload
+// into the binary), SVG/icon caching, and hot reload
 // (design.md section 5.7.6, explicitly P7). What IS built is the loader
 // core every one of those future features would still need: JSON parsing
 // bounded against a parse bomb (mini_json.h), schema-checked token
 // resolution, and the light/dark colour table this slice's runtime switch
 // reads.
 //
-// 7-6 UPDATE (append-only, doc/theme-packages.md has the full record): the
+// 7-6 UPDATE (append-only): the
 // four ThemeLoadStatus values named below as this slice's own new work
 // (kIoError/kPathTraversal/kResourceTooLarge/kTooManyResources) are exactly
 // that closed gap - one EXTENDED vocabulary, not a second one beside it,
@@ -71,7 +71,7 @@ enum class ThemeLoadStatus : std::uint8_t {
   //
   // design.md section 12 open question 7 settled by 7-6: reject any
   // schema_version other than the exact set this build understands (today,
-  // that set is {1}), never auto-upgrade. See doc/theme-packages.md.
+  // that set is {1}), never auto-upgrade.
   kUnsupportedSchemaVersion,
 
   // 7-6 (design.md section 5.7.5, external theme packages only - see

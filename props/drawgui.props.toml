@@ -549,7 +549,7 @@ summary = "Inset from the stack content box; setting it positions the child."
 # Scrolling - the constraint half only. The offset itself is not here: it is
 # per-frame interaction state (like hover/press), not a declarative style, so
 # it lives in WidgetSet and on RenderTree::set_scroll_offset rather than in
-# this table. See doc/scrolling.md section 2.
+# this table.
 # ---------------------------------------------------------------------------
 
 [[property]]

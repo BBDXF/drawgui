@@ -237,8 +237,7 @@ Scene overlapping_scene() {
 //
 // Every shape the traversal branches on has an instance here, because a long
 // sweep over a scene that lacks one is evidence about nothing (this project
-// has been caught by that three times; doc/wrapping.md and doc/properties.md
-// record the previous two):
+// has been caught by that three times, in previous work):
 //
 //   a clipped child cut on one side, and one cut on two;
 //   a child entirely outside its clipping parent, visible nowhere;

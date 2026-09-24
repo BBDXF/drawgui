@@ -17,8 +17,8 @@ constexpr int kHeight = 26;
 // A tooltip's size is declared BEFORE its content exists (PopupHost::show()
 // takes content_size up front, matching every other PopupHost client) -
 // this project's own standing rule that a node knows its size before its
-// content is resolved (doc/image.md's decode-after-size rule, doc/text-
-// layout.md's paragraph-build-before-node rule). A fixed-width monospace-ish
+// content is resolved (the same decode-after-size rule images use, and the
+// paragraph-build-before-node rule wrapped text uses). A fixed-width monospace-ish
 // approximation (font_size_px * 0.6 per character) is precise enough for a
 // short tooltip string and does not need dg::Paragraph::build() - the exact
 // text this demo shows is known in advance, unlike a wrapping paragraph.

@@ -39,8 +39,7 @@ struct Handles {
 // Builds the backdrop (covering `window_size`) and a centred panel
 // `panel_size` wide/tall carrying one "Close" button, all appended directly
 // to `tree` under `parent` (RenderTree::add_child(), never through a
-// LayoutTree - PopupHost's own overlay-branch precedent, doc/popup.md
-// section 3). Returns `panel` as the node a caller passes to
+// LayoutTree - PopupHost's own overlay-branch precedent). Returns `panel` as the node a caller passes to
 // dg::Focus::enter_scope(panel_root, /*modal=*/true) - Tab/click/set()
 // confinement is scoped to the PANEL, not the backdrop, so the backdrop
 // itself (never focusable - it carries no Widget at all) is correctly

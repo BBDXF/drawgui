@@ -324,8 +324,8 @@ TEST_SUITE("focus") {
                           Color::from_argb(0xFFFF8800), /*thickness=*/2, /*gap=*/2);
 
     CHECK(ring.created);
-    // button_a's absolute bounds are (10, 5, 80, 30). Inward geometry (this
-    // slice's own change, doc/focus.md's own "why inward" section): the
+    // button_a's absolute bounds are (10, 5, 80, 30). Inward geometry ("why
+    // inward"): the
     // ring's outer edge is inset gap(2) from that box, its inner edge a
     // further thickness(2) in - hand-derived, not re-derived from the
     // function under test.

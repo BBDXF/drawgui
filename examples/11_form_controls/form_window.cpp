@@ -94,7 +94,7 @@ class Runner {
   // kSlider is not accepts_pointer(), so Interaction never sees a press on
   // one at all, and there is nothing for a drag to compete against
   // (design.md section 5.16.3's gesture arena stays undeclined for the
-  // identical reason doc/scrolling.md section 6 already gives).
+  // identical reason 10_scrolling's own drag state gives).
   std::optional<dg::NodeId> dragging_;
 };
 

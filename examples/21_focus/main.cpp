@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
   }
   if (!options->branch.empty() && options->branch != "overlay") {
     std::cerr << "--branch native is no longer supported: native popup windows were removed; "
-                 "popups are overlay-only now. See doc/popup.md.\n";
+                 "popups are overlay-only now.\n";
     return 2;
   }
 

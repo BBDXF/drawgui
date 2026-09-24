@@ -86,7 +86,7 @@ void edit_theme_json(const fs::path& json_path, const std::string& needle,
 
 // Half 1 of the hot-reload measurement (see this file's own header
 // comment): a scene with NO bound int property, so its reload can isolate
-// the colour-only case doc/theme.md's own "every binding unconditionally"
+// the colour-only case the "every binding unconditionally"
 // finding would otherwise contaminate.
 bool check_color_only_reload(const dg::TreeSpec& spec, const fs::path& work_dir,
                              std::ostream& out) {

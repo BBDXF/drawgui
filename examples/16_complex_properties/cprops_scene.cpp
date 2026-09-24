@@ -119,8 +119,8 @@ Scene build(dg::TreeSpec spec) {
       dg::set_image(tree, handles.image_panel, DG_PROP_IMAGE_SOURCE, image);
   (void)image_result;
 
-  // transform: the fourth client, always declined - node_props.h and
-  // doc/complex-properties.md section 4 record why. Called here so the
+  // transform: the fourth client, always declined - node_props.h
+  // records why. Called here so the
   // window's console log and the headless check both read the SAME call
   // rather than two independently-invented ones that could disagree.
   const dg::PropWrite transform_result =

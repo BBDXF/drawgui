@@ -11,7 +11,7 @@
 //      the single-line TextField's ellipsize() assertion.
 //   3. the exactly-once-layout verdict, reported as LayoutStats numbers: a
 //      single dg::LayoutTree::layout_full() call visits every node exactly
-//      once (doc/text-layout.md section 2's answer), and a second, no-op
+//      once, and a second, no-op
 //      layout() call relays out nothing.
 
 #pragma once

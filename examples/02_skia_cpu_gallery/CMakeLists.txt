@@ -30,6 +30,5 @@ if(DRAWGUI_HAVE_SDL3)
 
   # No CTest entry, for the same reason examples/01_sdl3_multi_window has
   # none: it needs a display. --dump-png and --bench do run headless, but
-  # neither belongs in the golden suite - see doc/cpu-raster-findings.md for
-  # why the gallery is deliberately not a golden baseline.
+  # neither belongs in the golden suite - the gallery is deliberately not a golden baseline.
 endif()

@@ -5,7 +5,7 @@
 // jumps, and scrolls backward, and after EVERY step asserts every visible
 // pool node's fill/text/image EXACTLY equals list_scene::style_for() for the
 // logical index it currently shows - not a loose shape ("has some text"),
-// the precise value, because doc/text-input.md's own catalogued failure mode
+// the precise value, because a catalogued failure mode
 // (an assertion weak enough that a whole family of wrong answers passes) is
 // exactly what a loose check here would reproduce.
 
@@ -190,7 +190,7 @@ bool check_residue(std::ostream& out) {
 }
 
 // --------------------------------------------------------------------------
-// Claim 4: overscroll clamps, the same shape doc/scrolling.md already
+// Claim 4: overscroll clamps, the same shape 10_scrolling already
 // established for kScrollView.
 // --------------------------------------------------------------------------
 

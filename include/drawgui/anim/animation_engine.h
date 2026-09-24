@@ -38,15 +38,15 @@
 // only, a diagnostic on stderr naming the property - section 5.16.1's "不报错
 // 但 Debug 构建告警". `transform`'s decomposed translate/scale/rotate
 // components (section 5.9.6) are exactly the kind of thing this would
-// interpolate once `dg::set_transform()` stops declining every call
-// (doc/complex-properties.md section 4) - nothing here needs to change that
+// interpolate once `dg::set_transform()` stops declining every call -
+// nothing here needs to change that
 // day, because the gate below is on PropType, not on a hand-picked property
 // list.
 //
 // HANDLE LIFETIME: see AnimHandle's own comment. The short version is a
 // generation counter, which is a NEW mechanism for this project - slice 5-3's
 // "never free a pool node" precedent for the dangling-NodeId problem does not
-// transfer here, and doc/animation.md records why in full.
+// transfer here.
 #pragma once
 
 #include <cstdint>
@@ -68,8 +68,8 @@ namespace dg {
 // TWO FIELDS RATHER THAN ONE, and the second is the whole point. `index`
 // alone is exactly NodeId's shape - "meaningful only while the thing it
 // names is still alive" - and slice 5-3 could make that work for a render
-// node because render nodes are NEVER destroyed (doc/list.md section 1: "it
-// never dangles, because it is never freed"). An animation cannot take the
+// node because render nodes are NEVER destroyed - it
+// never dangles, because it is never freed. An animation cannot take the
 // same vow: unlike a UI's node count, the number of animations a long-running
 // process creates is unbounded - a button hovered ten thousand times has
 // created ten thousand short-lived slots - so AnimationEngine MUST reclaim a
@@ -82,7 +82,7 @@ namespace dg {
 // reuse), and every accessor below checks it before touching the slot - a
 // mismatch reports `kStaleHandle` rather than acting on someone else's
 // animation. This is the ordinary generational-index technique, and it is
-// the mechanism `doc/widgets.md`'s own comment on WidgetSet already named as
+// the mechanism WidgetSet's own comment already named as
 // what a future removal path would need ("THE DAY REMOVAL ARRIVES ... the
 // generation counter it will need") - that day is this slice, for animation
 // slots specifically, because they are the first thing in this project that
@@ -175,7 +175,7 @@ class AnimationEngine {
   //
   // WHY DURATIONS GO TO ZERO RATHER THAN THE LOGIC BEING SKIPPED: section
   // 5.16.1 states this outcome without deriving it, so the derivation is
-  // recorded here rather than only in doc/animation.md. A duration of zero
+  // recorded here. A duration of zero
   // still allocates a slot, still runs through tick(), still promotes the
   // node to a repaint boundary and still raises a completion event - every
   // step an ordinary animation takes, collapsed to one frame instead of
@@ -312,8 +312,7 @@ class AnimationEngine {
   // True while any slot is alive and not paused - the signal section 5.15.1's
   // frame loop switches on: an on-demand runner passes a short timeout to
   // WindowManager::pump() while this is true, and passes a timeout that
-  // blocks (see doc/animation.md's own recorded measurement of what
-  // "blocks" should mean) once it goes false again.
+  // blocks once it goes false again.
   [[nodiscard]] bool has_active() const;
 
   // Drains and returns every event queued by tick()/cancel() since the last
@@ -333,8 +332,8 @@ class AnimationEngine {
   // LayoutTree::box()/RenderTree::style(), so extending this to another
   // float/length/color property is one added case, not new machinery; it is
   // not exhaustive over the property table's other ~29 interpolatable
-  // entries because nothing in this slice exercises them. doc/animation.md
-  // records this as a deliberate, named scope boundary.
+  // entries because nothing in this slice exercises them. This is a
+  // deliberate, named scope boundary.
   [[nodiscard]] static std::optional<PropValue> read_current(const LayoutTree& tree,
                                                              NodeId node, dg_prop_id prop_id);
 

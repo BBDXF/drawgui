@@ -37,7 +37,7 @@ namespace {
 // which already makes clips_atomically() true for it, so expand() already
 // grows any damage rectangle touching it to contain it and its halo. Its
 // descendants are confined to its box, so they are inside that rectangle as
-// well and the damage clip never cuts one. doc/clipping.md records the cost.
+// well and the damage clip never cuts one.
 constexpr int kAntiAliasSlack = 1;
 
 }  // namespace
@@ -83,8 +83,7 @@ void RenderTree::Impl::paint_subtree(const PaintPass& pass, std::uint32_t index)
     // both and produces identical pixels. Inflating it was measured to change
     // nothing - the injection that removed the slack was the one defect of
     // thirteen that no test could see - so the constant is not carried here
-    // just because it is carried next door. doc/compositing.md section 3 has
-    // the argument.
+    // just because it is carried next door.
     //
     // VISIBLE bounds, not declared ones. A descendant an ancestor clip has
     // removed entirely has no pixels, so including it would open an offscreen
@@ -169,7 +168,7 @@ namespace {
 //
 // SHADOW-ATOMIC NODES ARE THE SAME QUESTION, not a second one: a blurred
 // shadow reads neighbouring pixels exactly as a rounded rectangle's analytic
-// anti-aliasing does (doc/damage-repaint.md), so cutting either with a damage
+// anti-aliasing does, so cutting either with a damage
 // rectangle changes the pixels inside the cut. shadow_atomic() is therefore
 // ORed alongside clip_atomic here rather than given its own growth loop.
 [[nodiscard]] bool can_be_cut(const Node& node) {

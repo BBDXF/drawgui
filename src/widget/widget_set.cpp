@@ -22,11 +22,10 @@ bool interactive(WidgetKind kind) {
     case WidgetKind::kCheckbox:
     // kTextField accepts pointer input directly, unlike kSlider/kScrollView:
     // a click has to resolve TO the field (to focus it and place the
-    // cursor), not merely to a plain child of it - doc/text-input.md
-    // section 3.
+    // cursor), not merely to a plain child of it.
     case WidgetKind::kTextField:
     // A dropdown's anchor is a plain click target exactly like kButton -
-    // opening the popup IS the activation, doc/menus.md.
+    // opening the popup IS the activation.
     case WidgetKind::kDropdown:
       return true;
     case WidgetKind::kPanel:
@@ -40,16 +39,15 @@ bool interactive(WidgetKind kind) {
 }
 
 // Replaces 4-9's filter_ascii(): accepts arbitrary well-formed Unicode text
-// rather than dropping every non-ASCII byte whole (doc/text-input.md's
-// cross-reference to doc/text-layout.md section 2 - libgrapheme's
+// rather than dropping every non-ASCII byte whole (libgrapheme's
 // segmentation, proven by 7-1, is what makes lifting the restriction safe).
 // Two things are still rejected, not merely "everything except ASCII":
 //
 //   - malformed UTF-8 (a lone continuation byte, a truncated multi-byte
-//     lead, an overlong encoding, a surrogate codepoint) is repaired to
-//     U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
-//     paragraph_build.cpp substitution (doc/text-layout.md section 3),
-//     reused here rather than a second hand-rolled policy;
+  //     lead, an overlong encoding, a surrogate codepoint) is repaired to
+  //     U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
+  //     paragraph_build.cpp substitution,
+  //     reused here rather than a second hand-rolled policy;
 //   - ASCII control characters (0x00-0x1F) and DEL (0x7F) are dropped: a
 //     literal newline or tab a paste/IME might commit has no meaning in a
 //     single-line field (multi-line TextArea editing stays out of scope -
@@ -81,7 +79,7 @@ TextSelection normalize_selection(int cursor, int anchor) {
 
 // Builds a throwaway, single-line, unwrapped Paragraph over `text` purely
 // for pixel measurement - the shaping-aware replacement for 4-9's
-// measure_ascii_width()/ascii_offset_at_x() (doc/text-input.md's 7-2b
+// measure_ascii_width()/ascii_offset_at_x() (7-2b's own
 // cross-reference). The width is fixed at a value no realistic TextField
 // content will ever reach, so the paragraph never wraps - a TextField stays
 // single-line by construction, matching design.md's MVP-8 naming (4-9
@@ -158,7 +156,7 @@ int grapheme_offset_at_x(const Paragraph& para, const std::vector<int>& boundari
 
 // Truncates `text` to the longest GRAPHEME-CLUSTER prefix such that PREFIX +
 // "..." still fits `visible_width` device pixels, appending the ellipsis -
-// the unfocused overflow treatment doc/text-input.md section 5 chose over
+// the unfocused overflow treatment chosen over
 // scrolling an unfocused field with no visible caret to justify it. Cuts at
 // a cluster boundary rather than a byte offset (7-2b): a byte-oriented cut
 // could bisect a multi-byte character or a ZWJ/skin-tone/flag sequence,
@@ -651,7 +649,7 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
 namespace {
 constexpr int kCaretWidthPx = 2;
 
-// A thin bar under the whole composing span (7-3, doc/ime.md) - the
+// A thin bar under the whole composing span (7-3) - the
 // conventional underline treatment, sized independently of the caret's own
 // width constant above because the two are visually distinct shapes (a
 // vertical bar vs. a horizontal one).
@@ -746,7 +744,7 @@ FocusedProjection focused_display_projection(const Widget& widget) {
     return projection;
   }
 
-  // While composing (7-3, doc/ime.md), the DISPLAY splices the IME's
+  // While composing (7-3), the DISPLAY splices the IME's
   // not-yet-committed preedit into `widget.text` at the point composition
   // began - `widget.text`/`cursor`/`selection_anchor` are never written by
   // composition itself, only read here, exactly the same "paint-time
@@ -805,8 +803,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
     content_style.text = ellipsize(fonts, font, size, widget.text, visible_width);
     tree.set_text(widget.content, content_style);
     // The content child's own box must be wide enough to hold what it
-    // paints - paint_text() clips to ITS OWN NODE's bounds (doc/widgets.md
-    // section 3.2), which is a different clip than the field's `overflow:
+    // paints - paint_text() clips to ITS OWN NODE's bounds, which is a different clip than the field's `overflow:
     // kClip` and runs regardless of it. A 1px placeholder box (this
     // widget's construction-time default, never since resized) would clip
     // away all but a sliver of the text before the field's own clip is ever
@@ -864,7 +861,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
                  std::max(0, visible_width - kCaretWidthPx));
   tree.set_local_bounds(widget.caret, PixelRect{caret_x, 0, kCaretWidthPx, inner_height});
 
-  // selection_highlight is dual-purpose while composing (7-3, doc/ime.md):
+  // selection_highlight is dual-purpose while composing (7-3):
   // the user's OWN selection when not composing, or SDL_TextEditingEvent's
   // own "focused clause" range within the preedit when composing -
   // focused_display_projection() above is where the two are told apart.
@@ -879,7 +876,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
     tree.set_local_bounds(widget.selection_highlight, PixelRect{0, 0, 0, inner_height});
   }
 
-  // The composition underline (7-3, doc/ime.md): a thin bar under the
+  // The composition underline (7-3): a thin bar under the
   // WHOLE preedit span, the conventional visual distinction between
   // composing and committed text - a fourth plain positioned child, the
   // same shape caret/selection_highlight already are, not a new paint
@@ -924,7 +921,7 @@ bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, No
   if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
     return false;
   }
-  // A REAL commit (7-3, doc/ime.md) - whether IME-sourced or an ordinary
+  // A REAL commit (7-3) - whether IME-sourced or an ordinary
   // keystroke/paste, this is the one call that actually writes to the
   // model. `widget->cursor`/`selection_anchor` were never touched while
   // composing, so discarding the stale preview here and falling straight
@@ -950,7 +947,7 @@ bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, No
 
 bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
   Widget* widget = find(id);
-  // Suppressed while composing (7-3, doc/ime.md section 6): a real IME
+  // Suppressed while composing (7-3): a real IME
   // consumes Backspace itself for candidate/clause editing while it is
   // active, so it never reaches this far in practice; simulating that here
   // (rather than editing the committed model underneath an active preview)
@@ -1083,8 +1080,8 @@ bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, Nod
   if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
     return false;
   }
-  // A click always ends composition without committing it (7-3, doc/ime.md
-  // section 6, "clicking elsewhere mid-composition") - the position it is
+  // A click always ends composition without committing it (7-3,
+  // "clicking elsewhere mid-composition") - the position it is
   // about to move the cursor to may not even be inside the composition's
   // own replace range any more, so there is no sensible way to keep a
   // preview alive across it. Falls through and still positions the cursor
@@ -1156,7 +1153,7 @@ void WidgetSet::text_field_composition_update(RenderTree& tree, const FontCatalo
   if (!widget->composing) {
     // Composition START: capture the anchor ONCE from whatever
     // selection/cursor the model already has - never re-derived from it
-    // again while composing (doc/ime.md's own argument: composition must
+    // again while composing (composition must
     // never touch `cursor`/`selection_anchor` itself, so a later real
     // commit through text_field_insert() replaces exactly this range).
     const std::optional<int> anchor = widget->selection_anchor;

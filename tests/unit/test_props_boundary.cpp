@@ -448,7 +448,7 @@ TEST_CASE("a parentData property whose parent does not consume it is refused") {
 // kUnsupported is a statement about drawgui rather than about the caller, and
 // it is separated from kNotApplicable for that reason: the same write becomes
 // kApplied when a later slice lands the capability, whereas `gap` on a leaf
-// will always be wrong. doc/properties.md is the list.
+// will always be wrong.
 //
 // `transform` is the one complex type still in this bucket after slice 5-4:
 // its dedicated setter (dg::set_transform()) exists and reports the
@@ -465,7 +465,7 @@ TEST_CASE("a property the engine does not implement says so") {
 
 // background_gradient, shadow and image_source moved out of the bucket above
 // with slice 5-4: all three ARE implemented now, through the dedicated
-// setters doc/complex-properties.md records (dg::set_gradient(),
+// setters (dg::set_gradient(),
 // dg::set_shadow(), dg::set_image()). A scalar PropValue is simply the wrong
 // type for any of them - none can ever be built with PropType::k_gradient/
 // k_shadow/k_image, since PropValue has no factory for those - so the

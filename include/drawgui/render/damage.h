@@ -4,7 +4,7 @@
 // 7.71 ms of presentation, and the same scene under a 260x72 clip at 0.12 ms.
 // That 32x is the whole reason this type exists: with it, the cost of a
 // change is a function of the change; without it, every repaint is a function
-// of the window and nothing else. doc/cpu-raster-findings.md has the ladder.
+// of the window and nothing else.
 //
 // The interesting question is not whether to track damage but how to combine
 // it. Two dirty nodes at opposite corners of a window have a bounding box

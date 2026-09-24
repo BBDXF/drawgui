@@ -22,7 +22,7 @@ if(DRAWGUI_HAVE_SDL3)
 
   # --verify-showcase needs no display: SDL_VIDEODRIVER=dummy opens an
   # ordinary window and drives the popup/tooltip/dialog paths - overlay-only
-  # (native OS popup windows were removed; see doc/popup.md), so every path
+  # (native OS popup windows were removed), so every path
   # this oracle probes is exercised for real under the dummy driver.
   if(DRAWGUI_BUILD_TESTS)
     add_test(NAME showcase.verify_demo_scene

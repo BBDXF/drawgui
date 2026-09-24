@@ -4,7 +4,7 @@
 //
 // Why two seams rather than one: dg::Paragraph is skia::textlayout::
 // Paragraph's own "editing API" (getGlyphClusterAt/getClosestGlyphClusterAt),
-// and measuring it directly (doc/text-input.md's 7-2b cross-reference)
+// and measuring it directly (7-2b's own investigation)
 // found its clustering is a SHAPING concept - when the active font has no
 // glyph for a codepoint sequence at all (no ligature, no colour glyph), each
 // codepoint shapes as its own separate .notdef box and reports its own

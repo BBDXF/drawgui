@@ -315,7 +315,7 @@ void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
 // PropWrite/set_prop(): a write needs a real LayoutTree&/NodeId, and a
 // pending slot has neither) - so a node needs a sane box the instant it is
 // attached, not an invisible 0x0 one waiting for a property write that
-// cannot happen yet. doc/abi.md section 5 records this scoping decision.
+// cannot happen yet.
 std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::NodeId parent_id,
                                  std::size_t child_index) {
   NodeSlot& slot = impl.nodes[child_index];
@@ -591,8 +591,7 @@ const char* layout_kind_name(dg::LayoutKind kind) {
 //                   layout_impl.h computes and discards per pass; no
 //                   public accessor exists. Omitted for the same reason.
 //
-// Both omissions are named here rather than silently missing - see
-// doc/abi.md section 7.
+// Both omissions are named here rather than silently missing.
 void dump_node(const dg::LayoutTree& tree, dg::NodeId id, std::string& out) {
   const dg::BoxStyle& box = tree.box(id);
   const dg::PixelRect bounds = tree.bounds(id);
@@ -814,7 +813,7 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
   // (design.md section 5.7.2) by token_id (carried in `bits`, the same
   // field an ordinary color value's ARGB already occupies). This reuses
   // dg_node_set_prop() unchanged rather than adding a second, bind-shaped
-  // exported function - the ABI's own instance of doc/theme.md's own
+  // exported function - the ABI's own instance of the
   // "resolution reuses dg::set_prop() unchanged" rule, one layer up.
   if (value->type == DG_VALUE_TOKEN) {
     if (impl->active_theme == nullptr) {
@@ -836,7 +835,7 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
 
 std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node_t* ref_h) {
   if (ref_h != nullptr) {
-    // Append-only this slice (doc/abi.md section 5): neither RenderTree::
+    // Append-only this slice: neither RenderTree::
     // add_child() nor LayoutTree::add_child() can insert anywhere but the
     // end of a parent's child list, so a real `ref` cannot be honoured.
     return DG_ERR_UNSUPPORTED;
@@ -902,7 +901,7 @@ std::int32_t node_remove(dg_node_t* node_h) {
   }
   // Invalidates the HANDLE too (every later call on it is
   // DG_ERR_INVALID_HANDLE), on top of the real detachment above - Gap 3
-  // (doc/abi.md section 5) is closed: this node is now actually gone from
+  // is closed: this node is now actually gone from
   // its window's tree, not merely unreachable through this one handle.
   slot->state = NodeSlot::State::kRemoved;
   return DG_ERR_OK;

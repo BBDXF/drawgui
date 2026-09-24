@@ -215,7 +215,7 @@ bool RenderTree::remove_child(NodeId id) {
     // refuses to read a tombstoned node's fields at all, so nothing ever
     // observes this value again - resetting it would only recreate the
     // exact "a removed slot's default parent looks like the root" trap
-    // doc/widgets.md's own generation-counter argument was written to
+    // the generation-counter argument was written to
     // avoid, one field away from where the guard actually lives.
     impl_->free_indices.push_back(index);
   }

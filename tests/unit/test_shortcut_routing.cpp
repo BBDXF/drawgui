@@ -432,7 +432,7 @@ TEST_SUITE("keyboard scrolling (8-3c)") {
   }
 
   TEST_CASE(
-      "a keyboard scroll costs zero relayout - the same claim doc/scrolling.md makes "
+      "a keyboard scroll costs zero relayout - the same claim already made "
       "for wheel scrolling") {
     scroll_scene::Scene scene = build_scroll_scene();
     scene.tree.layout();  // settle any leftover dirt from build()

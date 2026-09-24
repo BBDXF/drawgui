@@ -127,8 +127,8 @@ void check_order_and_wrapping(std::ostream& out, bool& ok) {
   // (the ring's set_local_bounds()/set_style(), TextField's start/stop_
   // text_input()) goes through RenderTree alone - LayoutTree::layout() is
   // never told anything is dirty, so a real layout() pass afterward should
-  // find nothing to do, the identical shape doc/scrolling.md's offset and
-  // doc/form-controls.md's slider value already have.
+  // find nothing to do, the identical shape 10_scrolling's offset and
+  // 11_form_controls's slider value already have.
   const dg::LayoutStats stats = scene.tree.layout();
   out << "  LayoutStats after " << (expected.size() + 8)
       << " focus changes: nodes_visited=" << stats.nodes_visited
@@ -181,7 +181,7 @@ void check_real_tab_key_event(std::ostream& out, bool& ok) {
 
 // --------------------------------------------------------------------------
 // Claim 3: focus crossing into a popup - overlay-only (native OS popup
-// windows were removed; see doc/popup.md). dg::Focus::enter_scope()/
+// windows were removed). dg::Focus::enter_scope()/
 // exit_scope() over the SAME Focus instance, confirmed to blur a widget
 // still focused inside the popup when it closes (the popup-close hazard).
 // --------------------------------------------------------------------------
@@ -252,7 +252,7 @@ void check_overlay_scope_and_close(std::ostream& out, bool& ok) {
 // NodeId{0} exactly the way every RenderTree here already does, never
 // confuse each other even when they hand out the IDENTICAL numeric NodeId -
 // this is the whole reason cross-window focus needed no NodeId-plus-
-// window-id struct (doc/focus.md's own top comment).
+// window-id struct.
 void check_two_focus_instances_never_collide(std::ostream& out, bool& ok) {
   out << "\ntwo independent dg::Focus instances sharing the same NodeId numbering\n";
   TreeSpec spec_a;

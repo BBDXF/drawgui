@@ -289,7 +289,7 @@ int bench(int item_count, std::ostream& out) {
   // A FIXED number of steps, not one per item: `item_count` items scrolled
   // one at a time is the honest end-to-end measurement at 1000 (matching
   // design.md's own number), but the baseline's per-call repaint() cost is
-  // O(node_count) (doc/damage-repaint.md's own recorded limit - no spatial
+  // O(node_count) (no spatial
   // index), so looping `item_count` times at, say, 100000 items would be
   // O(item_count^2) and never finish. `kSteps` bounds the LOOP; `item_count`
   // still governs how many real nodes the baseline allocates and how large

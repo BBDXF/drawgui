@@ -238,7 +238,7 @@ float run_width(const TextRun& run, const SkFont& font, const std::string& sourc
 // untouched, which is what keeps `TextStyle::wrap == false` (every scene
 // through 7-1) byte-for-byte on the original path.
 //
-// The box's HEIGHT is never touched here - doc/text-layout.md section 2:
+// The box's HEIGHT is never touched here -
 // LayoutTree already settled it before paint ever runs, the same as it
 // settles a plain label's box. Text taller than `bounds` is clipped, not
 // grown, matching how a plain label already behaves when its string
@@ -328,7 +328,7 @@ void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text
 // Where the decoded bitmap lands inside `bounds`, given its own pixel size
 // and the requested fit - the arithmetic examples/13_image's oracle checks by
 // hand, so it lives here rather than inline where only pixels could verify
-// it (doc/clipping.md's fit_radii() precedent: two consumers that both
+// it (fit_radii()'s own precedent: two consumers that both
 // degrade a bad answer the same way cannot disagree with it, so the bug has
 // no test).
 SkRect image_dst_rect(const SkRect& bounds, float source_width, float source_height,
@@ -494,7 +494,7 @@ void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& styl
   // background-colour decoration layer, matching design.md section 5.9.5's
   // own "不支持多重背景" (no multiple backgrounds) stance for the analogous
   // background_image property. `>= 2` mirrors dg::set_gradient()'s own
-  // validation (doc/complex-properties.md); a style built by hand rather
+  // validation; a style built by hand rather
   // than through the setter still cannot paint an under-specified gradient.
   if (style.background_gradient.has_value() && style.background_gradient->stops.size() >= 2) {
     paint.setStyle(SkPaint::kFill_Style);

@@ -89,8 +89,8 @@ void check_all_kinds_present(std::ostream& out, bool& ok) {
 
 // --------------------------------------------------------------------------
 // Claim 2: the CJK description panel actually wraps to more than one line
-// AND carries a shadow - the combination doc/text-layout.md and
-// doc/complex-properties.md each document alone but never together.
+// AND carries a shadow - a combination each system
+// documents alone but never together.
 // --------------------------------------------------------------------------
 
 void check_cjk_shadow_panel(std::ostream& out, bool& ok) {
@@ -133,7 +133,7 @@ void check_cjk_shadow_panel(std::ostream& out, bool& ok) {
 // Claim 3: dropdown popup placement is unaffected by the list's own scroll
 // offset, and the popup's overlay content lands at RenderTree::root() -
 // NEVER inside an ancestor's opacity/clip subtree - structurally, not by
-// coincidence (doc/popup.md section 3's own attach point).
+// coincidence (the popup's own attach point).
 // --------------------------------------------------------------------------
 
 void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
@@ -160,7 +160,7 @@ void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
         "dropdown anchor position is unaffected by the list's own scroll offset", out, ok);
 
   // Now actually open the dropdown's popup through the real PopupHost -
-  // overlay-only (native popup windows were removed; see doc/popup.md), so
+  // overlay-only (native popup windows were removed), so
   // this runs deterministically on any headless machine with no caps to
   // force.
   dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
@@ -292,7 +292,7 @@ void check_modal_dialog_ime(std::ostream& out, bool& ok) {
   // dialog").
   scene.widgets.text_field_cancel_composition(scene.tree.render(), fonts, dialog.name_field);
   check(!scene.widgets.text_field_is_composing(dialog.name_field),
-        "Escape #1 cancels composition (model untouched, per doc/ime.md)", out, ok);
+        "Escape #1 cancels composition (model untouched)", out, ok);
   check(scene.widgets.text_field_text(dialog.name_field).empty(),
         "the committed model was never touched by the cancelled composition", out, ok);
   check(scene.focus.current_scope() == dialog.panel, "modal scope still active after Escape #1",
@@ -310,7 +310,7 @@ void check_modal_dialog_ime(std::ostream& out, bool& ok) {
 // --------------------------------------------------------------------------
 // Claim 5: Tab traversal into/out of a virtualized kList whose rows carry
 // REAL attached Widgets, and Focus::blur_if_any_of() on recycle - a
-// combination doc/focus.md records as unit-tested only, never exercised by
+// combination unit-tested only, never exercised by
 // a running scene before this slice.
 // --------------------------------------------------------------------------
 
@@ -343,7 +343,7 @@ void check_list_focus_recycle(std::ostream& out, bool& ok) {
         "focus is not left pointing at the pool node's NEW (wrong) logical item", out, ok);
 
   // Tab still reaches the recycled pool node (it is a real, focusable
-  // Widget - unlike doc/menus.md section 3's own dropdown-row finding,
+  // Widget - unlike 15_list's plain pool nodes and the dropdown-row finding,
   // this scene's list rows DO carry attached Widgets by construction).
   check(dg::is_focusable(scene.widgets.at(row_showing_item_2).kind),
         "a recycled list-row pool node is still focusable (it is an ordinary kButton Widget)",
@@ -353,7 +353,7 @@ void check_list_focus_recycle(std::ostream& out, bool& ok) {
 // --------------------------------------------------------------------------
 // Claim 6: a theme switch mid-flight of an active AnimationEngine
 // transition on the SAME bound property - genuinely untested anywhere in
-// this project before this slice (neither doc/animation.md nor doc/theme.md
+// this project before this slice (neither animation nor theme handling
 // combine the two). The result is reported plainly, whichever way it goes.
 // --------------------------------------------------------------------------
 
@@ -403,7 +403,7 @@ void check_theme_switch_mid_animation(std::ostream& out, bool& ok) {
         "this node - a running transition on a themed property makes a theme switch's "
         "effect on THAT property transient, erased within one frame. Not a memory-safety "
         "bug and not a spec violation (both systems behave exactly as their own headers "
-        "document in isolation); recorded in doc/showcase.md as a genuine, previously-"
+        "document in isolation); a genuine, previously-"
         "unobserved cross-feature interaction.",
         out, ok);
 }

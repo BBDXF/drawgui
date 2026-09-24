@@ -35,7 +35,7 @@ constexpr std::uint32_t kFooterFill = 0xFF4A5568;
 constexpr std::uint32_t kFillerFill = 0xFF232833;
 
 // Square corners on every container, and a small radius only on the pieces
-// that move. doc/damage-repaint.md measured a rounded container at 30x the
+// that move. A rounded container measured at 30x the
 // damage of a square one, because an anti-aliased rounded node has to be
 // repainted whole - and every one of these rows is a container whose children
 // move on every drag.

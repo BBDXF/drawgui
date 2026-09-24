@@ -9,13 +9,13 @@
 //
 //   field_b   starts empty - the "type from scratch" case, and the one that
 //             proves clicking b blurs a (dg::Focus is exclusive: at most one
-//             focused widget, doc/text-input.md section 3).
+//             focused widget).
 //
 // Both are built from the same primitives every widget in this project
 // already stands on: a kLeaf with `overflow: kClip`, three plain children
 // (selection highlight, text content, caret) the widget positions - no new
 // RenderObject, matching design.md section 5.6 line 622's acceptance bar the
-// same way doc/form-controls.md already proved it for Slider.
+// same way already proved it for Slider.
 
 #pragma once
 
@@ -72,7 +72,7 @@ struct Scene {
   // table that could disagree, only a second reference to the same one.
   // WidgetSet's text_field_* calls need it directly (measuring a caret
   // position or a click offset) and RenderTree exposes no getter back for
-  // the copy TreeSpec consumed - doc/text-input.md section 4.
+  // the copy TreeSpec consumed.
   std::optional<dg::FontCatalog> fonts;
 };
 
@@ -83,7 +83,7 @@ Scene build(const Options& options);
 // Focuses `target` (or blurs everything when std::nullopt), applying the
 // focused/unfocused display mode to whichever field(s) the change touched -
 // the same "one atomic change, both widgets refreshed" shape
-// doc/scrolling.md and doc/form-controls.md already use for their own
+// 10_scrolling and 11_form_controls already use for their own
 // transitions.
 void set_focus(Scene& scene, std::optional<dg::NodeId> target);
 

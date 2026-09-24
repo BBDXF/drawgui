@@ -376,9 +376,9 @@ void Runner::close_dialog_overlay() {
     return;
   }
   scene_.focus.exit_scope(scene_.tree.render());
-  // The panel/backdrop are never removed - RenderTree is append-only
-  // (doc/widgets.md); a real "Dialog" would clip them to empty the same
-  // way PopupHost's own overlay branch closes (doc/popup.md section 3).
+  // The panel/backdrop are never removed - RenderTree is append-only;
+  // a real "Dialog" would clip them to empty the same
+  // way PopupHost's own overlay branch closes.
   // Left visible-but-inert here is out of this demo's scope (this branch's
   // whole point is the FOCUS trap, not a second clip-to-close mechanism
   // that would just re-derive PopupHost's own).
@@ -531,7 +531,7 @@ bool Runner::handle_pointer_dialog_native(const dg::PointerEvent& event) {
     // A click on the host window while the native dialog is open needs no
     // Focus-level refusal at all: it is a genuinely separate OS window
     // with its own separate dg::Focus (7-4's own precedent for a native
-    // popup, doc/focus.md section 5) - there is no NodeId in the host's
+    // popup) - there is no NodeId in the host's
     // own tree that this dialog's Focus could even name to refuse. Real
     // OS-level modal enforcement (SDL_SetWindowModal, WindowManager::
     // open_dialog()) is the platform's own answer where it is honoured;

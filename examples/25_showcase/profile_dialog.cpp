@@ -17,8 +17,8 @@ Color tok(const dg::Theme& theme, dg::ThemeVariant variant, dg_token_id id,
   return theme.color_value(id, variant).value_or(Color::from_argb(fallback));
 }
 
-constexpr std::uint32_t kBackdrop = 0x80000000;  // translucent scrim - not tokenized, see
-                                                 // doc/showcase.md (no schema token models one)
+constexpr std::uint32_t kBackdrop = 0x80000000;  // translucent scrim - not tokenized
+                                                 // (no schema token models one)
 constexpr int kFieldWidth = 220;
 constexpr int kFieldHeight = 32;
 constexpr int kButtonWidth = 90;

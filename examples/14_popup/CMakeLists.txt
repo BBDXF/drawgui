@@ -19,7 +19,7 @@ if(DRAWGUI_HAVE_SDL3)
   # --verify-popup needs no display: it sets SDL_VIDEODRIVER=dummy itself
   # before touching WindowManager, which is enough to open ordinary windows
   # (measured) but not real popup windows (also measured) - see
-  # popup_check.cpp's own top comment and doc/popup.md for what that gap
+  # popup_check.cpp's own top comment for what that gap
   # means and how it is reported rather than silently skipped.
   if(DRAWGUI_BUILD_TESTS)
     add_test(NAME popup.verify_demo_scene

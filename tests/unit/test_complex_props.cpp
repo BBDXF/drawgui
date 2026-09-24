@@ -443,7 +443,7 @@ void run_script(std::size_t max_rects) {
   });
 }
 
-// The rule itself, stated as the same shape doc/damage-repaint.md already
+// The rule itself, stated as the same shape already
 // states it for a rounded node: any damage rectangle touching a shadowed node
 // grows to contain its OUTSET box (the node's own bounds plus the shadow's
 // reach), not merely its declared bounds. The growth happens inside
@@ -463,7 +463,7 @@ void check_damage_grows_to_the_outset_box(Pair& pair) {
   CHECK(dg::contains(tree.painted().bounds(), declared));
   // The grown region also has to be STRICTLY larger than the declared box on
   // at least one side - otherwise this would pass even if the outset were
-  // never applied at all, which is the exact gap doc/compositing.md's own
+  // never applied at all, which is the exact gap an
   // injection G warns a byte-identity check alone cannot see.
   CHECK(tree.painted().bounds().width > declared.width);
 }

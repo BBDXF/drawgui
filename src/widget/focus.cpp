@@ -65,7 +65,7 @@ void fill_ring(RenderTree& tree, const FocusRing& ring, const PixelRect& local_b
   tree.set_local_bounds(ring.right, empty);
 }
 
-// One-shot stderr warning (doc/focus.md's own diagnostic, not a correction):
+// One-shot stderr warning (a diagnostic, not a correction):
 // a strip that lands entirely outside `tree`'s own viewport is a silent
 // "drew nothing" bug the way the outward-ring geometry this replaced always
 // was for a flush-edge target. This only OBSERVES - it never clamps a
@@ -188,7 +188,7 @@ FocusChange Focus::exit_scope(const RenderTree& tree) {
 FocusChange Focus::set_guarded(const RenderTree& tree, std::optional<NodeId> target) {
   if (scope_modal_ && scope_root_.has_value() && target.has_value() &&
       !is_within(tree, *scope_root_, *target)) {
-    // Refused: doc/menus.md section 6.3's own named prerequisite - a modal
+    // Refused: a modal
     // scope refuses a target OUTSIDE it rather than merely leaving it
     // unreachable by Tab (enter_scope()'s own non-modal shape, unchanged
     // above). Blurring to nothing (target == std::nullopt) is NOT refused -
@@ -249,7 +249,7 @@ void update_focus_ring(RenderTree& tree, NodeId parent, FocusRing& ring,
   const int dx = parent_scroll.x - parent_absolute.x;
   const int dy = parent_scroll.y - parent_absolute.y;
 
-  // Inward ring geometry (doc/focus.md's own "why not outward" section):
+  // Inward ring geometry ("why not outward"):
   // the ring's outermost edge is inset `gap` pixels from `bounds`'s own
   // edge, and occupies `thickness` more pixels further in. Unlike the
   // outward geometry this replaced - which drew the ring OUTSIDE `bounds`

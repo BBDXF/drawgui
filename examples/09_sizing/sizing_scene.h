@@ -14,8 +14,7 @@
 //             height, deriving their WIDTH from it. The row takes the leftover
 //             vertical space, so dragging the window taller changes their
 //             cross axis and their main axis has to follow - the
-//             cross-to-main dependency doc/sizing.md section 4.1 is written
-//             around.
+//             cross-to-main dependency this scene is written around.
 //
 //   chips     four declared bases that add up to more than a narrow window
 //             offers, so a basis that fitted stops fitting.

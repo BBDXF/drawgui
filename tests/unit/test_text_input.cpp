@@ -6,7 +6,7 @@
 //
 // Built directly on RenderTree, mirroring test_form_controls.cpp's own
 // precedent for exactly the same reason: LayoutTree's `kLeaf` child clamp
-// (doc/form-controls.md section 4) is a real constraint for widgets whose
+// is a real constraint for widgets whose
 // children are sized independently of their parent, and this file wants
 // exact, hand-derived pixel geometry rather than whatever a layout pass
 // happens to produce.
@@ -73,8 +73,8 @@ struct FieldScene {
 };
 
 // `width`/`height` are the field's OWN local bounds, which is also the
-// visible text area: like a slider's track (doc/form-controls.md section
-// 1.4's own "no padding" argument), a TextField's own kLeaf carries no
+// visible text area: like a slider's track ("no padding"
+// argument), a TextField's own kLeaf carries no
 // padding, so its local_bounds() IS the room text/caret/highlight have.
 FieldScene build_field(int width, int height, const std::string& initial) {
   RenderTree tree{spec_for()};
@@ -247,7 +247,7 @@ TEST_CASE("insert repairs malformed UTF-8 to U+FFFD rather than dropping it whol
   FieldScene scene = build_field(200, 30, "");
   // A lone continuation byte between two ASCII letters - the same
   // dg::sanitize_utf8() policy src/render/paragraph_build.cpp already uses
-  // for SkParagraph::addText()'s boundary (doc/text-layout.md section 3),
+  // for SkParagraph::addText()'s boundary,
   // reused here rather than a second hand-rolled substitution.
   CHECK(scene.widgets.text_field_insert(scene.tree, scene.fonts, scene.field,
                                         "A\x80"
@@ -270,7 +270,7 @@ TEST_CASE("insert repairs malformed UTF-8 to U+FFFD rather than dropping it whol
 // what the hand-derived tests above and below are for); this test's whole
 // job is to give ASan/UBSan every offset to find a bug at, the same
 // discipline 7-2's own defect-injection campaign used to find the
-// ill-formed-bytes-hang in the display path (doc/text-layout.md section 4)
+// ill-formed-bytes-hang in the display path
 // - reused here for the editing path rather than assumed safe by analogy.
 TEST_CASE(
     "malformed UTF-8 injected at every insertion offset, backspaced at every offset, and "
@@ -368,8 +368,7 @@ TEST_CASE("backspace/delete-forward with a selection delete the whole range") {
 // test_grapheme.cpp and 7-1's smoke test already pin. DgTest Latin (this
 // file's font throughout) has no glyph for any of these codepoints - on
 // purpose: grapheme-cluster correctness must not depend on font coverage
-// (doc/text-input.md's cross-reference to doc/text-layout.md section 2
-// records the measurement that found SkParagraph's OWN glyph clustering is
+// (a prior measurement found SkParagraph's OWN glyph clustering is
 // font-dependent, which is why cursor movement is built on
 // dg::grapheme_boundaries() rather than on it).
 // ----------------------------------------------------------------------------
@@ -741,7 +740,7 @@ TEST_CASE("blurring a field with a selection clears it, so refocusing does not r
 }
 
 // ----------------------------------------------------------------------------
-// 7-3: IME composition preview (doc/ime.md) - hand-derived against the same
+// 7-3: IME composition preview - hand-derived against the same
 // DgTest Latin font/geometry every earlier case in this file already uses
 // (12px/glyph at size 20).
 // ----------------------------------------------------------------------------
@@ -752,7 +751,7 @@ TEST_CASE("composition preview inserts inline without touching the committed mod
 
   CHECK(scene.widgets.text_field_is_composing(scene.field));
   CHECK(scene.widgets.text_field_composition_text(scene.field) == "ni");
-  // The committed model is untouched by a preview - doc/ime.md's own
+  // The committed model is untouched by a preview - that's the core
   // argument, checked directly rather than only inferred from the display.
   CHECK(scene.widgets.text_field_text(scene.field) == "");
   CHECK(scene.widgets.text_field_cursor(scene.field) == 0);

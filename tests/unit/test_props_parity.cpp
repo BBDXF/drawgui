@@ -1,7 +1,7 @@
 // The gate that stops the two vocabularies drifting apart.
 //
 // Slices 2 and 3 built BoxStyle and NodeStyle; P0 built the property table.
-// Both now describe the same box, and doc/properties.md argues that two
+// Both now describe the same box, and two
 // descriptions of one thing are worse than either alone unless something
 // forces them to agree. This is that something.
 //
@@ -10,8 +10,8 @@
 // ids and values - and require the two to agree on every rectangle and on
 // every pixel.
 //
-// This is NOT the weak form of a byte-identity test that doc/damage-repaint.md
-// warns about. That warning is about a comparison driving two copies of the
+// This is NOT the weak form of a byte-identity test.
+// That warning is about a comparison driving two copies of the
 // SAME code, where a wrong decision corrupts both sides equally. Here the two
 // sides are different code: one writes struct members, the other goes through
 // the generated dispatch, the type check, the range checks and the applies_to
@@ -223,7 +223,7 @@ PropScene build_via_props(LayoutTree& tree) {
   const NodeId root = LayoutTree::root();
 
   // The root is already a column, so `direction` is applicable; the kind of a
-  // node is not itself a property (see doc/properties.md - the table models
+  // node is not itself a property (the table models
   // box/flex/wrap/stack as node KINDS, chosen at construction).
   write.set(root, DG_PROP_DIRECTION, PropValue::option(DG_DIRECTION_COLUMN));
   write.set(root, DG_PROP_PADDING_L, PropValue::number(7));
@@ -348,8 +348,8 @@ TEST_CASE("properties reach paint the same way the node style struct does") {
 // Concrete numbers, derived by hand from the box model rather than read back
 // out of the implementation.
 //
-// The two cases above compare one path against another, and doc/layout.md
-// records why that is not enough on its own: two paths that agree can still
+// The two cases above compare one path against another, and that is
+// why that is not enough on its own: two paths that agree can still
 // agree on the wrong answer. These are the values the border-box rules
 // require, worked out independently.
 TEST_CASE("a property-built box lands where the box model says it should") {
@@ -403,7 +403,7 @@ TEST_CASE("a property-built box lands where the box model says it should") {
 // Until this slice `BoxStyle::border` reserved four insets while
 // `NodeStyle::border_width` was a single uniform stroke, so the painter took
 // the MINIMUM of the four - it was the only value guaranteed to sit inside
-// every side's reserved space. doc/properties.md section 3.3 recorded that as
+// every side's reserved space. That was recorded as
 // a table-versus-engine disagreement; the four widths now travel intact and
 // the reserved layout space and the painted stroke are the same numbers.
 TEST_CASE("unequal border widths reserve per side and paint per side") {

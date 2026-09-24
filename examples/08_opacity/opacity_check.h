@@ -30,7 +30,7 @@
 //
 // Claims 1 and 2 run at every width in a ladder, and the ladder is required to
 // actually vary the geometry - six widths that produced the same layout would
-// be six runs of one case, which is the failure doc/wrapping.md records.
+// be six runs of one case, which is the failure this guards against.
 
 #pragma once
 

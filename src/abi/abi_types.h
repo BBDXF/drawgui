@@ -3,7 +3,7 @@
 // Every dg_*_t the host holds is a pointer to a tiny wrapper - {app, index},
 // or just {index} for dg_app_t itself - allocated once by the function that
 // hands it out and NEVER FREED. That is the whole of the handle-validation
-// design (doc/abi.md section 4): dereferencing a stale handle always reads
+// design: dereferencing a stale handle always reads
 // two ordinary, still-allocated integers, never freed memory, so a caller
 // that keeps using a handle after dg_node_remove()/dg_app_destroy() gets an
 // ordinary DG_ERR_INVALID_HANDLE rather than undefined behaviour. The real
@@ -18,7 +18,7 @@
 // length). Nothing here is ever reused. dg_node_create()/dg_window_create()/
 // dg_app_create() only ever APPEND to their arena - removal marks an entry
 // dead, exactly like WidgetSet's `std::optional<Widget>` already does one
-// layer down, and doc/theme.md's ThemeBindings comment already worked out
+// layer down, and the ThemeBindings comment already worked out
 // which of the two precedents applies to an append-only table: "there is no
 // reuse, so there is no ABA problem to guard against". That argument
 // transfers here verbatim - a handle's index is claimed once, forever, so a
@@ -118,8 +118,8 @@ class WindowImpl {
   // Set once by dg_window_set_root(); a second call is DG_ERR_ALREADY_ATTACHED.
   std::optional<dg::NodeId> root;
 
-  // 7-6: this window's own $token binding side table (doc/theme.md's
-  // ThemeBindings, unchanged) - one per window, mirroring the fact that a
+  // 7-6: this window's own $token binding side table (ThemeBindings,
+  // unchanged) - one per window, mirroring the fact that a
   // NodeId numbering space is per-window (dg::ThemeBindings is keyed by
   // NodeId), not per-app.
   dg::ThemeBindings theme_bindings;
@@ -140,8 +140,8 @@ class WindowImpl {
   // reason - dg_node_remove()'s on_node_removed() call requires one as a
   // NON-optional reference parameter (src/render/node_lifecycle.h's own
   // header comment explains why cleanup takes every side table this way).
-  // There is still no animation ABI (section 6 of doc/abi.md declines
-  // dg_animate/dg_node_set_transition by name, unchanged by this slice),
+  // There is still no animation ABI (dg_animate/dg_node_set_transition
+  // declined by name, unchanged by this slice),
   // so nothing else in this file ever calls animate()/set_transition() on
   // this instance - it only ever receives cancel_all_for() calls, which
   // are no-ops against an engine with no slots.

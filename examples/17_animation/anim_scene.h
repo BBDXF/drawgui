@@ -24,12 +24,12 @@
 //           assert in a unit test.
 //
 //   caret   a thin vertical bar blinking like a text cursor - the client
-//           doc/text-input.md's 4-9 declined by name for lack of a clock.
+//           text field declined by name for lack of a clock.
 //           Built from FOUR chained explicit animate() calls (fade out, hold
 //           off, fade in, hold on), each launched from the PREVIOUS one's
 //           completion event - proving events arrive through poll_events(),
 //           never a callback, and demonstrating the honest reduced-motion
-//           caveat doc/animation.md records: a client that loops by
+//           caveat: a client that loops by
 //           re-triggering on completion has to decide for ITSELF what
 //           "reduced motion" means for a loop (this one freezes solid),
 //           because the engine's own "duration -> 0" policy alone would

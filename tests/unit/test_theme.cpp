@@ -19,8 +19,7 @@
 //   must be observable, must name the node, and must change nothing.
 //
 //   THE RUNTIME SWITCH is checked against LayoutStats, matching every
-//   prior slice's own "measured, not assumed" discipline
-//   (doc/scrolling.md section 4, doc/list.md section 6): a colour-token
+//   prior slice's own "measured, not assumed" discipline: a colour-token
 //   switch must relayout zero nodes, and an int-token (radius/spacing)
 //   switch must relayout exactly the nodes bound to it - both measured on
 //   a real LayoutTree, not argued from the code shape alone.
@@ -291,7 +290,7 @@ TEST_CASE(
   // uses is a paint-only change (node_props.cpp's own dispatch table routes
   // background_color/border_color into NodeStyle, never BoxStyle) - so the
   // next layout() pass, with nothing else dirtied, must visit and relay out
-  // zero nodes, extending doc/scrolling.md's/doc/list.md's own
+  // zero nodes, extending the same
   // nodes_visited == 0 finding to a theme switch.
   const LayoutStats stats = tree.layout();
   CHECK(stats.nodes_visited == 0);

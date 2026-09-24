@@ -225,8 +225,7 @@ TEST_CASE(
   // fails a test"). The injection itself (commenting out the
   // is_within_root() check in theme_package.cpp) was run manually once,
   // confirmed this exact case starts returning bytes instead of
-  // kPathTraversal, and was reverted - see doc/theme-packages.md section on
-  // defect injection for the full record; this file only carries the
+  // kPathTraversal, and was reverted - this file only carries the
   // regression test that would have caught it.
   TempDir dir("injection_proof");
   write_file(dir.path() / "theme.json", kValidThemeJson);

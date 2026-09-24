@@ -304,7 +304,7 @@ TEST_CASE("border width is both a layout and a paint property, and pays for both
 
 // The byte-identity gate, on a scene mutated only through properties.
 //
-// doc/damage-repaint.md is right that this cannot prove the pixels are the ones
+// This is right that this cannot prove the pixels are the ones
 // anyone wanted - the parity test next door is what pins that - but it is
 // exactly the right instrument for "did the write invalidate everything it
 // changed", which is the question a still frame cannot answer.

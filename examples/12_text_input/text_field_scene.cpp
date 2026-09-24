@@ -36,7 +36,7 @@ constexpr std::uint32_t kCaretColor = 0xFF2E86DE;
 // ~55% alpha over kFieldFill - visible without hiding the selected text drawn
 // over it in the same colour every other run uses.
 constexpr std::uint32_t kSelectionFill = 0x8A2E86DE;
-// 7-3 (doc/ime.md): the composition underline's colour - deliberately
+// 7-3: the composition underline's colour - deliberately
 // distinct from the caret and selection so a hand-derived pixel test can
 // tell the three apart on screen.
 constexpr std::uint32_t kCompositionUnderlineColor = 0xFFE8B930;
@@ -71,7 +71,7 @@ NodeId add_field(dg::LayoutTree& tree, dg::WidgetSet& widgets, dg::ActionScopes&
   highlight_style.fill = Color::from_argb(kSelectionFill);
   const NodeId highlight = tree.add_child(field, placeholder, highlight_style);
 
-  // 7-3's composition underline (doc/ime.md) - added before `content` so it
+  // 7-3's composition underline - added before `content` so it
   // paints behind the glyphs, the same "background before foreground" order
   // `highlight` already establishes.
   NodeStyle underline_style;
@@ -190,7 +190,7 @@ void set_focus(Scene& scene, std::optional<dg::NodeId> target) {
   }
   // The border colour is a plain style change, not WidgetSet state - the
   // same "cosmetic feedback lives beside the widget, not inside it" split
-  // doc/form-controls.md section 8 already draws for a slider's un-built
+  // already used for a slider's un-built
   // hover glow.
   if (change.blurred.has_value()) {
     scene.tree.render().set_style(*change.blurred, field_style(false));

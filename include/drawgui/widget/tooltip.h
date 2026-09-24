@@ -1,11 +1,11 @@
 // Hover-delay timing: "how long has the pointer sat continuously over one
-// widget" - 7-5b's own prerequisite for Tooltip (doc/menus.md section 6.2).
+// widget" - 7-5b's own prerequisite for Tooltip.
 //
 // 5-2/7-5 already found the mechanism half is free: 6-1's `dg::AnimTime` is
 // a plain millisecond timestamp, so "show after N ms of continuous hover" is
 // one comparison against a recorded start time, needing no new engine
-// feature (doc/animation.md's own `AnimTime` seam, unchanged by this file).
-// What doc/menus.md named as genuinely missing was a HOME for that start
+// feature (6-1's own `AnimTime` seam, unchanged by this file).
+// What was named as genuinely missing was a HOME for that start
 // time - this file is that home.
 //
 // A SINGLE OPTIONAL (NodeId, AnimTime) PAIR, NOT A SIDE TABLE KEYED BY
@@ -51,8 +51,8 @@ struct HoverTimer {
 void update_hover_timer(HoverTimer& timer, std::optional<NodeId> hovered, AnimTime now);
 
 // Whether `timer` names a widget that has been continuously hovered for at
-// least `delay_ms` as of `now` - the single comparison doc/menus.md section
-// 6.2 already named as needing no new engine feature. False when nothing is
+// least `delay_ms` as of `now` - the single comparison already named as
+// needing no new engine feature. False when nothing is
 // being timed (`timer.target` is nullopt).
 [[nodiscard]] bool hover_ready(const HoverTimer& timer, AnimTime now, int delay_ms);
 

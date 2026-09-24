@@ -1,14 +1,12 @@
 // Window driver for examples/23_menu_tooltip_dialog: three controls sharing
-// one host window, each gated on the prerequisite doc/menus.md section 6
-// named for it.
+// one host window, each gated on its own prerequisite.
 //
 //   Context menu   right-click (PointerButton::kSecondary) on menu_target
 //                  opens a 3-item menu through PopupHost, anchored at the
 //                  POINTER position rather than a widget's own bounds -
 //                  the one thing a dropdown's anchor never needed to be.
-//                  PopupHost is overlay-only (doc/popup.md's B-1/B-2
-//                  finding deleted the native-OS-popup branch this file
-//                  used to also drive) - the menu is always built into the
+//                  PopupHost is overlay-only (the native-OS-popup branch this file
+//                  used to also drive was deleted) - the menu is always built into the
 //                  host's own scene_.tree.render(), never a second tree.
 //   Tooltip        continuous hover over hover_target for kTooltipDelayMs
 //                  opens a single-line label through PopupHost; leaving
@@ -35,11 +33,10 @@
 //                  own Close button's request_close() actually destroys
 //                  the window (close_now()) or is silently ignored, proving
 //                  a handler can veto a close. The two are not the same
-//                  demonstration on purpose - see doc/menus.md section 6.3
-//                  for why a genuinely separate OS window has no meaningful
+//                  demonstration on purpose - a genuinely separate OS window has no meaningful
 //                  Focus-level "outside" to refuse in the first place.
 //                  Dialog is a genuinely separate window-layer addition
-//                  (doc/popup.md section 10, WindowManager::open_dialog()),
+//                  (WindowManager::open_dialog()),
 //                  deliberately NOT built on PopupHost - it is unaffected
 //                  by PopupHost becoming overlay-only and both its branches
 //                  remain exactly as they were.

@@ -121,8 +121,7 @@ TEST_CASE("a valid sequence after an invalid one is still decoded") {
 // for turning ill-formed bytes into well-formed ones - src/render/
 // paragraph_build.cpp's SkParagraph::addText() boundary and
 // WidgetSet::text_field_insert()'s editing boundary both call this same
-// function rather than each hand-rolling their own loop (doc/text-input.md's
-// cross-reference to doc/text-layout.md section 3).
+// function rather than each hand-rolling their own loop.
 TEST_CASE("sanitize_utf8 leaves well-formed text untouched") {
   CHECK(dg::sanitize_utf8("") == "");
   CHECK(dg::sanitize_utf8("Ab~") == "Ab~");

@@ -77,8 +77,7 @@ struct Node {
   // cuts them, while integer-aligned axis-aligned rectangles - fills and
   // half-pixel-inset strokes alike - were bit-identical every time. So a node
   // with square corners can be clipped anywhere, and a node with rounded ones
-  // forces the damage rectangle to grow around it. doc/damage-repaint.md has
-  // the measurement.
+  // forces the damage rectangle to grow around it.
   bool clip_atomic = false;
 
   // How far this node's CHILDREN are shifted from where their own `local`

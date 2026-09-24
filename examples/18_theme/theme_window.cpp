@@ -37,7 +37,7 @@ void legend(std::ostream& out) {
       << "  int token (radius.md) on its four corners - every colour and every\n"
       << "  radius is a $token BINDING (dg::bind_token), never a literal. Click\n"
       << "  anywhere to switch light<->dark at runtime: no widget tree rebuild, no\n"
-      << "  new nodes - see doc/theme.md.\n";
+      << "  new nodes.\n";
 }
 
 class Runner {

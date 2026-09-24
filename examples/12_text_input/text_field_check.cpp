@@ -190,7 +190,7 @@ bool check_overflow_ellipsis_and_scroll(std::ostream& out) {
 // inserting/deleting a character in a fixed-width TextField require a
 // relayout, or only a repaint? Measured via LayoutStats, not asserted from
 // the code that is supposed to make it true - the identical technique
-// doc/scrolling.md section 4 and doc/form-controls.md section 3 both used
+// 10_scrolling and 11_form_controls both used
 // for the scroll offset and the slider's thumb.
 // --------------------------------------------------------------------------
 
@@ -328,7 +328,7 @@ bool check_cjk_and_zwj_emoji_editing(std::ostream& out) {
   // Re-measured under CJK, per the task's own instruction: does a fixed-
   // width field's edit still cost zero relayout once the content is
   // multi-byte? LayoutStats says yes - the mutator still routes exclusively
-  // through RenderTree (doc/text-input.md section 4's structural argument
+  // through RenderTree (the structural argument
   // was never about ASCII specifically).
   const dg::LayoutStats cjk_insert_stats = layout_tree.layout();
   if (cjk_insert_stats.nodes_visited != 0 || cjk_insert_stats.nodes_relaid_out != 0) {
@@ -383,7 +383,7 @@ bool check_cjk_and_zwj_emoji_editing(std::ostream& out) {
 }
 
 // --------------------------------------------------------------------------
-// Claim 7 (7-3, doc/ime.md): IME composition preview and commit.
+// Claim 7 (7-3): IME composition preview and commit.
 //
 // Models exactly what SDL delivers - WidgetSet::text_field_composition_
 // update()/text_field_cancel_composition() called directly, the same
@@ -391,7 +391,7 @@ bool check_cjk_and_zwj_emoji_editing(std::ostream& out) {
 // window-level plumbing that turns a real/synthesized SDL_EVENT_TEXT_
 // EDITING into this same call is examples/12_text_input's own
 // text_field_window.cpp::Runner::handle_text_editing(), and --script
-// drives it through the real SDL event queue - doc/ime.md section 5 is
+// drives it through the real SDL event queue - this is
 // where the honest boundary of what that proves is recorded).
 //
 // Also answers the task's own harder relayout question: a composition

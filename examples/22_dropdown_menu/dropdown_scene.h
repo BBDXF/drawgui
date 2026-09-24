@@ -3,8 +3,8 @@
 // like examples/21_focus's own mixed-widget row (a Tab sequence with real
 // neighbours on both sides), so a Tab-order regression that skips or
 // misplaces the dropdown is visible against real siblings rather than
-// against nothing. Five distinguishable options - `doc/completeness.md`'s
-// own "missing scene shape" failure mode named this by name: a dropdown
+// against nothing. Five distinguishable options - avoiding the known
+// "missing scene shape" failure mode: a dropdown
 // test over identical options proves nothing, so every option here is its
 // own word, none a substring or rotation of another, and the demo's own
 // headless check (dropdown_check.cpp) selects the first, a middle, and the

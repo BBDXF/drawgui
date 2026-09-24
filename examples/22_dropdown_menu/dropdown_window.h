@@ -1,7 +1,7 @@
 // Window driver for examples/22_dropdown_menu.
 //
 // Opening/closing routes through dg::PopupHost exactly like examples/21_focus
-// - overlay-only (native OS popup windows were removed; see doc/popup.md),
+// - overlay-only (native OS popup windows were removed),
 // appending content into the host's own RenderTree. Keyboard highlight
 // movement (Up/Down) is dg::Focus::focus_next()/focus_previous() over the
 // popup's own scope - the SAME traversal Tab already performs (7-4) - so

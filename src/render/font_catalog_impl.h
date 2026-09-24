@@ -78,7 +78,7 @@ struct FontCatalog::Impl {
 // neighbours - are deliberately left to the ordinary chain: routing them to a
 // colour font changes how existing symbol text renders, and doing it correctly
 // needs the real Emoji_Presentation property table, which this project does
-// not ship. doc/font-fallback.md records the consequence.
+// not ship.
 [[nodiscard]] bool prefers_colour_font(char32_t codepoint);
 
 }  // namespace dg

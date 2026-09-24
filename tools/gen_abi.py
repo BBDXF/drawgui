@@ -20,8 +20,7 @@ one set of validation rules for that table. `token_id` constants (7-6) are
 re-emitted from themes/schema.toml the same way, once the theme ABI
 (dg_theme_load_dir/load_memory/set_variant/override, dg_app_set_theme) gave
 them a real consumer - design.md section 5.8's "只导出必要面" is why this
-generator declined to emit them any earlier (see doc/abi.md section 6 and
-doc/theme-packages.md for the 6-3-to-7-6 history).
+generator declined to emit them any earlier.
 
 Usage:
   python3 tools/gen_abi.py            regenerate all three outputs
@@ -750,8 +749,7 @@ def render_dts(defs: Definitions) -> str:
         "// Ambient ABI declarations for a future Bun/Node FFI binding (design.md",
         "// section 6, phase P6). NOTHING in this project's own build reads this",
         "// file yet - there is no JS framework layer to bind through - so treat",
-        "// it as a settled TARGET shape rather than a proven one; doc/abi.md",
-        "// section 6 records that scoping decision explicitly.",
+        "// it as a settled TARGET shape rather than a proven one.",
         "// " + "=" * 74,
         "",
     ]

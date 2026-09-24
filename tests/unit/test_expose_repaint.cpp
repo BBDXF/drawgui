@@ -1,4 +1,4 @@
-// Regression test for the B-2 defect doc/popup.md records: "the popup window
+// Regression test for the B-2 defect: "the popup window
 // was painted once and never again ... no example loop consumed
 // PumpResult::needs_repaint - a permanently black popup". The mechanism is
 // in src/platform/sdl3/window_manager.cpp's own paint(): its first line is

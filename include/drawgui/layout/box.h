@@ -28,7 +28,6 @@
 // repainting. That is close to free, because a DPI change also changes the
 // framebuffer size, which forces a full repaint anyway; the relayout rides
 // along on a frame that was already the most expensive one in the session.
-// doc/layout.md records this trade in full.
 
 #pragma once
 
@@ -167,8 +166,8 @@ struct BoxConstraints {
 //
 // Direction is folded into the enumerator rather than carried beside it, so
 // `direction` turns a row into a column and a wrapping row into a wrapping
-// column, while nothing turns a leaf into a container. doc/properties.md
-// section 3.1 records that deviation from the table, which models box / flex /
+// column, while nothing turns a leaf into a container. This is a deviation
+// from the table, which models box / flex /
 // wrap / stack as node KINDS and gives `direction` to flex and wrap.
 enum class LayoutKind : std::uint8_t {
   // Sizes itself from its own style and its constraints, and positions no
@@ -252,7 +251,7 @@ enum class MainSize : std::uint8_t {
 // Whether a kLeaf hands its single child an UNBOUNDED constraint on one axis,
 // which is what lets that child (typically a column or row of many items) be
 // measured at its own natural size instead of being squeezed to fit - the
-// unbounded constraint doc/layout.md and doc/sizing.md both named as arriving
+// unbounded constraint that was named as arriving
 // "with scrolling" (neither built one; this is that slice).
 //
 // kNone is what every kLeaf did before this existed: both axes bounded by
@@ -359,8 +358,8 @@ struct BoxStyle {
   // one, so the small one reaches zero while the large one is barely touched.
   //
   // ONLY A CHILD WHOSE BASE IS DECLARED CAN SHRINK - see `basis` below. That
-  // restriction is what keeps every node laid out exactly once; doc/sizing.md
-  // section 1 is the argument in full, and size_flex_children() reports the
+  // restriction is what keeps every node laid out exactly once - that is
+  // the argument in full, and size_flex_children() reports the
   // node it refused to shrink rather than leaving it to be noticed.
   int shrink = 0;
 
@@ -418,7 +417,7 @@ struct BoxStyle {
   //
   // parentData, consumed by whichever container holds this node, so
   // LayoutTree::set_box has to mark the PARENT when it changes - the same
-  // trap margin and grow already fell into (doc/properties.md section 3.7).
+  // trap margin and grow already fell into.
   //
   // Absent is the table's `auto`: defer to the container. A separate
   // enumerator would have made `auto` a value CrossAlign has to carry into

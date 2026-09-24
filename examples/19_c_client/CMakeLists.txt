@@ -41,7 +41,7 @@ if(DRAWGUI_HAVE_SDL3)
   # would need `_POSIX_C_SOURCE`, a reserved identifier clang-tidy's
   # bugprone-reserved-identifier objects to a C file defining, with no
   # alternative spelling POSIX permits. The same headless-real-window
-  # technique doc/popup.md measured still applies; only where the
+  # technique still applies; only where the
   # environment variable is set differs.
   if(DRAWGUI_BUILD_TESTS)
     add_test(NAME c_client.verify_demo_scene

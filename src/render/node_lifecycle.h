@@ -1,5 +1,5 @@
 // The one place a node's removal reaches every side table that keys state
-// by NodeId - the ANSWER to doc/widgets.md's own recorded question ("the
+// by NodeId - the ANSWER to a recorded question ("the
 // day removal arrives"), and to the six-table map slice 8-5 grounded
 // against the working engine rather than assumed complete from a design
 // sketch: WidgetSet, ThemeBindings, Focus and ActionScopes were the four
@@ -17,7 +17,7 @@
 // outcome lets a table silently go uncleaned the way an optional or
 // defaulted parameter would.
 //
-// doc/showcase.md records the one case this project has already measured
+// The one case this project has already measured
 // of two systems not knowing about each other: ThemeBindings and
 // AnimationEngine both writing to the same property with neither aware of
 // the other, one silently overwriting the other's frame. A NodeId-keyed

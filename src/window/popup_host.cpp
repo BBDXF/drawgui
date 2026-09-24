@@ -7,7 +7,7 @@ namespace dg {
 // preferred one would run past the parent's own drawable size, and clamp
 // whatever is left over once both flips have been tried. This used to be
 // vertical-only, with horizontal placement documented as a declined
-// capability (doc/popup.md) - overlay-only made that untenable: a native
+// capability - overlay-only made that untenable: a native
 // popup window could still be dragged/repositioned by the OS to stay
 // on-screen, but an overlay node is confined to the parent window's own
 // surface by construction (see popup_host.h's own top comment), so if this
@@ -50,7 +50,7 @@ PixelRect resolve_popup_placement(const PixelRect& anchor, PixelSize content,
 
   // Left-alignment (left = anchor.left()) is the only preference this type
   // is ever asked for horizontally - PopupPlacement has no left/right value
-  // (declined by name in doc/popup.md) - so it is always the starting
+  // (declined by name) - so it is always the starting
   // preference here, unconditionally, unlike the vertical axis where
   // `preferred` picks the starting side.
   bool use_left = true;

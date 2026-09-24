@@ -149,8 +149,7 @@ static int run_interactive(void) {
 
 /* -------------------------------------------------------------------------
  * The headless CTest oracle. Every check below is named and printed so a
- * failure says exactly which one - see doc/abi.md section 8 for the full
- * list this mirrors.
+ * failure says exactly which one it is.
  * ---------------------------------------------------------------------- */
 
 /* A function-local static, not a namespace/file-scope global: the same

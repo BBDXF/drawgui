@@ -11,7 +11,7 @@
 //   or without a bcp47 hint. Measured again in slice 4-1, unchanged.
 //
 // So the fallback chain is built here rather than borrowed from the font
-// manager. doc/font-fallback.md records why that was chosen over taking the
+// manager. This was chosen over taking the
 // fontconfig dependency, what it costs, and what would force the other
 // choice. The short version: fontconfig's per-language answers come from
 // /etc/fonts on the host, and a text renderer whose glyph selection is a

@@ -3,8 +3,8 @@
 // real (dummy-driver) window, checked without a display so CTest can run it.
 //
 // PopupHost is overlay-only (48c9cd3 deleted the native-OS-popup branch this
-// check used to also exercise and cross-check for equivalence against; see
-// doc/popup.md for why that branch's one exclusive capability was never
+// check used to also exercise and cross-check for equivalence against;
+// that branch's one exclusive capability was never
 // actually used by the placement math built on top of it). This check's job
 // is now placement/flip verification for the one remaining, overlay,
 // implementation - not an equivalence oracle between two branches that no

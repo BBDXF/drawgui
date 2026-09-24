@@ -11,7 +11,7 @@
 // pure colour-only cost. This scene's whole point is the OTHER half of the
 // same measurement: reloading a package that changed an int token must
 // relayout the nodes that read it, and reloading one that changed only a
-// colour token must not - doc/theme-packages.md's own hot-reload
+// colour token must not - the hot-reload
 // granularity measurement.
 #pragma once
 
@@ -49,7 +49,7 @@ struct Scene {
 // controls whether the row's `gap` (BoxStyle, space.md - an INT token) is
 // ALSO a $token binding, or a plain literal read once at build time.
 //
-// This matters because of a finding doc/theme.md already recorded and this
+// This matters because of a finding already recorded elsewhere, which this
 // slice re-confirms rather than re-discovers: ThemeBindings::apply()
 // re-resolves and re-writes EVERY recorded binding unconditionally, with no
 // before/after value diff - so a reload that touches ANY bound int

@@ -1,21 +1,20 @@
 // The dropdown's own popup content: one interactive kButton row per option
-// string, stacked in a plain kColumn - doc/form-controls.md section 2.3's
-// own settled finding ("a dropdown's open list is a kColumn of plain rows
+// string, stacked in a plain kColumn - the settled finding ("a dropdown's open list is a kColumn of plain rows
 // inside a container... exactly what examples/10_scrolling already draws")
 // applied literally, except these rows ARE attached kButton widgets (like
 // examples/21_focus's popup_menu.cpp, not examples/14_popup's flat colour
 // blocks) because keyboard Up/Down needs real Tab stops to move
 // dg::Focus::focus_next()/focus_previous() through.
 //
-// kList (doc/list.md) was evaluated and NOT reused here: its pool nodes
+// kList was evaluated and NOT reused here: its pool nodes
 // carry no attached Widget at all (5-3's own recycled slots are plain
 // content-bearing children, never interactive), so a kList-backed row could
 // not be focused, clicked, or highlighted without a second, parallel
 // interaction layer this slice would have had to invent on top of it -
 // exactly the "new machinery this slice's acceptance criteria did not ask
-// for" shape doc/form-controls.md section 8 already declined once for a
+// for" shape already declined once for a
 // slider's hover glow. A handful of ordinary kButton rows is also simply
-// the right tool at a dropdown's usual size: doc/list.md's own measured
+// the right tool at a dropdown's usual size: the measured
 // virtualization threshold is "somewhere past 100,000 items" on this host,
 // six orders of magnitude past what an options list has here or in any
 // realistic dropdown.
@@ -25,9 +24,8 @@
 // the overlay appends into the HOST's own RenderTree, and
 // dg::focus_order() walks that tree against ONE WidgetSet, so rows
 // must land in the host's own table or Tab/Up/Down would never see them.
-// (PopupHost is overlay-only - doc/popup.md's B-1/B-2 finding deleted the
-// native-OS-popup branch that used to own a genuinely separate RenderTree
-// and WidgetSet of its own.)
+// (PopupHost is overlay-only - the native-OS-popup branch that used to own a genuinely separate RenderTree
+// and WidgetSet of its own was deleted.)
 
 #pragma once
 
@@ -47,7 +45,7 @@ inline constexpr int kRowPad = 6;
 // The popup's own content size for `count` options at `width` device
 // pixels wide - what a caller passes to PopupHost::show() BEFORE content
 // exists, matching every other PopupHost client's own "know the size up
-// front" shape (doc/popup.md).
+// front" shape.
 [[nodiscard]] dg::PixelSize size_for(int count, int width);
 
 // Builds `options.size()` rows under `parent`, each `kRowHeight` px tall

@@ -228,7 +228,7 @@ std::optional<int> clamped_main(const BoxStyle& box, const Axis& axis,
 // declared base if it has one, and whether that base came from an explicit
 // `basis` rather than from a definite size.
 //
-// This is the whole of doc/sizing.md section 1 in one struct. An allotment
+// An allotment
 // depends on every sibling's base, so a base that has to be measured cannot
 // become an allotment without laying the child out a second time; a declared
 // base can be turned into an allotment before the child is touched at all.
@@ -327,7 +327,7 @@ void distribute_deficit(std::vector<FlexItem>& items, int deficit) {
     // already reports. CSS re-runs the distribution over the children that did
     // not freeze; that loop is pure arithmetic and would cost no measurement,
     // but it is a second rule with its own semantics and it is left out until
-    // something needs it. doc/sizing.md section 1.8 records the deviation.
+    // something needs it.
     item.allot = std::max(item.floor_main, item.base - static_cast<int>(share));
   }
 }
@@ -522,9 +522,7 @@ PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& 
 
   // A scrolling leaf hands its child an UNBOUNDED constraint on the one axis
   // it scrolls, instead of `inner`'s own bound. This is the first unbounded
-  // constraint this engine ever constructs - doc/layout.md and doc/sizing.md
-  // both named it as arriving "with scrolling", and this is that arrival. The
-  // cross axis is untouched, so a scrolling column still fits the viewport's
+  // constraint this engine ever constructs, arriving "with scrolling". The
   // width; only the scrolled axis lets its child measure at its natural size
   // instead of being squeezed to fit.
   //

@@ -1,6 +1,6 @@
 // The seam between the property table and the two concrete style structs.
 //
-// Every decision this file makes is recorded in doc/properties.md; what
+// What
 // follows are only the ones a reader needs in order to follow the code.
 //
 // THE DISPATCH IS GENERATED. Both switches below are
@@ -180,7 +180,7 @@ struct Target {
 //
 // BoxStyle::border reserves space per side and NodeStyle::border_width now
 // paints per side, so the two agree exactly and the table-versus-engine
-// disagreement doc/properties.md section 3.3 recorded is gone. Until this
+// disagreement this recorded (section 3.3) is gone. Until this
 // slice the painter carried a single uniform stroke and this function wrote
 // the MINIMUM of the four - the only choice that was always inside the box,
 // and exact only when the four agreed.
@@ -354,7 +354,7 @@ PropWrite apply_padding_b(Target& target, const PropValue& value) {
 // them, and BoxConstraints::deflate clamps a shrunk minimum at zero while the
 // placement adds the margin verbatim - so a negative margin would move a child
 // without giving back the space, asymmetrically. That is a half-implemented
-// feature, and doc/properties.md records it as the gap it is.
+// feature, and this is the gap it is.
 PropWrite apply_margin_l(Target& target, const PropValue& value) {
   return box_edge(target, value, &BoxStyle::margin, &EdgeInsets::left, "margin_l");
 }
@@ -467,7 +467,7 @@ PropWrite apply_transform(Target& target, const PropValue& /*value*/) {
 // caller reaching it directly in C++; what is missing is only the id-based
 // channel a host language would use, which slice 5-4 is scheduled to build
 // for gradient/shadow/transform and could equally make image its fourth
-// client - doc/image.md section on the property table records the decision
+// client - the property table records the decision
 // not to build that channel in this slice.
 PropWrite apply_image_source(Target& target, const PropValue& /*value*/) {
   return reject(target, PropStatus::kTypeMismatch,
@@ -987,7 +987,7 @@ constexpr std::size_t kMaxGradientStops = 32;
   return true;
 }
 
-// The shadow budget. doc/cpu-raster-findings.md measured blur (including drop
+// The shadow budget. Measured blur (including drop
 // shadow) at 52% of a dense scene's raster time - the single most expensive
 // thing this engine can be asked to paint - so blur_radius is capped rather
 // than left open the way an ordinary length is. The other three bounds are
@@ -1065,7 +1065,7 @@ PropWrite set_shadow(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
             " and a blur_radius in "
             "0.." +
             std::to_string(static_cast<int>(kMaxShadowBlur)) +
-            " - budgeted per doc/cpu-raster-findings.md's measured blur cost");
+            " - budgeted per this engine's measured blur cost");
   }
   NodeStyle style = tree.render().style(node);
   style.shadow = shadow;

@@ -272,8 +272,7 @@ set_tests_properties(golden.scenes PROPERTIES DEPENDS unit)
 # gates its container annotations behind _GLIBCXX_SANITIZE_STD_ALLOCATOR, which
 # this build does not define, and a deliberate read into a vector's
 # [size, capacity) slack went unreported under both compilers. Turning a live
-# check off on speculation is how a build stops finding things. See
-# doc/development.md for the recipe if a future toolchain does annotate.
+# check off on speculation is how a build stops finding things.
 #
 # Also deliberately NOT set: detect_leaks=0. LeakSanitizer is on by default
 # inside ASan on Linux, it is armed here (verified against a deliberate leak),

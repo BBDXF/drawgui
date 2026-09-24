@@ -52,8 +52,8 @@
 #               renamed (renaming is observable at the ABI: the mangled
 #               struct tag changes).
 #
-# WHAT IS DELIBERATELY NOT HERE, named rather than silently absent -
-# doc/abi.md section 6 has the full reasoning for each:
+# WHAT IS DELIBERATELY NOT HERE, named rather than silently absent
+# (reasoning for each below):
 #
 #   dg_set_event_callback     - decision 2's QuickJS/native-embedding mode.
 #                               No host in this project embeds QuickJS yet,
@@ -84,8 +84,7 @@
 #                               DG_VALUE_TOKEN value kind (reusing the
 #                               EXISTING door rather than adding a second
 #                               bind_token()-shaped function), and switches
-#                               variant/reloads live - see
-#                               doc/theme-packages.md.
+#                               variant/reloads live.
 #   QuickJS binding stubs     - P6. Described in design.md decision 5 as a
 #                               fourth generated artifact; there is no QuickJS
 #                               embedding anywhere in this project to bind.
@@ -107,9 +106,8 @@
 #                               keymap is the obvious one - which would be
 #                               the working caller this function is
 #                               extracted FROM, not written ahead of. See
-#                               doc/abi.md section 6 for the full decline
-#                               register entry, and design.md section 5.5.3
-#                               for the signature this leaves unbuilt.
+#                               design.md section 5.5.3 for the signature
+#                               this leaves unbuilt.
 #
 # 8-3d ALSO fixes a summary that this landing makes false rather than
 # leaving it stale: dg_event::node used to read "DG_EVENT_CLICK only; null
@@ -123,7 +121,7 @@
 # through the REAL SDL event queue without a display, mirroring the exact
 # mechanism (WindowManager::warp_pointer / post_pointer_button) every other
 # example's own --script mode already uses in C++. They are not part of the
-# production surface a real host embeds against, and doc/abi.md says so.
+# production surface a real host embeds against.
 # =============================================================================
 
 schema_version = 1
@@ -140,8 +138,7 @@ abi_minor = 1
 # host dereferencing a handle after dg_node_remove()/dg_app_destroy() reads
 # two ordinary, still-allocated integers rather than freed memory, so a
 # stale-handle bug is an ordinary, ASan-silent DG_ERR_INVALID_HANDLE return
-# instead of a real use-after-free - see doc/abi.md section 4 (the handle-
-# validation design) for the full argument, and 6-1's AnimHandle{index,
+# instead of a real use-after-free, and 6-1's AnimHandle{index,
 # generation} for the precedent this generalises from one resource kind
 # (animation slots) to four (apps, windows, nodes, and node-arena entries).
 
@@ -308,9 +305,9 @@ values = [
 # failure, which tools/gen_abi.py derives from `ret` alone (void -> nothing;
 # a pointer type -> nullptr; "int32_t" -> DG_ERR_OOM/DG_ERR_INTERNAL;
 # "uint32_t" -> 0) - see tools/gen_abi.py's RETURN_CLASSES for the
-# classification, and doc/abi.md section 3 for why classifying by `ret`
-# rather than adding a per-function on_error field is the stronger
-# uniformity guarantee: there is no field to leave blank.
+# classification - classifying by `ret` rather than adding a per-function
+# on_error field is the stronger uniformity guarantee: there is no field
+# to leave blank.
 
 [[function]]
 name = "dg_abi_version"
@@ -366,14 +363,14 @@ name = "dg_node_insert_before"
 ret = "int32_t"
 impl = "node_insert_before"
 params = [{ name = "parent", type = "dg_node_t*" }, { name = "child", type = "dg_node_t*" }, { name = "ref", type = "dg_node_t*" }]
-summary = "Attaches pending `child` under live `parent`. `ref` must be null this slice (append-only; see doc/abi.md section 5)."
+summary = "Attaches pending `child` under live `parent`. `ref` must be null this slice (append-only)."
 
 [[function]]
 name = "dg_node_remove"
 ret = "int32_t"
 impl = "node_remove"
 params = [{ name = "node", type = "dg_node_t*" }]
-summary = "Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not detach a live node's tree structure - see doc/abi.md section 5."
+summary = "Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not detach a live node's tree structure."
 
 [[function]]
 name = "dg_node_scope_action"
@@ -387,7 +384,7 @@ name = "dg_shortcut_label"
 ret = "const char*"
 impl = "shortcut_label"
 params = [{ name = "action_id", type = "uint16_t" }]
-summary = "8-3d: the platform accelerator text for `action_id` (e.g. \"Ctrl+A\"), generated from the SAME binding table dg::shortcut_label() (chord.h, unit-tested since 8-1/8-2) already builds - this wraps it rather than re-implementing label generation. Returns NULL for an action_id no binding names (dg::shortcut_label()'s own std::optional empty case) - see doc/abi.md section 13 for why NULL rather than an empty string. Valid until the next dg_shortcut_label() call on this thread, matching dg_last_error()'s own lifetime rule."
+summary = "8-3d: the platform accelerator text for `action_id` (e.g. \"Ctrl+A\"), generated from the SAME binding table dg::shortcut_label() (chord.h, unit-tested since 8-1/8-2) already builds - this wraps it rather than re-implementing label generation. Returns NULL for an action_id no binding names (dg::shortcut_label()'s own std::optional empty case) rather than an empty string. Valid until the next dg_shortcut_label() call on this thread, matching dg_last_error()'s own lifetime rule."
 
 [[function]]
 name = "dg_wait_events"
@@ -415,7 +412,7 @@ name = "dg_dump_layout_tree"
 ret = "const char*"
 impl = "dump_layout_tree"
 params = [{ name = "node", type = "dg_node_t*" }]
-summary = "This node's subtree as JSON (type/bounds/parentData). See doc/abi.md section 7 for exactly what is and is not included."
+summary = "This node's subtree as JSON (type/bounds/parentData)."
 
 [[function]]
 name = "dg_theme_load_dir"
@@ -450,7 +447,7 @@ name = "dg_app_set_theme"
 ret = "int32_t"
 impl = "app_set_theme"
 params = [{ name = "app", type = "dg_app_t*" }, { name = "theme", type = "dg_theme_t*" }]
-summary = "7-6: makes `theme` this app's active theme and immediately re-applies every window's ThemeBindings against it - this IS hot reload's second half: reload with dg_theme_load_dir()/load_memory() again, then call this again with the fresh handle (design.md section 5.7.6, settled in doc/theme-packages.md)."
+summary = "7-6: makes `theme` this app's active theme and immediately re-applies every window's ThemeBindings against it - this IS hot reload's second half: reload with dg_theme_load_dir()/load_memory() again, then call this again with the fresh handle (design.md section 5.7.6)."
 
 [[function]]
 name = "dg_debug_warp_pointer"

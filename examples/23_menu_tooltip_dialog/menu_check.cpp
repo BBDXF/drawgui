@@ -2,10 +2,9 @@
 // examples/22_dropdown_menu's own dropdown_check.cpp shape exactly (see
 // its own top comment for why: SDL_VIDEODRIVER=dummy opens an ordinary
 // window and drives the OVERLAY branch for real. PopupHost (context menu,
-// tooltip) is overlay-only now (doc/popup.md's B-1/B-2 finding) - there is
+// tooltip) is overlay-only now - there is
 // no second branch left to attempt for either. Dialog is a genuinely
-// separate window-layer addition, NOT built on PopupHost (doc/popup.md
-// section 10), and keeps its own real SDL_SetWindowParent()/
+// separate window-layer addition, NOT built on PopupHost, and keeps its own real SDL_SetWindowParent()/
 // SDL_SetWindowModal() native attempt below, unaffected by this.
 
 #include "menu_check.h"
@@ -188,7 +187,7 @@ void check_context_menu(std::ostream& out, bool& ok) {
   const PixelRect anchor{pointer_at.x, pointer_at.y, 0, 0};
   const PixelSize menu_size = menu_rows::size_for(static_cast<int>(kMenuItems.size()), 140);
 
-  // The routing decision this slice made (doc/menus.md section 6.1): a
+  // The routing decision this slice made: a
   // secondary-button kDown on menu_target does NOT touch dg::Interaction -
   // only a primary-button kDown/kUp does. Proven by constructing the exact
   // event and confirming neither hover NOR holding() changed as a result of
@@ -209,7 +208,7 @@ void check_context_menu(std::ostream& out, bool& ok) {
         out, ok);
   check(!scene.interaction.hovered().has_value() && !scene.interaction.holding().has_value(),
         "...and dg::Interaction is STILL untouched - the parallel, non-activating channel "
-        "doc/menus.md section 6.1 named",
+        "the routing decision named",
         out, ok);
 
   const dg::Expected<PopupHandle, dg::WindowError> shown =
@@ -275,9 +274,9 @@ void check_context_menu(std::ostream& out, bool& ok) {
   }
 
   // Relayout cost: every operation above went through RenderTree alone
-  // (menu_rows::build()'s own direct add_child() calls, doc/popup.md
-  // section 3's overlay-branch precedent) - matching every prior slice's
-  // own measurement discipline (doc/menus.md section 8's own dropdown
+  // (menu_rows::build()'s own direct add_child() calls, matching the
+  // overlay-branch precedent) - matching every prior slice's
+  // own measurement discipline (the dropdown
   // figure).
   const dg::LayoutStats stats = scene.tree.layout();
   out << "  LayoutStats after two open/close cycles and four keyboard-navigation moves: "
@@ -292,8 +291,7 @@ void check_context_menu(std::ostream& out, bool& ok) {
 // --------------------------------------------------------------------------
 // Claim 3: the tooltip - the hover-delay timer (HoverTimer/update_hover_
 // timer/hover_ready, tooltip.h) and PopupHost::show()'s overlay path built
-// for real. PopupHost is overlay-only (doc/popup.md's B-1/B-2 finding) -
-// there is no native branch left to attempt against the dummy driver.
+// for real. PopupHost is overlay-only - there is no native branch left to attempt against the dummy driver.
 // --------------------------------------------------------------------------
 
 void check_hover_timer(std::ostream& out, bool& ok) {
@@ -315,7 +313,7 @@ void check_hover_timer(std::ostream& out, bool& ok) {
         "well past the delay: still ready (a tooltip does not expire on its own)", out, ok);
 
   // Leaving (hovered becomes nullopt) and coming BACK to the SAME widget
-  // restarts the clock - doc/menus.md section 6.2's own "continuous hover"
+  // restarts the clock - the "continuous hover"
   // requirement, not "ever hovered at all".
   dg::update_hover_timer(timer, std::nullopt, dg::AnimTime{t0.ms + 5000});
   check(!timer.target.has_value(), "leaving clears the timer's target", out, ok);

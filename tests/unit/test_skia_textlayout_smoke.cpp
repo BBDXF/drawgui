@@ -9,7 +9,7 @@
 // consumes it - those are 7-2 and stay out of this file on purpose.
 //
 // The backend is libgrapheme, not ICU: libskia2 does not ship a
-// `libskunicode_icu.a` at all (see cmake/FetchSkia2.cmake / doc/skia-dependency.md),
+// `libskunicode_icu.a` at all (see cmake/FetchSkia2.cmake),
 // so `SkUnicodes::ICU::Make()` from an earlier, aborted draft of this file
 // does not link against it. `SkUnicodes::Libgrapheme::Make()` is the real
 // entry point this project's dependency actually provides.
@@ -99,9 +99,8 @@ TEST_CASE("skia textlayout foundation: SkParagraph links, builds and lays out") 
 // against libskia2's own README claims. design.md section 5.13.6 states
 // flatly that CJK line-break rule tables must not be trimmed away when ICU
 // data is trimmed (section 5.10.5); libgrapheme dissolves the tension
-// because there is no icudtl.dat to trim in the first place - see
-// doc/skia-dependency.md for the full settlement writeup, including the
-// runtime strace evidence that no icudtl.dat is ever opened.
+// because there is no icudtl.dat to trim in the first place - the
+// runtime strace evidence shows no icudtl.dat is ever opened.
 
 TEST_CASE("skia textlayout foundation: grapheme clusters (ZWJ family emoji count as one)") {
   sk_sp<SkUnicode> unicode = SkUnicodes::Libgrapheme::Make();
@@ -150,8 +149,8 @@ TEST_CASE("skia textlayout foundation: BiDi produces an RTL region for Arabic-in
 
   // design.md section 5.13.7: text BiDi is supported ("near-free" via
   // SkParagraph + the Unicode backend); what libgrapheme substitutes for
-  // full ICU is its own bundled icu_bidi subset (see doc/skia-dependency.md
-  // for the nm(1) evidence that no *external* ICU symbol is ever
+  // full ICU is its own bundled icu_bidi subset (nm(1) evidence shows
+  // that no *external* ICU symbol is ever
   // undefined). A BidiLevel is RTL when it is odd.
   const std::string mixed_text = "hello \u0645\u0631\u062D\u0628\u0627 world";
   std::vector<SkUnicode::BidiRegion> regions;

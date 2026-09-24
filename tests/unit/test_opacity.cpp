@@ -371,7 +371,7 @@ TEST_SUITE("group opacity") {
 
   // The group's OWN paint is inside the layer, not merely its descendants -
   // which is where `opacity` and `overflow` part company. A clipping node does
-  // not clip itself (doc/clipping.md), because its own paint is inside its box
+  // not clip itself, because its own paint is inside its box
   // by construction and clipping it would move measured pixels for nothing. A
   // FADING node does fade itself, because CSS says so and because a group
   // whose background stayed solid while its contents faded would be a very

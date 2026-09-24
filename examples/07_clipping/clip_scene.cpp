@@ -73,7 +73,7 @@ BoxStyle panel_box(int padding = 10) {
 // nothing overran at all: `limits_for` clamps a definite width to the
 // constraint it arrives under, and that constraint IS the panel's content
 // box, so a child asking for 420 inside a 215-wide panel simply becomes 215.
-// doc/wrapping.md records the same discovery for the wrapping arrangement,
+// The same discovery applies to wrapping arrangements,
 // and the demo's own check is what found it here - the "distinct overflow
 // amounts" guard reported one value, and that value was negative.
 //

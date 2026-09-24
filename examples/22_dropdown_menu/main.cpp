@@ -3,7 +3,7 @@
 //   (no arguments)            the demo window
 //   --branch overlay          accepted for symmetry with other examples;
 //                              only "overlay" is valid now (native popup
-//                              windows were removed, see doc/popup.md)
+//                              windows were removed)
 //   --run-ms N                close after N milliseconds
 //   --font-dir DIR            scan a different font directory
 //   --verify-dropdown         the headless check. No display needed.
@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
   }
   if (!options->branch.empty() && options->branch != "overlay") {
     std::cerr << "--branch native is no longer supported: native popup windows were removed; "
-                 "popups are overlay-only now. See doc/popup.md.\n";
+                 "popups are overlay-only now.\n";
     return 2;
   }
 

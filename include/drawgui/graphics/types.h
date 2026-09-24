@@ -107,7 +107,7 @@ struct Radii {
 //
 // Four floats rather than one, because the property table has always had four
 // and the painter used to collapse them to their minimum - which was exact
-// only when all four agreed. doc/properties.md section 3.3 recorded that as a
+// only when all four agreed - a
 // table-versus-engine disagreement; this type is what removes it.
 //
 // `is_uniform()` is not a convenience. The painter takes a different route for

@@ -421,7 +421,7 @@ TEST_CASE("a codepoint nothing covers still puts ink on the surface") {
   REQUIRE(setup.has_value());
   const Fixture& fonts = setup.value();
 
-  // U+0500 as UTF-8. The decision (doc/font-fallback.md) is that this draws
+  // U+0500 as UTF-8. The decision is that this draws
   // the primary's .notdef box: invisible would be indistinguishable from an
   // empty label, and "the label is empty" and "this machine has no font for
   // this character" need different fixes.

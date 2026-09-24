@@ -65,7 +65,7 @@ std::unique_ptr<skia::textlayout::Paragraph> build_paragraph(const FontCatalog& 
   // its own family, resolved by FontCatalog::resolve() the same way the
   // plain SkFont paint path resolves it (paragraph_runs.h). Leaving fallback
   // enabled would ask this project's SkFontMgr for
-  // matchFamilyStyleCharacter(), which doc/font-fallback.md already measured
+  // matchFamilyStyleCharacter(), which this project already measured
   // as always null here - so it would find nothing SkParagraph's own search
   // could not, and would cost a search on every run for it.
   collection->disableFontFallback();
@@ -102,8 +102,7 @@ std::unique_ptr<skia::textlayout::Paragraph> build_paragraph(const FontCatalog& 
       // themselves, see ParagraphRun::invalid's comment for why the raw
       // bytes are not safe to hand SkParagraph. 7-2b promoted this from an
       // inline loop here into that shared function so its OWN new boundary
-      // (WidgetSet::text_field_insert(), doc/text-input.md's cross-
-      // reference) calls the identical policy rather than a second one -
+      // (WidgetSet::text_field_insert()) calls the identical policy rather than a second one -
       // this is an internal substitution to keep a third-party shaping
       // library from hanging on ill-formed input, not the ABI-level
       // "silently rewritten to U+FFFD" design.md section 5.13.3 forbids:

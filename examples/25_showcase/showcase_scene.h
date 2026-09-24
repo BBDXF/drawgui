@@ -5,21 +5,21 @@
 // a tooltip and a modal dialog, themed entirely through 6-2's tokens.
 //
 // THIS IS ALSO A CROSS-FEATURE REGRESSION BED, not only a demo - the
-// project's own audit (doc/completeness.md, and every "05_widgets only
+// project's own audit (and every "05_widgets only
 // builds 3 of the 9 kinds it names" finding this slice's own task was
 // commissioned against) found that no existing example puts two non-trivial
 // features together. showcase_check.cpp is where the assertions that matter
 // live; this scene exists to give them real geometry to assert against.
 //
 // kScrollView is deliberately NOT used as a separate wrapper around the
-// "recent files" list: `doc/list.md`'s own `kList` is already "a clipping
+// "recent files" list: `kList` is already "a clipping
 // node (NodeStyle::overflow) whose children are a small, PERMANENT pool" -
 // a kList IS a scrolling viewport, and wrapping a second clipping/scrolling
 // node around it would test nothing an existing 10_scrolling/15_list
 // example does not already cover. What this slice adds instead is
 // INTERACTIVE list rows: unlike 15_list's pool nodes (plain content, no
-// attached Widget - doc/menus.md section 3's own reason kList was not
-// reused for dropdown/menu rows), every pool node here gets a real
+// attached Widget - kList was not
+// reused for dropdown/menu rows for the same reason), every pool node here gets a real
 // `Widget{kind = kButton}` attached, so Tab can reach a list row and
 // 7-4's `Focus::blur_if_any_of()` (built for exactly this hazard, never
 // exercised end-to-end before this slice) has a real caller.
@@ -122,8 +122,8 @@ Scene build(const Options& options);
 // consumers, so a live theme switch has to touch them through a SEPARATE,
 // explicit re-derivation rather than through ThemeBindings::apply() alone.
 // This is the one place this slice's own scene touches BOTH theming
-// mechanisms in the same call - see doc/showcase.md for why that is a real
-// (if unsurprising) distinction rather papered over as "just tokens".
+// mechanisms in the same call - a real
+// (if unsurprising) distinction rather than papered over as "just tokens".
 std::size_t switch_theme_variant(Scene& scene);
 
 // Applies the widget-fill half of switch_theme_variant() to exactly the
@@ -142,8 +142,8 @@ void tab(Scene& scene, dg::WindowManager& manager, dg::WindowId window, bool bac
 // content through paint_interactive_widget()-consistent styling, and blurs
 // focus off any pool node that got reassigned to a different logical item
 // (7-4's own blur_if_any_of(), exercised end to end for the first time -
-// doc/focus.md section 6 names this as unit-tested but never demonstrated
-// inside a running example).
+// unit-tested but never demonstrated
+// inside a running example before this).
 dg::FocusChange list_scroll_to(Scene& scene, int top_index);
 
 bool dispatch_pointer(Scene& scene, dg::WindowManager& manager, dg::WindowId window,

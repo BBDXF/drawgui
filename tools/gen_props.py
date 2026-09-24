@@ -95,7 +95,7 @@ class Property:
         much an ABI contract as the id is - a consumer compiles the number,
         not the word. Emitting these is what stops a hand-written copy of the
         list drifting from the TOML; props/prop_ids.lock does not yet cover
-        them, which doc/properties.md records as a known gap.
+        them, which is a known gap.
         """
         prefix = "DG_" + self.name.upper() + "_"
         return tuple((prefix + value.upper(), index) for index, value in enumerate(self.values))
@@ -427,7 +427,7 @@ def render_header(defs: Definitions) -> str:
         "// enumerator and a query for a service nobody had answered with the",
         "// system tray. Plain constants have neither problem and need no NOLINT:",
         "// the dispatch switches on a uint16_t and its default arm is what decides",
-        "// an id is unknown. doc/properties.md records the reasoning in full.",
+        "// an id is unknown.",
         "using dg_prop_id = std::uint16_t;",
         "",
         "// Reserved. A write with this id is always an error.",
@@ -466,7 +466,7 @@ def render_header(defs: Definitions) -> str:
             "// given above: an ordinal also arrives from outside the process.",
             "//",
             "// props/prop_ids.lock does NOT yet cover these orderings.",
-            "// doc/properties.md records that as a known gap.",
+            "// This is a known gap.",
         ]
         for prop in enum_props:
             lines.append(f"// {prop.name}")

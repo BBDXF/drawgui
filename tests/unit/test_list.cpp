@@ -1,11 +1,11 @@
 // List virtualization: a fixed, permanent pool of item nodes recycled as the
 // visible range moves, never one node per logical item.
 //
-// The property this file exists to pin, stated exactly because doc/list.md
+// The property this file exists to pin, stated exactly because this
 // argues it at length: recycling a pool slot is a RenderTree-only operation
 // (`set_local_bounds`, the same primitive `set_scroll_offset` and a slider's
 // thumb already move through) and never touches LayoutTree, so it costs a
-// repaint and never a relayout - the identical claim doc/scrolling.md already
+// repaint and never a relayout - the identical claim already
 // measured for a plain offset, extended here to the discrete "swap identity"
 // half virtualization adds on top of it.
 //
@@ -244,7 +244,7 @@ TEST_CASE("list_scroll_by clamps to [0, item_count * item_extent - viewport_exte
 // `max_offset = std::max(0, content_extent - viewport_extent)` has no test
 // that can tell it apart from `content_extent - viewport_extent` unclamped -
 // the same "a diagnostic/clamp reachable only through a shape nothing
-// builds" lesson doc/scrolling.md's own injection campaign (case J) already
+// builds" lesson an earlier injection campaign (case J) already
 // recorded once, applied here before an injection has to rediscover it.
 TEST_CASE("a list shorter than its own viewport clamps its max offset to zero, not negative") {
   RenderTree tree{spec_for()};
@@ -307,7 +307,7 @@ TEST_CASE("the horizontal axis works the same way, and ignores a vertical delta"
 // ----------------------------------------------------------------------
 // The central tension named in the task: does recycling reintroduce
 // relayout? Measured, not assumed - the same acceptance shape
-// doc/scrolling.md section 4 already used for a plain offset.
+// already used for a plain offset.
 // ----------------------------------------------------------------------
 
 TEST_CASE("recycling costs a repaint and never a relayout") {

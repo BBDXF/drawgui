@@ -244,7 +244,7 @@ int run(std::ostream& out) {
   out << "\n  distinct overflow amounts across the ladder: " << overflows.size() << "\n";
   if (overflows.size() < 4) {
     out << "  FAIL: the resize ladder has to move the clip boundary, or it is one case\n"
-        << "  run six times - the trap doc/wrapping.md records for the wrap ladder\n";
+        << "  run six times\n";
     ok = false;
   }
 

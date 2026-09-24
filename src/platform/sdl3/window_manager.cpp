@@ -313,8 +313,7 @@ SDL_Keycode from_logical_key(LogicalKey key) {
   return SDLK_UNKNOWN;
 }
 
-// PointerButton <-> SDL_BUTTON_*, 7-5b's own prerequisite (doc/menus.md
-// section 6.1). std::nullopt is what X1/X2 ("back"/"forward") map to - still
+// PointerButton <-> SDL_BUTTON_*. std::nullopt is what X1/X2 ("back"/"forward") map to - still
 // dropped, unchanged from before this slice, matching the file's own
 // existing "only a primary-button event survives" comment at the one call
 // site that reads this (dispatch()'s SDL_EVENT_MOUSE_BUTTON_DOWN/UP case).
@@ -410,8 +409,8 @@ struct WindowManager::Impl {
       case SDL_EVENT_MOUSE_BUTTON_UP: {
         // X1/X2 ("back"/"forward") are still dropped here rather than
         // carried and ignored upstream - nothing routes them, matching
-        // Key::kOther's identical policy. Left/Right/Middle all now survive
-        // (7-5b, doc/menus.md section 6.1): PointerEvent::button is where a
+        // Key::kOther's identical policy. Left/Right/Middle all now survive:
+        // PointerEvent::button is where a
         // caller tells them apart, not this dispatch loop.
         const std::optional<PointerButton> button = to_pointer_button(event.button.button);
         if (!button.has_value()) {
@@ -468,7 +467,7 @@ struct WindowManager::Impl {
         break;
       case SDL_EVENT_TEXT_EDITING_CANDIDATES:
         // Read and dropped, named rather than silently falling to
-        // `default:` below - doc/ime.md section 4 records why: on this
+        // `default:` below: on this
         // project's own measured platform, a real IME never sends this
         // event at all (it draws its own candidate window), and nothing
         // else in this codebase has ever needed a second, redundant
@@ -608,8 +607,7 @@ Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spe
   // ordinary WindowError path)
   // rather than silently degrading to an unowned/non-modal window -
   // measured, not assumed, that this happens under SDL_VIDEODRIVER=dummy
-  // (see examples/23_menu_tooltip_dialog's own headless check, section
-  // 6.3 of doc/menus.md). This engine's OWN modal focus trap
+  // (see examples/23_menu_tooltip_dialog's own headless check). This engine's OWN modal focus trap
   // (dg::Focus::set_guarded()) is a separate mechanism either way - it does
   // not depend on this OS-level call succeeding.
   if (!SDL_SetWindowParent(window, owner_entry->window)) {
@@ -972,7 +970,7 @@ Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView&
 
   // One call, however many rectangles. Each call is a round trip to the
   // display server, and at 1080p that round trip dominates everything else
-  // present() does - see doc/cpu-raster-findings.md.
+  // present() does.
   if (!SDL_UpdateWindowSurfaceRects(entry->window, updated.data(),
                                     static_cast<int>(updated.size()))) {
     return Unexpected{WindowError{sdl_failure("SDL_UpdateWindowSurfaceRects")}};

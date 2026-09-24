@@ -6,8 +6,7 @@
 // SkFontMgr_New_Custom_Directory, and slice 4-1 measured it again, with and
 // without a bcp47 hint, unchanged.
 //
-// The walk, in order, and every step of it is a decision recorded in
-// doc/font-fallback.md:
+// The walk, in order, and every step of it is a decision recorded here:
 //
 //   1. Colour emoji jump the queue. A monochrome primary that happens to carry
 //      an outline for U+1F600 must not win over a colour font that has it.

@@ -19,7 +19,7 @@
 //
 //   3. the ladder actually varies the thing under test. Six widths that all
 //      produced the same overflow would be six runs of one case, which is the
-//      failure doc/wrapping.md records for the wrapping ladder.
+//      failure this ladder guards against.
 
 #pragma once
 

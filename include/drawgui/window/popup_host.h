@@ -1,12 +1,12 @@
 // PopupHost - the abstraction design.md section 5.2 calls the single most
-// critical decision in the whole design, and doc/form-controls.md section 2
-// declined Dropdown for the want of.
+// critical decision in the whole design, and the want of it is what
+// declined Dropdown for.
 //
 // Widgets never create windows. They ask PopupHost to show content at an
 // anchor, and PopupHost appends an overlay node to the CALLER's own
 // RenderTree (the parent window's) - it never opens a second OS window.
 //
-// OVERLAY-ONLY, by decision (see doc/popup.md): a prior slice also supported
+// OVERLAY-ONLY, by decision: a prior slice also supported
 // a native-OS-popup branch (SDL_CreatePopupWindow, escaping the parent
 // window's own bounds), but nothing in this codebase's own placement logic
 // ever used the one capability that branch had and the overlay branch does
@@ -76,7 +76,7 @@ namespace dg {
 // CSS placement vocabulary (design.md never specifies one for PopupHost):
 // this is the minimum the task can prove with a hand-derived pixel oracle -
 // the flip from one to the other when the preferred side would not fit.
-// Centred/corner variants are declined by name in doc/popup.md; a left/right
+// Centred/corner variants are declined by name; a left/right
 // PLACEMENT PREFERENCE is too (the popup always starts left-aligned to the
 // anchor), but that is unrelated to resolve_popup_placement() itself now
 // flipping/clamping horizontally when left-alignment would not fit - see
@@ -179,7 +179,7 @@ class PopupHost {
   //
   // Clips the container added by show() to an empty rectangle, which
   // removes it from painting (Overflow::kClip on an empty box) and from hit
-  // testing (doc/clipping.md: "a clipping node with no area removes its
+  // testing ("a clipping node with no area removes its
   // whole subtree and is itself hittable nowhere") without deleting any
   // node. This is a CHOICE, not something RenderTree forces: RenderTree has
   // supported real node removal since slice 8-5 (RenderTree::remove_child(),
@@ -212,7 +212,7 @@ class PopupHost {
   // to fall inside content_bounds was wrongly treated as inside and left the
   // popup open. This is the plumbing design.md section 5.2 asks for ("all
   // input events carry window_id"), already present on PointerEvent/
-  // KeyEvent - see doc/popup.md for the finding that nothing new had to be
+  // KeyEvent - nothing new had to be
   // added there.
   [[nodiscard]] bool handle_pointer(PopupHandle& handle, WindowId event_window,
                                     const PointerEvent& event);

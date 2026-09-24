@@ -4,8 +4,7 @@
 // Six claims, and the first is the one the whole slice rests on:
 //
 //   1. EXACTLY ONCE. Every node of the demo scene is entered once and
-//      recomputed once per full pass. doc/sizing.md section 1 claims this
-//      slice adds no second measurement of anything, and LayoutStats reports
+//      recomputed once per full pass. This slice adds no second measurement of anything, and LayoutStats reports
 //      entered and recomputed separately, so the claim is directly checkable
 //      against the tree a human is watching rather than only against a tree
 //      written to be easy to check.
@@ -14,8 +13,7 @@
 //      at least one surplus frame AND at least one deficit frame, and the
 //      heights to produce at least three distinct thumbnail sizes. A ladder
 //      that never crossed either would be one arrangement checked six times,
-//      which is the failure doc/wrapping.md records against a scene that
-//      lacks the shape.
+//      which is the failure a scene lacking this shape would risk.
 //
 //   3. THE DEFICIT IS EXACT, AND ORDERED BY WEIGHT. In deficit the buttons
 //      must fill the row's content box to the pixel - no pixel invented, none

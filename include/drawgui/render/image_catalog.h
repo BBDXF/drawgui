@@ -7,12 +7,12 @@
 // here at all: no image field on NodeStyle, no decode call anywhere the
 // engine's own render tree could reach. This is that path's bitmap-only
 // entry, decoding synchronously (design.md section 5.10.3's thread pool is
-// explicitly out of this slice - doc/image.md records why the call sites
+// explicitly out of this slice - the call sites
 // below are still shaped so a future async decode does not have to move).
 //
 // SCOPE: bitmap sources only, decoded from encoded bytes already in memory.
 // design.md section 5.10.1's other two ImageSource rows - vector (SVG) and
-// nine-patch - are declined by name; doc/image.md records why. The default
+// nine-patch - are declined by name. The default
 // prebuilt Skia codec set decodes BMP/GIF/ICO/JPEG/PNG/WBMP (design.md
 // section 5.10.2); nothing here restricts a caller to PNG specifically, but
 // PNG is the only one this slice's own tests exercise.
@@ -74,8 +74,7 @@ class ImageCatalog {
   // section 5.10.3 asks for is explicitly out of scope. Nothing about this
   // signature would need to change for a future async version to call it from
   // a worker thread and hand the resulting ImageId back to the main one -
-  // doc/image.md records exactly what that migration would and would not
-  // touch.
+  // that migration would leave the decode call sites otherwise untouched.
   //
   // Fails rather than substituting: a corrupt file or an unregistered codec
   // is reported, never silently skipped or replaced with a placeholder here -
@@ -98,8 +97,7 @@ class ImageCatalog {
   // none) scales against, and nothing else may read it: design.md section
   // 5.10.3 forbids a node's LAYOUT size from depending on decoded content, and
   // the only caller of this accessor is src/render/skia_paint.cpp, after
-  // layout has already run. LayoutTree never calls this - see
-  // doc/image.md's central finding.
+  // layout has already run. LayoutTree never calls this.
   [[nodiscard]] std::optional<PixelSize> pixel_size(ImageId id) const;
 
  private:
