@@ -16,6 +16,7 @@
 #include <string>
 
 #include "drawgui/base/pixel_geometry.h"
+#include "drawgui/window/window_manager.h"
 
 namespace popup_window {
 
@@ -26,5 +27,11 @@ struct Settings {
 
 int run(const Settings& settings, std::ostream& out);
 int dump_png(const Settings& settings, const std::string& path, std::ostream& out);
+
+// Test-only seam for --verify-popup: the pixel size Runner's constructor
+// actually uses for its first tree/surface build - see the .cpp's own
+// definition comment for why this is exported rather than file-local.
+dg::PixelSize initial_viewport(dg::WindowManager& manager, dg::WindowId window,
+                               const Settings& settings);
 
 }  // namespace popup_window

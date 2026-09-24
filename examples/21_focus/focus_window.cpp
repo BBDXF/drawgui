@@ -85,6 +85,21 @@ void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::Render
   }
 }
 
+}  // namespace
+
+// The pixel size Runner uses for its own first scene/tree/surface build and
+// every later resize check - see examples/22_dropdown_menu/
+// dropdown_window.cpp's own definition comment for why this is exported
+// rather than file-local (--verify-focus pins that Runner actually calls
+// this, not settings.size directly).
+dg::PixelSize initial_viewport(dg::WindowManager& manager, dg::WindowId window,
+                               const Settings& settings) {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size = manager.drawable_size(window);
+  return size.value_or(settings.size);
+}
+
+namespace {
+
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId host_window, const Settings& settings,
@@ -93,17 +108,19 @@ class Runner {
         out_(&out),
         manager_(&manager),
         host_window_(host_window),
-        scene_(focus_scene::build(scene_options(settings))),
+        scene_(focus_scene::build(
+            scene_options(settings, initial_viewport(manager, host_window, settings)))),
         popup_host_(manager) {
-    host_surface_ = dg::RasterSurface::create(settings.size.width, settings.size.height);
+    const dg::PixelSize pixels = initial_viewport(manager, host_window, settings);
+    host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
   }
 
   int run();
 
  private:
-  static focus_scene::Options scene_options(const Settings& settings) {
+  static focus_scene::Options scene_options(const Settings& settings, dg::PixelSize pixels) {
     focus_scene::Options options;
-    options.spec.viewport = settings.size;
+    options.spec.viewport = pixels;
     options.font_dir = settings.font_dir;
     return options;
   }
@@ -112,6 +129,7 @@ class Runner {
   void handle_key(const dg::KeyEvent& event);
   void open_popup();
   void close_popup();
+  void resize_if_needed();
 
   Settings settings_;
   std::ostream* out_;
@@ -150,6 +168,26 @@ void Runner::close_popup() {
                         scene_.focus.current(), ring_color(scene_.theme));
   popup_host_.close(*popup_);
   popup_.reset();
+}
+
+// See examples/22_dropdown_menu/dropdown_window.cpp's own
+// Runner::resize_if_needed() for the full argument; identical shape here
+// since focus_scene::Scene is layout-driven the same way (dg::LayoutTree).
+void Runner::resize_if_needed() {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size =
+      manager_->drawable_size(host_window_);
+  if (!size) {
+    scene_.tree.render().damage_all();
+    return;
+  }
+  const dg::PixelSize pixels = size.value();
+  if (host_surface_.has_value() && scene_.tree.render().viewport() == pixels) {
+    scene_.tree.render().damage_all();
+    return;
+  }
+  scene_.tree.resize(pixels);
+  scene_.tree.layout();
+  host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
 }
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
@@ -210,7 +248,7 @@ int Runner::run() {
     const dg::PumpResult pumped = manager_->pump(40);
     for (const dg::WindowId id : pumped.needs_repaint) {
       if (id == host_window_) {
-        scene_.tree.render().damage_all();
+        resize_if_needed();
       }
     }
     for (const dg::PointerEvent& event : pumped.pointer) {

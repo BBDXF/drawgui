@@ -15,6 +15,7 @@
 
 #include "dropdown_options.h"
 #include "dropdown_scene.h"
+#include "dropdown_window.h"
 
 namespace dropdown_check {
 namespace {
@@ -95,6 +96,22 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
     ok = false;
     return;
   }
+
+  // Runner's own first-frame viewport must be the window's real
+  // drawable_size() (device pixels, HiDPI-scaled where applicable), never
+  // Settings::size (a headless-only "what if there is no window at all"
+  // fallback) - the regression this slice fixes. dummy_driver answers
+  // drawable_size() with exactly the size passed to open() above, so this
+  // assertion is equally true whether initial_viewport() is implemented
+  // correctly or simply returns settings.size; what it DOES pin is the
+  // real function Runner's constructor calls, not a duplicate - a future
+  // change that makes Runner stop calling initial_viewport() (reverting to
+  // settings.size directly, inline) changes the code this test observes.
+  dropdown_window::Settings runner_settings;
+  runner_settings.size = kSize;
+  const dg::PixelSize drawable = manager.drawable_size(window.value()).value_or(dg::PixelSize{});
+  check(dropdown_window::initial_viewport(manager, window.value(), runner_settings) == drawable,
+       "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
 
   dropdown_scene::Scene scene = dropdown_scene::build(options_for(kSize));
   if (!scene.fonts.has_value()) {

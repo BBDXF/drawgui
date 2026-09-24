@@ -42,6 +42,25 @@ dg::Color selected_row_color(const dg::Theme& theme) {
       .value_or(dg::Color::from_argb(0xFF6699FF));
 }
 
+}  // namespace
+
+// The pixel size Runner uses for its own first scene/tree/surface build and
+// every later resize check - real drawable_size() whenever the window
+// answers it (which a mapped, resized, or HiDPI-scaled window always does),
+// `settings.size` only as the fallback for a query that fails outright
+// (window not yet mapped, or a driver that cannot answer it at all). Not
+// file-local: --verify-dropdown pins that Runner's constructor actually
+// calls this rather than using settings.size directly, without driving the
+// full interactive event loop (which never naturally returns under a
+// headless driver).
+dg::PixelSize initial_viewport(dg::WindowManager& manager, dg::WindowId window,
+                               const Settings& settings) {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size = manager.drawable_size(window);
+  return size.value_or(settings.size);
+}
+
+namespace {
+
 void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::RenderTree& tree,
                         dg::RasterSurface& surface) {
   if (tree.damage().is_empty()) {
@@ -101,17 +120,19 @@ class Runner {
         out_(&out),
         manager_(&manager),
         host_window_(host_window),
-        scene_(dropdown_scene::build(scene_options(settings))),
+        scene_(dropdown_scene::build(
+            scene_options(settings, initial_viewport(manager, host_window, settings)))),
         popup_host_(manager) {
-    host_surface_ = dg::RasterSurface::create(settings.size.width, settings.size.height);
+    const dg::PixelSize pixels = initial_viewport(manager, host_window, settings);
+    host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
   }
 
   int run();
 
  private:
-  static dropdown_scene::Options scene_options(const Settings& settings) {
+  static dropdown_scene::Options scene_options(const Settings& settings, dg::PixelSize pixels) {
     dropdown_scene::Options options;
-    options.spec.viewport = settings.size;
+    options.spec.viewport = pixels;
     options.font_dir = settings.font_dir;
     return options;
   }
@@ -121,6 +142,7 @@ class Runner {
   void open_dropdown();
   void close_dropdown(std::optional<int> select_index);
   void refresh_ring();
+  void resize_if_needed();
   std::optional<int> row_index_of(dg::NodeId id) const;
 
   Settings settings_;
@@ -152,6 +174,36 @@ std::optional<int> Runner::row_index_of(dg::NodeId id) const {
     }
   }
   return std::nullopt;
+}
+
+// Runs on the SAME needs_repaint trigger examples/15_list/list_window.cpp's
+// own resize_if_needed() uses, not a new poll of its own - a window resize
+// is exactly one of the reasons a driver marks a window as needing repaint,
+// alongside an ordinary expose. dropdown_scene::Scene is layout-driven
+// (dg::LayoutTree, not hand-placed PixelRects - dropdown_scene.cpp's own
+// add_button()/add_dropdown() go through BoxStyle/LayoutKind::kRow), so a
+// changed viewport gets tree.resize() AND tree.layout() - resize() alone
+// would leave the row's children still constrained to the OLD viewport
+// width. LayoutTree::resize() already forwards to RenderTree::resize(),
+// which damages the whole viewport itself, so no separate damage_all() is
+// needed on that path.
+void Runner::resize_if_needed() {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size =
+      manager_->drawable_size(host_window_);
+  if (!size) {
+    scene_.tree.render().damage_all();
+    return;
+  }
+  const dg::PixelSize pixels = size.value();
+  if (host_surface_.has_value() && scene_.tree.render().viewport() == pixels) {
+    // An ordinary expose, not a resize: still damage the whole window,
+    // matching this branch's own prior (pre-resize-fix) behaviour exactly.
+    scene_.tree.render().damage_all();
+    return;
+  }
+  scene_.tree.resize(pixels);
+  scene_.tree.layout();
+  host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
 }
 
 void Runner::refresh_ring() {
@@ -314,7 +366,7 @@ int Runner::run() {
     const dg::PumpResult pumped = manager_->pump(40);
     for (const dg::WindowId id : pumped.needs_repaint) {
       if (id == host_window_) {
-        scene_.tree.render().damage_all();
+        resize_if_needed();
       }
     }
     for (const dg::PointerEvent& event : pumped.pointer) {

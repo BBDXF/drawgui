@@ -14,6 +14,7 @@
 #include "drawgui/window/window_manager.h"
 
 #include "focus_scene.h"
+#include "focus_window.h"
 #include "popup_menu.h"
 
 namespace focus_check {
@@ -83,6 +84,17 @@ void check_order_and_wrapping(std::ostream& out, bool& ok) {
     ok = false;
     return;
   }
+
+  // Runner's own first-frame viewport must be the window's real
+  // drawable_size(), never Settings::size - see
+  // examples/22_dropdown_menu/dropdown_check.cpp's own assertion of the
+  // same shape for the full argument on why this pins the real function
+  // Runner's constructor calls rather than a duplicate.
+  focus_window::Settings runner_settings;
+  runner_settings.size = kSize;
+  const dg::PixelSize drawable = manager.drawable_size(window.value()).value_or(dg::PixelSize{});
+  check(focus_window::initial_viewport(manager, window.value(), runner_settings) == drawable,
+       "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
 
   for (const NodeId& id : expected) {
     focus_scene::tab(scene, manager, window.value(), /*backwards=*/false);

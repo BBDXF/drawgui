@@ -99,6 +99,21 @@ void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::Render
   }
 }
 
+}  // namespace
+
+// The pixel size Runner uses for its own first scene/tree/surface build and
+// every later resize check - see examples/22_dropdown_menu/
+// dropdown_window.cpp's own definition comment for why this is exported
+// rather than file-local (--verify-menus pins that Runner actually calls
+// this, not settings.size directly).
+dg::PixelSize initial_viewport(dg::WindowManager& manager, dg::WindowId window,
+                               const Settings& settings) {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size = manager.drawable_size(window);
+  return size.value_or(settings.size);
+}
+
+namespace {
+
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId host_window, const Settings& settings,
@@ -107,17 +122,19 @@ class Runner {
         out_(&out),
         manager_(&manager),
         host_window_(host_window),
-        scene_(menu_scene::build(scene_options(settings))),
+        scene_(menu_scene::build(
+            scene_options(settings, initial_viewport(manager, host_window, settings)))),
         popup_host_(manager) {
-    host_surface_ = dg::RasterSurface::create(settings.size.width, settings.size.height);
+    const dg::PixelSize pixels = initial_viewport(manager, host_window, settings);
+    host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
   }
 
   int run();
 
  private:
-  static menu_scene::Options scene_options(const Settings& settings) {
+  static menu_scene::Options scene_options(const Settings& settings, dg::PixelSize pixels) {
     menu_scene::Options options;
-    options.spec.viewport = settings.size;
+    options.spec.viewport = pixels;
     options.font_dir = settings.font_dir;
     return options;
   }
@@ -134,6 +151,7 @@ class Runner {
   void process_close_requests(const dg::PumpResult& pumped);
   void present_all_surfaces();
   void apply_needs_repaint(const dg::PumpResult& pumped);
+  void resize_host_if_needed();
 
   void open_context_menu(dg::PixelPoint at);
   void close_context_menu(std::optional<int> select_index);
@@ -698,10 +716,33 @@ void Runner::process_close_requests(const dg::PumpResult& pumped) {  for (const 
   }
 }
 
+// See examples/22_dropdown_menu/dropdown_window.cpp's own
+// Runner::resize_if_needed() for the full argument; identical shape here
+// since menu_scene::Scene is layout-driven the same way (dg::LayoutTree).
+// dialog_surface_/dialog_tree_ (the SEPARATE native dialog window, its own
+// fixed 300x140 RenderTree - not built through this scene at all) are
+// deliberately untouched here: this slice's scope is the host window only.
+void Runner::resize_host_if_needed() {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size =
+      manager_->drawable_size(host_window_);
+  if (!size) {
+    scene_.tree.render().damage_all();
+    return;
+  }
+  const dg::PixelSize pixels = size.value();
+  if (host_surface_.has_value() && scene_.tree.render().viewport() == pixels) {
+    scene_.tree.render().damage_all();
+    return;
+  }
+  scene_.tree.resize(pixels);
+  scene_.tree.layout();
+  host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
+}
+
 void Runner::apply_needs_repaint(const dg::PumpResult& pumped) {
   for (const dg::WindowId id : pumped.needs_repaint) {
     if (id == host_window_) {
-      scene_.tree.render().damage_all();
+      resize_host_if_needed();
       continue;
     }
     if (dialog_window_.has_value() && dialog_tree_.has_value() && dialog_surface_.has_value() &&

@@ -13,6 +13,7 @@
 #include "drawgui/window/window_manager.h"
 
 #include "popup_scene.h"
+#include "popup_window.h"
 
 namespace popup_check {
 namespace {
@@ -136,6 +137,18 @@ int check_overlay(std::ostream& out, bool& ok) {
     out << "  FAIL: could not open the host window: " << host_window.error().message << "\n";
     return 1;
   }
+
+  // Runner's own first-frame viewport must be the window's real
+  // drawable_size(), never Settings::size - see
+  // examples/22_dropdown_menu/dropdown_check.cpp's own assertion of the
+  // same shape for the full argument on why this pins the real function
+  // Runner's constructor calls rather than a duplicate.
+  popup_window::Settings runner_settings;
+  runner_settings.size = kHostViewport;
+  const dg::PixelSize drawable =
+      windows.drawable_size(host_window.value()).value_or(dg::PixelSize{});
+  check(popup_window::initial_viewport(windows, host_window.value(), runner_settings) == drawable,
+       "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
 
   TreeSpec host_spec;
   host_spec.viewport = kHostViewport;

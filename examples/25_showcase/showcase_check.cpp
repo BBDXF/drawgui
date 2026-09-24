@@ -24,6 +24,7 @@
 
 #include "profile_dialog.h"
 #include "showcase_scene.h"
+#include "showcase_window.h"
 #include "sort_options.h"
 
 namespace showcase_check {
@@ -177,6 +178,18 @@ void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
     out << "  SKIP (no window: " << window.error().message << ")\n";
     return;
   }
+
+  // Runner's own first-frame viewport must be the window's real
+  // drawable_size(), never Settings::size - see
+  // examples/22_dropdown_menu/dropdown_check.cpp's own assertion of the
+  // same shape for the full argument on why this pins the real function
+  // Runner's constructor calls rather than a duplicate.
+  showcase_window::Settings runner_settings;
+  runner_settings.size = kSize;
+  const dg::PixelSize drawable = manager.drawable_size(window.value()).value_or(dg::PixelSize{});
+  check(showcase_window::initial_viewport(manager, window.value(), runner_settings) == drawable,
+       "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
+
   dg::PopupHost host{manager};
   const dg::LayoutStats before_popup = scene.tree.layout();
   (void)before_popup;

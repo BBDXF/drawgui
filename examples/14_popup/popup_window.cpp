@@ -94,6 +94,21 @@ void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::Render
   }
 }
 
+}  // namespace
+
+// The pixel size Runner uses for its own first tree/surface build and every
+// later resize check - see examples/22_dropdown_menu/dropdown_window.cpp's
+// own definition comment for why this is exported rather than file-local
+// (--verify-popup pins that Runner actually calls this, not settings.size
+// directly).
+dg::PixelSize initial_viewport(dg::WindowManager& manager, dg::WindowId window,
+                               const Settings& settings) {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size = manager.drawable_size(window);
+  return size.value_or(settings.size);
+}
+
+namespace {
+
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId host_window, const Settings& settings,
@@ -102,12 +117,13 @@ class Runner {
         out_(&out),
         manager_(&manager),
         host_window_(host_window),
-        host_tree_(host_spec(settings.size)),
+        host_tree_(host_spec(initial_viewport(manager, host_window, settings))),
         popup_host_(manager) {
     dg::NodeStyle button_style;
     button_style.fill = dg::Color::from_argb(0xFF3A4152);
     host_tree_.add_child(dg::RenderTree::root(), kMenuButton, button_style);
-    host_surface_ = dg::RasterSurface::create(settings.size.width, settings.size.height);
+    const dg::PixelSize pixels = initial_viewport(manager, host_window, settings);
+    host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
   }
 
   int run();
@@ -116,6 +132,7 @@ class Runner {
   void handle_pointer(const dg::PointerEvent& event);
   void handle_key(const dg::KeyEvent& event);
   void open_popup();
+  void resize_if_needed();
 
   Settings settings_;
   std::ostream* out_;
@@ -137,6 +154,31 @@ void Runner::open_popup() {
   }
   popup_ = shown.value();
   popup_scene::build_menu_content(host_tree_, popup_->content_root, popup_scene::kContentSize);
+}
+
+// host_tree_ is hand-placed (kMenuButton is a fixed constexpr PixelRect,
+// never routed through a dg::LayoutTree), so unlike
+// examples/22_dropdown_menu/dropdown_window.cpp's own resize_if_needed()
+// there is no layout() to re-run - RenderTree::resize() alone updates the
+// viewport and damages it whole (its own doc comment), which is already
+// everything a hand-placed scene needs: content stays top-left anchored
+// exactly where it was, and the "not painted at all past the old bottom-
+// right corner" bug is gone because the whole surface is now correctly
+// sized and repainted.
+void Runner::resize_if_needed() {
+  const dg::Expected<dg::PixelSize, dg::WindowError> size =
+      manager_->drawable_size(host_window_);
+  if (!size) {
+    host_tree_.damage_all();
+    return;
+  }
+  const dg::PixelSize pixels = size.value();
+  if (host_surface_.has_value() && host_tree_.viewport() == pixels) {
+    host_tree_.damage_all();
+    return;
+  }
+  host_tree_.resize(pixels);
+  host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
 }
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
@@ -179,7 +221,7 @@ int Runner::run() {
     const dg::PumpResult pumped = manager_->pump(40);
     for (const dg::WindowId id : pumped.needs_repaint) {
       if (id == host_window_) {
-        host_tree_.damage_all();
+        resize_if_needed();
       }
     }
     for (const dg::PointerEvent& event : pumped.pointer) {
