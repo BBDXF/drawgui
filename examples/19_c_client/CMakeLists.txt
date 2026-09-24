@@ -1,6 +1,31 @@
 if(DRAWGUI_HAVE_SDL3)
   add_executable(drawgui_c_client main.c)
 
+  # P6 sub-step a1's own deterministic font, generated the SAME way tests/
+  # CMakeLists.txt's drawgui_test_fonts target does (tests/fonts/
+  # gen_test_fonts.py writes byte-identical output on every run) - a
+  # SEPARATE generation into this target's own binary dir rather than
+  # reusing tests/CMakeLists.txt's DRAWGUI_TEST_FONT_DIR, because that
+  # variable is set with a plain set() inside tests/CMakeLists.txt's own
+  # directory scope and is not visible here (CMake does not propagate a
+  # child directory's variables to a sibling one without an explicit
+  # PARENT_SCOPE this project's tests/CMakeLists.txt does not ask for).
+  find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+  set(DRAWGUI_C_CLIENT_FONT_DIR "${CMAKE_CURRENT_BINARY_DIR}/test-fonts")
+  set(DRAWGUI_C_CLIENT_FONT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/test-fonts.stamp")
+  add_custom_command(
+    OUTPUT "${DRAWGUI_C_CLIENT_FONT_STAMP}"
+    COMMAND ${Python3_EXECUTABLE}
+      "${CMAKE_CURRENT_LIST_DIR}/../../tests/fonts/gen_test_fonts.py"
+      --out "${DRAWGUI_C_CLIENT_FONT_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E touch "${DRAWGUI_C_CLIENT_FONT_STAMP}"
+    DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../../tests/fonts/gen_test_fonts.py"
+    COMMENT "Generating examples/19_c_client's own deterministic test fonts")
+  add_custom_target(drawgui_c_client_test_fonts DEPENDS "${DRAWGUI_C_CLIENT_FONT_STAMP}")
+  add_dependencies(drawgui_c_client drawgui_c_client_test_fonts)
+  target_compile_definitions(drawgui_c_client PRIVATE
+    DRAWGUI_C_CLIENT_FONT_DIR="${DRAWGUI_C_CLIENT_FONT_DIR}")
+
   # C, not "C++ compiling a .c file" - CMake's default LANGUAGE for a .c
   # source is already C, but this is stated explicitly because it is the
   # one property this whole example exists to prove: if drawgui.h ever

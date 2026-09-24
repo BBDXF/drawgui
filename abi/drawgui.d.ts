@@ -72,6 +72,7 @@ export interface dg_theme_err {
 export const node_type = {
   BOX: 1,
   BUTTON: 2,
+  LABEL: 3,
 } as const;
 
 // dg_value::type.
@@ -172,6 +173,8 @@ export const prop = {
   image_source: 47,
   image_fit: 48,
   image_placeholder_color: 49,
+  text: 50,
+  text_color: 51,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -198,6 +201,23 @@ export declare namespace DrawguiAbi {
   // Closes every open window and shuts the platform down. `app` is stale
   // afterwards.
   function dg_app_destroy(app: dg_app_t | null): void;
+  // P6 sub-step a1: the ABI's only font-assembly entry point (design.md's
+  // dg::FontCatalog, include/drawgui/render/font_catalog.h). Must be called
+  // before dg_window_create() for EVERY window that should draw text - a
+  // dg::TreeSpec's `fonts` catalog is a construction-time argument RenderTree has
+  // no setter for afterwards (render_tree.h's own comment on why), so each window
+  // captures a copy of this app's catalog exactly as it stands at that window's
+  // OWN dg_window_create() call; a font added afterwards reaches only windows
+  // created after it, never one already open. `directory` is scanned once, on
+  // this app's FIRST call; every later call's `directory` argument is ignored
+  // (the same catalog is reused, matching FontCatalog::add()'s own 'one scan,
+  // many add()s' shape - examples/05_widgets's own font setup). `family` FAILS
+  // (DG_ERR_INVALID_ARGUMENT, dg_last_error() names the families this machine
+  // actually has) when this machine has no such family - never a silent
+  // substitution (FontCatalog::add()'s own contract). The FIRST family ever added
+  // successfully, on any app, becomes DG_NODE_TYPE_LABEL's engine-chosen default
+  // font.
+  function dg_app_add_font(app: dg_app_t | null, directory: string | null, family: string | null): number;
   // Opens one window immediately, filled with opts->background_argb until the
   // first frame paints.
   function dg_window_create(app: dg_app_t | null, opts: dg_window_opts): dg_window_t | null;
@@ -209,6 +229,15 @@ export declare namespace DrawguiAbi {
   function dg_node_create(app: dg_app_t | null, type_id: number): dg_node_t | null;
   // dg::set_prop() at the ABI boundary. Works on pending or live nodes.
   function dg_node_set_prop(node: dg_node_t | null, prop_id: number, value: dg_value): number;
+  // P6 sub-step a1: dg::set_text() at the ABI boundary - the dedicated-setter
+  // channel's fifth client (design.md section 5.9.5), for the same reason
+  // dg_node_set_gradient/_shadow/_image would be: a UTF-8 string cannot ride
+  // dg_value's fixed-size {float, uint32} union. `prop_id` must be DG_PROP_TEXT
+  // (any other id is DG_ERR_TYPE_MISMATCH/DG_ERR_UNKNOWN_ID, the same validation
+  // dg_node_set_prop() runs). `utf8`/`len` are copied immediately - not retained
+  // past the call. Requires a LIVE node (DG_ERR_NO_WINDOW otherwise), matching
+  // dg_node_set_prop().
+  function dg_node_set_text(node: dg_node_t | null, prop_id: number, utf8: string | null, len: number): number;
   // Attaches pending `child` under live `parent`. `ref` must be null this slice
   // (append-only).
   function dg_node_insert_before(parent: dg_node_t | null, child: dg_node_t | null, ref: dg_node_t | null): number;
@@ -287,4 +316,18 @@ export declare namespace DrawguiAbi {
   // TEST-ONLY. Unconditionally throws (1=bad_alloc, 2=runtime_error, else an int)
   // - the exception-boundary test's own fault injector.
   function dg_debug_trigger_exception(kind: number): number;
+  // TEST-ONLY. P6 sub-step a1's golden-image oracle: encodes this window's
+  // CURRENT RasterSurface (whatever dg_wait_events()/dg_poll_events()'s internal
+  // pump most recently painted - call one of them at least once first) as PNG
+  // into a thread-local buffer and returns a pointer to its first byte. BINARY,
+  // not C-string-safe - a PNG may contain an embedded NUL - so a caller must pair
+  // this with dg_debug_capture_png_len() rather than strlen(). Returns NULL (and
+  // dg_last_error() names why) if the window has never painted a frame, or if PNG
+  // encoding failed. Valid until the next dg_debug_capture_png() call on this
+  // thread, matching dg_last_error()'s own lifetime rule.
+  function dg_debug_capture_png(window: dg_window_t | null): string | null;
+  // TEST-ONLY. The byte length of the buffer dg_debug_capture_png() most recently
+  // returned on this thread. 0 before the first call, or after one that returned
+  // NULL.
+  function dg_debug_capture_png_len(): number;
 }

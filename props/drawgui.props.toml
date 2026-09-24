@@ -69,7 +69,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 50
+next_id = 52
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -601,3 +601,40 @@ field = "image_placeholder_color"
 applies_to = ["box"]
 summary = "Painted in place of the image while none is decoded yet; never a hole."
 
+# ---------------------------------------------------------------------------
+# Text - the string a label/button paints, plus its colour. P6 sub-step a1's
+# minimum vocabulary for the first ABI-visible glyph (design.md's JS
+# framework layer, TodoMVC's own first requirement is showing text at all).
+#
+# `text` cannot ride the scalar tagged union any more than `image_source`
+# can: it names a dynamically sized UTF-8 string, not a number/colour/enum
+# ordinal, and dg_value is a fixed-size {float, uint32} POD by design
+# (props/drawgui.props.toml's own header, node_props.h section 5.9.5) -
+# so it takes the dedicated setter channel exactly as `image_source` does.
+# `text_color` rides the ordinary scalar path: TextStyle::color's own
+# default is fully transparent (Color{}'s "fully transparent" default,
+# graphics/types.h), so a caller who sets `text` alone still draws nothing
+# visible without also setting this - font family and size are NOT here on
+# purpose: this slice ships one engine-chosen default (the app's own
+# dg_app_add_font() primary family, and a fixed default size) rather than a
+# second knob nothing yet asks to turn.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "text"
+id = 50
+type = "text"
+group = "visual"
+field = "text"
+applies_to = ["box"]
+optional = true
+summary = "The UTF-8 string a label/button paints; dedicated setter, not a scalar."
+
+[[property]]
+name = "text_color"
+id = 51
+type = "color"
+group = "visual"
+field = "text_color"
+applies_to = ["box"]
+summary = "TextStyle::color. Its own default is fully transparent, so set this to make `text` visible."

@@ -26,6 +26,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,8 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK_TOOL = ROOT / "tools" / "prop_lock.py"
 TOML_SOURCE = ROOT / "props" / "drawgui.props.toml"
 LOCK_SOURCE = ROOT / "props" / "prop_ids.lock"
+
+NEXT_ID_PATTERN = re.compile(r"next_id = (\d+)")
 
 # Appended with an id past every assigned one, exactly as a contributor
 # is told to do it.
@@ -78,12 +81,25 @@ class Case:
         self.must_fail = must_fail
 
 
-def bump_next_id(text: str, value: int) -> str:
-    return text.replace("next_id = 50", f"next_id = {value}")
+def committed_next_id(text: str) -> int:
+    """The real, currently-committed meta.next_id - read rather than
+    hardcoded, so this self-test survives the next legitimate property
+    append instead of needing its own id literals bumped by hand every
+    time (the exact drift that broke it once already: hardcoding
+    "next_id = 50" stopped matching the moment a real property claimed
+    id 50)."""
+    match = NEXT_ID_PATTERN.search(text)
+    if match is None:
+        raise RuntimeError("could not find 'next_id = N' in props/drawgui.props.toml")
+    return int(match.group(1))
 
 
-def append_property(text: str, prop_id: int) -> str:
-    return bump_next_id(text, prop_id + 1) + APPENDED.format(id=prop_id)
+def bump_next_id(text: str, current: int, value: int) -> str:
+    return text.replace(f"next_id = {current}", f"next_id = {value}", 1)
+
+
+def append_property(text: str, current: int, prop_id: int) -> str:
+    return bump_next_id(text, current, prop_id + 1) + APPENDED.format(id=prop_id)
 
 
 def check_case(case: Case, toml_path: Path, lock_path: Path, failures: list[str]) -> None:
@@ -102,6 +118,10 @@ def check_case(case: Case, toml_path: Path, lock_path: Path, failures: list[str]
 
 def main() -> int:
     original_toml = TOML_SOURCE.read_text(encoding="utf-8")
+    current_next_id = committed_next_id(original_toml)
+    probe_id = current_next_id
+    renumber_target_id = current_next_id + 1
+    regression_renumber_id = current_next_id + 10
     failures: list[str] = []
 
     print("prop_lock.py self-test: every case below must be rejected unless stated")
@@ -121,7 +141,8 @@ def main() -> int:
         #    the constant, so the id ships unguarded.
         unrecorded_toml = tmp / "unrecorded.toml"
         unrecorded_lock = tmp / "unrecorded.lock"
-        unrecorded_toml.write_text(append_property(original_toml, 50), encoding="utf-8")
+        unrecorded_toml.write_text(append_property(original_toml, current_next_id, probe_id),
+                                   encoding="utf-8")
         shutil.copyfile(LOCK_SOURCE, unrecorded_lock)
         check_case(Case("an append left unrecorded", must_fail=True), unrecorded_toml,
                    unrecorded_lock, failures)
@@ -132,8 +153,8 @@ def main() -> int:
         renumber_toml = tmp / "renumber.toml"
         renumber_lock = tmp / "renumber.lock"
         renumber_toml.write_text(
-            bump_next_id(original_toml, 51).replace(
-                'name = "bottom"\nid = 45', 'name = "bottom"\nid = 50'
+            bump_next_id(original_toml, current_next_id, current_next_id + 1).replace(
+                'name = "bottom"\nid = 45', f'name = "bottom"\nid = {renumber_target_id}'
             ),
             encoding="utf-8",
         )
@@ -167,7 +188,8 @@ def main() -> int:
         #    prop_lock.py is ever refactored.
         regression_toml = tmp / "regression.toml"
         regression_lock = tmp / "regression.lock"
-        regression_toml.write_text(append_property(original_toml, 50), encoding="utf-8")
+        regression_toml.write_text(append_property(original_toml, current_next_id, probe_id),
+                                   encoding="utf-8")
         shutil.copyfile(LOCK_SOURCE, regression_lock)
 
         written = run_lock(regression_toml, regression_lock, "--write")
@@ -178,9 +200,9 @@ def main() -> int:
             check_case(Case("an append, once recorded", must_fail=False), regression_toml,
                        regression_lock, failures)
             regression_toml.write_text(
-                append_property(original_toml, 50)
-                .replace("id = 50", "id = 60")
-                .replace("next_id = 51", "next_id = 61"),
+                append_property(original_toml, current_next_id, probe_id)
+                .replace(f"id = {probe_id}", f"id = {regression_renumber_id}")
+                .replace(f"next_id = {probe_id + 1}", f"next_id = {regression_renumber_id + 1}"),
                 encoding="utf-8",
             )
             check_case(Case("a freshly recorded id then renumbered", must_fail=True),

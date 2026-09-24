@@ -94,6 +94,7 @@
 |---|---|
 | `dg_abi_version()` | 返回 `MAJOR<<16 \| MINOR` |
 | `dg_app_create(opts)` | 启动窗口管理器；`opts` 可为 NULL（取默认值） |
+| `dg_app_add_font(app, directory, family)` | 必须在这个 app 的第一次 `dg_window_create()` 之前调用；扫描一次 `directory`、注册 `family`（该机器没有这个字族则失败，从不静默替换）；第一次成功调用的字族成为 `DG_NODE_TYPE_LABEL` 的默认字体 |
 | `dg_app_destroy(app)` | 关闭全部窗口并关掉平台层；之后 `app` 失效 |
 
 ### 窗口
@@ -107,10 +108,11 @@
 
 | 函数 | 用途 |
 |---|---|
-| `dg_node_create(app, type_id)` | 分配一个 pending 节点；`type_id` 只能是 `DG_NODE_TYPE_BOX`/`BUTTON` |
+| `dg_node_create(app, type_id)` | 分配一个 pending 节点；`type_id` 只能是 `DG_NODE_TYPE_BOX`/`BUTTON`/`LABEL` |
 | `dg_node_set_prop(node, prop_id, value)` | 标量属性写入，`dg::set_prop()` 的 ABI 映射；对 pending 或 live 节点都有效 |
+| `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效 |
 | `dg_node_insert_before(parent, child, ref)` | 把 pending 的 `child` 挂到 live 的 `parent` 下；**`ref` 必须为 NULL**，否则 `DG_ERR_UNSUPPORTED` |
-| `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）；**不**改变已挂载子树的结构 |
+| `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）；对一个 LIVE 节点，**也**会把它的整棵子树从父节点的子节点列表中摘除（`RenderTree::remove_child()`——"Detaches `id`'s whole subtree from its parent's children"），不只是让这一个句柄失效 |
 
 ### 快捷键 / Action
 

@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "drawgui/graphics/types.h"
 #include "drawgui/render/prop_ids.generated.h"
@@ -68,6 +69,7 @@ enum class PropType : std::uint8_t {
   k_shadow,
   k_transform,
   k_image,
+  k_text,
 };
 
 // The declared type of `prop_id`, or nothing when no property has that id.
@@ -332,5 +334,22 @@ struct TransformDesc {
 // channel-level comment above.
 [[nodiscard]] PropWrite set_transform(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
                                       const TransformDesc& transform);
+
+// P6 sub-step a1's fifth client of this channel, and the second (after
+// `image_source`) whose value cannot ride PropValue's tagged union for the
+// same reason: a UTF-8 string is dynamically sized, not a number/colour/enum
+// ordinal. Unlike the other four, this one does NOT take a full descriptor
+// struct - there is no "TextDesc" mirroring TextStyle wholesale, because
+// font/size/align are deliberately NOT exposed as properties this slice
+// (see props/drawgui.props.toml's own comment on `text`): they are an
+// engine-chosen default, not a caller-supplied value, so nothing here would
+// have anywhere to put them. What this setter DOES do is read the node's
+// CURRENT TextStyle (RenderTree::style()), replace only its `text` field,
+// and write the whole struct back through RenderTree::set_text() - the same
+// "read-modify-write the one field a caller can name" shape `text_color`'s
+// ordinary scalar path already has, just reached through this channel
+// instead because the value itself does not fit PropValue.
+[[nodiscard]] PropWrite set_text(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
+                                 std::string_view text);
 
 }  // namespace dg

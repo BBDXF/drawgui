@@ -237,6 +237,22 @@ target_link_libraries(drawgui_golden_test PRIVATE
   drawgui_warnings
   drawgui_sanitizers)
 
+# P6 sub-step a1's fifth golden scene is built through the C ABI
+# (include/drawgui/abi/drawgui.h), which only exists when SDL3 was found -
+# CMakeLists.txt's own reason for gating src/abi/*.cpp on DRAWGUI_HAVE_SDL3
+# applies identically here: dg_app_t wraps dg::WindowManager, so there is no
+# C ABI to link against on a machine without SDL3. abi_label_scene.cpp/.h
+# are therefore only added to this target, and DRAWGUI_GOLDEN_HAVE_ABI_SCENE
+# only defined, inside this guard - the exact "no SDL3, no ABI, no
+# problem" shape examples/19_c_client already has.
+if(DRAWGUI_HAVE_SDL3)
+  target_sources(drawgui_golden_test PRIVATE golden/abi_label_scene.cpp)
+  target_compile_definitions(drawgui_golden_test PRIVATE
+    DRAWGUI_GOLDEN_HAVE_ABI_SCENE=1
+    DRAWGUI_GOLDEN_ABI_FONT_DIR="${DRAWGUI_TEST_FONT_DIR}")
+  add_dependencies(drawgui_golden_test drawgui_test_fonts)
+endif()
+
 set(DRAWGUI_GOLDEN_BASELINE_DIR "${CMAKE_CURRENT_LIST_DIR}/golden/baseline")
 set(DRAWGUI_GOLDEN_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/golden-output")
 file(MAKE_DIRECTORY "${DRAWGUI_GOLDEN_OUTPUT_DIR}")
@@ -253,6 +269,17 @@ add_test(NAME golden.scenes
 # The comparator's own tests live in `unit`. If it is broken, every golden
 # result is meaningless, so run it first and read its verdict first.
 set_tests_properties(golden.scenes PROPERTIES DEPENDS unit)
+
+# The abi_label_text scene opens a REAL dg_window_t (the C ABI has no
+# offscreen/headless mode of its own - abi_label_scene.cpp drives the exact
+# same dg_app_create()/dg_window_create() path a real host would) - dummy is
+# what lets that happen on a CTest runner with no display, the identical
+# technique examples/19_c_client's own c_client.verify_demo_scene test
+# already uses. Harmless to set unconditionally: the other four scenes never
+# touch SDL at all.
+if(DRAWGUI_HAVE_SDL3)
+  set_tests_properties(golden.scenes PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy")
+endif()
 
 # --- Sanitizer runtime options ----------------------------------------------
 
@@ -280,9 +307,22 @@ set_tests_properties(golden.scenes PROPERTIES DEPENDS unit)
 # its other process-lifetime state stay reachable at exit, so LSan is content.
 # Leak detection is left fully on until something real forces the question.
 if(DG_SANITIZE)
-  set_tests_properties(unit golden.scenes layout.incremental_equals_full
+  set_tests_properties(unit layout.incremental_equals_full
     widgets.interaction_equals_full PROPERTIES
     ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1")
+  # golden.scenes ALSO needs SDL_VIDEODRIVER=dummy (set above, for the
+  # abi_label_text scene's real dg_window_t) - set_tests_properties()
+  # REPLACES a test's ENVIRONMENT list rather than appending to it, so
+  # this test's two environment variables have to be set together in one
+  # call rather than split across the two call sites that would otherwise
+  # each want to own one of them.
+  if(DRAWGUI_HAVE_SDL3)
+    set_tests_properties(golden.scenes PROPERTIES
+      ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1;SDL_VIDEODRIVER=dummy")
+  else()
+    set_tests_properties(golden.scenes PROPERTIES
+      ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1")
+  endif()
 endif()
 
 # Fails the build rather than silently regenerating when the committed

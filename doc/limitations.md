@@ -86,9 +86,9 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 目前只接受 `ref == NU
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`BUTTON` 节点、设置 49 个属性、接收 `close`/`click`/`action` 三类事件、加载主题包。
+C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`BUTTON`/`LABEL` 节点、设置 51 个属性（含专用的 `dg_node_set_text()` 通道）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action` 三类事件、加载主题包。
 
-**画不了文字**——ABI 没有暴露任何文本节点/`TextStyle` 相关接口。
+**P6 sub-step a1 起，能画文字了**——但只是最小可见的一行：`DG_NODE_TYPE_LABEL` 有引擎内置的默认字号（16px）和默认黑色，`font_size`/`text_align` 这两个属性**故意没做**（够用就不加，是这个仓库的纪律），所以想要更大字号、居左/居右对齐，ABI 现阶段做不到，只能直接用 C++ 层的 `TextStyle`。
 
 以下四项不是遗漏，是 `abi/drawgui.def.toml` 头部注释里逐项具名拒绝的，各有各的理由：
 
@@ -97,17 +97,19 @@ C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`
 - **无动画 API**（`dg_animate`/`dg_node_set_transition`）——C++ 侧 `AnimationEngine` 已存在，只是没有调用方需要它被导出
 - 无焦点 API、无弹层 API——同样：ABI 现有的验收标准不需要它们
 
-想要文字渲染、动画、焦点管理、弹层这些能力，目前只能直接用 C++ 层，ABI 现阶段不是这些能力的入口。
+想要动画、焦点管理、弹层、可配置字号/对齐这些能力，目前只能直接用 C++ 层，ABI 现阶段不是这些能力的入口。
 
 ---
 
 ## D. 测试覆盖的真实形状
 
-### golden 测试只有 4 张 baseline，全是裸 `Canvas` 原语
+### golden 测试有 5 张 baseline，第 5 张走 ABI 路径
 
-`tests/golden/golden_test.cpp:30-56` 的四个场景是：纯色清屏、一个圆角矩形填充、两个描边形状（矩形+圆角矩形，含非对称圆角）、两个半透明填充的叠加混合。**没有一张涉及文字、节点树、布局、主题、widget、图片、阴影、渐变**。
+`tests/golden/golden_test.cpp` 的前 4 个场景（原有，未改动）：纯色清屏、一个圆角矩形填充、两个描边形状（矩形+圆角矩形，含非对称圆角）、两个半透明填充的叠加混合——全是裸 `Canvas` 原语，**没有一张涉及文字、节点树、布局、主题、widget、图片、阴影、渐变**。
 
-这四张图证明的是：“Skia 的圆角矩形四角顺序转换、alpha 混合数学没有退化”。它们**不证明** GUI 渲染（文本排版、控件外观、主题应用、布局结果）没有退化——这些路径完全没有像素级回归测试。
+第 5 个场景 `abi_label_text`（P6 sub-step a1 新增，`tests/golden/abi_label_scene.cpp`）**通过 `include/drawgui/abi/drawgui.h` 建一个真实 `dg_window_t`**：`dg_app_add_font()` 装配 `tests/fonts/gen_test_fonts.py` 生成的确定性测试字体、`dg_node_create(DG_NODE_TYPE_LABEL)`、`dg_node_set_text()`、一次真实 paint pass，再用 TEST-ONLY 的 `dg_debug_capture_png()` 取出这一帧的 PNG 字节——这是第一张、也是目前唯一一张证明"ABI 建的节点树真的画出了像素"的 golden。
+
+前 4 张图证明的是："Skia 的圆角矩形四角顺序转换、alpha 混合数学没有退化"；第 5 张多证明了一件事："ABI 装配的字体+LABEL 节点+`dg_node_set_text()` 这条完整路径能画出可见的字形，且在这台机器和任何一台机器上逐字节一致"。**它们仍然不证明** 控件外观、主题应用、复杂布局结果没有退化——这些路径依然没有像素级回归测试。
 
 ### 结构上不可自动测试的部分
 

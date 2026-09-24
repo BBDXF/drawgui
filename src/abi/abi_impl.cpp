@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -29,6 +30,13 @@
 
 namespace dg::abi {
 namespace {
+
+// DG_NODE_TYPE_LABEL's engine-chosen default text size (props/drawgui.props
+// .toml's own comment on `text`: font_size is not a property this slice).
+// Not measured against anything - only large enough to be legible at this
+// ABI's own default window sizes, and small enough to fit a one-line label
+// inside the 32px-tall default box attach_pending_node() gives it.
+constexpr float kDefaultLabelTextSize = 16.0F;
 
 // -- Global arenas ------------------------------------------------------
 //
@@ -114,6 +122,15 @@ std::string& last_error_storage() {
 }
 
 std::string& dump_buffer_storage() {
+  static thread_local std::string buffer;
+  return buffer;
+}
+
+// dg_debug_capture_png()'s own buffer - the identical lifetime rule
+// dump_buffer_storage() already has, except this one holds bytes rather
+// than text, which is exactly why dg_debug_capture_png_len() exists beside
+// it: a caller cannot strlen() a PNG.
+std::string& capture_png_storage() {
   static thread_local std::string buffer;
   return buffer;
 }
@@ -327,14 +344,33 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
 
   dg::BoxStyle box;
   dg::NodeStyle style;
-  style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
 
-  if (slot.type_id == DG_NODE_TYPE_BUTTON) {
-    box.width = 200;
-    box.height = 64;
-  } else {
+  if (slot.type_id == DG_NODE_TYPE_LABEL) {
+    // A label's own box carries NO fill - only the text paints - matching
+    // examples/05_widgets/widget_scene.cpp's own transparent_text() shape,
+    // the precedent this mirrors rather than inventing a second one.
     box.width = 240;
-    box.height = 120;
+    box.height = 32;
+    // The engine-chosen default this slice ships instead of font_size/
+    // font_family properties (props/drawgui.props.toml's own comment on
+    // `text`): dg_app_add_font()'s FIRST successfully added family, at a
+    // fixed size, in an opaque black that is visible against this ABI's
+    // own default window background (dg_window_opts::background_argb) -
+    // TextStyle::color's OWN default is fully transparent
+    // (graphics/types.h's Color{}), so a label with no default here would
+    // draw nothing until a caller also set DG_PROP_TEXT_COLOR.
+    style.text.font = impl.default_font;
+    style.text.size = kDefaultLabelTextSize;
+    style.text.color = dg::Color::rgba(0x00, 0x00, 0x00);
+  } else {
+    style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
+    if (slot.type_id == DG_NODE_TYPE_BUTTON) {
+      box.width = 200;
+      box.height = 64;
+    } else {
+      box.width = 240;
+      box.height = 120;
+    }
   }
 
   const dg::NodeId new_id = window.tree.add_child(parent_id, box, style);
@@ -351,9 +387,14 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     widget.fill_pressed = dg::Color::rgba(0x25, 0x50, 0x9C);
     window.widgets.attach(new_id, widget);
     window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
+  } else if (slot.type_id == DG_NODE_TYPE_LABEL) {
+    dg::Widget widget;
+    widget.kind = dg::WidgetKind::kLabel;
+    window.widgets.attach(new_id, widget);
   }
   return DG_ERR_OK;
 }
+
 
 // -- The internal frame loop ------------------------------------------------
 //
@@ -693,6 +734,42 @@ void app_destroy(dg_app_t* app) {
   all_apps_alive()[app->index] = false;
 }
 
+std::int32_t app_add_font(dg_app_t* app, const char* directory, const char* family) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    set_last_error("dg_app_add_font: invalid app handle");
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (directory == nullptr || family == nullptr) {
+    set_last_error("dg_app_add_font: directory and family must not be null");
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+
+  // The scan happens once per app: a second call reuses the SAME catalog
+  // (FontCatalog is a handle to one reference-counted table, per its own
+  // header comment) rather than re-scanning `directory` a second time -
+  // this `directory` argument is therefore ignored on every call after the
+  // first, exactly as this function's def.toml summary documents.
+  if (!impl->fonts.has_value()) {
+    dg::Expected<dg::FontCatalog, dg::FontError> scanned = dg::FontCatalog::scan(directory);
+    if (!scanned) {
+      set_last_error(std::string("dg_app_add_font: ") + scanned.error().message);
+      return DG_ERR_INVALID_ARGUMENT;
+    }
+    impl->fonts = std::move(scanned).value();
+  }
+
+  const dg::Expected<dg::FontId, dg::FontError> added = impl->fonts->add(family, false);
+  if (!added) {
+    set_last_error(std::string("dg_app_add_font: ") + added.error().message);
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  if (!impl->default_font.is_valid()) {
+    impl->default_font = added.value();
+  }
+  return DG_ERR_OK;
+}
+
 dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
   AppImpl* impl = resolve_app(app);
   if (impl == nullptr) {
@@ -723,6 +800,13 @@ dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
   dg::TreeSpec tree_spec;
   tree_spec.viewport = dg::PixelSize{opts->width, opts->height};
   tree_spec.background.fill = dg::Color::from_argb(opts->background_argb);
+  // dg_app_add_font()'s catalog, copied (cheap - a shared, reference-counted
+  // table, per FontCatalog's own header comment) into THIS window's own
+  // TreeSpec. A window opened before any dg_app_add_font() call gets
+  // std::nullopt here, matching render_tree.h's "absent means no node in
+  // this tree draws text" - exactly the state every window had before this
+  // slice.
+  tree_spec.fonts = impl->fonts;
 
   auto window = std::make_unique<WindowImpl>(tree_spec);
   window->sdl_window = opened.value();
@@ -776,7 +860,8 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
     set_last_error("dg_node_create: invalid app handle");
     return nullptr;
   }
-  if (type_id != DG_NODE_TYPE_BOX && type_id != DG_NODE_TYPE_BUTTON) {
+  if (type_id != DG_NODE_TYPE_BOX && type_id != DG_NODE_TYPE_BUTTON &&
+      type_id != DG_NODE_TYPE_LABEL) {
     set_last_error("dg_node_create: unknown type_id");
     return nullptr;
   }
@@ -830,6 +915,27 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
     return DG_ERR_INVALID_ARGUMENT;
   }
   const dg::PropWrite result = dg::set_prop(window.tree, slot->node_id, prop_id, *prop_value);
+  return to_error_code(result.status);
+}
+
+std::int32_t node_set_text(dg_node_t* node_h, std::uint16_t prop_id, const char* utf8,
+                           std::uint32_t len) {
+  if (node_h == nullptr || (utf8 == nullptr && len != 0)) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  NodeSlot* slot = resolve_node_slot(node_h);
+  if (slot == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (slot->state != NodeSlot::State::kLive) {
+    return DG_ERR_NO_WINDOW;
+  }
+
+  AppImpl* impl = resolve_app(node_h->app);
+  WindowImpl& window = *impl->windows[slot->window_index];
+
+  const std::string_view text(utf8 == nullptr ? "" : utf8, len);
+  const dg::PropWrite result = dg::set_text(window.tree, slot->node_id, prop_id, text);
   return to_error_code(result.status);
 }
 
@@ -1188,6 +1294,34 @@ std::int32_t debug_trigger_exception(std::int32_t kind) {
         "dg_debug_trigger_exception: deliberate fault for the exception-boundary test");
   }
   throw 42;  // Not a std::exception at all - only catch(...) can see this one.
+}
+
+const char* debug_capture_png(dg_window_t* window_h) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    set_last_error("dg_debug_capture_png: invalid window handle");
+    return nullptr;
+  }
+  if (!window->surface.has_value()) {
+    set_last_error(
+        "dg_debug_capture_png: this window has never painted a frame - call "
+        "dg_wait_events()/dg_poll_events() at least once first");
+    return nullptr;
+  }
+
+  const std::vector<std::uint8_t> png = window->surface->encode_png();
+  if (png.empty()) {
+    set_last_error("dg_debug_capture_png: PNG encoding failed");
+    return nullptr;
+  }
+
+  std::string& buffer = capture_png_storage();
+  buffer.assign(reinterpret_cast<const char*>(png.data()), png.size());
+  return buffer.data();
+}
+
+std::uint32_t debug_capture_png_len() {
+  return static_cast<std::uint32_t>(capture_png_storage().size());
 }
 
 }  // namespace dg::abi

@@ -89,6 +89,7 @@ PropValue AnimationEngine::interpolated_value(const AnimSlot& slot) {
     case PropType::k_shadow:
     case PropType::k_transform:
     case PropType::k_image:
+    case PropType::k_text:
       // A slot of one of these types is never created (animate()/set_value()
       // both gate on is_interpolatable() first) - this arm exists only so the
       // switch stays exhaustive over PropType, matching this project's

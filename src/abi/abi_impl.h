@@ -29,12 +29,15 @@ std::uint32_t abi_version();
 
 dg_app_t* app_create(const dg_app_opts* opts);
 void app_destroy(dg_app_t* app);
+std::int32_t app_add_font(dg_app_t* app, const char* directory, const char* family);
 
 dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts);
 std::int32_t window_set_root(dg_window_t* window, dg_node_t* node);
 
 dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id);
 std::int32_t node_set_prop(dg_node_t* node, std::uint16_t prop_id, const dg_value* value);
+std::int32_t node_set_text(dg_node_t* node, std::uint16_t prop_id, const char* utf8,
+                           std::uint32_t len);
 std::int32_t node_insert_before(dg_node_t* parent, dg_node_t* child, dg_node_t* ref);
 std::int32_t node_remove(dg_node_t* node);
 std::int32_t node_scope_action(dg_node_t* node, std::uint16_t action_id);
@@ -59,5 +62,8 @@ std::int32_t debug_post_pointer_button(dg_window_t* window, std::int32_t down, s
 std::int32_t debug_post_key(dg_window_t* window, std::int32_t down,
                             const char* logical_key_name);
 std::int32_t debug_trigger_exception(std::int32_t kind);
+
+const char* debug_capture_png(dg_window_t* window);
+std::uint32_t debug_capture_png_len();
 
 }  // namespace dg::abi

@@ -825,6 +825,28 @@ PropWrite apply_bottom(Target& target, const PropValue& value) {
   return box_optional(target, value, &BoxStyle::bottom, "bottom", true);
 }
 
+// The value names a UTF-8 string, which does not fit the scalar tagged union
+// any more than a gradient/shadow/image descriptor does - the identical
+// "IS implemented, through a dedicated setter" refusal apply_image_source()
+// above already gives, for the identical reason.
+PropWrite apply_text(Target& target, const PropValue& /*value*/) {
+  return reject(target, PropStatus::kTypeMismatch,
+                "property: text IS implemented, through the dedicated dg::set_text() "
+                "channel (design.md section 5.9.5) rather than through this scalar entry "
+                "point - the value names a UTF-8 string, which does not fit PropValue's "
+                "tagged union");
+}
+
+// TextStyle::color is nested inside NodeStyle::text rather than being a
+// direct NodeStyle member, so style_color()'s pointer-to-NodeStyle-member
+// helper does not fit here - this is the one line that helper would have
+// been.
+PropWrite apply_text_color(Target& target, const PropValue& value) {
+  target.style.text.color = value.as_color();
+  target.style_changed = true;
+  return PropWrite{};
+}
+
 // --------------------------------------------------------------------------
 // The generated dispatch.
 // --------------------------------------------------------------------------
@@ -1090,6 +1112,27 @@ PropWrite set_transform(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
                    "decision about whether it affects parent layout, none of which exists "
                    "yet\n    at " +
                        tree.path_of(node)};
+}
+
+// P6 sub-step a1's fifth client - node_props.h's own comment on why this one
+// takes a bare string rather than a full descriptor struct like the other
+// four. Reads the node's CURRENT TextStyle, replaces only `text`, and writes
+// the whole struct back - font/size/align/color, wherever they came from
+// (an engine default at node-creation time, or a prior text_color write),
+// survive unchanged.
+PropWrite set_text(LayoutTree& tree, NodeId node, dg_prop_id prop_id, std::string_view text) {
+  const std::optional<PropWrite> rejected =
+      complex_prop_prelude(tree, node, prop_id, PropType::k_text);
+  if (rejected.has_value()) {
+    return *rejected;
+  }
+  TextStyle style = tree.render().style(node).text;
+  style.text.assign(text);
+  // set_text() already dedupes an unchanged value and damages nothing when
+  // it is (render_tree.h's own comment on it) - this door adds only the id
+  // check above, not a second copy of that.
+  tree.render().set_text(node, style);
+  return PropWrite{};
 }
 
 }  // namespace dg

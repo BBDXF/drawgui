@@ -233,6 +233,7 @@ summary = "dg_node_create()'s type_id - the minimum vocabulary the acceptance cr
 values = [
   { name = "BOX", id = 1, summary = "A plain, non-interactive leaf (WidgetKind::kPanel)." },
   { name = "BUTTON", id = 2, summary = "A clickable leaf (WidgetKind::kButton): hover/press/click, three fills." },
+  { name = "LABEL", id = 3, summary = "P6 sub-step a1: static text (WidgetKind::kLabel), not interactive - a click inside it belongs to whatever ancestor accepts it. Carries an engine-chosen default font (the app's dg_app_add_font() primary family) and size the instant it is created; dg_node_set_text(DG_PROP_TEXT) sets its string, dg_node_set_prop(DG_PROP_TEXT_COLOR) its colour." },
 ]
 
 [[constant_group]]
@@ -331,6 +332,13 @@ params = [{ name = "app", type = "dg_app_t*" }]
 summary = "Closes every open window and shuts the platform down. `app` is stale afterwards."
 
 [[function]]
+name = "dg_app_add_font"
+ret = "int32_t"
+impl = "app_add_font"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "directory", type = "const char*" }, { name = "family", type = "const char*" }]
+summary = "P6 sub-step a1: the ABI's only font-assembly entry point (design.md's dg::FontCatalog, include/drawgui/render/font_catalog.h). Must be called before dg_window_create() for EVERY window that should draw text - a dg::TreeSpec's `fonts` catalog is a construction-time argument RenderTree has no setter for afterwards (render_tree.h's own comment on why), so each window captures a copy of this app's catalog exactly as it stands at that window's OWN dg_window_create() call; a font added afterwards reaches only windows created after it, never one already open. `directory` is scanned once, on this app's FIRST call; every later call's `directory` argument is ignored (the same catalog is reused, matching FontCatalog::add()'s own 'one scan, many add()s' shape - examples/05_widgets's own font setup). `family` FAILS (DG_ERR_INVALID_ARGUMENT, dg_last_error() names the families this machine actually has) when this machine has no such family - never a silent substitution (FontCatalog::add()'s own contract). The FIRST family ever added successfully, on any app, becomes DG_NODE_TYPE_LABEL's engine-chosen default font."
+
+[[function]]
 name = "dg_window_create"
 ret = "dg_window_t*"
 impl = "window_create"
@@ -357,6 +365,13 @@ ret = "int32_t"
 impl = "node_set_prop"
 params = [{ name = "node", type = "dg_node_t*" }, { name = "prop_id", type = "uint16_t" }, { name = "value", type = "const dg_value*" }]
 summary = "dg::set_prop() at the ABI boundary. Works on pending or live nodes."
+
+[[function]]
+name = "dg_node_set_text"
+ret = "int32_t"
+impl = "node_set_text"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "prop_id", type = "uint16_t" }, { name = "utf8", type = "const char*" }, { name = "len", type = "uint32_t" }]
+summary = "P6 sub-step a1: dg::set_text() at the ABI boundary - the dedicated-setter channel's fifth client (design.md section 5.9.5), for the same reason dg_node_set_gradient/_shadow/_image would be: a UTF-8 string cannot ride dg_value's fixed-size {float, uint32} union. `prop_id` must be DG_PROP_TEXT (any other id is DG_ERR_TYPE_MISMATCH/DG_ERR_UNKNOWN_ID, the same validation dg_node_set_prop() runs). `utf8`/`len` are copied immediately - not retained past the call. Requires a LIVE node (DG_ERR_NO_WINDOW otherwise), matching dg_node_set_prop()."
 
 [[function]]
 name = "dg_node_insert_before"
@@ -476,3 +491,17 @@ ret = "int32_t"
 impl = "debug_trigger_exception"
 params = [{ name = "kind", type = "int32_t" }]
 summary = "TEST-ONLY. Unconditionally throws (1=bad_alloc, 2=runtime_error, else an int) - the exception-boundary test's own fault injector."
+
+[[function]]
+name = "dg_debug_capture_png"
+ret = "const char*"
+impl = "debug_capture_png"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "TEST-ONLY. P6 sub-step a1's golden-image oracle: encodes this window's CURRENT RasterSurface (whatever dg_wait_events()/dg_poll_events()'s internal pump most recently painted - call one of them at least once first) as PNG into a thread-local buffer and returns a pointer to its first byte. BINARY, not C-string-safe - a PNG may contain an embedded NUL - so a caller must pair this with dg_debug_capture_png_len() rather than strlen(). Returns NULL (and dg_last_error() names why) if the window has never painted a frame, or if PNG encoding failed. Valid until the next dg_debug_capture_png() call on this thread, matching dg_last_error()'s own lifetime rule."
+
+[[function]]
+name = "dg_debug_capture_png_len"
+ret = "uint32_t"
+impl = "debug_capture_png_len"
+params = []
+summary = "TEST-ONLY. The byte length of the buffer dg_debug_capture_png() most recently returned on this thread. 0 before the first call, or after one that returned NULL."

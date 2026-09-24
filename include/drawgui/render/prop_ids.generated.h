@@ -213,6 +213,12 @@ inline constexpr dg_prop_id DG_PROP_IMAGE_FIT = 48;
 // Painted in place of the image while none is decoded yet; never a hole.
 // type=color; applies_to=box
 inline constexpr dg_prop_id DG_PROP_IMAGE_PLACEHOLDER_COLOR = 49;
+// The UTF-8 string a label/button paints; dedicated setter, not a scalar.
+// type=text optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_TEXT = 50;
+// TextStyle::color. Its own default is fully transparent, so set this to make `text` visible.
+// type=color; applies_to=box
+inline constexpr dg_prop_id DG_PROP_TEXT_COLOR = 51;
 
 // -- enum property values ----------------------------------------------
 //
@@ -278,8 +284,8 @@ inline constexpr std::uint32_t DG_IMAGE_FIT_NONE = 3;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 49;
+inline constexpr std::uint16_t kDgPropMaxId = 51;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 49;
+inline constexpr std::uint16_t kDgPropCount = 51;

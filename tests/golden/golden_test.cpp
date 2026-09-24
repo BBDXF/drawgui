@@ -20,6 +20,10 @@
 #include "drawgui/graphics/types.h"
 #include "golden_image.h"
 
+#if defined(DRAWGUI_GOLDEN_HAVE_ABI_SCENE)
+#include "abi_label_scene.h"
+#endif
+
 namespace {
 
 using dg::Canvas;
@@ -31,7 +35,18 @@ struct Scene {
   std::string_view name;
   int width;
   int height;
-  void (*render)(Canvas&);
+
+  // Exactly one of these two is non-null. `render` paints on a bare
+  // dg::Canvas - every scene below sub-step a1 - and render_scene() encodes
+  // whatever it painted as this scene's PNG. `produce`, when present,
+  // returns the PNG bytes directly instead: the ABI-built scene cannot use
+  // `render`'s shape at all, because dg_debug_capture_png() hands back an
+  // already-encoded PNG from a REAL dg_window_t's own RasterSurface, not a
+  // dg::Canvas this file could paint on directly (there is no ABI call that
+  // hands a caller a raw canvas - design.md section 5.16.1's "the host never
+  // gets a canvas" applies here exactly as it does to a real C client).
+  void (*render)(Canvas&) = nullptr;
+  std::vector<std::uint8_t> (*produce)() = nullptr;
 };
 
 void scene_solid_background(Canvas& canvas) {
@@ -64,11 +79,23 @@ void scene_alpha_blend(Canvas& canvas) {
   canvas.fill_rect(Rect::from_xywh(140, 100, 180, 180), Color::rgba(0x2E, 0x86, 0xDE, 0x80));
 }
 
+#if defined(DRAWGUI_GOLDEN_HAVE_ABI_SCENE)
+// The one scene built through include/drawgui/abi/drawgui.h rather than
+// dg::RenderTree/dg::Widget directly - see the Scene struct's own comment
+// on why this is a `produce`, not a `render`.
+std::vector<std::uint8_t> scene_abi_label() {
+  return produce_abi_label_scene(DRAWGUI_GOLDEN_ABI_FONT_DIR);
+}
+#endif
+
 constexpr Scene kScenes[] = {
     {"solid_background", 320, 200, scene_solid_background},
     {"rounded_rect", 400, 300, scene_rounded_rect},
     {"stroked_shapes", 400, 300, scene_stroked_shapes},
     {"alpha_blend", 360, 320, scene_alpha_blend},
+#if defined(DRAWGUI_GOLDEN_HAVE_ABI_SCENE)
+    {"abi_label_text", 320, 120, nullptr, scene_abi_label},
+#endif
 };
 
 const Scene* find_scene(std::string_view name) {
@@ -81,6 +108,14 @@ const Scene* find_scene(std::string_view name) {
 }
 
 std::optional<std::vector<std::uint8_t>> render_scene(const Scene& scene) {
+  if (scene.produce != nullptr) {
+    std::vector<std::uint8_t> png = scene.produce();
+    if (png.empty()) {
+      return std::nullopt;
+    }
+    return png;
+  }
+
   std::optional<dg::RasterSurface> surface =
       dg::RasterSurface::create(scene.width, scene.height);
   if (!surface) {

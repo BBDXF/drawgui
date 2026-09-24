@@ -39,6 +39,7 @@
 #include "drawgui/abi/drawgui.h"
 #include "drawgui/anim/animation_engine.h"
 #include "drawgui/layout/layout_tree.h"
+#include "drawgui/render/font_catalog.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/theme/theme.h"
@@ -187,6 +188,24 @@ class AppImpl {
   // poll_events(); never delivered any other way (dg_set_event_callback is
   // this slice's own declined item - see abi/drawgui.def.toml's own header).
   std::vector<dg_event> pending_events;
+
+  // P6 sub-step a1: this app's ONE shared FontCatalog (design.md's
+  // dg::FontCatalog is copyable and a copy names the same fonts - a
+  // reference-counted table, per its own header comment - so every window
+  // this app opens gets a cheap copy in its dg::TreeSpec rather than a
+  // second scan). Absent until the host's first successful
+  // dg_app_add_font() call; a window opened before that has no fonts and
+  // therefore draws no text (render_tree.h's own "absent means no node in
+  // this tree draws text").
+  std::optional<dg::FontCatalog> fonts;
+
+  // The family dg_app_add_font() added FIRST, successfully - DG_NODE_TYPE_
+  // LABEL's engine-chosen default font (font_size/font_family are
+  // deliberately not properties this slice; see props/drawgui.props.toml's
+  // own comment on `text`). Default-constructed FontId::is_valid() is
+  // false, matching "no font added yet" without a second field to
+  // disagree with it.
+  dg::FontId default_font;
 };
 
 }  // namespace dg::abi

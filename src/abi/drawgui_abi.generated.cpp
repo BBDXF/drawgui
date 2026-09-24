@@ -62,6 +62,22 @@ extern "C" DG_EXPORT void dg_app_destroy(dg_app_t* app) {
   }
 }
 
+extern "C" DG_EXPORT int32_t dg_app_add_font(dg_app_t* app, const char* directory,
+                                             const char* family) {
+  try {
+    return dg::abi::app_add_font(app, directory, family);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_app_add_font: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_app_add_font: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_app_add_font: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
 extern "C" DG_EXPORT dg_window_t* dg_window_create(dg_app_t* app, const dg_window_opts* opts) {
   try {
     return dg::abi::window_create(app, opts);
@@ -119,6 +135,22 @@ extern "C" DG_EXPORT int32_t dg_node_set_prop(dg_node_t* node, uint16_t prop_id,
     return DG_ERR_INTERNAL;
   } catch (...) {
     dg::abi::set_last_error("dg_node_set_prop: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_node_set_text(dg_node_t* node, uint16_t prop_id,
+                                              const char* utf8, uint32_t len) {
+  try {
+    return dg::abi::node_set_text(node, prop_id, utf8, len);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_set_text: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_set_text: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_set_text: unknown exception");
     return DG_ERR_INTERNAL;
   }
 }
@@ -382,5 +414,35 @@ extern "C" DG_EXPORT int32_t dg_debug_trigger_exception(int32_t kind) {
   } catch (...) {
     dg::abi::set_last_error("dg_debug_trigger_exception: unknown exception");
     return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT const char* dg_debug_capture_png(dg_window_t* window) {
+  try {
+    return dg::abi::debug_capture_png(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_debug_capture_png: out of memory");
+    return nullptr;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_debug_capture_png: ") + e.what());
+    return nullptr;
+  } catch (...) {
+    dg::abi::set_last_error("dg_debug_capture_png: unknown exception");
+    return nullptr;
+  }
+}
+
+extern "C" DG_EXPORT uint32_t dg_debug_capture_png_len(void) {
+  try {
+    return dg::abi::debug_capture_png_len();
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_debug_capture_png_len: out of memory");
+    return 0;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_debug_capture_png_len: ") + e.what());
+    return 0;
+  } catch (...) {
+    dg::abi::set_last_error("dg_debug_capture_png_len: unknown exception");
+    return 0;
   }
 }
