@@ -580,7 +580,83 @@ static int run_verify(void) {
     }
   }
 
-  /* 12. Teardown safety: dg_app_destroy must not crash even though window_a/
+  /* 12. P6 sub-step a2: DG_NODE_TYPE_CHECKBOX - build one, confirm it
+   * starts unchecked, click it through the same debug pointer injection
+   * check 6 already uses, confirm the click both fires DG_EVENT_CLICK and
+   * flips the checked bit, then click again and confirm it flips back. */
+  {
+    dg_window_opts checkbox_opts;
+    dg_window_t* window_d = NULL;
+    dg_node_t* checkbox = NULL;
+    int32_t checked;
+
+    memset(&checkbox_opts, 0, sizeof(checkbox_opts));
+    checkbox_opts.size = sizeof(checkbox_opts);
+    checkbox_opts.title = "drawgui C client - checkbox";
+    checkbox_opts.width = 64;
+    checkbox_opts.height = 64;
+    checkbox_opts.background_argb = 0xFFFFFFFFU;
+    window_d = dg_window_create(app, &checkbox_opts);
+    check(window_d != NULL, "dg_window_create opens window D, for the checkbox");
+
+    checkbox = dg_node_create(app, DG_NODE_TYPE_CHECKBOX);
+    check(checkbox != NULL, "dg_node_create(DG_NODE_TYPE_CHECKBOX) builds a pending checkbox node");
+
+    status = dg_window_set_root(window_d, checkbox);
+    check(status == DG_ERR_OK, "dg_window_set_root attaches the checkbox");
+
+    checked = dg_node_get_checked(checkbox);
+    check(checked == 0, "a freshly attached checkbox starts unchecked");
+
+    /* attach_pending_node()'s own DG_NODE_TYPE_CHECKBOX box is 32x32 at
+     * (0,0) - the checkbox is this window's sole content root - so its
+     * centre is (16, 16) regardless of window_d's own 64x64 size. */
+    status = dg_debug_warp_pointer(window_d, 16, 16);
+    check(status == DG_ERR_OK, "dg_debug_warp_pointer onto the checkbox succeeds");
+    status = dg_debug_post_pointer_button(window_d, 1, 16, 16);
+    check(status == DG_ERR_OK, "dg_debug_post_pointer_button(down) on the checkbox succeeds");
+    status = dg_debug_post_pointer_button(window_d, 0, 16, 16);
+    check(status == DG_ERR_OK, "dg_debug_post_pointer_button(up) on the checkbox succeeds");
+
+    got_click = 0;
+    for (i = 0; i < 20 && !got_click; ++i) {
+      dg_event events[8];
+      int32_t pending = dg_wait_events(app, 50);
+      int32_t j = 0;
+      if (pending < 0) {
+        break;
+      }
+      pending = dg_poll_events(app, events, 8);
+      for (j = 0; j < pending; ++j) {
+        if (events[j].kind == DG_EVENT_CLICK && events[j].node == checkbox) {
+          got_click = 1;
+        }
+      }
+    }
+    check(got_click, "a real click on the checkbox arrives as DG_EVENT_CLICK");
+
+    checked = dg_node_get_checked(checkbox);
+    check(checked == 1, "the click that produced DG_EVENT_CLICK also checked the box");
+
+    status = dg_debug_warp_pointer(window_d, 16, 16);
+    check(status == DG_ERR_OK, "dg_debug_warp_pointer onto the checkbox succeeds again");
+    status = dg_debug_post_pointer_button(window_d, 1, 16, 16);
+    check(status == DG_ERR_OK, "dg_debug_post_pointer_button(down) succeeds on the second click");
+    status = dg_debug_post_pointer_button(window_d, 0, 16, 16);
+    check(status == DG_ERR_OK, "dg_debug_post_pointer_button(up) succeeds on the second click");
+    dg_wait_events(app, 50);
+
+    checked = dg_node_get_checked(checkbox);
+    check(checked == 0, "a second click unchecks the box again");
+
+    status = dg_node_get_checked(NULL);
+    check(status == DG_ERR_INVALID_HANDLE, "dg_node_get_checked(NULL) is invalid-handle");
+    status = dg_node_get_checked(button_a);
+    check(status == DG_ERR_UNSUPPORTED,
+          "dg_node_get_checked on a non-checkbox live node is unsupported");
+  }
+
+  /* 13. Teardown safety: dg_app_destroy must not crash even though window_a/
    * window_b/button_a/button_b/stray_child handles are all still held by
    * this function, and a handle used AFTER destroy must report
    * DG_ERR_INVALID_HANDLE exactly like an individually removed node does

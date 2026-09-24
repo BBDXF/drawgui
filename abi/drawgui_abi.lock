@@ -29,6 +29,7 @@ dg_theme_err: size:uint32_t,status:uint32_t
 node_type.BOX=1
 node_type.BUTTON=2
 node_type.LABEL=3
+node_type.CHECKBOX=4
 value_type.FLOAT=1
 value_type.LENGTH=2
 value_type.COLOR=3
@@ -70,6 +71,7 @@ dg_window_set_root: int32_t(dg_window_t*,dg_node_t*)
 dg_node_create: dg_node_t*(dg_app_t*,uint16_t)
 dg_node_set_prop: int32_t(dg_node_t*,uint16_t,const dg_value*)
 dg_node_set_text: int32_t(dg_node_t*,uint16_t,const char*,uint32_t)
+dg_node_get_checked: int32_t(dg_node_t*)
 dg_node_insert_before: int32_t(dg_node_t*,dg_node_t*,dg_node_t*)
 dg_node_remove: int32_t(dg_node_t*)
 dg_node_scope_action: int32_t(dg_node_t*,uint16_t)

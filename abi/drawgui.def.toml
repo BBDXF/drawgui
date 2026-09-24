@@ -88,6 +88,33 @@
 #   QuickJS binding stubs     - P6. Described in design.md decision 5 as a
 #                               fourth generated artifact; there is no QuickJS
 #                               embedding anywhere in this project to bind.
+#   Widget::group (radio)     - P6 sub-step a2: DG_NODE_TYPE_CHECKBOX exports
+#                               dg::WidgetKind::kCheckbox but deliberately
+#                               never dg::Widget::group, so there is no
+#                               dg_node_set_prop() path to turn one into a
+#                               radio button. Two reasons, not one: (1) no
+#                               caller on this ABI's own acceptance path (P6's
+#                               pure-C TodoMVC) needs a radio group; (2)
+#                               widget_set.h's own contract for a GROUPED
+#                               toggle's toggle() is that it reports only the
+#                               clicked member's own `checked` bit back -
+#                               it does NOT repaint the other group members
+#                               it may have just deselected (see
+#                               WidgetSet::group_members()'s own comment) -
+#                               a caller has to notice this and repaint every
+#                               sibling itself (examples/11_form_controls/
+#                               form_scene.cpp's dispatch() does exactly
+#                               that). Get this wrong at the ABI boundary and
+#                               the bug is invisible to dg_dump_layout_tree()
+#                               (the STATE is correct - only the PIXELS are
+#                               wrong), which is exactly the failure mode
+#                               golden images exist to catch and dumps
+#                               cannot. Leaving `group` unexported removes the
+#                               failure mode instead of documenting around
+#                               it. PREREQUISITE to add it: a real caller that
+#                               needs mutually-exclusive selection, at which
+#                               point that caller's own repaint-the-siblings
+#                               call is what this ABI would wrap.
 #   dg_app_bind_shortcut      - design.md section 5.5.3's runtime-rebinding
 #                               signature (dg_app_t*, const dg_shortcut*,
 #                               uint16_t). 8-1 made the binding table
@@ -234,6 +261,7 @@ values = [
   { name = "BOX", id = 1, summary = "A plain, non-interactive leaf (WidgetKind::kPanel)." },
   { name = "BUTTON", id = 2, summary = "A clickable leaf (WidgetKind::kButton): hover/press/click, three fills." },
   { name = "LABEL", id = 3, summary = "P6 sub-step a1: static text (WidgetKind::kLabel), not interactive - a click inside it belongs to whatever ancestor accepts it. Carries an engine-chosen default font (the app's dg_app_add_font() primary family) and size the instant it is created; dg_node_set_text(DG_PROP_TEXT) sets its string, dg_node_set_prop(DG_PROP_TEXT_COLOR) its colour." },
+  { name = "CHECKBOX", id = 4, summary = "P6 sub-step a2: a clickable toggle (WidgetKind::kCheckbox) - unchecked by default, DG_EVENT_CLICK fires on a completed press+release exactly like DG_NODE_TYPE_BUTTON, and the click ALSO flips the checked bit (dg::WidgetSet::toggle()) before that event is queued, so a caller reacting to the click can immediately dg_node_get_checked() the new state. A caller-invisible INDICATOR CHILD is composed at attach time (examples/11_form_controls/form_scene.cpp's add_toggle() recipe, copied unchanged) to give the checked/unchecked fill somewhere to paint - it has no dg_node_t handle and cannot be reached, inserted into, or removed through this ABI; this is a deliberate trade, not an oversight, because a reactive framework built on this ABI (P6's own eventual c/d steps) cannot be made to hand-compose a child for every checkbox it creates. Widget::group (radio) is NOT exported - see this file's own \"WHAT IS DELIBERATELY NOT HERE\" entry for why." },
 ]
 
 [[constant_group]]
@@ -372,6 +400,13 @@ ret = "int32_t"
 impl = "node_set_text"
 params = [{ name = "node", type = "dg_node_t*" }, { name = "prop_id", type = "uint16_t" }, { name = "utf8", type = "const char*" }, { name = "len", type = "uint32_t" }]
 summary = "P6 sub-step a1: dg::set_text() at the ABI boundary - the dedicated-setter channel's fifth client (design.md section 5.9.5), for the same reason dg_node_set_gradient/_shadow/_image would be: a UTF-8 string cannot ride dg_value's fixed-size {float, uint32} union. `prop_id` must be DG_PROP_TEXT (any other id is DG_ERR_TYPE_MISMATCH/DG_ERR_UNKNOWN_ID, the same validation dg_node_set_prop() runs). `utf8`/`len` are copied immediately - not retained past the call. Requires a LIVE node (DG_ERR_NO_WINDOW otherwise), matching dg_node_set_prop()."
+
+[[function]]
+name = "dg_node_get_checked"
+ret = "int32_t"
+impl = "node_get_checked"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "P6 sub-step a2: dg::WidgetSet::is_checked() at the ABI boundary, for a LIVE DG_NODE_TYPE_CHECKBOX node - the query half of the same 'CLICK then ask' shape dg_node_scope_action()/DG_EVENT_ACTION already uses, chosen over a new DG_EVENT_TOGGLE because the checked bit's one true source is WidgetSet and an event field would only be a second, driftable copy of it. Returns 1 (checked) or 0 (unchecked) on success - both non-negative, matching dg_wait_events()/dg_poll_events()'s own 'non-negative is data, negative is DG_ERR_*' convention, since 0 is not this ABI's success code on an int32_t-returning function that reports data rather than only a status. DG_ERR_INVALID_HANDLE for a stale/unknown node, DG_ERR_NO_WINDOW for a still-pending one (matching dg_node_set_prop()'s own requirement), DG_ERR_UNSUPPORTED for a live node whose type_id is not DG_NODE_TYPE_CHECKBOX."
 
 [[function]]
 name = "dg_node_insert_before"

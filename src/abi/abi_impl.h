@@ -40,6 +40,7 @@ std::int32_t node_set_text(dg_node_t* node, std::uint16_t prop_id, const char* u
                            std::uint32_t len);
 std::int32_t node_insert_before(dg_node_t* parent, dg_node_t* child, dg_node_t* ref);
 std::int32_t node_remove(dg_node_t* node);
+std::int32_t node_get_checked(dg_node_t* node);
 std::int32_t node_scope_action(dg_node_t* node, std::uint16_t action_id);
 
 std::int32_t wait_events(dg_app_t* app, std::int32_t timeout_ms);

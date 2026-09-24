@@ -147,6 +147,21 @@ typedef struct dg_theme_err {
 /* instant it is created; dg_node_set_text(DG_PROP_TEXT) sets its string, */
 /* dg_node_set_prop(DG_PROP_TEXT_COLOR) its colour. */
 #define DG_NODE_TYPE_LABEL 3u
+/* P6 sub-step a2: a clickable toggle (WidgetKind::kCheckbox) - unchecked by */
+/* default, DG_EVENT_CLICK fires on a completed press+release exactly like */
+/* DG_NODE_TYPE_BUTTON, and the click ALSO flips the checked bit */
+/* (dg::WidgetSet::toggle()) before that event is queued, so a caller reacting */
+/* to the click can immediately dg_node_get_checked() the new state. A */
+/* caller-invisible INDICATOR CHILD is composed at attach time */
+/* (examples/11_form_controls/form_scene.cpp's add_toggle() recipe, copied */
+/* unchanged) to give the checked/unchecked fill somewhere to paint - it has no */
+/* dg_node_t handle and cannot be reached, inserted into, or removed through */
+/* this ABI; this is a deliberate trade, not an oversight, because a reactive */
+/* framework built on this ABI (P6's own eventual c/d steps) cannot be made to */
+/* hand-compose a child for every checkbox it creates. Widget::group (radio) is */
+/* NOT exported - see this file's own "WHAT IS DELIBERATELY NOT HERE" entry for */
+/* why. */
+#define DG_NODE_TYPE_CHECKBOX 4u
 
 /* dg_value::type. */
 /* PropType::k_float. */
@@ -512,6 +527,21 @@ DG_EXPORT int32_t dg_node_set_prop(dg_node_t* node, uint16_t prop_id, const dg_v
 /* dg_node_set_prop(). */
 DG_EXPORT int32_t dg_node_set_text(dg_node_t* node, uint16_t prop_id, const char* utf8,
                                    uint32_t len);
+
+/* P6 sub-step a2: dg::WidgetSet::is_checked() at the ABI boundary, for a LIVE */
+/* DG_NODE_TYPE_CHECKBOX node - the query half of the same 'CLICK then ask' */
+/* shape dg_node_scope_action()/DG_EVENT_ACTION already uses, chosen over a new */
+/* DG_EVENT_TOGGLE because the checked bit's one true source is WidgetSet and an */
+/* event field would only be a second, driftable copy of it. Returns 1 (checked) */
+/* or 0 (unchecked) on success - both non-negative, matching */
+/* dg_wait_events()/dg_poll_events()'s own 'non-negative is data, negative is */
+/* DG_ERR_*' convention, since 0 is not this ABI's success code on an */
+/* int32_t-returning function that reports data rather than only a status. */
+/* DG_ERR_INVALID_HANDLE for a stale/unknown node, DG_ERR_NO_WINDOW for a */
+/* still-pending one (matching dg_node_set_prop()'s own requirement), */
+/* DG_ERR_UNSUPPORTED for a live node whose type_id is not */
+/* DG_NODE_TYPE_CHECKBOX. */
+DG_EXPORT int32_t dg_node_get_checked(dg_node_t* node);
 
 /* Attaches pending `child` under live `parent`. `ref` must be null this slice */
 /* (append-only). */

@@ -246,7 +246,9 @@ target_link_libraries(drawgui_golden_test PRIVATE
 # only defined, inside this guard - the exact "no SDL3, no ABI, no
 # problem" shape examples/19_c_client already has.
 if(DRAWGUI_HAVE_SDL3)
-  target_sources(drawgui_golden_test PRIVATE golden/abi_label_scene.cpp)
+  target_sources(drawgui_golden_test PRIVATE
+    golden/abi_label_scene.cpp
+    golden/abi_checkbox_scene.cpp)
   target_compile_definitions(drawgui_golden_test PRIVATE
     DRAWGUI_GOLDEN_HAVE_ABI_SCENE=1
     DRAWGUI_GOLDEN_ABI_FONT_DIR="${DRAWGUI_TEST_FONT_DIR}")

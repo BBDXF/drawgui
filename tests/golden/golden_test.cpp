@@ -21,6 +21,7 @@
 #include "golden_image.h"
 
 #if defined(DRAWGUI_GOLDEN_HAVE_ABI_SCENE)
+#include "abi_checkbox_scene.h"
 #include "abi_label_scene.h"
 #endif
 
@@ -86,6 +87,17 @@ void scene_alpha_blend(Canvas& canvas) {
 std::vector<std::uint8_t> scene_abi_label() {
   return produce_abi_label_scene(DRAWGUI_GOLDEN_ABI_FONT_DIR);
 }
+
+// P6 sub-step a2: the checkbox's two states, unchecked/checked - see
+// abi_checkbox_scene.h's own comment on why this is two Scene entries
+// rather than one image encoding both.
+std::vector<std::uint8_t> scene_abi_checkbox_off() {
+  return produce_abi_checkbox_scene(false);
+}
+
+std::vector<std::uint8_t> scene_abi_checkbox_on() {
+  return produce_abi_checkbox_scene(true);
+}
 #endif
 
 constexpr Scene kScenes[] = {
@@ -95,6 +107,8 @@ constexpr Scene kScenes[] = {
     {"alpha_blend", 360, 320, scene_alpha_blend},
 #if defined(DRAWGUI_GOLDEN_HAVE_ABI_SCENE)
     {"abi_label_text", 320, 120, nullptr, scene_abi_label},
+    {"abi_checkbox_off", 64, 64, nullptr, scene_abi_checkbox_off},
+    {"abi_checkbox_on", 64, 64, nullptr, scene_abi_checkbox_on},
 #endif
 };
 

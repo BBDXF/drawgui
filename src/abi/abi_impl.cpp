@@ -38,6 +38,20 @@ namespace {
 // inside the 32px-tall default box attach_pending_node() gives it.
 constexpr float kDefaultLabelTextSize = 16.0F;
 
+// P6 sub-step a2: DG_NODE_TYPE_CHECKBOX's colours - lifted unchanged from
+// examples/11_form_controls/form_scene.cpp's own add_toggle() palette
+// (kToggleNormal/kToggleHover/kTogglePressed/kBorder/kOff/kAccent), the
+// recipe this ABI branch copies rather than invents.
+constexpr std::uint32_t kCheckboxNormalArgb = 0xFF2C3644;
+constexpr std::uint32_t kCheckboxHoverArgb = 0xFF3B4A5E;
+constexpr std::uint32_t kCheckboxPressedArgb = 0xFF1F2731;
+constexpr std::uint32_t kCheckboxBorderArgb = 0xFF141A22;
+constexpr std::uint32_t kCheckboxOffArgb = 0xFF10151C;
+constexpr std::uint32_t kCheckboxOnArgb = 0xFF2E86DE;
+
+constexpr dg::Color kCheckboxNormal = dg::Color::from_argb(kCheckboxNormalArgb);
+constexpr dg::Color kCheckboxBorder = dg::Color::from_argb(kCheckboxBorderArgb);
+
 // -- Global arenas ------------------------------------------------------
 //
 // dg_app_create() takes no app parameter, so the top-level arena has to
@@ -362,6 +376,18 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     style.text.font = impl.default_font;
     style.text.size = kDefaultLabelTextSize;
     style.text.color = dg::Color::rgba(0x00, 0x00, 0x00);
+  } else if (slot.type_id == DG_NODE_TYPE_CHECKBOX) {
+    // The outer 32x32 box (hover/press feedback on its OWN fill) - the exact
+    // dimensions examples/11_form_controls/form_scene.cpp's add_toggle()
+    // uses for an ungrouped (round == false) checkbox. The indicator CHILD
+    // that paints checked/unchecked is composed further below, once new_id
+    // exists to parent it under.
+    box.width = 32;
+    box.height = 32;
+    style.fill = kCheckboxNormal;
+    style.border_color = kCheckboxBorder;
+    style.border_width = dg::BorderWidths::all(1.0F);
+    style.radii = dg::Radii::all(6.0F);
   } else {
     style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
     if (slot.type_id == DG_NODE_TYPE_BUTTON) {
@@ -391,6 +417,34 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kLabel;
     window.widgets.attach(new_id, widget);
+  } else if (slot.type_id == DG_NODE_TYPE_CHECKBOX) {
+    // P6 sub-step a2: the indicator CHILD - composed here, unaddressable
+    // through this ABI (no dg_node_t handle names it), exactly the recipe
+    // examples/11_form_controls/form_scene.cpp's add_toggle() uses. See
+    // this file's own DG_NODE_TYPE_CHECKBOX constant comment (abi/
+    // drawgui.def.toml) for why a caller cannot be asked to do this itself.
+    dg::BoxStyle indicator_box;
+    indicator_box.width = 20;
+    indicator_box.height = 20;
+    dg::NodeStyle indicator_style;
+    indicator_style.fill = dg::Color::from_argb(kCheckboxOffArgb);
+    const dg::NodeId indicator = window.tree.add_child(new_id, indicator_box, indicator_style);
+
+    dg::Widget widget;
+    widget.kind = dg::WidgetKind::kCheckbox;
+    widget.fill_normal = dg::Color::from_argb(kCheckboxNormalArgb);
+    widget.fill_hover = dg::Color::from_argb(kCheckboxHoverArgb);
+    widget.fill_pressed = dg::Color::from_argb(kCheckboxPressedArgb);
+    widget.indicator = indicator;
+    widget.indicator_on = dg::Color::from_argb(kCheckboxOnArgb);
+    widget.indicator_off = dg::Color::from_argb(kCheckboxOffArgb);
+    widget.checked = false;
+    // widget.group left unset (std::nullopt): this ABI never exports radio
+    // grouping - see abi/drawgui.def.toml's own "WHAT IS DELIBERATELY NOT
+    // HERE" entry on Widget::group for why.
+    window.widgets.attach(new_id, widget);
+    window.widgets.attach(indicator, dg::Widget{});
+    window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
   }
   return DG_ERR_OK;
 }
@@ -496,6 +550,21 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
       return;
   }
   refresh_touched(window, change);
+  if (change.clicked.has_value() && window.widgets.has(*change.clicked) &&
+      window.widgets.at(*change.clicked).kind == dg::WidgetKind::kCheckbox) {
+    // P6 sub-step a2: a completed click on a checkbox flips its checked bit
+    // immediately, before DG_EVENT_CLICK is queued - "receive CLICK, then
+    // dg_node_get_checked() to ask" is the whole shape (abi/drawgui.def.toml's
+    // own comment on dg_node_get_checked() explains why no DG_EVENT_TOGGLE
+    // exists instead). toggle() only flips the stored bit - it has no
+    // RenderTree and cannot repaint anything itself (widget_set.h's own
+    // comment on toggle()/refresh()) - so refresh() runs again right after,
+    // on the SAME widget, to repaint the indicator this toggle just changed.
+    // No group_members() re-refresh: this ABI never exports Widget::group.
+    window.widgets.toggle(*change.clicked);
+    window.widgets.refresh(window.tree.render(), *change.clicked,
+                           window.interaction.state_of(*change.clicked));
+  }
   if (change.clicked.has_value()) {
     dg_event out{};
     out.size = sizeof(dg_event);
@@ -861,7 +930,7 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
     return nullptr;
   }
   if (type_id != DG_NODE_TYPE_BOX && type_id != DG_NODE_TYPE_BUTTON &&
-      type_id != DG_NODE_TYPE_LABEL) {
+      type_id != DG_NODE_TYPE_LABEL && type_id != DG_NODE_TYPE_CHECKBOX) {
     set_last_error("dg_node_create: unknown type_id");
     return nullptr;
   }
@@ -1011,6 +1080,22 @@ std::int32_t node_remove(dg_node_t* node_h) {
   // its window's tree, not merely unreachable through this one handle.
   slot->state = NodeSlot::State::kRemoved;
   return DG_ERR_OK;
+}
+
+std::int32_t node_get_checked(dg_node_t* node_h) {
+  NodeSlot* slot = resolve_node_slot(node_h);
+  if (slot == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (slot->state != NodeSlot::State::kLive) {
+    return DG_ERR_NO_WINDOW;
+  }
+  if (slot->type_id != DG_NODE_TYPE_CHECKBOX) {
+    return DG_ERR_UNSUPPORTED;
+  }
+  AppImpl* impl = resolve_app(node_h->app);
+  WindowImpl& window = *impl->windows[slot->window_index];
+  return window.widgets.is_checked(slot->node_id) ? 1 : 0;
 }
 
 std::int32_t node_scope_action(dg_node_t* node_h, std::uint16_t action_id) {

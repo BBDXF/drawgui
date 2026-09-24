@@ -73,6 +73,7 @@ export const node_type = {
   BOX: 1,
   BUTTON: 2,
   LABEL: 3,
+  CHECKBOX: 4,
 } as const;
 
 // dg_value::type.
@@ -238,6 +239,20 @@ export declare namespace DrawguiAbi {
   // past the call. Requires a LIVE node (DG_ERR_NO_WINDOW otherwise), matching
   // dg_node_set_prop().
   function dg_node_set_text(node: dg_node_t | null, prop_id: number, utf8: string | null, len: number): number;
+  // P6 sub-step a2: dg::WidgetSet::is_checked() at the ABI boundary, for a LIVE
+  // DG_NODE_TYPE_CHECKBOX node - the query half of the same 'CLICK then ask'
+  // shape dg_node_scope_action()/DG_EVENT_ACTION already uses, chosen over a new
+  // DG_EVENT_TOGGLE because the checked bit's one true source is WidgetSet and an
+  // event field would only be a second, driftable copy of it. Returns 1 (checked)
+  // or 0 (unchecked) on success - both non-negative, matching
+  // dg_wait_events()/dg_poll_events()'s own 'non-negative is data, negative is
+  // DG_ERR_*' convention, since 0 is not this ABI's success code on an
+  // int32_t-returning function that reports data rather than only a status.
+  // DG_ERR_INVALID_HANDLE for a stale/unknown node, DG_ERR_NO_WINDOW for a
+  // still-pending one (matching dg_node_set_prop()'s own requirement),
+  // DG_ERR_UNSUPPORTED for a live node whose type_id is not
+  // DG_NODE_TYPE_CHECKBOX.
+  function dg_node_get_checked(node: dg_node_t | null): number;
   // Attaches pending `child` under live `parent`. `ref` must be null this slice
   // (append-only).
   function dg_node_insert_before(parent: dg_node_t | null, child: dg_node_t | null, ref: dg_node_t | null): number;

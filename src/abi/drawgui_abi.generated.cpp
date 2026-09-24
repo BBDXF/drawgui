@@ -155,6 +155,21 @@ extern "C" DG_EXPORT int32_t dg_node_set_text(dg_node_t* node, uint16_t prop_id,
   }
 }
 
+extern "C" DG_EXPORT int32_t dg_node_get_checked(dg_node_t* node) {
+  try {
+    return dg::abi::node_get_checked(node);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_get_checked: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_get_checked: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_get_checked: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
 extern "C" DG_EXPORT int32_t dg_node_insert_before(dg_node_t* parent, dg_node_t* child,
                                                    dg_node_t* ref) {
   try {
