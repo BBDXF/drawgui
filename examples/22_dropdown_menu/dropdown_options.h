@@ -22,11 +22,12 @@
 //
 // build() takes the WidgetSet to attach into as an explicit parameter for
 // the identical reason examples/21_focus's popup_menu.h already states:
-// the overlay branch appends into the HOST's own RenderTree, and
-// dg::focus_order() walks that tree against ONE WidgetSet, so overlay rows
-// must land in the host's own table or Tab/Up/Down would never see them;
-// the native branch owns a genuinely separate RenderTree and therefore a
-// genuinely separate WidgetSet of its own.
+// the overlay appends into the HOST's own RenderTree, and
+// dg::focus_order() walks that tree against ONE WidgetSet, so rows
+// must land in the host's own table or Tab/Up/Down would never see them.
+// (PopupHost is overlay-only - doc/popup.md's B-1/B-2 finding deleted the
+// native-OS-popup branch that used to own a genuinely separate RenderTree
+// and WidgetSet of its own.)
 
 #pragma once
 

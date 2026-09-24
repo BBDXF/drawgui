@@ -148,7 +148,7 @@ project's cross-feature regression bed.
 | 20 | `multiline_text` | Word wrap, unspaced CJK wrap, mixed-script/emoji, BiDi Arabic-in-Latin, ellipsis | `--verify-multiline-text` |
 | 21 | `focus` | Tab/Shift-Tab order, `tab_index` override, popup focus confinement | `--verify-focus` |
 | 22 | `dropdown_menu` | Keyboard/mouse dropdown selection between two real siblings | `--verify-dropdown` |
-| 23 | `menu_tooltip_dialog` | Context menu, hover tooltip, modal dialog (native and overlay branches) | `--verify-menus` |
+| 23 | `menu_tooltip_dialog` | Context menu, hover tooltip (overlay-only), modal dialog (`--branch native\|overlay` selects the Dialog's own native-OS-window vs. same-window-overlay branch) | `--verify-menus` |
 | 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
 | 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
 
@@ -159,7 +159,7 @@ the golden-image comparator, damage, layout, clipping, compositing, hit
 testing, interaction, UTF-8 decoding, font fallback, text editing, paragraph
 layout, focus, dropdown, tooltip timing, theme-package security
 (path traversal, symlink escapes/loops, resource bounds, a fixed-seed fuzz
-pass), shortcut routing, clipboard, and node removal - **544 test cases**
+pass), shortcut routing, clipboard, and node removal - **561 test cases**
 (the binary's own `[doctest] unskipped test cases passing the current
 filters` summary line is the source of truth; `--list-test-cases` also
 prints four decoration lines, so a naive `| wc -l` overcounts by four). Run

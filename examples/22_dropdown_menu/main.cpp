@@ -1,7 +1,9 @@
 // The dropdown demo, on screen and headless.
 //
 //   (no arguments)            the demo window
-//   --branch native|overlay   which branch the dropdown opens (default native)
+//   --branch overlay          accepted for symmetry with other examples;
+//                              only "overlay" is valid now (native popup
+//                              windows were removed, see doc/popup.md)
 //   --run-ms N                close after N milliseconds
 //   --font-dir DIR            scan a different font directory
 //   --verify-dropdown         the headless check. No display needed.

@@ -24,15 +24,30 @@
 //
 // STILL ONE FOCUSED WIDGET AT A TIME, still per-window (one `Focus` instance
 // per `RenderTree`/window, matching design.md's own per-window
-// `FocusManager` literally): a native popup (doc/popup.md) is a genuinely
-// separate `RenderTree` in a genuinely separate OS window, so it gets its
-// own, separate `Focus` instance - which is also why cross-window focus
-// needed NO NodeId-plus-window-id struct here (doc/popup.md section 5's own
-// named gap): two `Focus` instances never share a NodeId space, so there is
-// nothing to disambiguate. An OVERLAY popup, by contrast, shares the host's
-// own `RenderTree` and therefore the host's own `Focus` instance; Tab must
-// not let it leak into the parent window's widgets while the popup is open,
-// which is what `enter_scope()`/`exit_scope()` below are for.
+// `FocusManager` literally): originally, this section justified a second
+// `Focus` instance per popup by a native popup (doc/popup.md) being a
+// genuinely separate `RenderTree` in a genuinely separate OS window. 48c9cd3
+// deleted that native branch - PopupHost is overlay-only now, and an overlay
+// popup shares the host's own `RenderTree`/`Focus` instance; Tab must not let
+// it leak into the parent window's widgets while the popup is open, which is
+// what `enter_scope()`/`exit_scope()` below are for.
+//
+// A SEPARATE `FocusRing` per popup is, however, still needed - for an
+// unrelated reason discovered later (5e630ef): `FocusRing`'s four strip
+// nodes are fixed to whichever parent they were created under
+// (`update_focus_ring()` only calls `add_child()` while `created` is false),
+// and `RenderTree` has no reparent primitive. A popup's `content_root` is
+// appended to the tree only once the popup opens, strictly after the host's
+// own ring nodes already exist under `LayoutTree::root()` - so painting the
+// host's ring there would put it UNDER the popup's content in paint order,
+// not on top of the widget it is meant to outline. Each open popup therefore
+// grows its own `FocusRing` under its own `content_root`, reset per open (see
+// examples/22_dropdown_menu/dropdown_window.cpp's `popup_ring_` and
+// examples/23_menu_tooltip_dialog/menu_window.cpp's `menu_ring_`/
+// `dialog_overlay_ring_`). This is a paint-order/append-only-tree
+// consequence, not a separate-window/separate-NodeId-space one; cross-window
+// focus still needs NO NodeId-plus-window-id struct because there is, again,
+// only one window's `RenderTree` involved.
 //
 // 7-5b (doc/menus.md section 6.3) grows exactly one more bit onto the SAME
 // scope: `enter_scope(root, modal)`'s `modal` flag, and `set_guarded()`

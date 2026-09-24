@@ -1,21 +1,20 @@
-// The headless half of examples/14_popup: PopupHost's placement math, the
-// overlay branch driven through the real API against a real (dummy-driver)
-// window, and the equivalence this slice's report calls its single most
-// valuable artifact - checked without a display, so CTest can run it.
+// The headless half of examples/14_popup: PopupHost's placement math -
+// flipping and clamping on both axes - driven through the real API against a
+// real (dummy-driver) window, checked without a display so CTest can run it.
 //
-// The native branch's real OS window is deliberately NOT attempted here.
+// PopupHost is overlay-only (48c9cd3 deleted the native-OS-popup branch this
+// check used to also exercise and cross-check for equivalence against; see
+// doc/popup.md for why that branch's one exclusive capability was never
+// actually used by the placement math built on top of it). This check's job
+// is now placement/flip verification for the one remaining, overlay,
+// implementation - not an equivalence oracle between two branches that no
+// longer both exist.
+//
 // SDL3's dummy video driver (SDL_setenv("SDL_VIDEODRIVER", "dummy", 1),
-// below) is enough to open ordinary windows headlessly - measured, and used
-// for the overlay branch and for a real WindowManager to hand PopupHost -
-// but SDL_CreatePopupWindow fails under it with "That operation is not
-// supported", measured directly for this slice rather than assumed. This
-// mirrors examples/01_sdl3_multi_window's own precedent (no CTest entry,
-// because it needs a display) rather than inventing a new one: the native
-// branch is real and is exercised for real by examples/14_popup's
-// interactive mode against an actual display, which is where
-// doc/popup.md's measurements of it come from. This check still ATTEMPTS
-// it, once, so the failure is asserted and reported rather than silently
-// never run - see run()'s own comment at the attempt.
+// below) is enough to open ordinary windows headlessly - used here for a
+// real WindowManager to hand PopupHost - matching examples/01_sdl3_multi_
+// window's own precedent (no CTest entry, because THAT example needs a
+// display) rather than inventing a new one.
 
 #pragma once
 

@@ -351,7 +351,7 @@ int run(std::ostream& out) {
   setenv("SDL_VIDEODRIVER", "dummy", 1);
 
   out << "FOCUS: Tab order over a mixed-kind scene, wrapping, the tab_index override, focus "
-         "scopes across both PopupHost branches, and the mid-composition Tab-away hazard.\n\n";
+         "scopes across PopupHost's overlay popup, and the mid-composition Tab-away hazard.\n\n";
 
   bool ok = true;
   check_order_and_wrapping(out, ok);

@@ -162,8 +162,9 @@ class Runner {
   // popup_->content_root. A fresh dg::FocusRing{} is created in
   // open_dropdown() instead, growing its own four nodes under the new
   // content_root the same way scene_.ring grew its own under the host
-  // root - matching the native-popup-era `popup_native_ring_` this
-  // replaces.
+  // root - the overlay-era analogue of a `popup_native_ring_` member that
+  // did the same job for the same reason (a second root the host's ring
+  // could not reach) in the now-deleted native-popup branch (48c9cd3).
   dg::FocusRing popup_ring_;
 };
 
