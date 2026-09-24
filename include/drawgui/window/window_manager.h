@@ -492,9 +492,14 @@ class WindowManager {
 
   // Puts a real SDL_EVENT_WINDOW_EXPOSED on the platform's own event queue,
   // by the same route request_close()/post_pointer_button() use. Exists so
-  // tests/unit/ can verify the expose -> PumpResult::needs_repaint dispatch
-  // contract under the dummy video driver, which never generates a real
-  // expose on its own.
+  // tests/unit/test_expose_repaint.cpp can verify the expose ->
+  // PumpResult::needs_repaint dispatch contract under the dummy video
+  // driver, which never generates a real expose on its own. That contract
+  // is the whole fix for the defect that test file guards: the platform's
+  // own paint() (src/platform/sdl3/window_manager.cpp) is a no-op once a
+  // window's shows_fill has been cleared by present(), so after a window's
+  // first frame, PumpResult::needs_repaint is the ONLY notification a
+  // caller gets that a later expose needs a fresh frame from it.
   void post_expose(WindowId id);
 
   // Puts a wheel scroll on the platform's own event queue, same route as
