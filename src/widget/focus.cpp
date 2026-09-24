@@ -1,6 +1,7 @@
 #include "drawgui/widget/focus.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <iterator>
 
 namespace dg {
@@ -44,6 +45,50 @@ void collapse_ring(RenderTree& tree, const FocusRing& ring) {
   tree.set_local_bounds(ring.bottom, empty);
   tree.set_local_bounds(ring.left, empty);
   tree.set_local_bounds(ring.right, empty);
+}
+
+// Degenerate case: `bounds` is too small for the requested gap+thickness on
+// one or both axes (see update_focus_ring()'s own comment for the exact
+// threshold). Rather than let from_edges() silently collapse only ONE strip
+// while the other three go stale/inverted, every strip but `ring.top` is
+// collapsed to empty and `ring.top` is set to the WHOLE of `local_bounds` -
+// the target is entirely covered in ring color. This is chosen over
+// collapsing all four (making a focused-but-tiny widget invisible) because a
+// visible-but-not-annular indicator is still strictly more useful feedback
+// than none; a caller that dislikes the full-cover look is free to widen the
+// widget instead.
+void fill_ring(RenderTree& tree, const FocusRing& ring, const PixelRect& local_bounds) {
+  tree.set_local_bounds(ring.top, local_bounds);
+  const PixelRect empty{};
+  tree.set_local_bounds(ring.bottom, empty);
+  tree.set_local_bounds(ring.left, empty);
+  tree.set_local_bounds(ring.right, empty);
+}
+
+// One-shot stderr warning (doc/focus.md's own diagnostic, not a correction):
+// a strip that lands entirely outside `tree`'s own viewport is a silent
+// "drew nothing" bug the way the outward-ring geometry this replaced always
+// was for a flush-edge target. This only OBSERVES - it never clamps a
+// strip's bounds, because clamping would make the ring inconsistent (partly
+// inside, partly clipped) depending on which side overflowed, which is worse
+// than a uniformly-wrong-but-diagnosable ring.
+void warn_if_ring_strip_outside_viewport(const RenderTree& tree, const PixelRect& strip_local,
+                                         int local_to_absolute_dx, int local_to_absolute_dy) {
+  static bool warned = false;
+  if (warned || strip_local.is_empty()) {
+    return;
+  }
+  const PixelRect strip_absolute =
+      strip_local.offset_by(local_to_absolute_dx, local_to_absolute_dy);
+  const PixelRect viewport_rect{0, 0, tree.viewport().width, tree.viewport().height};
+  if (!intersects(strip_absolute, viewport_rect)) {
+    std::fprintf(stderr,
+                 "drawgui: focus ring strip at absolute (%d,%d,%d,%d) falls entirely outside "
+                 "the tree viewport (%dx%d) - it will not paint any pixels\n",
+                 strip_absolute.x, strip_absolute.y, strip_absolute.width, strip_absolute.height,
+                 tree.viewport().width, tree.viewport().height);
+    warned = true;
+  }
 }
 
 }  // namespace
@@ -189,17 +234,65 @@ void update_focus_ring(RenderTree& tree, NodeId parent, FocusRing& ring,
     return;
   }
 
-  const PixelRect outer = bounds.inflated_by(gap + thickness);
-  const PixelRect inner = bounds.inflated_by(gap);
+  // absolute -> parent-local: the exact inverse of RenderTree::Impl::
+  // reposition()'s own forward transform (child.absolute = child.local.
+  // offset_by(parent.absolute.xy - parent.scroll_offset.xy)). `parent` need
+  // not be the tree root - an overlay popup's content_root
+  // (src/window/popup_host.cpp) sits at a non-zero absolute origin, and a
+  // scrollable parent has a non-zero scroll_offset too; both must be
+  // undone here or the ring drifts by exactly that amount. Every existing
+  // call site today passes a parent whose absolute origin and scroll_offset
+  // are both (0, 0), making this a no-op - but it is not a no-op in
+  // general, and that is the point.
+  const PixelRect parent_absolute = tree.absolute_bounds(parent);
+  const PixelPoint parent_scroll = tree.scroll_offset(parent);
+  const int dx = parent_scroll.x - parent_absolute.x;
+  const int dy = parent_scroll.y - parent_absolute.y;
 
-  tree.set_local_bounds(
-      ring.top, PixelRect::from_edges(outer.left(), outer.top(), outer.right(), inner.top()));
-  tree.set_local_bounds(ring.bottom, PixelRect::from_edges(outer.left(), inner.bottom(),
-                                                           outer.right(), outer.bottom()));
-  tree.set_local_bounds(ring.left, PixelRect::from_edges(outer.left(), inner.top(),
-                                                         inner.left(), inner.bottom()));
-  tree.set_local_bounds(ring.right, PixelRect::from_edges(inner.right(), inner.top(),
-                                                          outer.right(), inner.bottom()));
+  // Inward ring geometry (doc/focus.md's own "why not outward" section):
+  // the ring's outermost edge is inset `gap` pixels from `bounds`'s own
+  // edge, and occupies `thickness` more pixels further in. Unlike the
+  // outward geometry this replaced - which drew the ring OUTSIDE `bounds`
+  // and therefore depended on unstated margin existing around the target -
+  // this geometry is self-contained: it only ever touches pixels inside
+  // `bounds`, so it is visible in full regardless of what (if anything)
+  // surrounds the target.
+  const int inset = gap + thickness;
+  if (bounds.width < 2 * inset || bounds.height < 2 * inset) {
+    // Degenerate: the two insets would meet or cross on at least one axis.
+    // See fill_ring()'s own comment for why this fills rather than
+    // collapses.
+    PixelRect local = bounds.offset_by(dx, dy);
+    fill_ring(tree, ring, local);
+    return;
+  }
+
+  const PixelRect outer = bounds.inflated_by(-gap);
+  const PixelRect inner = bounds.inflated_by(-inset);
+
+  const PixelRect top_abs =
+      PixelRect::from_edges(outer.left(), outer.top(), outer.right(), inner.top());
+  const PixelRect bottom_abs =
+      PixelRect::from_edges(outer.left(), inner.bottom(), outer.right(), outer.bottom());
+  const PixelRect left_abs =
+      PixelRect::from_edges(outer.left(), inner.top(), inner.left(), inner.bottom());
+  const PixelRect right_abs =
+      PixelRect::from_edges(inner.right(), inner.top(), outer.right(), inner.bottom());
+
+  const PixelRect top_local = top_abs.offset_by(dx, dy);
+  const PixelRect bottom_local = bottom_abs.offset_by(dx, dy);
+  const PixelRect left_local = left_abs.offset_by(dx, dy);
+  const PixelRect right_local = right_abs.offset_by(dx, dy);
+
+  tree.set_local_bounds(ring.top, top_local);
+  tree.set_local_bounds(ring.bottom, bottom_local);
+  tree.set_local_bounds(ring.left, left_local);
+  tree.set_local_bounds(ring.right, right_local);
+
+  warn_if_ring_strip_outside_viewport(tree, top_local, -dx, -dy);
+  warn_if_ring_strip_outside_viewport(tree, bottom_local, -dx, -dy);
+  warn_if_ring_strip_outside_viewport(tree, left_local, -dx, -dy);
+  warn_if_ring_strip_outside_viewport(tree, right_local, -dx, -dy);
 }
 
 }  // namespace dg

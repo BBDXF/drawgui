@@ -12,11 +12,14 @@
 // dg::Interaction already is (test_interaction.cpp's own header comment),
 // against a plain RenderTree + WidgetSet built in-process.
 
+#include <cstddef>
 #include <optional>
 #include <vector>
 
 #include <doctest/doctest.h>
 
+#include "drawgui/base/pixel_geometry.h"
+#include "drawgui/graphics/raster_surface.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/widget_set.h"
@@ -314,37 +317,197 @@ TEST_SUITE("focus") {
     CHECK_FALSE(focus.current().has_value());
   }
 
-  TEST_CASE("update_focus_ring() outlines the target with four non-overlapping strips") {
+  TEST_CASE("update_focus_ring() outlines the target with four inward, non-overlapping strips") {
     Scene scene = build_scene();
     FocusRing ring;
     dg::update_focus_ring(scene.tree, RenderTree::root(), ring, scene.button_a,
                           Color::from_argb(0xFFFF8800), /*thickness=*/2, /*gap=*/2);
 
     CHECK(ring.created);
-    // button_a's absolute bounds are (10, 5, 80, 30); outset by gap(2)+
-    // thickness(2)=4 for the outer edge, gap(2) alone for the inner edge -
-    // hand-derived, not re-derived from the function under test.
-    CHECK(scene.tree.local_bounds(ring.top) == (PixelRect{6, 1, 88, 2}));
-    CHECK(scene.tree.local_bounds(ring.bottom) == (PixelRect{6, 37, 88, 2}));
-    CHECK(scene.tree.local_bounds(ring.left) == (PixelRect{6, 3, 2, 34}));
-    CHECK(scene.tree.local_bounds(ring.right) == (PixelRect{92, 3, 2, 34}));
+    // button_a's absolute bounds are (10, 5, 80, 30). Inward geometry (this
+    // slice's own change, doc/focus.md's own "why inward" section): the
+    // ring's outer edge is inset gap(2) from that box, its inner edge a
+    // further thickness(2) in - hand-derived, not re-derived from the
+    // function under test.
+    //   outer = bounds.inflated_by(-2)  = {12, 7, 76, 26} -> edges (12,7,88,33)
+    //   inner = bounds.inflated_by(-4)  = {14, 9, 72, 22} -> edges (14,9,86,31)
+    CHECK(scene.tree.local_bounds(ring.top) == (PixelRect{12, 7, 76, 2}));
+    CHECK(scene.tree.local_bounds(ring.bottom) == (PixelRect{12, 31, 76, 2}));
+    CHECK(scene.tree.local_bounds(ring.left) == (PixelRect{12, 9, 2, 22}));
+    CHECK(scene.tree.local_bounds(ring.right) == (PixelRect{86, 9, 2, 22}));
 
-    // None of the four strips overlaps button_a's own bounds - a click on
-    // the button must still resolve to the button, never to the ring.
+    // CONTRACT CHANGE, recorded rather than silently rewritten (the same
+    // documentation discipline FocusRing's own header comment now names):
+    // this used to CHECK_FALSE these four - the old OUTWARD geometry kept
+    // every strip clear of button_a's own bounds by construction. The new
+    // INWARD geometry puts every strip INSIDE button_a's own bounds on
+    // purpose (that is the entire fix: a ring inside the target cannot run
+    // off the edge of a flush-edge container the way an outward one did),
+    // so all four now intersect. Painted-pixel safety (a click on the
+    // button still resolves to the button) is verified separately below
+    // by "update_focus_ring() actually paints pixels..." - a ring strip
+    // carries no attached Widget, so WidgetSet::owner_of() climbs past it
+    // regardless of this geometric overlap; see FocusRing's own header
+    // comment for the full argument.
     const PixelRect button_bounds = scene.tree.absolute_bounds(scene.button_a);
-    CHECK_FALSE(dg::intersects(scene.tree.local_bounds(ring.top), button_bounds));
-    CHECK_FALSE(dg::intersects(scene.tree.local_bounds(ring.bottom), button_bounds));
-    CHECK_FALSE(dg::intersects(scene.tree.local_bounds(ring.left), button_bounds));
-    CHECK_FALSE(dg::intersects(scene.tree.local_bounds(ring.right), button_bounds));
+    CHECK(dg::intersects(scene.tree.local_bounds(ring.top), button_bounds));
+    CHECK(dg::intersects(scene.tree.local_bounds(ring.bottom), button_bounds));
+    CHECK(dg::intersects(scene.tree.local_bounds(ring.left), button_bounds));
+    CHECK(dg::intersects(scene.tree.local_bounds(ring.right), button_bounds));
+    // ...but still fully CONTAINED by it - the ring never spills outside
+    // the target it outlines.
+    CHECK(dg::contains(button_bounds, scene.tree.local_bounds(ring.top)));
+    CHECK(dg::contains(button_bounds, scene.tree.local_bounds(ring.bottom)));
+    CHECK(dg::contains(button_bounds, scene.tree.local_bounds(ring.left)));
+    CHECK(dg::contains(button_bounds, scene.tree.local_bounds(ring.right)));
 
     // Blurring (target == nullopt) collapses every strip to empty - invisible
-    // and, being zero-area, unhittable.
+    // and, being empty, unhittable too.
     dg::update_focus_ring(scene.tree, RenderTree::root(), ring, std::nullopt,
                           Color::from_argb(0xFFFF8800));
     CHECK(scene.tree.local_bounds(ring.top).is_empty());
     CHECK(scene.tree.local_bounds(ring.bottom).is_empty());
     CHECK(scene.tree.local_bounds(ring.left).is_empty());
     CHECK(scene.tree.local_bounds(ring.right).is_empty());
+  }
+
+  TEST_CASE(
+      "update_focus_ring() converts absolute target bounds into a NON-ORIGIN parent's own "
+      "local space") {
+    // Structural blind spot this closes: every OTHER test in this file uses
+    // RenderTree::root() as `parent`, whose absolute origin and
+    // scroll_offset are both (0, 0) - so a coordinate-space bug (writing
+    // absolute coordinates through set_local_bounds(), which expects
+    // local) would be invisible there. This scene deliberately puts a
+    // non-origin, non-zero-scroll container between root and the target so
+    // that bug is forced to show up as a WRONG absolute_bounds() reading
+    // back, not merely a wrong-looking local_bounds().
+    Scene scene = build_scene();
+    const NodeId container =
+        scene.tree.add_child(RenderTree::root(), PixelRect{40, 60, 200, 100}, NodeStyle{});
+    scene.tree.set_scroll_offset(container, dg::PixelPoint{5, 3});
+    // container's absolute origin is (40, 60); with scroll_offset (5, 3), a
+    // child's absolute = child.local.offset_by(40 - 5, 60 - 3) = (+35, +57).
+    const NodeId target =
+        scene.tree.add_child(container, PixelRect{10, 10, 80, 30}, NodeStyle{});
+    REQUIRE(scene.tree.absolute_bounds(target) == (PixelRect{45, 67, 80, 30}));
+
+    FocusRing ring;
+    dg::update_focus_ring(scene.tree, container, ring, target, Color::from_argb(0xFFFF8800),
+                          /*thickness=*/2, /*gap=*/2);
+
+    // The real invariant: the ring's ABSOLUTE bounds outline the target's
+    // absolute bounds, regardless of what coordinate space `parent` sits
+    // in. absolute_bounds() re-derives this from whatever local_bounds()
+    // was actually written, through the tree's own repositioning - so this
+    // assertion is the one that fails if update_focus_ring() ever again
+    // writes an absolute rectangle through set_local_bounds() without
+    // converting it first.
+    //
+    // target absolute = (45, 67, 80, 30); outer = inflated_by(-2) =
+    // (47, 69, 76, 26) -> edges (47,69,123,95); inner = inflated_by(-4) =
+    // (49, 71, 72, 22) -> edges (49,71,121,93).
+    CHECK(scene.tree.absolute_bounds(ring.top) == (PixelRect{47, 69, 76, 2}));
+    CHECK(scene.tree.absolute_bounds(ring.bottom) == (PixelRect{47, 93, 76, 2}));
+    CHECK(scene.tree.absolute_bounds(ring.left) == (PixelRect{47, 71, 2, 22}));
+    CHECK(scene.tree.absolute_bounds(ring.right) == (PixelRect{121, 71, 2, 22}));
+
+    // The local_bounds() this implies - container's local-to-absolute
+    // offset is (40 - 5, 60 - 3) = (35, 57); undo it to get local from the
+    // absolute values just checked.
+    CHECK(scene.tree.local_bounds(ring.top) == (PixelRect{12, 12, 76, 2}));
+    CHECK(scene.tree.local_bounds(ring.bottom) == (PixelRect{12, 36, 76, 2}));
+    CHECK(scene.tree.local_bounds(ring.left) == (PixelRect{12, 14, 2, 22}));
+    CHECK(scene.tree.local_bounds(ring.right) == (PixelRect{86, 14, 2, 22}));
+  }
+
+  TEST_CASE(
+      "update_focus_ring() keeps all four strips visible for a flush-edge, full-width target "
+      "(the dropdown-row regression this slice fixes)") {
+    // Replicates examples/22_dropdown_menu/dropdown_options.cpp's own row
+    // shape exactly: a target that is flush with its container's left and
+    // right edges, and flush top-to-bottom against its neighbours, with no
+    // margin anywhere around it for an outward ring to occupy.
+    TreeSpec spec;
+    spec.viewport = dg::PixelSize{200, 140};
+    RenderTree tree{spec};
+    const NodeId root = RenderTree::root();
+    const NodeId row = tree.add_child(root, PixelRect{0, 0, 200, 28}, NodeStyle{});
+
+    FocusRing ring;
+    dg::update_focus_ring(tree, root, ring, row, Color::from_argb(0xFFFF8800),
+                          /*thickness=*/2, /*gap=*/2);
+
+    const PixelRect viewport_rect{0, 0, 200, 140};
+    CHECK(dg::intersects(tree.local_bounds(ring.top), viewport_rect));
+    CHECK(dg::intersects(tree.local_bounds(ring.bottom), viewport_rect));
+    CHECK(dg::intersects(tree.local_bounds(ring.left), viewport_rect));
+    CHECK(dg::intersects(tree.local_bounds(ring.right), viewport_rect));
+    // Not merely non-empty - every strip actually has pixels ON the
+    // viewport, which the OLD outward geometry could not promise here.
+    CHECK_FALSE(tree.local_bounds(ring.top).is_empty());
+    CHECK_FALSE(tree.local_bounds(ring.bottom).is_empty());
+    CHECK_FALSE(tree.local_bounds(ring.left).is_empty());
+    CHECK_FALSE(tree.local_bounds(ring.right).is_empty());
+
+    // Why the OLD geometry failed here, worked by hand as the archival
+    // record this slice's own task asked for: outward geometry was
+    // `outer = bounds.inflated_by(gap+thickness)`,
+    // `inner = bounds.inflated_by(gap)`, with bounds = {0, 0, 200, 28}.
+    // The left strip would have been
+    // from_edges(outer.left=-4, inner.top=-2, inner.left=-2, inner.
+    // bottom=30) = PixelRect{-4, -2, 2, 32} - entirely at x in [-4, -2),
+    // off the left edge of a 200-wide surface. Symmetrically the right
+    // strip lands at x in [200+2, 200+4). Neither ever painted a pixel,
+    // for ANY row, on ANY dropdown - the bug this whole slice is for.
+  }
+
+  TEST_CASE(
+      "update_focus_ring() actually paints ring-colored pixels on all four sides, and does "
+      "not paint over the target's own center") {
+    // The layer no existing ring test exercised at all (this file's own
+    // header comment: "No window, no surface... against a plain RenderTree
+    // + WidgetSet"). Geometry-only assertions cannot see a strip that
+    // computes a plausible-looking rectangle sitting entirely off-surface;
+    // only a raster readback can.
+    TreeSpec spec;
+    spec.viewport = dg::PixelSize{100, 60};
+    RenderTree tree{spec};
+    const NodeId root = RenderTree::root();
+    NodeStyle target_style;
+    const Color kTargetColor = Color::rgba(0x20, 0x20, 0x20);
+    target_style.fill = kTargetColor;
+    const NodeId target = tree.add_child(root, PixelRect{10, 10, 60, 30}, target_style);
+
+    FocusRing ring;
+    const Color kRingColor = Color::rgba(0xFF, 0x88, 0x00);
+    dg::update_focus_ring(tree, root, ring, target, kRingColor, /*thickness=*/2, /*gap=*/2);
+
+    std::optional<dg::RasterSurface> surface =
+        dg::RasterSurface::create(tree.viewport().width, tree.viewport().height);
+    REQUIRE(surface.has_value());
+    tree.repaint_full(*surface);
+    const dg::PixelView view = surface->peek_pixels();
+    REQUIRE(view.pixels != nullptr);
+
+    auto pixel_at = [&](int x, int y) {
+      const std::size_t offset =
+          (static_cast<std::size_t>(y) * view.row_bytes) + (static_cast<std::size_t>(x) * 4);
+      return Color::rgba(view.pixels[offset + 2], view.pixels[offset + 1], view.pixels[offset]);
+    };
+
+    // target absolute bounds (10, 10, 60, 30); outer = inflated_by(-2) =
+    // edges (12, 12, 68, 38); inner = inflated_by(-4) = edges (14, 14, 66,
+    // 36). One midpoint sample per strip.
+    CHECK(pixel_at(/*x=*/40, /*y=*/13) == kRingColor);  // top strip, y in [12,14)
+    CHECK(pixel_at(/*x=*/40, /*y=*/37) == kRingColor);  // bottom strip, y in [36,38)
+    CHECK(pixel_at(/*x=*/13, /*y=*/25) == kRingColor);  // left strip, x in [12,14)
+    CHECK(pixel_at(/*x=*/67, /*y=*/25) == kRingColor);  // right strip, x in [66,68)
+
+    // The ring must not paint over the target's own center - the whole
+    // point of a ring rather than a solid overlay.
+    CHECK(pixel_at(/*x=*/40, /*y=*/25) == kTargetColor);
+    CHECK_FALSE(pixel_at(/*x=*/40, /*y=*/25) == kRingColor);
   }
 
   TEST_CASE("two FocusRing instances under the same parent never share a node") {

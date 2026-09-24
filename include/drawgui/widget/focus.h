@@ -283,17 +283,62 @@ class Focus {
 // is the plain, sighted-keyboard-user affordance that makes Tab itself
 // usable, so it belongs to this slice rather than to a future a11y one). ---
 
-// Four thin filled strips - top, bottom, left, right - in the margin OUTSIDE
-// a widget's own bounds, never overlapping it.
+// Four thin filled strips - top, bottom, left, right - INSET from a widget's
+// own bounds, never extending past them.
 //
-// NOT ONE RECTANGLE DRAWN OVER THE WIDGET. RenderTree::hit_test() has no
-// "ignore me" flag (its own header: `Overflow::kClip` and `opacity` are the
-// only two things that change what a point resolves to) - a solid ring
-// rectangle sized to the widget's own bounds would sit on top of it in
-// paint order and would therefore WIN every future hit test against it,
-// silently making a focused button unclickable. Four strips confined to the
-// margin around the widget - never inside it - cannot have this effect: the
-// widget's own bounds are never covered by the ring's bounds.
+// THIS USED TO SAY THE OPPOSITE - "in the margin OUTSIDE a widget's own
+// bounds, never overlapping it" - and the reasoning for that has been
+// superseded, not merely edited around. Recorded here in full because this
+// project's own documentation discipline (doc/focus.md) requires a reversed
+// decision to say so explicitly rather than silently rewrite history:
+//
+// THE OLD ARGUMENT: RenderTree::hit_test() has no "ignore me" flag, so a
+// ring rectangle sized to the widget's own bounds would sit on top of it in
+// PAINT order and therefore win every future hit test against it, making a
+// focused button unclickable. The fix chosen was geometric exclusion: keep
+// the ring's bounds and the widget's bounds disjoint so there is no pixel
+// where this could even arise.
+//
+// WHY IT DOESN'T HOLD: the argument silently assumed hit_test() resolves a
+// point to whichever node's bounds contain it, full stop. It does not.
+// WidgetSet::owner_of() (widget_set.h) takes hit_test()'s answer - the
+// DEEPEST node under the point - and climbs PARENT LINKS to the nearest
+// ancestor that actually carries an attached, interactive Widget. A ring
+// strip has no Widget attached at all (update_focus_ring() below never
+// calls WidgetSet::attach() on ring.top/bottom/left/right), so even a strip
+// that fully overlapped the target in painted pixels would not become the
+// thing a click is attributed to - owner_of() would climb straight past it
+// looking for a Widget, and land on the target itself (or further up) once
+// it finds one. The existing proof this works sits inside the dropdown
+// widget already shipping alongside this file: each row's own label child
+// is `PixelRect{0, 0, width, kRowHeight}` - it already fully covers its
+// row's own bounds - and clicking anywhere on the row hits the row, not
+// nothing, because owner_of() climbs past the label the same way it climbs
+// past a ring strip.
+//
+// THE ACTUAL GEOMETRIC PROBLEM: an OUTWARD ring assumes there is unclaimed
+// margin around the target for it to occupy. Nothing in this file, or in
+// any of its seven call sites (as of this writing), ever guaranteed that.
+// A dropdown row (examples/22_dropdown_menu) is `{0, y, full_width,
+// kRowHeight}` - flush with its container's left/right edges, and flush
+// top-to-bottom against its neighbours - so an outward ring's left/right
+// strips land at x < 0 or x >= width (off the surface entirely) and its
+// top/bottom strips land inside the ADJACENT row for every row but the
+// first and last. The ring was not misplaced; it was asked to occupy pixels
+// that were never free, and PixelRect::from_edges()/inflated_by() have no
+// clamp to catch that - they hand back whatever rectangle the arithmetic
+// produces, negative coordinates included.
+//
+// THE NEW INVARIANT: the ring is confined to `[bounds.left(), bounds.
+// right()) x [bounds.top(), bounds.bottom())` - it never has a pixel
+// outside the target's own bounds - so it needs no assumption about what
+// (if anything) surrounds the target. This holds for a full-width dropdown
+// row exactly as it holds for the padded button in 21_focus/popup_menu.cpp.
+// The strips still never touch each other or overlap in their own painted
+// area (update_focus_ring()'s own math keeps `gap` and `thickness` disjoint
+// bands within `bounds`), and they still carry no attached Widget, so
+// owner_of() still climbs past them - the hit-test safety property is
+// unchanged, only WHERE the pixels are moved to.
 //
 // PERMANENT, LAZILY CREATED, NEVER REMOVED, matching 5-3's list pool and
 // PopupHost's own overlay-close precedent (doc/popup.md section 3): a ring
@@ -314,14 +359,35 @@ struct FocusRing {
 // a NEW FocusRing, not the same one, is created for a popup's own content
 // rather than reusing the host window's), then repositions them:
 //
-//   target.has_value()   outlines `tree.absolute_bounds(*target)`, outset by
-//                        `gap` and `thickness` pixels - a visible ring
-//                        `thickness` px wide, `gap` px clear of the widget.
+//   target.has_value()   outlines `tree.absolute_bounds(*target)` from the
+//                        INSIDE: the ring's outermost edge sits `gap` pixels
+//                        in from the target's own edge, and occupies
+//                        `thickness` more pixels further toward the
+//                        target's center (doc/focus.md's own "why inward"
+//                        section, and FocusRing's own header comment
+//                        above, record why this replaced an earlier
+//                        outward geometry). If `bounds` is too small on
+//                        either axis for `2*(gap+thickness)` to fit without
+//                        the two insets crossing, this degrades to filling
+//                        the WHOLE of `bounds` in ring color rather than
+//                        producing an inverted/overlapping strip - see the
+//                        .cpp's own fill_ring() comment.
 //   target == nullopt    collapses all four strips to an empty PixelRect -
 //                        invisible and, being empty, unhittable too (the
 //                        same "empty rect removes a subtree from painting
 //                        and hit testing" rule doc/clipping.md already
 //                        established for a closed overlay popup).
+//
+// `parent` need not sit at the origin of `tree`'s coordinate space, and its
+// own scroll_offset need not be zero: every strip's absolute position is
+// computed first, from `tree.absolute_bounds(*target)`, and only then
+// converted into `parent`'s own LOCAL space (the exact inverse of
+// RenderTree::Impl::reposition()'s forward transform) before being written
+// with set_local_bounds() - because `set_local_bounds()` takes local
+// coordinates but `parent` is not guaranteed to be the tree root. An
+// overlay popup's own content_root (src/window/popup_host.cpp) is the
+// concrete case this matters for: its absolute origin is the popup's own
+// anchor point, not (0, 0).
 //
 // `ring_color` is read by the caller from Theme::color_value(
 // DG_TOKEN_COLOR_FOCUS_RING, variant) rather than hardcoded - passed in as a
