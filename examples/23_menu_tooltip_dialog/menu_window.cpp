@@ -164,6 +164,15 @@ class Runner {
   // --- Context menu (overlay-only, shares the host's own tree/Focus) ---
   std::optional<dg::PopupHandle> menu_popup_;
   std::vector<dg::NodeId> menu_rows_;
+  // The context menu's own focus ring, distinct from scene_.ring: its four
+  // strip nodes must be children of menu_popup_->content_root (a clipping
+  // container appended to the host tree only once the menu opens), not of
+  // LayoutTree::root() where scene_.ring's own nodes already live - see
+  // examples/22_dropdown_menu/dropdown_window.cpp's popup_ring_ for the
+  // identical reasoning (RenderTree is append-only, so scene_.ring's nodes
+  // can never be reparented under a container that did not exist yet when
+  // they were created).
+  dg::FocusRing menu_ring_;
 
   // --- Tooltip (overlay-only, shares the host's own tree) ---
   std::optional<dg::PopupHandle> tooltip_popup_;
@@ -171,6 +180,13 @@ class Runner {
   // --- Dialog, overlay branch: shares the host's own tree/Focus ---
   bool dialog_overlay_open_ = false;
   std::optional<dialog_panel::Handles> dialog_handles_;
+  // Its own focus ring too, for the same reason menu_ring_ above is not
+  // scene_.ring: dialog_handles_->panel is appended to the host tree
+  // AFTER scene_.ring's four nodes already exist under LayoutTree::root(),
+  // so painting scene_.ring's nodes there would put them UNDER the panel
+  // (and its backdrop) in paint order rather than on top of the close
+  // button they are meant to outline.
+  dg::FocusRing dialog_overlay_ring_;
 
   // --- Dialog, native branch: a genuine second OS window, its own
   // RenderTree/WidgetSet/Focus - built directly on WindowManager rather
@@ -203,8 +219,22 @@ std::optional<int> Runner::menu_row_index_of(dg::NodeId id) const {
 }
 
 void Runner::refresh_menu_ring() {
+  const dg::Color color = ring_color(scene_.theme);
+  // Ring parent/instance follow whichever scope is currently active - see
+  // menu_ring_/dialog_overlay_ring_'s own declaration comments for why
+  // neither can be scene_.ring while its scope is open.
+  if (menu_popup_.has_value() && menu_popup_->open) {
+    dg::update_focus_ring(scene_.tree.render(), menu_popup_->content_root, menu_ring_,
+                          scene_.focus.current(), color);
+    return;
+  }
+  if (dialog_overlay_open_ && dialog_handles_.has_value()) {
+    dg::update_focus_ring(scene_.tree.render(), dialog_handles_->panel, dialog_overlay_ring_,
+                          scene_.focus.current(), color);
+    return;
+  }
   dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
-                        scene_.focus.current(), ring_color(scene_.theme));
+                        scene_.focus.current(), color);
 }
 
 void Runner::open_context_menu(dg::PixelPoint at) {
@@ -218,6 +248,12 @@ void Runner::open_context_menu(dg::PixelPoint at) {
     return;
   }
   menu_popup_ = shown.value();
+  // Reset rather than reuse: a previous menu_ring_ (if any) has its four
+  // strip nodes under a NOW-CLOSED, permanently-empty content_root
+  // (PopupHost::close()'s own append-only cost) - see popup_ring_'s reset
+  // comment in examples/22_dropdown_menu/dropdown_window.cpp for the
+  // identical reasoning.
+  menu_ring_ = dg::FocusRing{};
 
   menu_rows_ = menu_rows::build(scene_.tree.render(), scene_.widgets, menu_popup_->content_root,
                                 kMenuItems, size.width, scene_.ui_font, 14.0F);
@@ -300,10 +336,18 @@ void Runner::open_dialog() {
     dialog_handles_ =
         dialog_panel::build(scene_.tree.render(), scene_.widgets, dg::LayoutTree::root(),
                             size.value(), dg::PixelSize{280, 120}, scene_.ui_font);
+    // Reset before enter_scope/refresh_menu_ring() below: a previous
+    // dialog_overlay_ring_ (if any) has its four strip nodes under a
+    // now-orphaned earlier panel (dialog_handles_ is never cleared -
+    // RenderTree is append-only, matching menu_ring_'s own reasoning
+    // above), and dialog_overlay_open_ must already be true by the time
+    // refresh_menu_ring() runs or it falls through to scene_.ring/root
+    // instead of this branch's own ring.
+    dialog_overlay_ring_ = dg::FocusRing{};
+    dialog_overlay_open_ = true;
     scene_.focus.enter_scope(dialog_handles_->panel, /*modal=*/true);
     scene_.focus.set_guarded(scene_.tree.render(), dialog_handles_->close_button);
     refresh_menu_ring();
-    dialog_overlay_open_ = true;
     return;
   }
   open_dialog_native();

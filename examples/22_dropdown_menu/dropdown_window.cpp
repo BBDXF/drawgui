@@ -133,6 +133,16 @@ class Runner {
   dg::PopupHost popup_host_;
   std::optional<dg::PopupHandle> popup_;
   std::vector<dg::NodeId> rows_;
+  // The popup's own focus ring, distinct from scene_.ring (the host
+  // window's). scene_.ring's four strip nodes are already children of
+  // LayoutTree::root() by the time a popup ever opens - RenderTree is
+  // append-only, so they can never be reparented under
+  // popup_->content_root. A fresh dg::FocusRing{} is created in
+  // open_dropdown() instead, growing its own four nodes under the new
+  // content_root the same way scene_.ring grew its own under the host
+  // root - matching the native-popup-era `popup_native_ring_` this
+  // replaces.
+  dg::FocusRing popup_ring_;
 };
 
 std::optional<int> Runner::row_index_of(dg::NodeId id) const {
@@ -145,6 +155,15 @@ std::optional<int> Runner::row_index_of(dg::NodeId id) const {
 }
 
 void Runner::refresh_ring() {
+  // The ring lives wherever the currently-focused node lives: the host
+  // root while no popup is open, popup_->content_root while one is - see
+  // popup_ring_'s own declaration comment for why this cannot be a single
+  // shared FocusRing.
+  if (popup_.has_value() && popup_->open) {
+    dg::update_focus_ring(scene_.tree.render(), popup_->content_root, popup_ring_,
+                          scene_.focus.current(), ring_color(scene_.theme));
+    return;
+  }
   dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
                         scene_.focus.current(), ring_color(scene_.theme));
 }
@@ -161,6 +180,12 @@ void Runner::open_dropdown() {
     return;
   }
   popup_ = shown.value();
+  // Reset rather than reuse: the previous popup_ring_ (if any) still has
+  // its four strip nodes under a NOW-CLOSED, permanently-empty
+  // content_root (PopupHost::close()'s own append-only cost). A fresh
+  // dg::FocusRing{} grows four new nodes under the fresh content_root
+  // this show() call just created.
+  popup_ring_ = dg::FocusRing{};
   const std::optional<int> selected =
       scene_.widgets.dropdown_selected_index(scene_.handles.dropdown);
 

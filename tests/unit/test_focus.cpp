@@ -523,4 +523,132 @@ TEST_SUITE("focus") {
     CHECK(base_ring.left != popup_ring.left);
     CHECK(base_ring.right != popup_ring.right);
   }
+
+  TEST_CASE(
+      "a ring reused across a later-added, non-origin clipping container is painted UNDER "
+      "the container (the examples/22_dropdown_menu overlay-ring regression), while a fresh "
+      "FocusRing parented at the container itself paints correctly on top") {
+    // The real shape: a host ring is created FIRST (examples/22_dropdown_menu's
+    // scene_.ring, examples/23_menu_tooltip_dialog's scene_.ring, ...), and
+    // only LATER does an overlay - PopupHost::show()'s own Overflow::kClip
+    // content_root - get add_child()'d as a new sibling under root, at a
+    // non-zero absolute position. RenderTree::Impl::paint_node_and_children
+    // walks a node's children in add order (tree_paint.cpp's own doc
+    // comment; render/hit_test.cpp's header comment states the same rule
+    // from the reading-backwards side) - so the container, added after the
+    // ring, paints AFTER it and its own fill covers the ring's strips
+    // wherever they overlap. This is exactly the bug commit 48c9cd3 left
+    // behind: reusing the host's own FocusRing with the host root as
+    // `parent` while the actual target lives inside a popup's content_root.
+    TreeSpec spec;
+    spec.viewport = dg::PixelSize{200, 160};
+    RenderTree tree{spec};
+    const NodeId root = RenderTree::root();
+    const Color kRingColor = Color::rgba(0xFF, 0x88, 0x00);
+
+    // 1. The host ring, created first, targeting an ordinary host node -
+    // exactly like scene_.ring's first-ever update_focus_ring() call at
+    // scene build time, long before any popup exists.
+    const NodeId host_target =
+        tree.add_child(root, PixelRect{10, 10, 60, 24}, NodeStyle{});
+    FocusRing host_ring;
+    dg::update_focus_ring(tree, root, host_ring, host_target, kRingColor,
+                          /*thickness=*/2, /*gap=*/2);
+
+    // 2. The overlay container, added AFTER the ring - PopupHost::show()'s
+    // own container_style: Overflow::kClip, non-zero absolute position
+    // (content_bounds sits at the popup's own anchor, not the origin).
+    NodeStyle container_style;
+    container_style.overflow = dg::Overflow::kClip;
+    container_style.fill = Color::rgba(0x11, 0x11, 0x11);
+    const PixelRect content_bounds{40, 60, 100, 50};
+    const NodeId container = tree.add_child(root, content_bounds, container_style);
+
+    // 3. A target row inside the container, matching a dropdown row's own
+    // full-width-of-its-container shape.
+    NodeStyle row_style;
+    row_style.fill = Color::rgba(0x22, 0x22, 0x22);
+    const NodeId row = tree.add_child(container, PixelRect{0, 0, 100, 28}, row_style);
+    const PixelRect row_absolute = tree.absolute_bounds(row);
+
+    // --- The regression: reusing host_ring, parented at root, retargeted
+    // at `row`. host_ring.created is already true, so update_focus_ring()
+    // repositions the SAME four nodes created in step 1 - they remain
+    // children of root, created before `container`, and therefore still
+    // painted before it no matter where they are repositioned to. ---
+    dg::update_focus_ring(tree, root, host_ring, row, kRingColor, /*thickness=*/2, /*gap=*/2);
+
+    // Geometry alone looks right - the ring's absolute bounds do wrap the
+    // row - which is exactly why this bug survived on pure-geometry
+    // assertions until a raster readback was added.
+    const PixelRect outer = row_absolute.inflated_by(-2);
+    CHECK(tree.absolute_bounds(host_ring.top).top() == outer.top());
+
+    std::optional<dg::RasterSurface> broken_surface =
+        dg::RasterSurface::create(tree.viewport().width, tree.viewport().height);
+    REQUIRE(broken_surface.has_value());
+    tree.repaint_full(*broken_surface);
+    const dg::PixelView broken_view = broken_surface->peek_pixels();
+    REQUIRE(broken_view.pixels != nullptr);
+    auto pixel_at = [](const dg::PixelView& view, int x, int y) {
+      const std::size_t offset =
+          (static_cast<std::size_t>(y) * view.row_bytes) + (static_cast<std::size_t>(x) * 4);
+      return Color::rgba(view.pixels[offset + 2], view.pixels[offset + 1], view.pixels[offset]);
+    };
+
+    // The four points a correctly-visible ring would paint ring-colored -
+    // one per strip, computed the same way the raster test above does.
+    const int top_y = outer.top() + 1;
+    const int bottom_y = outer.bottom() - 1;
+    const int left_x = outer.left() + 1;
+    const int right_x = outer.right() - 1;
+    const int mid_x = row_absolute.x + (row_absolute.width / 2);
+    const int mid_y = row_absolute.y + (row_absolute.height / 2);
+
+    // THE BUG, CAUGHT: none of the four points is ring-colored. The
+    // container's own fill (painted after the stale ring) covers every one
+    // of them - this is the "one-frame flash then gone" symptom exactly:
+    // geometry says the ring is there, the raster says otherwise.
+    CHECK(pixel_at(broken_view, mid_x, top_y) != kRingColor);
+    CHECK(pixel_at(broken_view, mid_x, bottom_y) != kRingColor);
+    CHECK(pixel_at(broken_view, left_x, mid_y) != kRingColor);
+    CHECK(pixel_at(broken_view, right_x, mid_y) != kRingColor);
+
+    // --- The fix: a NEW FocusRing, parented at the container itself. Its
+    // four nodes are created (add_child) as children of `container` right
+    // now - after `row`, so painted after it (on top, within the
+    // container's own clip), and as descendants of `container` they are
+    // painted wherever `container` is painted, never before it. ---
+    FocusRing popup_ring;
+    dg::update_focus_ring(tree, container, popup_ring, row, kRingColor, /*thickness=*/2,
+                          /*gap=*/2);
+
+    // Coordinate transform check: `container` sits at a non-origin
+    // absolute position (content_bounds above), so update_focus_ring()'s
+    // absolute -> parent-local conversion is genuinely exercised here (the
+    // .cpp's own comment: "every existing call site today passes a parent
+    // whose absolute origin ... [is] (0, 0), making this a no-op - but it
+    // is not a no-op in general"). The ring's ABSOLUTE bounds must still
+    // wrap the row's absolute bounds correctly despite the non-zero parent
+    // origin.
+    CHECK(tree.absolute_bounds(popup_ring.top).top() == outer.top());
+    CHECK(tree.absolute_bounds(popup_ring.bottom).bottom() == outer.bottom());
+    CHECK(tree.absolute_bounds(popup_ring.left).left() == outer.left());
+    CHECK(tree.absolute_bounds(popup_ring.right).right() == outer.right());
+
+    std::optional<dg::RasterSurface> fixed_surface =
+        dg::RasterSurface::create(tree.viewport().width, tree.viewport().height);
+    REQUIRE(fixed_surface.has_value());
+    tree.repaint_full(*fixed_surface);
+    const dg::PixelView fixed_view = fixed_surface->peek_pixels();
+    REQUIRE(fixed_view.pixels != nullptr);
+
+    // THE FIX, CONFIRMED: all four points are now ring-colored - the ring
+    // is not merely geometrically correct but actually VISIBLE, unhidden
+    // by the container it lives inside.
+    CHECK(pixel_at(fixed_view, mid_x, top_y) == kRingColor);
+    CHECK(pixel_at(fixed_view, mid_x, bottom_y) == kRingColor);
+    CHECK(pixel_at(fixed_view, left_x, mid_y) == kRingColor);
+    CHECK(pixel_at(fixed_view, right_x, mid_y) == kRingColor);
+  }
 }

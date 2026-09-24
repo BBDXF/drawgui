@@ -152,11 +152,20 @@ class Runner {
   std::optional<dg::PopupHandle> popup_;
   PopupKind popup_kind_ = PopupKind::kNone;
   std::vector<dg::NodeId> popup_rows_;
+  // The popup's own focus ring, distinct from scene_.ring - see
+  // examples/22_dropdown_menu/dropdown_window.cpp's popup_ring_ for why
+  // (RenderTree is append-only, so scene_.ring's nodes, already children of
+  // LayoutTree::root(), can never be reparented under popup_->content_root).
+  dg::FocusRing popup_ring_;
 
   std::optional<dg::PopupHandle> tooltip_popup_;
 
   bool dialog_open_ = false;
   std::optional<profile_dialog::Handles> dialog_handles_;
+  // Same reasoning as popup_ring_ above: dialog_handles_->panel is appended
+  // to the host tree AFTER scene_.ring's nodes already exist, so reusing
+  // scene_.ring here would put the ring under the panel in paint order.
+  dg::FocusRing dialog_ring_;
 };
 
 std::optional<int> Runner::row_index_of(dg::NodeId id) const {
@@ -169,8 +178,22 @@ std::optional<int> Runner::row_index_of(dg::NodeId id) const {
 }
 
 void Runner::refresh_ring() {
+  const dg::Color color = ring_color(scene_.theme);
+  // Ring parent/instance follow whichever scope is currently active - see
+  // popup_ring_/dialog_ring_'s own declaration comments for why neither
+  // can be scene_.ring while its scope is open.
+  if (popup_.has_value() && popup_->open) {
+    dg::update_focus_ring(scene_.tree.render(), popup_->content_root, popup_ring_,
+                          scene_.focus.current(), color);
+    return;
+  }
+  if (dialog_open_ && dialog_handles_.has_value()) {
+    dg::update_focus_ring(scene_.tree.render(), dialog_handles_->panel, dialog_ring_,
+                          scene_.focus.current(), color);
+    return;
+  }
   dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
-                        scene_.focus.current(), ring_color(scene_.theme));
+                        scene_.focus.current(), color);
 }
 
 void Runner::open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSize size) {
@@ -183,6 +206,10 @@ void Runner::open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSi
   }
   popup_ = shown.value();
   popup_kind_ = kind;
+  // Reset rather than reuse: a previous popup_ring_ (if any) still has its
+  // four strip nodes under a NOW-CLOSED, permanently-empty content_root
+  // (PopupHost::close()'s own append-only cost).
+  popup_ring_ = dg::FocusRing{};
   const std::vector<std::string>& items =
       kind == PopupKind::kDropdown ? showcase_scene::kSortOptions : kContextMenuItems;
 
@@ -275,10 +302,16 @@ void Runner::open_dialog() {
   dialog_handles_ = profile_dialog::build(
       scene_.tree.render(), scene_.widgets, dg::LayoutTree::root(), size.value(),
       dg::PixelSize{320, 150}, scene_.ui_font, scene_.theme, scene_.variant);
+  // Reset before enter_scope/refresh_ring() below: a previous dialog_ring_
+  // (if any) has its four strip nodes under a now-orphaned earlier panel
+  // (dialog_handles_ is never cleared), and dialog_open_ must already be
+  // true by the time refresh_ring() runs or it falls through to
+  // scene_.ring/root instead of this branch's own ring.
+  dialog_ring_ = dg::FocusRing{};
+  dialog_open_ = true;
   scene_.focus.enter_scope(dialog_handles_->panel, /*modal=*/true);
   scene_.focus.set_guarded(scene_.tree.render(), dialog_handles_->name_field);
   refresh_ring();
-  dialog_open_ = true;
 }
 
 void Runner::close_dialog() {
