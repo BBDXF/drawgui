@@ -192,7 +192,7 @@ void Runner::resize_if_needed() {
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
   if (popup_.has_value() && popup_->open) {
-    if (popup_host_.handle_pointer(*popup_, event.window, event, dg::PopupFlags{})) {
+    if (popup_host_.handle_pointer(*popup_, event.window, event)) {
       close_popup();
       return;
     }
@@ -213,7 +213,7 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
 
 void Runner::handle_key(const dg::KeyEvent& event) {
   if (popup_.has_value() && popup_->open) {
-    if (popup_host_.handle_key(*popup_, event.window, event, dg::PopupFlags{})) {
+    if (popup_host_.handle_key(*popup_, event.window, event)) {
       close_popup();
       return;
     }

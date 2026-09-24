@@ -78,6 +78,16 @@ namespace dg {
 // number and a large first one, and calling that "incremental" would be a
 // claim the numbers do not support.
 struct LayoutStats {
+  // The length of the `nodes` vector, which is sized to the RenderTree's own
+  // index space (add_child()'s `nodes.resize(id.index + 1)`), not to the
+  // count of nodes LayoutTree actually laid out. It is therefore sparse
+  // whenever something adds nodes to the RenderTree outside of LayoutTree's
+  // own add_child() - PopupHost's overlay containers are exactly this case
+  // (see popup_host.h's own top comment) - or whenever remove_child() has
+  // left a hole. In either case this number reads higher than the node
+  // count actually participating in layout. nodes_visited/nodes_relaid_out
+  // below are unaffected by either case - they are the counts every
+  // exactly-once-layout assertion in this codebase actually relies on.
   std::size_t nodes_total = 0;
 
   // Nodes whose layout() was entered, including the ones that immediately

@@ -81,7 +81,6 @@ Expected<PopupHandle, WindowError> PopupHost::show(WindowId parent_window,
                                                    const PixelRect& anchor_rect,
                                                    PixelSize content_size,
                                                    PopupPlacement preferred, PopupFlags flags) {
-  (void)flags;
   const Expected<PixelSize, WindowError> parent_size = windows_->drawable_size(parent_window);
   if (!parent_size) {
     return Unexpected{parent_size.error()};
@@ -90,8 +89,8 @@ Expected<PopupHandle, WindowError> PopupHost::show(WindowId parent_window,
       resolve_popup_placement(anchor_rect, content_size, preferred, parent_size.value());
 
   // One clipping container, appended directly to the parent's RenderTree
-  // (never through its LayoutTree - see popup_host.h's own header comment on
-  // why that is safe only while at most one overlay is open). Confined to
+  // (never through its LayoutTree - see popup_host.h's own top comment on
+  // why that is safe regardless of how many overlays are open). Confined to
   // the parent window's own surface by construction: it is a node of that
   // surface's tree, so it is clipped to the window the same way any other
   // node is.
@@ -101,40 +100,38 @@ Expected<PopupHandle, WindowError> PopupHost::show(WindowId parent_window,
 
   PopupHandle handle;
   handle.open = true;
+  handle.tree = &parent_tree;
+  handle.window = parent_window;
   handle.content_root = container;
   handle.content_bounds = resolved;
-  has_open_overlay_ = true;
-  open_tree_ = &parent_tree;
+  handle.flags = flags;
   return handle;
 }
 
 void PopupHost::close(PopupHandle& handle) {
-  if (!handle.open) {
+  if (!handle.open || handle.tree == nullptr) {
     return;
   }
-  // Clip the container to nothing rather than deleting it - RenderTree is
-  // append-only. See close()'s own header comment for the accepted cost.
-  if (open_tree_ != nullptr) {
-    open_tree_->set_local_bounds(handle.content_root, PixelRect{});
-  }
+  // Clip the container to nothing rather than deleting it - a choice, not a
+  // RenderTree limitation. See close()'s own header comment for why and for
+  // the accepted cost.
+  handle.tree->set_local_bounds(handle.content_root, PixelRect{});
   handle.open = false;
-  has_open_overlay_ = false;
-  open_tree_ = nullptr;
 }
 
 bool PopupHost::handle_pointer(PopupHandle& handle, WindowId event_window,
-                               const PointerEvent& event, PopupFlags flags) {
-  (void)event_window;
-  if (!handle.open || !flags.dismiss_on_click_outside || event.action != PointerAction::kDown) {
+                               const PointerEvent& event) {
+  if (!handle.open || !handle.flags.dismiss_on_click_outside ||
+      event.action != PointerAction::kDown) {
     return false;
   }
 
-  // Overlay: only the parent window's own events can name a position inside
-  // or outside content_bounds. A kDown on any OTHER window (a click on a
-  // DIFFERENT top-level window while this one is merely unfocused) is
-  // outside by definition.
+  // Only the popup's own window's events can name a position inside or
+  // outside content_bounds. A kDown on any OTHER window is outside by
+  // definition, checked here for real (see this method's own header
+  // comment on the previous `(void)event_window` bug).
   const PixelPoint at{event.x, event.y};
-  const bool inside = contains(handle.content_bounds, at);
+  const bool inside = event_window == handle.window && contains(handle.content_bounds, at);
   if (inside) {
     return false;
   }
@@ -142,10 +139,11 @@ bool PopupHost::handle_pointer(PopupHandle& handle, WindowId event_window,
   return true;
 }
 
-bool PopupHost::handle_key(PopupHandle& handle, WindowId event_window, const KeyEvent& event,
-                           PopupFlags flags) {
-  (void)event_window;
-  if (!handle.open || !flags.dismiss_on_escape || event.action != KeyAction::kDown) {
+bool PopupHost::handle_key(PopupHandle& handle, WindowId event_window, const KeyEvent& event) {
+  if (event_window != handle.window) {
+    return false;
+  }
+  if (!handle.open || !handle.flags.dismiss_on_escape || event.action != KeyAction::kDown) {
     return false;
   }
   if (event.key != Key::kEscape) {

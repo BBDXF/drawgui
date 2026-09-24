@@ -223,7 +223,10 @@ void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
   const dg::LayoutStats layout_after_popup = scene.tree.layout();
   check(layout_after_popup.nodes_relaid_out == 0,
         "opening the popup (RenderTree::add_child, never through LayoutTree) costs zero "
-        "relayout",
+        "relayout - the formal regression test for popup_host.h's verified layout-safety "
+        "claim (overlay containers never enter any LayoutNode::children list, so no dirty "
+        "walk ever reaches them), not merely an assertion that happens to pass while under "
+        "a since-removed caller obligation not to call layout() at all",
         out, ok);
 
   dg::PopupHandle mutable_handle = handle;

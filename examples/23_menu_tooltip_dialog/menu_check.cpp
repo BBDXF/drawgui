@@ -247,7 +247,7 @@ void check_context_menu(std::ostream& out, bool& ok) {
 
   // Escape closes without a selection - PopupHost's own dismissal, unchanged.
   const dg::KeyEvent escape{window.value(), dg::KeyAction::kDown, dg::Key::kEscape};
-  const bool escape_closed = host.handle_key(handle, window.value(), escape, PopupFlags{});
+  const bool escape_closed = host.handle_key(handle, window.value(), escape);
   check(escape_closed, "Escape closes the menu (PopupHost's own dismissal, unmodified)", out,
         ok);
   if (escape_closed) {
@@ -266,7 +266,7 @@ void check_context_menu(std::ostream& out, bool& ok) {
   scene.focus.enter_scope(handle.content_root);
   const dg::PointerEvent outside_click{window.value(), dg::PointerAction::kDown, 5, 5};
   const bool outside_closed =
-      host.handle_pointer(handle, window.value(), outside_click, PopupFlags{});
+      host.handle_pointer(handle, window.value(), outside_click);
   check(outside_closed, "a click OUTSIDE the menu's bounds closes it without a selection", out,
         ok);
   if (outside_closed) {

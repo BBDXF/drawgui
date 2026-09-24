@@ -410,7 +410,7 @@ void Runner::handle_key_dialog(const dg::KeyEvent& event) {
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
   if (popup_.has_value() && popup_->open) {
-    if (popup_host_.handle_pointer(*popup_, event.window, event, dg::PopupFlags{})) {
+    if (popup_host_.handle_pointer(*popup_, event.window, event)) {
       close_popup(std::nullopt);
       return;
     }
@@ -468,7 +468,7 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
 void Runner::handle_key(const dg::KeyEvent& event) {
   if (popup_.has_value() && popup_->open) {
     dg::PopupHandle& handle = *popup_;
-    if (popup_host_.handle_key(handle, event.window, event, dg::PopupFlags{})) {
+    if (popup_host_.handle_key(handle, event.window, event)) {
       close_popup(std::nullopt);
       return;
     }

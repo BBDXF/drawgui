@@ -484,7 +484,7 @@ void Runner::handle_pointer_menu(const dg::PointerEvent& event) {
     return;
   }
   dg::PopupHandle& handle = *menu_popup_;
-  if (popup_host_.handle_pointer(handle, event.window, event, dg::PopupFlags{})) {
+  if (popup_host_.handle_pointer(handle, event.window, event)) {
     close_context_menu(std::nullopt);
     return;
   }
@@ -590,7 +590,7 @@ void Runner::handle_key_menu(const dg::KeyEvent& event) {
     return;
   }
   dg::PopupHandle& handle = *menu_popup_;
-  if (popup_host_.handle_key(handle, event.window, event, dg::PopupFlags{})) {
+  if (popup_host_.handle_key(handle, event.window, event)) {
     close_context_menu(std::nullopt);
     return;
   }
@@ -671,6 +671,14 @@ int Runner::run() {
     // timeout) still needs this in case the delay elapsed in the meantime,
     // and update_hover_timer()/hover_ready() are cheap, idempotent reads -
     // there is no cost to paying for this every iteration.
+    //
+    // Deliberately unconditional on menu_popup_ too: this does not check
+    // whether a context menu is currently open before also opening a
+    // tooltip. With PopupHost's per-handle fix, that is no longer a
+    // correctness bug (each PopupHandle is self-contained and closes
+    // independently), only a product-UX question - should a tooltip be
+    // suppressed while a context menu is open? - left for a separate,
+    // deliberate decision rather than settled here as a side effect.
     update_tooltip();
 
     if (!host_surface_.has_value()) {

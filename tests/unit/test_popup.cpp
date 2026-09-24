@@ -9,9 +9,17 @@
 // this file is the exhaustive matrix that would be unwieldy to drive through
 // that heavier path.
 
+#include <cstdlib>
+#include <utility>
+
 #include <doctest/doctest.h>
 
+#include "drawgui/base/expected.h"
+#include "drawgui/layout/box.h"
+#include "drawgui/layout/layout_tree.h"
+#include "drawgui/render/render_tree.h"
 #include "drawgui/window/popup_host.h"
+#include "drawgui/window/window_manager.h"
 
 namespace {
 
@@ -166,6 +174,226 @@ TEST_CASE("a zero-size anchor places content flush against its own point") {
   const PixelRect result = resolve_popup_placement(
       PixelRect{100, 100, 0, 0}, PixelSize{160, 104}, PopupPlacement::kBelow, PixelSize{400, 300});
   CHECK(result == PixelRect{100, 100, 160, 104});
+}
+
+}  // namespace
+
+// --- PopupHost, through a real (dummy-driver) WindowManager --------------
+//
+// Everything above only ever constructed the pure function. The bug this
+// file exists to catch (two concurrently-open overlays, the second one's
+// close() silently no-oping the first) can only be triggered by actually
+// constructing PopupHost against a real WindowManager and window, which none
+// of the twelve cases above did - that omission is exactly how the bug
+// escaped this file the first time. See examples/14_popup/popup_check.cpp
+// for the construction shape this borrows.
+namespace {
+
+using dg::BoxStyle;
+using dg::Expected;
+using dg::KeyAction;
+using dg::KeyEvent;
+using dg::Key;
+using dg::LayoutTree;
+using dg::NodeId;
+using dg::NodeStyle;
+using dg::PixelPoint;
+using dg::PointerAction;
+using dg::PointerEvent;
+using dg::PopupFlags;
+using dg::PopupHandle;
+using dg::PopupHost;
+using dg::RenderTree;
+using dg::TreeSpec;
+using dg::WindowError;
+using dg::WindowId;
+using dg::WindowManager;
+using dg::WindowSpec;
+
+constexpr PixelSize kHostViewport{400, 300};
+
+struct HostFixture {
+  WindowManager windows;
+  WindowId window;
+
+  static HostFixture make() {
+    setenv("SDL_VIDEODRIVER", "dummy", 1);
+    Expected<WindowManager, WindowError> made = WindowManager::create();
+    REQUIRE(made.has_value());
+    WindowSpec spec;
+    spec.title = "popup host unit test";
+    spec.width = kHostViewport.width;
+    spec.height = kHostViewport.height;
+    WindowManager mgr = std::move(made.value());
+    Expected<WindowId, WindowError> opened = mgr.open(spec);
+    REQUIRE(opened.has_value());
+    return HostFixture{std::move(mgr), opened.value()};
+  }
+};
+
+TEST_CASE("two concurrently-open overlays each close independently") {
+  HostFixture fixture = HostFixture::make();
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  RenderTree tree{spec};
+  PopupHost host{fixture.windows};
+
+  const PixelRect anchor_a{10, 10, 20, 20};
+  const PixelRect anchor_b{200, 10, 20, 20};
+  const PixelSize size{50, 30};
+
+  Expected<PopupHandle, WindowError> a =
+      host.show(fixture.window, tree, anchor_a, size, PopupPlacement::kBelow, PopupFlags{});
+  Expected<PopupHandle, WindowError> b =
+      host.show(fixture.window, tree, anchor_b, size, PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(a.has_value());
+  REQUIRE(b.has_value());
+  CHECK(a.value().content_root != b.value().content_root);
+
+  PopupHandle handle_a = a.value();
+  PopupHandle handle_b = b.value();
+
+  // Close the SECOND-opened handle first - the exact order that used to
+  // clobber PopupHost's single open_tree_ pointer and leave the first
+  // handle's close() a no-op.
+  host.close(handle_b);
+  CHECK(tree.absolute_bounds(handle_b.content_root).is_empty());
+
+  host.close(handle_a);
+  CHECK(tree.absolute_bounds(handle_a.content_root).is_empty());
+}
+
+TEST_CASE("closing one handle does not touch an unrelated RenderTree") {
+  HostFixture fixture = HostFixture::make();
+  TreeSpec spec1;
+  spec1.viewport = kHostViewport;
+  RenderTree tree1{spec1};
+  TreeSpec spec2;
+  spec2.viewport = kHostViewport;
+  RenderTree tree2{spec2};
+
+  NodeStyle unrelated_style;
+  const NodeId unrelated =
+      tree2.add_child(RenderTree::root(), PixelRect{5, 5, 40, 40}, unrelated_style);
+  const PixelRect unrelated_before = tree2.absolute_bounds(unrelated);
+
+  PopupHost host{fixture.windows};
+  const PixelRect anchor{10, 10, 20, 20};
+  const PixelSize size{50, 30};
+  Expected<PopupHandle, WindowError> a =
+      host.show(fixture.window, tree1, anchor, size, PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(a.has_value());
+  PopupHandle handle_a = a.value();
+
+  host.close(handle_a);
+  CHECK(tree2.absolute_bounds(unrelated) == unrelated_before);
+}
+
+TEST_CASE("a kDown on a different window closes the popup even inside content_bounds") {
+  HostFixture fixture = HostFixture::make();
+  WindowSpec spec2;
+  spec2.title = "second window";
+  spec2.width = kHostViewport.width;
+  spec2.height = kHostViewport.height;
+  Expected<WindowId, WindowError> window2 = fixture.windows.open(spec2);
+  REQUIRE(window2.has_value());
+
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  RenderTree tree{spec};
+  PopupHost host{fixture.windows};
+  const PixelRect anchor{10, 10, 20, 20};
+  const PixelSize size{50, 30};
+  Expected<PopupHandle, WindowError> opened =
+      host.show(fixture.window, tree, anchor, size, PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(opened.has_value());
+  PopupHandle handle = opened.value();
+
+  // Coordinates deliberately land INSIDE handle.content_bounds - only the
+  // window mismatch should matter.
+  const PointerEvent event{window2.value(), PointerAction::kDown, handle.content_bounds.x + 5,
+                           handle.content_bounds.y + 5};
+  CHECK(host.handle_pointer(handle, window2.value(), event));
+  CHECK_FALSE(handle.open);
+}
+
+TEST_CASE("Escape on a different window does not close the popup") {
+  HostFixture fixture = HostFixture::make();
+  WindowSpec spec2;
+  spec2.title = "second window";
+  spec2.width = kHostViewport.width;
+  spec2.height = kHostViewport.height;
+  Expected<WindowId, WindowError> window2 = fixture.windows.open(spec2);
+  REQUIRE(window2.has_value());
+
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  RenderTree tree{spec};
+  PopupHost host{fixture.windows};
+  const PixelRect anchor{10, 10, 20, 20};
+  const PixelSize size{50, 30};
+  Expected<PopupHandle, WindowError> opened =
+      host.show(fixture.window, tree, anchor, size, PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(opened.has_value());
+  PopupHandle handle = opened.value();
+
+  const KeyEvent escape{window2.value(), KeyAction::kDown, Key::kEscape};
+  CHECK_FALSE(host.handle_key(handle, window2.value(), escape));
+  CHECK(handle.open);
+}
+
+TEST_CASE("layout_full() on the caller's LayoutTree does not move an open overlay") {
+  HostFixture fixture = HostFixture::make();
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  LayoutTree layout{spec};
+
+  // A handful of ordinary layout nodes, so layout_full() has real work to
+  // do, not just an empty root.
+  BoxStyle box;
+  box.width = 40;
+  box.height = 20;
+  layout.add_child(LayoutTree::root(), box, NodeStyle{});
+  layout.add_child(LayoutTree::root(), box, NodeStyle{});
+
+  PopupHost host{fixture.windows};
+  const PixelRect anchor{10, 10, 20, 20};
+  const PixelSize size{50, 30};
+  Expected<PopupHandle, WindowError> opened = host.show(
+      fixture.window, layout.render(), anchor, size, PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(opened.has_value());
+  PopupHandle handle = opened.value();
+
+  const PixelRect before = layout.render().absolute_bounds(handle.content_root);
+  layout.layout_full();
+  CHECK(layout.render().absolute_bounds(handle.content_root) == before);
+}
+
+TEST_CASE("a LayoutTree::add_child() hole after an overlay is open still doesn't move it") {
+  HostFixture fixture = HostFixture::make();
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  LayoutTree layout{spec};
+
+  PopupHost host{fixture.windows};
+  const PixelRect anchor{10, 10, 20, 20};
+  const PixelSize size{50, 30};
+  Expected<PopupHandle, WindowError> opened = host.show(
+      fixture.window, layout.render(), anchor, size, PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(opened.has_value());
+  PopupHandle handle = opened.value();
+  const PixelRect before = layout.render().absolute_bounds(handle.content_root);
+
+  // Add MORE LayoutTree-owned nodes after the overlay was already appended
+  // to the RenderTree - this is exactly the "hole in `nodes`" shape
+  // layout_tree.h's LayoutStats::nodes_total comment now describes.
+  BoxStyle box;
+  box.width = 10;
+  box.height = 10;
+  layout.add_child(LayoutTree::root(), box, NodeStyle{});
+  layout.layout_full();
+
+  CHECK(layout.render().absolute_bounds(handle.content_root) == before);
 }
 
 }  // namespace

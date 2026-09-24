@@ -190,7 +190,7 @@ int check_overlay(std::ostream& out, bool& ok) {
   // Dismissal: click outside closes it.
   const dg::PointerEvent outside_click{host_window.value(), dg::PointerAction::kDown, 5, 5};
   const bool dismissed_by_click =
-      host.handle_pointer(handle, host_window.value(), outside_click, PopupFlags{});
+      host.handle_pointer(handle, host_window.value(), outside_click);
   check(dismissed_by_click && !handle.open, "click outside dismisses the overlay", out, ok);
 
   // Once closed, the region it used to occupy is not hittable as the
@@ -222,14 +222,14 @@ int check_overlay(std::ostream& out, bool& ok) {
                                       reopened_handle.content_bounds.x + 10,
                                       reopened_handle.content_bounds.y + 10};
   const bool stayed_open =
-      !host.handle_pointer(reopened_handle, host_window.value(), inside_click, PopupFlags{});
+      !host.handle_pointer(reopened_handle, host_window.value(), inside_click);
   check(stayed_open && reopened_handle.open, "click inside does not dismiss the overlay", out,
         ok);
 
   // Escape closes it.
   const dg::KeyEvent escape{host_window.value(), dg::KeyAction::kDown, dg::Key::kEscape};
   const bool dismissed_by_escape =
-      host.handle_key(reopened_handle, host_window.value(), escape, PopupFlags{});
+      host.handle_key(reopened_handle, host_window.value(), escape);
   check(dismissed_by_escape && !reopened_handle.open, "Escape dismisses the overlay", out, ok);
 
   // Re-open near the RIGHT edge of the host window, exercising the
