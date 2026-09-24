@@ -1753,7 +1753,7 @@ drawgui/
 | **P1** 平台与上屏 | `IPlatform`/`IWindow` 接口（含 T2 服务查询与双循环模式形状）+ SDL3 实现 + Skia GL context | **同时打开两个窗口**，各画一个不同颜色矩形；共享 GrDirectContext 生效 |
 | **P2** 渲染层 | RenderObject（紧凑字段存储，非哈希表）、约束布局、Stack/Flex/Wrap、Layer、命中测试、`dump_layout_tree` | 黄金图像测试框架就位并有 ≥10 个基准通过；固定定位与 flex 均可工作；无界约束冲突能报出节点路径；空闲 CPU 0% |
 | **P3** 控件与主题 | 8 个 MVP 控件（`List` 含虚拟化）+ schema 生成器 + JSON 主题加载器（内置主题） | 不新增 RenderObject 即可实现全部 8 个控件；light/dark 运行时切换；1000 项列表 60fps |
-| **P4** 输入与窗口语义 | Focus/Pointer/Shortcut 意图系统 + **手势竞技场** + `PopupHost` + Dialog | 右键菜单以真 OS 窗口弹出并超出父窗口边界；Tab 序正确；快捷键走意图表且四级路由正确；tap 与 pan 竞争仲裁正确 |
+| **P4** 输入与窗口语义 | Focus/Pointer/Shortcut 意图系统 + **手势竞技场** + `PopupHost` + Dialog | ~~右键菜单以真 OS 窗口弹出并超出父窗口边界~~ **验收标准变更（见下）**；Tab 序正确；快捷键走意图表且四级路由正确；tap 与 pan 竞争仲裁正确 |
 | **P4.5** 动画与滚动 | C++ 内动画时钟、隐式过渡、惯性与回弹 | 动画全程不跨 FFI 边界；惯性滚动手感跟随平台 |
 | **P5** ABI | `drawgui.def.toml` + 生成器 + ABI 实现 | 纯 C 示例程序创建两个窗口并响应点击 |
 | **P6** JS 绑定 | framework.js + Bun/Node FFI + JSX | TodoMVC 级示例；多窗口示例 |
@@ -1762,11 +1762,36 @@ drawgui/
 
 依赖关系：P2/P3 可与 P1 后半程并行；P4 依赖 P1+P3；P5 依赖 P3+P4；P6 依赖 P5。
 
+**验收标准变更记录（P4，`doc/popup.md` §11）**：原表述「右键菜单以真 OS 窗口弹出
+并超出父窗口边界」实际上是两个独立要求的合取，而它们各自的达成情况不同——不是
+"部分达成"这么简单，而是**一半确曾达成、另一半从未达成且现已被显式否决**：
+
+- 「以真 OS 窗口弹出」：曾经达成过（`PopupHost` 的 native 分支，`SDL_CreatePopupWindow`）。
+- 「超出父窗口边界」：**从未达成**（截至该决策做出时）。`resolve_popup_placement()` 的翻转判据用的是父窗口
+  自身的高度（`popup_host.cpp:46-51`），不是屏幕；水平方向的裁剪/翻转当时也没有实现
+  （§6 早已按名字承认这一点）。也就是说，即便在 native 分支存在的那段时间里，弹层
+  也从未真正跨出过父窗口边界——它是一个真 OS 窗口，被摆放数学关在了父窗口里面。
+  **后续更新（`doc/popup.md` §12）**：`resolve_popup_placement()` 之后补上了水平翻转
+  与双轴 clamp，但这不影响上面这条结论——它描述的是 native 分支存在时的历史事实，
+  而 native 分支现已删除；水平摆放的补齐是针对 overlay-only 之后的新短板，不是
+  重新打开"是否要让弹层跨出父窗口"这个已被否决的能力。
+
+`doc/popup.md` §11 记录了三个仅存在于 native 分支的缺陷（文字不渲染、首帧后永久
+不重绘、焦点环溢出）、隔离它们到 native 分支自身而非平台差异的判别实验，以及据此
+做出的删除决定：native 分支已整体移除，`PopupHost` 现在只有 overlay 一条路径。
+新验收标准：**弹层（右键菜单/tooltip/下拉/对话框 overlay 面板）以 overlay 层实现，
+placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未实现，见 `doc/popup.md`
+§6——**后续已补齐，见 `doc/popup.md` §12**）**。
+「超出父窗口边界」这条能力被显式放弃，而不是悄悄降级——恢复它仍需要 overlay 方案
+先支持跨出父窗口本身（现已不支持，是结构性限制），水平摆放逻辑的补齐只是让弹层
+在父窗口内部摆得更稳，不等同于恢复这条被否决的能力。
+
 ## 10. 风险登记
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| SDL3 的 popup 窗口支持不足以实现原生菜单 | **高**（Linux 已降低，见 `doc/platform-notes.md`；Windows / macOS 未验证） | P1 就做 spike 验证；退路是桌面上直接写三份原生 popup |
+| SDL3 的 popup 窗口支持不足以实现原生菜单 | **高**（Linux 已降低，见 `doc/platform-notes.md`；Windows / macOS 未验证）——**已不再适用于本引擎的 popup 路径**：`PopupHost` 已删除 native 分支，改为 overlay-only（`doc/popup.md` §11），该风险原本设想的失败模式（"SDL 的 popup 不够好，需要自己写"）不会再发生，因为本引擎已不再依赖 SDL 的 popup 窗口能力 | ~~P1 就做 spike 验证；退路是桌面上直接写三份原生 popup~~ 已不需要 |
+| **第二棵树/第二个 surface/第二套重绘生命周期这条"平行路径"在 headless 环境下测不到** | 高——三个真实缺陷（文字不渲染、首帧后永久不重绘、焦点环溢出）全部只存在于这条平行路径里，且全部在同一轮才被发现；`SDL_CreatePopupWindow` 在 dummy driver 下直接失败（`doc/popup.md` §1），意味着 CTest 从未真正跑过这条路径本身，只跑过它"尝试失败"的分支 | 已通过删除该路径本身来解决（overlay-only，`doc/popup.md` §11）；这一行**登记的是"平行路径不可测"这一类风险**，与上面一行"SDL 的 popup 能力不够好"是不同的失败模式，故不合并进同一行 |
 | 预编译 Skia 的 fork patch 与官方行为有差异 | 中 | 记录确切 tag；黄金图像测试能发现渲染差异 |
 | 共享 GL context 在某平台失效 | 中 | 回退到每窗口独立 GrDirectContext（已有方案） |
 | Node FFI 事件泵与窗口消息循环的耦合 | 中 | `dg_wait_events(timeout)` + poll 模式已设计 |
@@ -1805,7 +1830,19 @@ drawgui/
    实际行为一致性~~ —— **Linux 已解决**：x11 与 wayland 均已 spike 验证，popup
    为真 OS 窗口且能超出父窗口边界，`PopupHost` 在 Linux 桌面上采用
    `caps.native_popup == true` 路径，证据见 `doc/platform-notes.md`。
-   Windows / macOS 仍未验证，问题对这两个平台保持未决
+   Windows / macOS 仍未验证，问题对这两个平台保持未决。
+
+   **追记（`doc/popup.md` §11）**：`PopupHost` 的 native 分支已整体删除——它今天
+   唯一独有的能力（超出父窗口边界）从未被摆放数学真正启用（见 P4 验收标准变更
+   记录），而它独有的代码路径带来了三个仅 native 分支可见的缺陷。本引擎的
+   popup 路径现在是 overlay-only，**不再依赖这个问题的答案**：Windows/macOS
+   上 `SDL_CreatePopupWindow` 的行为一致性对本引擎的 popup 实现已经无关紧要。
+   这个问题本身对 Windows/macOS 仍然保持未决，只是不再是本引擎的阻塞项——
+   **若将来要恢复 native popup**（例如为了真正获得跨父窗口边界的能力），
+   需要重新在 Windows/macOS 上做一次 `doc/platform-notes.md` 那样的 spike，
+   而不能假设 Linux 上的测量结果可以直接套用；同时也需要重新解决本次记录
+   的三个 native-only 缺陷（`doc/popup.md` §11.2），它们并非平台相关，但
+   native 分支一旦恢复就会重新暴露。
 2. 多窗口下共享 GL context 与 `SkSurface` 的 MakeCurrent 开销 —— P1 基准测量
 3. JSON 解析器选型（nlohmann/json 便利 vs 更轻量的方案）—— P3 前定案，权衡二进制体积与编译时间
 5. ~~**ICU 数据的嵌入与裁剪**（§5.10.5）—— 完整 `icudtl.dat` 约 10 MB 量级，

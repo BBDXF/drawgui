@@ -196,6 +196,25 @@ measured since sub-step 2), so it is not re-proven here; it would be
 re-deriving something this project already established rather than testing
 anything new about `PopupHost`.
 
+**Correction (section 11): this last sentence's reasoning was wrong, and the
+native-only bugs section 11 records are exactly why.** "It is not re-proven
+here because every OTHER window already relies on it" silently assumes a
+popup window behaves like every other window once it exists. It does not.
+`WindowManager::open()` runs a window's content through `paint()` on
+creation (`window_manager.cpp:589`); `open_popup()` never calls the
+equivalent (`:643`) - the popup tree is built and then simply never painted
+until something else forces a repaint, and B-2 (section 11) is exactly that
+"something else" never arriving. A native popup's tree also never had
+`spec.fonts` set (`popup_host.cpp:61-62`), so even a coincidental paint would
+draw text with no font catalog to resolve glyphs against - B-1. Neither gap
+is something "every other window already relies on and gets right"; both are
+specific to the second-tree/second-window path this section's own text
+(section 3) built and no other window in this codebase exercises. The
+inference "not re-proven here" was standing in for "does not need proving,"
+and it needed proving: it was false. Left in place above rather than
+deleted, because this document records what changed and why, not a clean
+retelling.
+
 **Why the CTest entry does not attempt a real second OS window at all** -
 measured, not a convenience: `examples/14_popup --verify-popup` sets
 `SDL_VIDEODRIVER=dummy` before touching `WindowManager`, which is enough to
@@ -295,6 +314,11 @@ slice specifically found while building `PopupHost`**:
   is built (`resolve_popup_placement()`); an anchor near the left or right
   edge is not re-centred. `anchor_rect` exists for exactly this reason per
   the task's own framing, and only half of what it enables is built.
+  **CLOSED (see section 12): once overlay-only meant a popup could no
+  longer escape its parent window at all, this stopped being an optional
+  polish item and became load-bearing - the placement math is now the only
+  thing keeping a popup on screen. `resolve_popup_placement()` now flips
+  and clamps both axes.**
 - `WindowKind::kDialog` - design.md's four-row window-kind table names it;
   nothing in this slice's scope (menus/tooltips/dropdowns) needs it.
 
@@ -389,3 +413,210 @@ why the modal FOCUS trap this engine's own `dg::Focus` enforces is a
 separate concern from this window's own real OS-level modality, and the
 measured failure of `SDL_SetWindowParent()`/`SDL_SetWindowModal()` under
 `SDL_VIDEODRIVER=dummy`.
+
+## 11. The native branch removed - three bugs, a discriminating experiment, and what did not change (append-only)
+
+Sections 1-10 above describe a `PopupHost` with two live branches. This
+section records why one of them stopped existing, and is deliberately left
+after the record of building it rather than edited into it - matching this
+document's own section 9/10 append-only precedent for changes that revise
+rather than merely extend a prior slice's conclusion.
+
+### 11.1 What the native branch's only unique capability actually was
+
+`resolve_popup_placement()` (`src/window/popup_host.cpp:14-28`) is the whole
+of what the native branch does that the overlay branch's shared placement
+math also does: a vertical below/above flip. Its flip test
+(`popup_host.cpp:46-51`) measures `windows_->drawable_size(parent_window)` -
+the PARENT WINDOW's own bounds, not the screen's. Section 6 above already
+named, by its own hand, that the horizontal half of this same math was never
+built ("only the vertical below/above flip is built... only half of what
+[`anchor_rect`] enables is built"). Put the two findings together: the one
+thing a real OS window can do that an overlay cannot - escape the parent
+window's own bounds - was never exercised by this codebase's placement logic
+in either dimension. The native branch was a real `SDL_CreatePopupWindow`
+window being used to draw a rectangle that placement math had already
+confined inside the parent window. Geometrically, for every popup this
+engine has ever shown, native and overlay draw the identical rectangle in
+the identical place.
+
+### 11.2 Three defects, all of them native-only
+
+- **B-1: popup text never renders.** `PopupHost`'s native-branch tree never
+  receives a `FontCatalog` (`popup_host.cpp:61-62` sets no `spec.fonts`).
+  Every text node inside a native popup has nothing to resolve a glyph
+  against.
+- **B-2: a native popup paints once, then never again.** After its first
+  frame, a native popup's window receives an expose event but
+  `window_manager.cpp:1018` sets `shows_fill=false` for it, which makes
+  `paint()` a no-op from then on; no example's main loop consumes the
+  `needs_repaint` flag that would otherwise force a redraw. The result is a
+  permanently blank (or stale) popup surface after the first frame.
+- **Focus ring overflow.** The four strips `dg::update_focus_ring()` draws
+  sit flush against the native popup surface's own edge with no margin, so
+  the ring's 4px expansion draws outside the surface entirely on a small
+  popup.
+
+All three are specific to the second-window/second-tree/second-surface path;
+none has an overlay-branch counterpart, because the overlay branch never
+introduces a second `FontCatalog`, a second window's expose lifecycle, or a
+second surface's own edge.
+
+### 11.3 The discriminating experiment
+
+`--branch overlay` was run and compared against the native branch on both
+the x11 and wayland SDL video drivers on this project's own Linux
+sandbox. Result: overlay renders correctly, with no font/repaint/ring defect,
+on BOTH drivers; native exhibits all three defects on BOTH drivers. This
+rules out a platform/driver-specific cause - the defects are in this
+codebase's own native-branch code (`popup_host.cpp`, `window_manager.cpp`),
+not in SDL3 or in x11-vs-wayland behaviour.
+
+### 11.4 Decision: overlay-only
+
+`PopupHost::show()` no longer branches on `PlatformCaps::native_popup`.
+`WindowManager::open_popup()`/`close_popup()`, `PlatformCaps::native_popup`,
+and the `if (caps.native_popup)` branch inside `PopupHost::show()` are
+removed. Every popup (menu, tooltip, dialog's overlay panel, dropdown) is
+now built the overlay branch's way: appended as ordinary children of the
+caller's own `RenderTree`, clipped on close (section 3 above, unchanged).
+
+### 11.5 Industry precedent (external research, corroborating rather than driving this decision)
+
+Checked against how other engines handle exactly this ("popup needs to draw
+outside its parent's clip"), because a decision this size deserves more than
+this codebase's own two data points:
+
+- **Nuklear**: `nk_popup_begin` (`src/nuklear_popup.c`) creates an ordinary
+  `nk_window`; tooltips reuse the same mechanism. No OS window concept at
+  all.
+- **Clay**: `Clay_FloatingElementConfig` plus a z-index, composited in the
+  same draw list, same frame.
+- **RmlUi**: CSS `z-index`/stacking-context; the project's own debugger UI is
+  itself a `z-index: 1000000` overlay panel, not a separate window.
+- **Flutter desktop**: `PopupMenuButton`/`DropdownButton` are built on
+  `Overlay`/`OverlayEntry` - no native popup window is created.
+- **Dear ImGui**: single-viewport mode does flip-and-clamp placement inside
+  one surface (`FindBestWindowPosForPopupEx`); its multi-viewport mode (real
+  OS windows per floating panel) has been sitting on an un-merged `v2.00`
+  milestone branch, not in `master`, and requires a backend to implement the
+  full `ImGuiPlatformIO` callback set.
+- **Wayland's own `xdg_popup` protocol** goes the opposite direction from
+  "just make an OS window": positioning is compositor-arbitrated through a
+  positioner object, not freely settable by the client, to the point that
+  SDL3 itself carries a dedicated compensation layer for it
+  (`RepositionPopup`/`EnsurePopupPositionIsValid`/`AdjustPopupOffset` in
+  `src/video/wayland/SDL_waylandwindow.c`). A real OS popup window is not a
+  simplification on this platform; it is a protocol negotiation.
+
+**Evidence-strength note, stated honestly rather than presented as settled**:
+this is external research, not first-hand verification of every claim above
+- specifically, no first-hand case of another project's *migration* from a
+native to an overlay popup implementation was found (the precedent here is
+"never had a native branch to begin with," not "removed one"), no concrete
+bug-tracker issue number was found to corroborate the ImGui multi-viewport
+maturity claim beyond its own milestone label, and Qt's/Chromium's own popup
+architectures were not checked at all. Cited as corroborating context for a
+decision this document's own sections 11.1-11.3 already justify from this
+codebase's own measurements, not as the basis for it.
+
+### 11.6 The honest cost
+
+- **The one capability lost**: escaping the parent window's own bounds.
+  Section 11.1 already establishes this was never actually used - achieving
+  it for real would require building the horizontal placement logic section
+  6 above named as missing, which is exactly the same work an overlay-only
+  design would also need before it could offer the same guarantee. Nothing
+  working today regresses.
+- **`SDL_WINDOW_TOOLTIP`'s "receives no input at all" property is the one
+  genuinely new gap.** Overlay content lives inside the host's own
+  `RenderTree`/event routing, which has no equivalent of a window flag that
+  makes a surface transparent to all input; a tooltip built purely as an
+  overlay needs its own, explicit "do not participate in hit testing" rule
+  where the native branch got this for free from SDL/the compositor. Not
+  designed here - named as the one piece of new work overlay-only requires
+  that the removed branch did not.
+- **design.md §12 Q1 (Windows/macOS popup behaviour) is now moot for this
+  engine's own popup path**, not resolved - see the note added there.
+- Multi-monitor/cross-screen DPI awareness was never implemented by either
+  branch (no display enumeration anywhere in this codebase; only
+  `SDL_GetWindowPixelDensity(parent)`, a single window's own density) - not
+  a loss from this change.
+- Platform shadow, open/close animation, and accessibility hooks were never
+  built by the native branch either (`doc/popup.md` section 6's own
+  declined-by-name list; accessibility is `design.md` §11's explicit
+  non-goal) - not a loss from this change.
+
+### 11.7 What did NOT change
+
+- The `PopupHost` interface/entry point shape (`show()`, `PopupHandle`,
+  `close()`).
+- The placement math (`resolve_popup_placement()`), including its
+  vertical-only limitation named in section 6 - true at the time of this
+  section, **superseded by section 12**: the horizontal half was built in
+  a later slice.
+- Cross-window/cross-scope dismissal routing (section 5 above): the overlay
+  branch's point-in-rectangle dismissal test was already exactly this.
+- `WindowKind::kDialog`/`WindowManager::open_dialog()` - a real, separate
+  top-level window kind (section 10 above), untouched: this section is about
+  `PopupHost`'s own native branch, not `Dialog`'s own, structurally
+  different, real-OS-window mechanism.
+
+## 12. `resolve_popup_placement()` gains a horizontal flip/clamp, and a vertical clamp fallback (append-only)
+
+Section 6 declined horizontal placement clamping/flipping by name, on the
+grounds that it was half of what `anchor_rect` enables but not yet built.
+Section 11's overlay-only decision changed the stakes of that decline
+without this document saying so until now: a native popup window, whatever
+else was wrong with it, could still be dragged or repositioned by the
+window manager to stay on screen if it tried to open somewhere absurd. An
+overlay node cannot - it is a child of the parent window's own `RenderTree`,
+confined to that window's own surface by construction (`popup_host.h`'s own
+top comment). Once the native branch was gone, `resolve_popup_placement()`
+became the ONLY thing standing between a popup and getting clipped away by
+its own parent - not an optional polish item any more.
+
+**What changed**: `resolve_popup_placement()`'s signature moved from
+`int parent_height` to `PixelSize parent_size`. The existing vertical
+below/above flip logic is unchanged - it is the same code, still tested by
+the same three hand-derived cases in `examples/14_popup/popup_check.cpp`,
+now updated only where the answer itself changed (see below). Two things
+were added:
+
+- A horizontal flip, symmetric in shape to the vertical one: prefer the
+  anchor's left edge, flip to the anchor's right edge when left-alignment
+  would not fit, matching a dropdown/menu convention (still opening flush
+  against the control that triggered it, just from the other side) rather
+  than re-centring or docking to the parent's own edge.
+- A clamp on BOTH axes, applied after the flip decision on each axis
+  independently: if neither the preferred nor the flipped position leaves
+  the whole rectangle inside `parent_size`, the rectangle is pushed to the
+  nearest edge instead of being returned overhanging. When the content
+  itself is larger than the parent on a given axis, the clamp interval is
+  empty/inverted; that axis top/left-aligns at 0 instead, a deliberate
+  choice named at the call site rather than an accidental fallthrough.
+
+**One existing assertion's answer changed**: `popup_check.cpp`'s
+"neither-fits" case used to assert only that the horizontal position held
+steady (there was nothing else to check - no clamp existed). With the
+vertical clamp added, that same input (anchor `{40,50,100,24}`, a 90px-tall
+parent) now returns `top=0` (top-aligned, since content height 104 exceeds
+the 90px parent) rather than the old, unclamped `top=74`. The assertion was
+updated to the new, hand-derived rectangle, not loosened to match whatever
+the implementation happened to produce.
+
+**Industry alignment, briefly**: Dear ImGui's
+`FindBestWindowPosForPopupEx` (`imgui.cpp`) follows the same two-step shape -
+try the flip that fits, and failing that, clamp into an allowed rectangle
+rather than let a popup escape or oscillate. This section does not import
+ImGui's centred/corner variants (still declined, section 6) or its
+multi-monitor rectangle (this engine has one parent window, not a monitor
+list) - only the flip-then-clamp shape.
+
+**What did NOT change**: `PopupPlacement` still has exactly two values
+(`kBelow`/`kAbove`) - no `kLeft`/`kRight` preference was added, because the
+horizontal axis has no caller-stated preference to flip from; it always
+starts left-aligned to the anchor. `PopupHost::show()`'s own logic
+(container creation, handle construction) is untouched - only the call site
+threading `parent_size.value()` through instead of `.height` moved.
+`close()`/`handle_pointer()`/`handle_key()` are untouched.

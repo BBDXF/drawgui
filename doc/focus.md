@@ -418,6 +418,14 @@ final assertion) and passed after - the bug was real, not hypothetical.
 
 ## 8. The focus ring: theming, geometry, and why it is four strips
 
+> **Superseded in part - see section 15.** The "outward, in the margin"
+> geometry and the hit-test defense for it, both described below, were
+> replaced by an inward geometry once the outward one was found to paint
+> incompletely against a flush-edge target (a dropdown row). Section 15
+> records the failure, the fix, and why the defense below no longer holds.
+> The rest of this section - strip count, permanence, per-scope
+> `FocusRing` instances, and colour sourcing - is unchanged.
+
 A focus ring is basic keyboard usability, not accessibility plumbing -
 design.md section 11 declines a11y IMPLEMENTATION (no AT-SPI/UIA/
 NSAccessibility bridge) while keeping architectural hooks, but a sighted
@@ -670,3 +678,137 @@ reach across windows for.
 (unchanged); 33 CTest entries (32 + `menu_tooltip_dialog.verify_demo_
 scene`); 23 examples (22 + `23_menu_tooltip_dialog`); zero new node/
 `RenderObject` kinds, a twenty-first consecutive slice.
+
+## 15. The ring reversed: outward geometry replaced by inward (append-only)
+
+Section 8 above recorded the ring as four strips in the margin OUTSIDE the
+focused widget's own bounds, and defended that choice on hit-test-safety
+grounds. This section records that geometry being replaced, and why the
+defense that motivated it turned out not to be the real constraint.
+
+**What was observed.** The focus ring in `examples/22_dropdown_menu`,
+`23_menu_tooltip_dialog`, and `25_showcase` painted incompletely - only
+part of the ring, sometimes none of it, depending on which row was
+focused. `21_focus`'s own ring, by contrast, always painted in full.
+
+**Root cause.** The outward geometry (`outer = bounds.inflated_by(gap +
+thickness)`, `inner = bounds.inflated_by(gap)`, defaults `gap = 2,
+thickness = 2`) draws the ring in the margin around the target, which only
+has pixels to draw into when such a margin actually exists. `21_focus`'s
+own button has 8px of surrounding margin, comfortably more than the 4px
+the ring needs - so its ring always fit. Every dropdown/menu row built
+since, though, is `{0, y, full_width, row_height}`: flush with its
+container's left and right edges, and flush top-to-bottom against its
+neighbouring rows. There is no margin there at all. The left strip lands
+at `x ∈ [-4, -2)` - off the left edge of the surface, for every row,
+unconditionally. The right strip lands symmetrically past the right edge.
+The top strip lands inside the row above (or off-surface, for row 0); the
+bottom strip lands inside the row below (or off-surface, for the last
+row). None of `PixelRect::from_edges()`/`inflated_by()` clamps a negative
+or out-of-surface coordinate - they are geometry primitives with no
+opinion about a surface's own extent - so this failed silently: no
+assertion tripped, no exception threw, the ring simply painted fewer
+pixels than it should have, and a purely geometric test (asserting shapes
+without rasterizing) could not see it either. `tests/unit/test_focus.cpp`
+did not rasterize before this slice - see section 12's own gap.
+
+**The fix.** The ring is now drawn INWARD: its outer edge is inset `gap`
+pixels from the target's own bounds, and it occupies `thickness` more
+pixels further toward the target's center. Formally, for `bounds =
+tree.absolute_bounds(*target)`:
+
+```
+outer = bounds.inflated_by(-gap)
+inner = bounds.inflated_by(-(gap + thickness))
+```
+
+with the same four `from_edges()` strip formulas as before, just fed
+`outer`/`inner` computed this way. Every pixel the ring occupies is now
+inside `[bounds.left(), bounds.right()) x [bounds.top(),
+bounds.bottom())` by construction - it needs no assumption about what, if
+anything, surrounds the target, so it is correct for a flush-edge row
+exactly as it is for a padded button. When `bounds` is too small on
+either axis for `2*(gap+thickness)` to fit without the two insets
+crossing, `update_focus_ring()` degrades to filling the whole of `bounds`
+in ring colour rather than producing an inverted or overlapping strip -
+chosen over collapsing to nothing because a visibly-different-but-solid
+indicator is still more useful feedback than none for a widget too small
+to ring properly.
+
+**Why the hit-test defense no longer holds.** Section 8's own argument was
+that a ring rectangle covering the widget's bounds would sit above it in
+paint order and therefore win every future hit test - so the fix chosen
+was keeping the ring's bounds and the widget's bounds disjoint. That
+argument assumed hit testing resolves a point to whatever node's bounds
+contain it, full stop. It does not: `WidgetSet::owner_of()` takes
+`RenderTree::hit_test()`'s answer - the deepest node under the point - and
+climbs parent links to the nearest ancestor that actually carries an
+attached, interactive `Widget`. A ring strip never has a `Widget` attached
+to it (`update_focus_ring()` only ever calls `RenderTree::add_child()` for
+a strip, never `WidgetSet::attach()`), so `owner_of()` climbs straight
+past it regardless of whether its bounds overlap the target's. The
+existing, already-shipping proof of this sits inside the dropdown widget
+itself: each row's own label child is `PixelRect{0, 0, width,
+kRowHeight}` - it already fully covers its row's own bounds - and clicking
+anywhere on a row has always resolved to that row, never to nothing,
+because `owner_of()` climbs past the label the same way it now climbs
+past a ring strip. Once this was checked directly rather than assumed,
+the geometric-exclusion requirement dissolved: it was solving a problem
+paint order alone does not actually create.
+
+**Coordinate space, tightened in passing.** `update_focus_ring()` reads
+`tree.absolute_bounds(*target)` but writes through
+`tree.set_local_bounds()`, which expects `parent`-local coordinates. Every
+call site as of this writing passes a `parent` whose absolute origin and
+`scroll_offset()` are both `(0, 0)`, making the two spaces coincide by
+accident - but `src/window/popup_host.cpp`'s overlay `content_root` sits
+at a non-zero absolute origin (the popup's own anchor point), and nothing
+stopped a future caller from passing a scrolled or offset parent. The
+strip rectangles are now explicitly converted from absolute to
+`parent`-local space (the exact inverse of `RenderTree::Impl::
+reposition()`'s own forward transform: `local = absolute.offset_by(
+parent.scroll_offset - parent.absolute)`) before being written, so this is
+correct in general rather than correct by every caller's current
+coincidence. `tests/unit/test_focus.cpp`'s new
+`"...NON-ORIGIN parent's own local space"` case is the regression test:
+it fails before this conversion exists and passes after, checked directly
+rather than assumed.
+
+**Left deliberately unfixed by this section.** `update_focus_ring()` now
+prints one `stderr` warning (suppressed after the first) if any strip
+still lands entirely outside the tree's own viewport - which can still
+happen for a target near the extreme edge of an unusually small viewport
+even with inward geometry, since inward geometry only guarantees the ring
+stays within the TARGET, not within the viewport if the target itself
+partially exceeds it. This is a diagnostic only; the strip's bounds are
+never clamped, because clamping would make the ring's shape depend on
+which side happened to overflow, trading one silent inconsistency for
+another. No example scene currently triggers this warning.
+
+## 16. `PopupHost`'s native branch, and its own separate `Focus`, removed (append-only)
+
+Section 5 above and section 8's `popup_native_ring_` describe a native
+popup owning its own, entirely separate `dg::Focus`/`WidgetSet` instance -
+forced, at the time, by the native branch owning its own second
+`RenderTree`. `PopupHost`'s native branch has since been removed
+(`doc/popup.md` section 11): every popup, dropdown, context menu, tooltip,
+and dialog overlay panel now shares the HOST window's own `RenderTree`, and
+therefore the host's own single `Focus`/`WidgetSet` - there is no longer a
+second `Focus` instance anywhere in this engine's popup path.
+
+This removal was motivated by three defects specific to the native
+branch's own code, one of which was exactly the kind of hazard this
+section's own geometry work was defending against: the focus ring drawn
+against a native popup surface's own edge (`popup_native_ring_`) had no
+margin, so the ring's own outward-then-inward strip geometry this section
+built could still draw outside a SMALL native popup's own surface entirely
+- a defect this section's own inward-geometry fix (above) was written for
+the overlay/viewport case and never re-verified against the native
+surface's own, differently-shaped edge case. Rather than extend this
+section's fix to cover a second surface shape, the native branch - and its
+separate `Focus`/`WidgetSet`/ring - was removed outright; see `doc/popup.md`
+section 11 for the full defect record and the decision to go overlay-only.
+Sections 5 and 8 above are left unedited as a record of the two-`Focus`
+design while it existed, not rewritten to describe the current, single-
+`Focus` overlay-only state.
+

@@ -34,7 +34,10 @@ raster path with no GPU dependency.
 - **Widgets**: 9 `WidgetKind` values - panel, label, button, checkbox (radio
   is a `group` field on it), slider, scroll view, text field, virtualized
   list, dropdown - plus a context menu, tooltip and modal dialog through a
-  shared popup host. No new `RenderObject`/node/`LayoutKind` kind has been
+  shared, overlay-only popup host (`doc/popup.md` §11 - an earlier native
+  OS-window branch was removed after three native-only defects were found;
+  `Dialog` itself remains a real, separate top-level window, unaffected).
+  No new `RenderObject`/node/`LayoutKind` kind has been
   needed across 31 consecutive development slices, the acceptance bar
   `doc/design.md` set for its own primitive set.
 - **Text**: single- and multi-line, with CJK/BiDi/complex-script shaping via
@@ -136,7 +139,7 @@ project's cross-feature regression bed.
 | 11 | `form_controls` | Checkbox, two radio groups, two sliders | `--verify-form-controls` |
 | 12 | `text_input` | Single-line editing, selection, ellipsis/scroll, IME composition preview | `--verify-text-input` |
 | 13 | `image` | Decode + four fit modes (`fill`/`contain`/`cover`/`none`) plus a placeholder colour | `--verify-image` |
-| 14 | `popup` | Native vs. overlay popup branches that later examples reuse | `--verify-popup` |
+| 14 | `popup` | Overlay popup placement/dismissal (`PopupHost` is now overlay-only, `doc/popup.md` §11) | `--verify-popup` |
 | 15 | `list` | 1000-item virtualized list on a 14-node pool; `--bench` compares against a non-virtualized baseline | `--verify-list` |
 | 16 | `complex_properties` | Gradient, hard-edged shadow, id-based image attach through the dedicated-setter channel | `--verify-complex-properties` |
 | 17 | `animation` | Explicit animation, implicit hover transition, chained caret blink; `--idle-probe-ms` measures idle CPU | `--verify-animation` |

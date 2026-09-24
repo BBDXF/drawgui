@@ -386,9 +386,20 @@ assumed still true. The check ATTEMPTS the native branch once and reports
 the failure loudly and specifically (`attempt_native_popup()`), never
 silently skips it - real coverage of the native branch (a genuine second
 OS window, its own `dg::Focus`/`WidgetSet`, Up/Down/Enter actually driving
-it) comes from `examples/22_dropdown_menu`'s own interactive mode against
+it) came from `examples/22_dropdown_menu`'s own interactive mode against
 this sandbox's real display (WSLg, `DISPLAY=:0`), the same precedent every
 prior popup-touching example already established.
+
+**Update: the native branch this section describes no longer exists.**
+`PopupHost`'s native branch was removed (`doc/popup.md` section 11) after
+three defects were found that this section's own coverage strategy could
+not catch precisely BECAUSE they lived on the un-headless-testable side of
+this exact gap - the interactive-mode-only coverage this paragraph
+describes is the same coverage gap `doc/popup.md` section 11 names as
+"eight parallel paths headless testing cannot reach." This section is left
+as a historical record of what the coverage strategy was while the native
+branch existed, not rewritten to describe a branch that is no longer
+there.
 
 ## 8. Verification performed
 
@@ -650,18 +661,29 @@ skipped. `WindowManager::open_dialog()`'s own two new SDL calls,
 `SDL_SetWindowParent()`/`SDL_SetWindowModal()`, were measured directly with
 a standalone probe BEFORE writing the engine wrapper (this document's own
 methodology, `doc/popup.md` section 1's precedent) and found to fail with
-the IDENTICAL "That operation is not supported" message — attempted once in
-`--verify-menus`, reported the same way. Real coverage of both — a genuine
+the IDENTICAL "That operation is not supported" message - attempted once in
+`--verify-menus`, reported the same way. Real coverage of both - a genuine
 second OS window, real ownership/modality, `SDL_WINDOW_TOOLTIP`'s own
-no-input behaviour — comes from `examples/23_menu_tooltip_dialog`'s
+no-input behaviour - came from `examples/23_menu_tooltip_dialog`'s
 interactive `--branch native` mode against this sandbox's actual display
 (WSLg, `DISPLAY=:0`), the same precedent every prior popup-touching example
 already established. Everything that does NOT need a real second OS
-window — button identity's real SDL round-trip (a same-process,
+window - button identity's real SDL round-trip (a same-process,
 same-window event, unaffected by the dummy driver), the hover timer's own
 pure-value logic, the modal-refusal overlay shape, the close-request
-veto on a plain window — runs for real under the dummy driver with no gap
+veto on a plain window - runs for real under the dummy driver with no gap
 at all.
+
+**Update: `PopupHost`'s `--branch native` no longer exists.** The context
+menu and tooltip's native branch were removed along with the rest of
+`PopupHost`'s native path (`doc/popup.md` section 11); `WindowManager::
+open_dialog()`/`Dialog` itself is UNAFFECTED - it was always a separate,
+real top-level window (`SDL_CreateWindow` + `SDL_SetWindowParent()`/
+`SDL_SetWindowModal()`), never built on `PopupHost` (section 12.3 above
+says so explicitly), so its own native coverage strategy stands unchanged.
+Only the "comes from `--branch native`" sentence above, for the menu/
+tooltip portion, describes a coverage path that no longer exists; left
+as a historical record rather than rewritten.
 
 ### 12.5 `design.md` section 5.6 line 622, re-verified
 

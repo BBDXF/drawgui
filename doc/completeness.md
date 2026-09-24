@@ -541,6 +541,29 @@ What is NOT true without qualification, named exactly:
   now by `doc/popup.md` §6. See `doc/popup.md` for the full record; this
   paragraph is left as the audit originally wrote it, a snapshot of what was
   true before slice 5-2, not rewritten.
+
+  **Further update (`doc/popup.md` §11): the native branch this update
+  described no longer exists.** Three defects were found that were specific
+  to the native branch's own code path (text never rendering, a permanent
+  post-first-frame blank surface, focus-ring overflow), and the branch's
+  own placement math never actually used the one capability a real OS
+  window offered over an overlay (escaping the parent window's bounds -
+  `resolve_popup_placement()` only ever flipped vertically against the
+  PARENT window's own bounds, never the screen's, at the time this was
+  written). `PopupHost` is now
+  overlay-only; `PlatformCaps::native_popup` and `WindowManager::
+  open_popup()`/`close_popup()` are removed. This does not reopen row 10:
+  the abstraction design.md §5.2 called "the single most critical decision"
+  still exists, still has one working branch, and Dropdown/Menu/Tooltip/
+  Dialog were all still built on it - what changed is which of `PopupHost`'s
+  two branches survived, not whether `PopupHost` exists.
+
+  **Further update (`doc/popup.md` §12): `resolve_popup_placement()` now
+  also flips and clamps horizontally**, and clamps vertically when even the
+  flipped side would overhang. Overlay-only removed the one thing that used
+  to make the horizontal gap survivable (a native window could still be
+  dragged back on screen); an overlay cannot escape its parent, so the
+  placement math had to close that gap itself.
 - Text rendering has no HarfBuzz/ICU/BiDi/line-breaking/`SkParagraph` — real,
   named, and scoped by design.md's own roadmap to no later than P3's text
   widgets landing, which already happened in 4-9 for the ASCII case. Anything

@@ -123,11 +123,36 @@ real windows. Measured on **both** the x11 and wayland SDL video drivers:
 
 **Conclusion**: popups created through `SDL_CreatePopupWindow` are real OS
 windows that are free to escape the parent's bounds, on both drivers tested.
-`PopupHost` (design.md section 5.2) can take the `caps.native_popup == true`
-path on Linux desktop. The fallback design.md section 10 lists for this risk
-- hand-writing three native popup implementations - is not needed on Linux.
+This capability was real and measured, exactly as recorded above. `PopupHost`
+(design.md section 5.2) did, for a time, take the `caps.native_popup == true`
+path on Linux desktop as a result of this measurement.
+
+**Update: this engine's popup implementation is now overlay-only.**
+`PopupHost`'s native branch (the one this spike justified) has since been
+removed - not because this spike's measurement was wrong (it was not; the
+table above stands unedited as a record of what SDL3 does on Linux), but
+because the native branch's own placement logic never actually used the
+capability measured here: at the time of that removal,
+`resolve_popup_placement()` only flipped vertically
+against the PARENT WINDOW's own bounds, never the screen's, and never
+clamped/flipped horizontally at all - so no popup this engine ever showed
+actually escaped its parent's bounds, native branch or not. Combined with
+three defects found only in the native branch's own code path (text not
+rendering, permanent post-first-frame blank surface, focus-ring overflow),
+the native branch was removed in favour of overlay-only. Full record,
+including the discriminating x11-vs-wayland experiment that ruled out a
+platform cause: `doc/popup.md` section 11.
+
+**Update: `resolve_popup_placement()` now flips and clamps both axes**
+(`doc/popup.md` section 12). This did not change the conclusion above - it
+describes a historical measurement (whether the native branch's placement
+logic, while it existed, used its one advantage) - it closed a gap the
+overlay-only decision itself created: an overlay cannot escape its parent
+window at all, so once the native branch's ability to be dragged back on
+screen was gone, the placement math became the only thing keeping a popup
+fully visible, and it now does that on both axes rather than one.
 
 **Limit of this claim**: this was measured on Linux/WSLg only, covering the
-x11 and wayland SDL drivers. Windows and macOS are not measured yet. The
-risk in design.md section 10 is reduced by this result, not closed; closing
-it requires the same spike run on Windows and macOS.
+x11 and wayland SDL drivers. Windows and macOS are not measured yet, and
+with the native branch removed, this engine's popup path no longer needs
+that measurement to proceed - see `doc/design.md` section 12 Q1.
