@@ -14,7 +14,7 @@ Outputs:
   src/theme/token_table.generated.inc           the string->id mapping table
                                                  the JSON loader resolves a
                                                  theme.json token NAME through
-  doc/theme-tokens.generated.md                 a generated reference table
+  doc/reference/theme-tokens.generated.md       a generated reference table
 
 NOT EMITTED, DEFERRED TO 6-3 (design.md section 5.7.7 names four consumers;
 this slice builds two of the four): the ABI numeric-constant table and the
@@ -45,7 +45,7 @@ SOURCE_NAME = "themes/schema.toml"
 TOML_RELPATH = Path("themes") / "schema.toml"
 HEADER_RELPATH = Path("include") / "drawgui" / "theme" / "token_ids.generated.h"
 TABLE_RELPATH = Path("src") / "theme" / "token_table.generated.inc"
-DOC_RELPATH = Path("doc") / "theme-tokens.generated.md"
+DOC_RELPATH = Path("doc") / "reference" / "theme-tokens.generated.md"
 BUILTIN_JSON_RELPATH = Path("themes") / "builtin" / "theme.json"
 BUILTIN_HEADER_RELPATH = Path("include") / "drawgui" / "theme" / "builtin_theme.generated.h"
 
@@ -296,7 +296,7 @@ def render_doc(defs: Definitions) -> str:
         "",
         "# Theme token reference (generated)",
         "",
-        "One row per token in `themes/schema.toml`. `doc/theme.md` is the",
+        "One row per token in `themes/schema.toml`. `doc/guide/theming.md` is the",
         "hand-written narrative this table supports; this file is regenerated",
         "on every change, never edited directly.",
         "",

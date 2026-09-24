@@ -1,0 +1,174 @@
+# 属性参考
+
+权威来源：`props/drawgui.props.toml`（唯一真源，`tools/gen_props.py` 从它生成
+`include/drawgui/render/prop_ids.generated.h` 与 `src/render/prop_dispatch.generated.inc`）。
+本文档中的状态列由人工核对 `src/props/node_props.cpp` 得出，如与源码不符，以
+源码为准。
+
+## 1. 基本模型
+
+一个属性通过 `dg::set_prop(tree, node, prop_id, PropValue)` 写入（C ABI 对应
+`dg_node_set_prop`）。四种复杂类型（gradient/shadow/transform/image）不走这条
+标量入口，见第 4 节。
+
+`prop_id` 永远是裸 `uint16_t`，从不被转换成枚举——校验本身就是分发过程，未知
+id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 cast。
+
+**id 永不复用**：`props/drawgui.props.toml` 的 `meta.next_id`
+只增不减；删除一个属性只留下空位和注释，重新编号是 MAJOR 版本破坏
+（`props/prop_ids.lock` 机制性地钉住这条规则，而非靠自觉）。
+
+## 2. `PropStatus`（六值）
+
+| 值 | 何时出现 |
+|---|---|
+| `kApplied` | 写入成功并生效 |
+| `kUnknownId` | id 是 0（`DG_PROP_INVALID`）或超出已定义范围 |
+| `kTypeMismatch` | id 合法，但值的类型与该属性声明的类型不符（例如把颜色发给 `width`）；也用于**已实现但要求走专用 setter** 的属性（`background_gradient`/`shadow`/`image_source`）——通过标量入口写它们，得到的正是这个状态，而不是 `kUnsupported` |
+| `kValueOutOfRange` | 类型对但值不可用：非有限浮点数、负长度、超出 `values` 范围的枚举序号、`grow`/`shrink` 收到非整数权重等 |
+| `kNotApplicable` | 属性合法、值合法，但对**这个**节点不适用（叶子节点上的 `gap`，父节点不是 flex/wrap 容器时子节点上的 `grow`）。判定依据是 toml 的 `applies_to`/`consumed_by` |
+| `kUnsupported` | 引擎目前未实现该能力（与调用方无关，是 drawgui 自身的缺口）；同一次写入在能力补齐后会变成 `kApplied` |
+
+`PropWrite { status, message }`：失败时 `message`带节点路径；写入失败不会让节点
+处于半配置状态——applier 先在 `BoxStyle`/`NodeStyle` 的副本上操作，成功才提交。
+
+## 3. `PropValue`（四种标量载荷）
+
+`PropValue` 是一个带类型标签的标量，只能通过以下工厂构造：
+
+| 工厂函数 | 对应 `PropType` | 说明 |
+|---|---|---|
+| `PropValue::number(float)` | `k_float` | 普通浮点数 |
+| `PropValue::length(float)` | `k_length` | 绝对长度；toml 描述的百分比模式（相对 `max_*` 约束）**没有构造函数**——布局侧尚不能解析它，未到实现它的阶段 |
+| `PropValue::color(Color)` | `k_color` | 0xAARRGGBB，边界处非预乘 |
+| `PropValue::option(uint32_t ordinal)` | `k_enum` | 属性 `values` 列表的下标；顺序本身是 ABI 契约（生成的 `DG_<PROP>_<VALUE>` 常量就是这个序号） |
+
+没有能构造 `k_gradient`/`k_shadow`/`k_transform`/`k_image` 的工厂——因此任何
+针对这四个属性的标量写入天然走错入口。
+
+## 4. 为什么复杂类型走专用 setter
+
+`gradient`/`shadow`/`transform`/`image` 四种类型的数据没有共同大小
+（渐变的 stop 列表、阴影的四个标量……），塞进一个带堆分配 variant 的
+`dg_value` 会破坏这个联合体从不堆分配的约定。因此它们各自有独立入口：
+
+```
+dg::set_gradient(tree, node, prop_id, const LinearGradientStyle&)
+dg::set_shadow  (tree, node, prop_id, const ShadowStyle&)
+dg::set_image   (tree, node, prop_id, const ImageStyle&)
+dg::set_transform(tree, node, prop_id, const TransformDesc&)  // 见下
+```
+
+四个函数仍然使用与标量路径**相同**的 `dg_prop_id`、相同的
+`props/drawgui.props.toml` 条目、相同的 `prop_type()` 校验——不是第二套编号
+体系。发错 id（例如把 `DG_PROP_BACKGROUND_GRADIENT` 发给 `set_shadow`）会被
+拒绝，机制与标量路径把 `DG_PROP_WIDTH` 当颜色发送时一样。
+
+`set_transform` **始终返回 `kUnsupported`**：`TransformDesc`
+（`translate_x/y`、`scale_x/y`、`rotate_deg`、`origin_x/y`）这个签名本身已
+确定，但背后的能力没有——引擎的矩形都是轴对齐整数设备像素（damage、hit
+test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对齐四边形或矩阵乘法，
+这是三个子系统需要同时改变的事，不是拆开做的事。这是**主动声明的搁置**，
+不是半成品。
+
+`background_gradient`（渐变）、`shadow`（阴影）、`image_source`（图片源）三个
+属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
+`kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
+
+## 5. 属性表（49 项）
+
+列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
+常量与文档、setter 里出现的那个词汇）；**内部字段**是
+`src/props/node_props.cpp`/`BoxStyle`/`NodeStyle` 实际写入的成员——两者**不总
+是同名**，尤其 `justify`→`main_align`、`align`→`cross_align`（见 5.1 节说明）。
+
+### 5.1 `justify`/`align` 的命名映射（易混淆点）
+
+toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数据分别写
+的是 `"justify"`/`"align"`，但这只是文档性字段——`apply_justify()`/
+`apply_align()` 实际写入的是 `BoxStyle::main_align`/`BoxStyle::cross_align`
+（`src/props/node_props.cpp:542-591`）。也就是说：
+
+- **外部（属性 id、ABI、你调用 `set_prop` 时用的名字）**：`justify`、`align`
+- **内部（C++ 结构体成员，仅在阅读引擎源码时会遇到）**：`main_align`、`cross_align`
+
+使用者只需要认识 `justify`/`align`；只有在读布局源码、或看到诊断信息里出现
+`main_align`/`cross_align` 时才需要知道这层映射。
+
+### 5.2 box_model（id 1-15）
+
+| id | 名称 | 类型 | 状态 | 说明 |
+|---|---|---|---|---|
+| 1 | `width` | length | 完整 | 边框盒宽度；缺省即收缩到内容尺寸 |
+| 2 | `height` | length | 完整 | 边框盒高度；缺省即收缩到内容尺寸 |
+| 3 | `min_width` | length | 完整 | 尺寸源解出结果后应用的下限 |
+| 4 | `max_width` | length | 完整 | 尺寸源解出结果后应用的上限 |
+| 5 | `min_height` | length | 完整 | 同上，高度方向 |
+| 6 | `max_height` | length | 完整 | 同上，高度方向 |
+| 7 | `aspect_ratio` | float | 完整 | width/height；从一个维度推出另一个 |
+| 8-11 | `padding_l/t/r/b` | float | 完整 | 缩小传给子节点的约束 |
+| 12-15 | `margin_l/t/r/b` | float | **部分** | 见下 |
+
+`margin_*`（parentData，`parent_data_scope="base"`）：仅支持非负值。负值会
+"移动子节点但不归还空间"——`place_flex_children` 直接把 margin
+加到位置上，deflate（缩小约束）却没有对称处理负值。这是记录在案的功能缺口，
+不是隐藏 bug（`src/props/node_props.cpp:355-357` 注释原文）。
+
+### 5.3 visual（id 16-30, 47-49）
+
+| id | 名称 | 类型 | 状态 | 说明 |
+|---|---|---|---|---|
+| 16 | `background_color` | color | 完整 | 边框盒填充，0xAARRGGBB 非预乘 |
+| 17 | `background_gradient` | gradient | 完整 | 仅线性渐变，≥2 个 stop；**专用 setter**（`set_gradient`），标量入口返回 `kTypeMismatch` |
+| 18-21 | `border_width_l/t/r/b` | float | 完整 | 边框盒内侧厚度 |
+| 22 | `border_color` | color | 完整 | 四条边共用颜色 |
+| 23-26 | `border_radius_tl/tr/br/bl` | float | 完整 | 裁剪所有装饰层 |
+| 27 | `opacity` | float | 完整 | 0..1，非该范围内的值（含非有限数）被拒绝而非裁剪；是**子树整体透明度**，不是逐对象 alpha |
+| 28 | `shadow` | shadow | 完整 | 外阴影；**专用 setter**（`set_shadow`）；`blur_radius` 有硬性上限（实测占单帧光栅时间 52%，该测量记录在被移除的开发切片文档中，见 git 历史），是预算控制而非单纯范围检查 |
+| 29 | `overflow` | enum(`visible`/`clip`) | 完整 | 是否裁剪超出边框盒的内容 |
+| 30 | `transform` | transform | **未实现** | setter（`set_transform`）存在、id 校验正确，**永远返回 `kUnsupported`**：引擎所有矩形都是轴对齐整数设备像素，通用 2D 变换需要 damage/hit-test/clip 三个子系统同时改变 |
+| 47 | `image_source` | image | 完整 | 选择哪个已解码的 `ImageCatalog` 条目；**专用 setter**（`set_image`） |
+| 48 | `image_fit` | enum(`fill`/`contain`/`cover`/`none`) | 完整 | 走普通标量路径（不是专用 setter） |
+| 49 | `image_placeholder_color` | color | 完整 | 图片未解码完成前的占位色，绝不是"洞" |
+
+### 5.4 container（id 31-37, 46）
+
+| id | 名称 | 类型 | 状态 | 说明 |
+|---|---|---|---|---|
+| 31 | `direction` | enum(`row`/`column`/`row_reverse`/`column_reverse`) | **部分** | `row_reverse`/`column_reverse` 返回 `kUnsupported`：`size_flex_children` 按固定顺序遍历子节点，反转顺序会改变谁吸收整数除法的余数 |
+| 32 | `justify` | enum(6 值) | **部分** | `space_around`/`space_evenly` 返回 `kUnsupported`：`MainAlign` 只有 4 个枚举值，且两者都需要在第一个子节点之前预留空间，`place_flex_children` 不支持。内部字段是 `main_align`，见 5.1 |
+| 33 | `align` | enum(5 值) | **部分** | `baseline` 返回 `kUnsupported`：需要子节点排布前先知道其基线，属于故意缺失的内在尺寸测量。`wrap` 容器下 `stretch` 会退化。内部字段是 `cross_align`，见 5.1 |
+| 34 | `gap` | float | 完整 | 主轴上相邻子节点间距，叠加在 margin 之上 |
+| 35 | `main_size` | enum(`min`/`max`) | 完整 | 容器是收缩贴合内容还是撑满主轴 |
+| 36 | `run_gap` | float | 完整 | 仅 `RenderWrap` 有意义，用于换行后行间距 |
+| 37 | `align_content` | enum(6 值) | 完整 | 仅 `RenderWrap`；行堆叠方向的交叉轴对齐 |
+| 46 | `scroll_axis` | enum(`none`/`vertical`/`horizontal`) | 完整 | 仅限叶子节点（`kLeaf`）；决定该节点给子节点哪个轴的无界约束 |
+
+### 5.5 flex（parentData，id 38-41）
+
+| id | 名称 | 类型 | 状态 | 说明 |
+|---|---|---|---|---|
+| 38 | `grow` | float(整数权重) | **部分** | 只接受非负整数（分配自由空间是精确整数除法，小数权重在重新布局后没有稳定含义）；`wrap` 容器下返回 `kNotApplicable`；父节点非 flex/wrap 时也是 `kNotApplicable` |
+| 39 | `shrink` | float(整数权重) | **部分** | 同样要求非负整数。**故意允许写入即使当前无法生效**：`shrink` 需要一个已声明的基准（`basis` 或容器主轴上的确定尺寸），而 `shrink`/`basis` 写入顺序不固定，若在此处拒绝会造成"先写 `shrink` 再写 `basis` 失败、反过来却成功"的不对称；真正的拒绝发生在布局阶段（`size_flex_children`），带节点路径 |
+| 40 | `basis` | float | 完整 | 主轴基准尺寸；缺省即子节点自然尺寸。**无法被清除**：toml 没有为它定义 `auto` 序号 |
+| 41 | `align_self` | enum(6 值，含 `auto`) | **部分** | `baseline` 返回 `kUnsupported`（同 `align`）；`auto` 是"清除覆盖"，不是第五种对齐值；`stretch` 在写入时被接受，但若父容器是 `wrap` 会在布局时退化为 `start`（因为答案依赖父节点种类，而子节点的 `align_self` 可能先于父节点类型确定而写入） |
+
+### 5.6 stack（parentData，id 42-45）
+
+| id | 名称 | 类型 | 状态 | 说明 |
+|---|---|---|---|---|
+| 42-45 | `left`/`top`/`right`/`bottom` | float | 完整 | 相对 stack 内容盒的偏移；写入任一个即视为定位该子节点 |
+
+## 6. 状态汇总（自查结果）
+
+- 38 项完整、10 项部分实现、1 项未实现（`transform`），共 49 项，与已核实的
+  盘点一致。
+- 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
+  `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
+  （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。
+
+## 7. 相关文档
+
+- ABI 侧如何暴露属性写入：`doc/reference/c-abi.md`
+- 复杂属性（渐变/阴影/图片/变换）为何走专用 setter 而非标量通道：`include/drawgui/render/render_tree.h:439` 附近的注释
+- 阴影模糊半径预算的实测数据：该测量记录在被移除的开发切片文档中，见 git 历史

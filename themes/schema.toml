@@ -4,7 +4,7 @@
 #
 #   include/drawgui/theme/token_ids.generated.h  uint16_t token_id constants
 #   src/theme/token_table.generated.inc          the loader's name->id table
-#   doc/theme-tokens.generated.md                a generated reference table
+#   doc/reference/theme-tokens.generated.md      a generated reference table
 #
 # This mirrors props/drawgui.props.toml + tools/gen_props.py exactly in shape
 # (design.md section 5.7.7): a schema is a contract, not data, and the same
@@ -47,8 +47,9 @@
 # (color.primary-hover, color.primary-pressed) rather than as a nesting
 # syntax - the one-level-nesting-ceiling design.md names is satisfied by
 # having no nesting at all yet, because nothing in this slice's scope needs
-# a `button.background` PART token; the ceiling is documented in doc/theme.md
-# as the thing a future widget-theming slice would use, not built here ahead
+# a `button.background` PART token; the ceiling is documented in
+# doc/guide/theming.md as the thing a future widget-theming slice would use, not
+# built here ahead
 # of a second consumer (this project's own standing rule).
 
 schema_version = 1
@@ -159,4 +160,4 @@ name = "color.focus-ring"
 id = 12
 type = "color"
 group = "color"
-summary = "The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (doc/focus.md section 5: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are)."
+summary = "The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (include/drawgui/widget/focus.h: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are)."

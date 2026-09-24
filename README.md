@@ -20,82 +20,51 @@ accessibility, complex text editing, and depth of native integration.
 ## Current status
 
 The engine has layout, widgets, theming and a C ABI, all running on a CPU
-raster path with no GPU dependency.
+raster path with no GPU dependency. Linux only; SDL3 is the sole window
+backend, with no platform-abstraction layer ahead of a second one.
 
-- **Layout**: a Flexbox-like model (row/column, wrap, `align`/`align_self`,
-  `basis`/`shrink`/`main_size`/`aspect_ratio`, clipping, group opacity via
-  `saveLayer`) that lays every node out exactly once per frame - measured,
-  not assumed: `LayoutStats` reports `nodes_visited == 0` for scrolling,
-  slider drag, typing, list recycling, theme colour switches and focus
-  changes alike.
-- **Properties**: 49 CSS-like properties addressable by numeric id -
-  38 fully implemented, 10 partial, 1 not yet (`transform`, blocked on this
-  engine's axis-aligned damage/hit-test/clip representation).
-- **Widgets**: 9 `WidgetKind` values - panel, label, button, checkbox (radio
-  is a `group` field on it), slider, scroll view, text field, virtualized
-  list, dropdown - plus a context menu, tooltip and modal dialog through a
-  shared, overlay-only popup host (`doc/popup.md` §11 - an earlier native
-  OS-window branch was removed after three native-only defects were found;
-  `Dialog` itself remains a real, separate top-level window, unaffected).
-  No new `RenderObject`/node/`LayoutKind` kind has been
-  needed across 31 consecutive development slices, the acceptance bar
-  `doc/design.md` set for its own primitive set.
+- **Layout**: a Flexbox-like model laid out exactly once per frame -
+  `LayoutStats` reports `nodes_visited == 0` for scrolling, slider drag,
+  typing, list recycling, theme colour switches and focus changes alike.
+  `RenderTree` still has no node-kind enum, and the six-value `LayoutKind`
+  set has not grown since the first layout slice.
+- **Properties**: 49 CSS-like properties addressable by numeric id.
+- **Widgets**: 9 `WidgetKind` values - panel, label, button, checkbox
+  (radio is a `group` field on it), slider, scroll view, text field,
+  virtualized list, dropdown. Context menu, tooltip and modal dialog are
+  **not** separate widget kinds - they are application-layer recipes built
+  on a shared, overlay-only popup host (`kDropdown` itself is real: it
+  owns an anchor, an option list and a selected index; the popup *list*
+  under it is assembled by the caller out of ordinary `kButton` rows).
+  `src/widget/tooltip.cpp` is a 20-line hover timer, not a control.
+  `Dialog` (`examples/23`) is the one exception: it is a real, separate
+  top-level OS window opened via `open_dialog()`, never built on the popup
+  host.
+- **Popups**: overlay-only. An earlier native-OS-window branch existed and
+  was removed (`48c9cd3`) after three native-only defects were found; there
+  is no code path left that opens a second OS window for a dropdown, menu
+  or tooltip.
 - **Text**: single- and multi-line, with CJK/BiDi/complex-script shaping via
   `SkParagraph` + libgrapheme (no `icudtl.dat` needed), grapheme-cluster-
   correct editing, and IME composition.
 - **Focus**: Tab order via a focus-scope model, with a visible focus ring.
 - **Shortcuts / clipboard**: a generated `action_id` family (8 intent
   actions - copy/cut/paste/select_all, keyboard scrolling) resolved through
-  a four-level router (IME isolation, focused-node bubble, app-wide table),
-  and a real platform clipboard seam on `WindowManager`.
-- **Node removal**: `NodeId{index, generation}`; removing a node detaches
-  both trees and cleans up every one of six `NodeId`-keyed side tables.
+  a four-level router, and a real platform clipboard seam on
+  `WindowManager`.
 - **Theming**: 12 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI**: 24 exported functions; `examples/19_c_client` is a pure C
-  program that opens two windows and cross-updates them on click.
+- **C ABI**: 24 exported functions - but a much smaller surface than the
+  C++ engine. Today it can open a window, create only two node types
+  (`BOX`/`BUTTON`), set the 49 properties, receive close/click/action
+  events, and load a theme. **It cannot draw text** - there is no ABI path
+  to a label or a text field. `examples/19_c_client` is a pure C program
+  built entirely on `BOX`/`BUTTON`.
 
-All 35 CTest entries pass. The golden-image sha256
-(`f635028e6e1e92349d23f0575f1e39e7ca8b05e5974492641ee610fe520df12e`) has been
-unchanged across the entire history, including a full Skia distribution swap.
+See `doc/limitations.md` for the full list of known gaps, costly corners
+and things that are deliberately out of scope.
 
-Rendering is CPU raster only - the linked Skia includes Ganesh/GL, but
-nothing in this codebase calls into it. The full development history, phase
-by phase, lives in `doc/*.md` and the git log; this section states only what
-is true today.
-
-The eventual target is Linux and Windows desktop, with macOS, Android and iOS
-deferred. Only Linux is wired into the build, and the window manager is SDL3
-on Linux with no conditional compilation for anything else - a second
-platform will be measured before it is abstracted over. There is also no
-platform abstraction ahead of a second backend, on purpose: an earlier
-attempt wrote twelve abstract platform headers before any backend existed,
-and they were removed because nothing had tested whether they described the
-machine. An interface is extracted from at least one working implementation,
-never written ahead of one.
-
-## Build prerequisites
-
-- CMake >= 3.24
-- Ninja
-- clang or gcc with C++20 support
-- FreeType development headers (`libfreetype-dev`) - `libskia.a` references
-  `SkTypeface_FreeType` unconditionally
-- fontconfig development headers (`libfontconfig1-dev`) - required to
-  configure the link against the prebuilt Skia (`skia2Config.cmake` needs it
-  on Linux), but `SkFontMgr_New_FontConfig` is never called anywhere in this
-  codebase; font fallback is built by hand instead so glyph selection stays a
-  property of the program, not of the host's `/etc/fonts`. `ldd` on every
-  drawgui binary confirms no runtime dependency on `libfontconfig`.
-
-The Skia distribution is `BBDXF/libskia2` (`cmake/FetchSkia2.cmake`), a
-purpose-built prebuilt Skia for self-drawn GUI frameworks; `doc/skia-
-dependency.md` records the switch from the previous rust-skia-based setup.
-No OpenGL development package is needed - the prebuilt ships
-`GrGLMakeNativeInterface_none`, so GL entry points resolve at runtime through
-a caller-supplied proc loader and nothing links against libGL.
-
-## Building
+## Quick start
 
 ```sh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -103,16 +72,29 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The first configure downloads libskia2's release tarball into
-`third_party/skia-prebuilt/` and the doctest single header into
-`third_party/doctest-<version>/`, both SHA256-verified. Once present, building
-without network access works; `-DDRAWGUI_BUILD_TESTS=OFF` skips doctest.
+That builds the engine, the examples and the test suite. For build
+prerequisites, a minimal C++ program, a minimal C-ABI program, and the
+per-frame call order, see **`doc/getting-started.md`**.
 
-Render a frame:
+## Documentation map
 
-```sh
-./build/examples/drawgui_render_png out.png
-```
+| Read this | If you want to |
+| --- | --- |
+| `doc/getting-started.md` | Build the project and write your first program (C++ or C ABI) |
+| `doc/concepts.md` | Understand the engine's non-obvious design choices before writing code against it (two trees, side tables, damage, exactly-once layout, text does not participate in layout, integer pixels, zero virtual dispatch) |
+| `doc/contracts.md` | See the 8 rules the caller must follow that the code does not enforce |
+| `doc/limitations.md` | Know what will bite you before it does - costly corners, ABI capability limits, what the tests actually prove |
+| `doc/guide/layout.md` | Work with the Flexbox-like layout model |
+| `doc/guide/text.md` | Work with text display and editing |
+| `doc/guide/widgets.md` | Use the 9 built-in widgets |
+| `doc/guide/theming.md` | Use or write a theme package |
+| `doc/guide/input.md` | Work with pointer, keyboard, focus and shortcuts |
+| `doc/guide/popups.md` | Build a dropdown, menu, tooltip or dialog on the popup host |
+| `doc/guide/animation.md` | Drive animation and scrolling |
+| `doc/reference/properties.md` | Look up a property by name or id |
+| `doc/reference/c-abi.md` | Look up a C ABI function |
+| `doc/contributing.md` | Add a property, extend the ABI, run the sanitized suite |
+| `doc/design.md` | Read the full design document and its decision/risk log (Chinese) |
 
 ## Examples
 
@@ -139,16 +121,16 @@ project's cross-feature regression bed.
 | 11 | `form_controls` | Checkbox, two radio groups, two sliders | `--verify-form-controls` |
 | 12 | `text_input` | Single-line editing, selection, ellipsis/scroll, IME composition preview | `--verify-text-input` |
 | 13 | `image` | Decode + four fit modes (`fill`/`contain`/`cover`/`none`) plus a placeholder colour | `--verify-image` |
-| 14 | `popup` | Overlay popup placement/dismissal (`PopupHost` is now overlay-only, `doc/popup.md` §11) | `--verify-popup` |
+| 14 | `popup` | Overlay popup placement/dismissal (`PopupHost` is overlay-only, `doc/guide/popups.md`) | `--verify-popup` |
 | 15 | `list` | 1000-item virtualized list on a 14-node pool; `--bench` compares against a non-virtualized baseline | `--verify-list` |
 | 16 | `complex_properties` | Gradient, hard-edged shadow, id-based image attach through the dedicated-setter channel | `--verify-complex-properties` |
 | 17 | `animation` | Explicit animation, implicit hover transition, chained caret blink; `--idle-probe-ms` measures idle CPU | `--verify-animation` |
 | 18 | `theme` | Every visual token-bound; click to switch light/dark with zero relayout | `--verify-theme` |
-| 19 | `c_client` | Pure C program, two windows, cross-window click-to-recolour through the ABI | `--verify-c-client` |
+| 19 | `c_client` | Pure C program, two windows, cross-window click-to-recolour through the ABI (BOX/BUTTON only) | `--verify-c-client` |
 | 20 | `multiline_text` | Word wrap, unspaced CJK wrap, mixed-script/emoji, BiDi Arabic-in-Latin, ellipsis | `--verify-multiline-text` |
 | 21 | `focus` | Tab/Shift-Tab order, `tab_index` override, popup focus confinement | `--verify-focus` |
 | 22 | `dropdown_menu` | Keyboard/mouse dropdown selection between two real siblings | `--verify-dropdown` |
-| 23 | `menu_tooltip_dialog` | Context menu, hover tooltip (overlay-only), modal dialog (`--branch native\|overlay` selects the Dialog's own native-OS-window vs. same-window-overlay branch) | `--verify-menus` |
+| 23 | `menu_tooltip_dialog` | Context menu and tooltip built on the overlay popup host, plus a modal `Dialog` that is a real, separate OS window (`--branch native\|overlay` compares two ways of opening it) | `--verify-menus` |
 | 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
 | 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
 
@@ -157,13 +139,11 @@ project's cross-feature regression bed.
 `ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
 the golden-image comparator, damage, layout, clipping, compositing, hit
 testing, interaction, UTF-8 decoding, font fallback, text editing, paragraph
-layout, focus, dropdown, tooltip timing, theme-package security
-(path traversal, symlink escapes/loops, resource bounds, a fixed-seed fuzz
-pass), shortcut routing, clipboard, and node removal - **561 test cases**
-(the binary's own `[doctest] unskipped test cases passing the current
-filters` summary line is the source of truth; `--list-test-cases` also
-prints four decoration lines, so a naive `| wc -l` overcounts by four). Run
-it directly for per-case output:
+layout, focus, dropdown, tooltip timing, theme-package security (path
+traversal, symlink escapes/loops, resource bounds, a fixed-seed fuzz pass),
+shortcut routing, clipboard, and node removal - **572 test cases**
+(`./build/tests/drawgui_unit_test`'s own summary line is the source of
+truth). Run it directly for per-case output:
 
 ```sh
 ./build/tests/drawgui_unit_test
@@ -171,58 +151,39 @@ it directly for per-case output:
 
 ## Golden-image tests
 
-Rendering is compared against committed PNG baselines pixel by pixel, at
-**zero tolerance** - output is byte-identical across gcc and clang, so any
-difference is a real change, never driver noise.
-
-A failing comparison writes `<scene>.actual.png` and `<scene>.diff.png` into
-`build/tests/golden-output/`. To accept an intended change, inspect the diff,
-then regenerate:
+`tests/golden/baseline/` holds 4 committed PNGs, compared pixel-by-pixel at
+**zero tolerance**. All 4 exercise bare `Canvas` primitives only - a clear,
+a rounded rect, two strokes, and alpha blending - not text, not a node
+tree, not layout, not a theme, not a widget; they are the raster floor, not
+a scene-level regression test. `ctest` never regenerates them on its own:
 
 ```sh
 cmake --build build --target golden_update
 ```
 
-`ctest` never regenerates baselines on its own; a suite that can rewrite its
-own expectations proves nothing.
+Separately, a past measurement (recorded in a since-removed development-slice
+doc, see git history) found that `examples/00_cpu_raster_
+png`'s output sha256
+(`f635028e6e1e92349d23f0575f1e39e7ca8b05e5974492641ee610fe520df12e`) was
+measured unchanged across the Skia-provider switch, on both gcc and clang.
+That is a manually-recorded comparison from one slice, not a golden-image
+baseline and not a CI gate - there is no test target that checks this hash.
 
-## Documentation
+## Building
 
-The full design document lives at `doc/design.md` (written in Chinese).
-Every other document in `doc/` records the findings and decisions from one
-development slice, in more depth than belongs here:
+The Skia distribution is `BBDXF/libskia2` (`cmake/FetchSkia2.cmake`), a
+purpose-built prebuilt Skia for self-drawn GUI frameworks; `doc/skia-
+dependency.md` records the switch from an earlier rust-skia-based setup
+that was never actually adopted past evaluation. No OpenGL development
+package is needed - the prebuilt ships `GrGLMakeNativeInterface_none`, so GL
+entry points resolve at runtime through a caller-supplied proc loader and
+nothing links against libGL.
 
-| Document | Subject |
-| --- | --- |
-| `doc/development.md` | adding a property, the ABI lock, running the sanitized suite |
-| `doc/completeness.md` | the MVP-8 completeness audit and its qualified verdict |
-| `doc/cpu-raster-findings.md` | what CPU rasterization costs, and where it stops being enough |
-| `doc/damage-repaint.md` | partial repaint and damage granularity |
-| `doc/layout.md` | incremental layout and the integer-device-pixel deviation |
-| `doc/widgets.md` | why there is no separate widget tree |
-| `doc/properties.md` | the property system: ids, generator, gap report |
-| `doc/wrapping.md` | flex wrap, `align_self`, per-side borders |
-| `doc/clipping.md` | `overflow` and rounded-clip damage |
-| `doc/compositing.md` | group `opacity`, why a layer isn't damage-atomic |
-| `doc/sizing.md` | `basis`/`shrink`/`main_size`/`aspect_ratio`, one measurement pass |
-| `doc/scrolling.md` | scroll viewports, runtime offset, zero-relayout scrolling |
-| `doc/form-controls.md` | checkbox/radio/slider, and why dropdown was deferred |
-| `doc/text-input.md` | single-line `TextField`, ASCII-then-grapheme editing |
-| `doc/font-fallback.md` | the hand-built fallback chain, vs. fontconfig |
-| `doc/image.md` | image decode/paint, size-before-decode, golden-test image source |
-| `doc/list.md` | list virtualization, the recycled pool, the 1000-item measurement |
-| `doc/complex-properties.md` | the dedicated-setter channel (gradient/shadow/image/transform) |
-| `doc/animation.md` | `dg::AnimationEngine`, the clock, idle-CPU measurement |
-| `doc/theme.md` | the theme token system, `$token` bindings, relayout cost |
-| `doc/abi.md` | the C ABI generator, handle validity, try/catch trampolines |
-| `doc/skia-dependency.md` | the libskia2 dependency switch and what it changed |
-| `doc/text-layout.md` | multi-line `SkParagraph` layout, CJK/BiDi, exactly-once layout |
-| `doc/ime.md` | IME composition, platform findings, the testing gap |
-| `doc/focus.md` | Tab order, focus scopes, popup/list/IME interactions |
-| `doc/menus.md` | dropdown (9th `WidgetKind`), and why context menu/tooltip/dialog were split out |
-| `doc/popup.md` | the popup host mechanism shared by dropdown, menu, tooltip, dialog |
-| `doc/theme-packages.md` | external theme packages, path-traversal defence, hot reload |
-| `doc/showcase.md` | the cross-feature regression bed and its one emergent finding |
-| `doc/shortcuts.md` | the intent-binding system, `action_id`, `LogicalKey`, four-level routing |
-| `doc/clipboard.md` | the clipboard seam, copy/cut/paste/select_all as intents |
-| `doc/node-removal.md` | `NodeId{index, generation}`, `remove_child()`, the six side tables |
+The first configure downloads libskia2's release tarball into
+`third_party/skia-prebuilt/` and the doctest single header into
+`third_party/doctest-<version>/`, both SHA256-verified. Once present,
+building without network access works; `-DDRAWGUI_BUILD_TESTS=OFF` skips
+doctest. Prerequisites and the full build/prerequisite list live in
+`doc/getting-started.md`.
+
+All 35 CTest entries pass on Linux (`ctest --test-dir build -N`).

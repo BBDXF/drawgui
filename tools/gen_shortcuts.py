@@ -15,7 +15,7 @@ Outputs:
   include/drawgui/shortcuts/action_scope.generated.h  the ActionScope enum
   src/shortcuts/logical_key_table.generated.inc       name -> LogicalKey table
   src/shortcuts/binding_table.generated.inc           action -> chord table
-  doc/shortcuts.generated.md                          a generated reference
+  doc/reference/shortcuts.generated.md                a generated reference
 
 This generator also performs design.md section 7's shortcut CI check, as
 part of ordinary validation (a malformed table is a generation failure, the
@@ -51,7 +51,7 @@ LOGICAL_KEY_HEADER_RELPATH = Path("include") / "drawgui" / "shortcuts" / "logica
 ACTION_SCOPE_HEADER_RELPATH = Path("include") / "drawgui" / "shortcuts" / "action_scope.generated.h"
 LOGICAL_KEY_TABLE_RELPATH = Path("src") / "shortcuts" / "logical_key_table.generated.inc"
 BINDING_TABLE_RELPATH = Path("src") / "shortcuts" / "binding_table.generated.inc"
-DOC_RELPATH = Path("doc") / "shortcuts.generated.md"
+DOC_RELPATH = Path("doc") / "reference" / "shortcuts.generated.md"
 
 SUPPORTED_SCHEMA_VERSION = 1
 
@@ -514,8 +514,8 @@ def render_doc(defs: Definitions) -> str:
         "",
         "# Shortcut/intent action reference (generated)",
         "",
-        "One row per `[[action]]` in `input/shortcuts.toml`. `doc/shortcuts.md`",
-        "(8-6) is the hand-written narrative this table supports; this file is",
+        "One row per `[[action]]` in `input/shortcuts.toml`. `doc/guide/input.md`",
+        "is the hand-written narrative this table supports; this file is",
         "regenerated on every change, never edited directly.",
         "",
         "| id | name | scope | binding | linux/windows | macos | consumer |",

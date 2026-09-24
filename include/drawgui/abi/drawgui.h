@@ -406,9 +406,9 @@ typedef uint16_t dg_token_id;
 #define DG_TOKEN_SPACE_MD 11
 /* The keyboard focus indicator (7-4) - a visible ring outset around whichever */
 /* widget dg::Focus currently names, read directly via Theme::color_value() */
-/* rather than through a $token live binding (doc/focus.md section 5: the ring */
-/* is paint/positioning state with no LayoutTree node of its own, the same shape */
-/* TextField's caret/selection_highlight already are). */
+/* rather than through a $token live binding (include/drawgui/widget/focus.h: */
+/* the ring is paint/positioning state with no LayoutTree node of its own, the */
+/* same shape TextField's caret/selection_highlight already are). */
 #define DG_TOKEN_COLOR_FOCUS_RING 12
 
 #endif /* !__cplusplus */

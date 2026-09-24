@@ -27,7 +27,7 @@ set(DRAWGUI_THEME_HEADER
 set(DRAWGUI_THEME_TABLE
     "${DRAWGUI_THEME_ROOT}/src/theme/token_table.generated.inc")
 set(DRAWGUI_THEME_DOC
-    "${DRAWGUI_THEME_ROOT}/doc/theme-tokens.generated.md")
+    "${DRAWGUI_THEME_ROOT}/doc/reference/theme-tokens.generated.md")
 set(DRAWGUI_THEME_BUILTIN_HEADER
     "${DRAWGUI_THEME_ROOT}/include/drawgui/theme/builtin_theme.generated.h")
 set(DRAWGUI_THEME_GENERATED_FILES

@@ -5,8 +5,8 @@ Edit input/shortcuts.toml and re-run `python3 tools/gen_shortcuts.py`.
 
 # Shortcut/intent action reference (generated)
 
-One row per `[[action]]` in `input/shortcuts.toml`. `doc/shortcuts.md`
-(8-6) is the hand-written narrative this table supports; this file is
+One row per `[[action]]` in `input/shortcuts.toml`. `doc/guide/input.md`
+is the hand-written narrative this table supports; this file is
 regenerated on every change, never edited directly.
 
 | id | name | scope | binding | linux/windows | macos | consumer |

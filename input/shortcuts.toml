@@ -9,7 +9,7 @@
 #   include/drawgui/shortcuts/action_scope.generated.h  the ActionScope enum
 #   src/shortcuts/logical_key_table.generated.inc       name -> LogicalKey
 #   src/shortcuts/binding_table.generated.inc           action -> chord table
-#   doc/shortcuts.generated.md                          a generated reference
+#   doc/reference/shortcuts.generated.md                a generated reference
 #
 # This is the fourth id-generator family (props/, themes/, abi/, this one),
 # same shape as themes/schema.toml on purpose (design.md section 5.5.3:
