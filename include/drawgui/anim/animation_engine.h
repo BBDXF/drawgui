@@ -249,6 +249,26 @@ class AnimationEngine {
   // through dg::set_prop() again). Does NOT touch a slot already retargeting
   // this (node, prop_id) - it plays out to completion, matching CSS's own
   // `transition: none` leaving an in-flight transition alone.
+  //
+  // This is the ONLY way to undo set_transition(). Calling
+  // set_transition(node, prop_id, /*duration_ms=*/0, curve_id) does not
+  // clear it: the duration is merely clamped to 0 and stored, and
+  // set_value() still routes through the transition branch rather than
+  // falling through to dg::set_prop() (see set_transition()'s and
+  // set_value()'s definitions in animation_engine.cpp). cancel_all_for()
+  // is not a substitute either - it is node-wide, forgets every declared
+  // transition on `node` at once, and cancels animations already in
+  // flight, none of which a caller wanting to release one (node, prop_id)
+  // back to straight-through writes wants as a side effect. Once
+  // set_transition() has been called, this is the only path back.
+  //
+  // Kept despite having no production caller as of this writing (nothing
+  // in examples/ or the C ABI surface currently un-declares a transition
+  // it made): it is set_transition()'s structural inverse, not a
+  // speculative addition, and a state machine that can only be entered
+  // and never exited is the defect, not the fix. test_animation.cpp's
+  // "clear_transition restores a straight-through set_prop write" case
+  // exercises it end to end.
   void clear_transition(NodeId node, dg_prop_id prop_id);
 
   // The write a transition-aware caller makes in place of dg::set_prop() -

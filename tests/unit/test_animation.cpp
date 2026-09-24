@@ -390,6 +390,34 @@ TEST_CASE("implicit transition: an undeclared (node, prop) writes straight throu
   CHECK_FALSE(engine.has_active());
 }
 
+TEST_CASE("clear_transition restores a straight-through set_prop write") {
+  Fixture fixture;
+  AnimationEngine engine;
+  engine.set_transition(fixture.panel, DG_PROP_BACKGROUND_COLOR, 200, dg::kCurveLinear);
+
+  // With the transition declared, a write goes through the transition
+  // branch: not applied on the spot, has_active() reports the in-flight
+  // slot.
+  engine.set_value(fixture.tree, fixture.panel, DG_PROP_BACKGROUND_COLOR,
+                   PropValue::color(Color::from_argb(0xFFFFFFFF)));
+  CHECK(engine.has_active());
+  engine.tick(fixture.tree, AnimTime{0});
+  engine.tick(fixture.tree, AnimTime{200});
+  CHECK(fixture.tree.render().style(fixture.panel).fill.argb() == 0xFFFFFFFFU);
+  CHECK_FALSE(engine.has_active());
+
+  // Clear the declaration. The next write to the same (node, prop) must go
+  // straight through dg::set_prop() again: no transition slot created, and
+  // the target value lands immediately rather than on a later tick().
+  engine.clear_transition(fixture.panel, DG_PROP_BACKGROUND_COLOR);
+  const PropWrite write =
+      engine.set_value(fixture.tree, fixture.panel, DG_PROP_BACKGROUND_COLOR,
+                       PropValue::color(Color::from_argb(0xFF00FF00)));
+  CHECK(write.status == PropStatus::kApplied);
+  CHECK_FALSE(engine.has_active());
+  CHECK(fixture.tree.render().style(fixture.panel).fill.argb() == 0xFF00FF00U);
+}
+
 TEST_CASE("reduced motion: duration collapses to zero, the same state machine still runs") {
   Fixture fixture;
   AnimationEngine engine;

@@ -460,6 +460,17 @@ struct NodeStyle {
 // it is measurable here: kDirect walks the tree and issues draw calls under
 // the clip, kPicture records the whole tree once and replays it, letting
 // Skia cull. examples/03_damage_repaint reports both.
+//
+// The mode is chosen once, at construction, via `TreeSpec::paint_mode` (the
+// only place that sets it) - a tree's paint strategy is a build-time
+// parameter, not runtime state a caller flips mid-session. This class used
+// to also expose `set_paint_mode()` / `paint_mode()` as a public setter/
+// getter pair on `RenderTree` itself, but neither had a caller: nothing in
+// this codebase switches a live tree's paint mode after it is built, and
+// the setter carried a side effect (forcing `picture_stale`) that made it
+// a liability with no one depending on it. Both were removed; construct a
+// new tree with the desired `TreeSpec::paint_mode` instead of trying to
+// mutate an existing one.
 enum class PaintMode : std::uint8_t {
   kDirect,
   kPicture,
@@ -527,6 +538,10 @@ struct TreeSpec {
   std::optional<ImageCatalog> images;
 
   std::size_t max_damage_rects = DamageRegion::kDefaultMaxRects;
+
+  // The tree's paint strategy for its whole lifetime - the only place this
+  // is set. See the note above `PaintMode` for why there is no runtime
+  // setter to change it after construction.
   PaintMode paint_mode = PaintMode::kDirect;
 };
 
@@ -571,10 +586,6 @@ class RenderTree {
 
   [[nodiscard]] std::size_t node_count() const;
   [[nodiscard]] PixelSize viewport() const;
-
-  // Read-only accessor - moves no pixels. Public FontCatalog access for
-  // whatever a caller needs a tree's fonts for.
-  [[nodiscard]] const std::optional<FontCatalog>& fonts() const;
 
   [[nodiscard]] const NodeStyle& style(NodeId id) const;
 
@@ -701,8 +712,6 @@ class RenderTree {
   [[nodiscard]] PixelPoint scroll_offset(NodeId id) const;
 
   void resize(PixelSize viewport);
-  void set_paint_mode(PaintMode mode);
-  [[nodiscard]] PaintMode paint_mode() const;
 
   [[nodiscard]] const DamageRegion& damage() const;
 

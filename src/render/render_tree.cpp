@@ -230,10 +230,6 @@ PixelSize RenderTree::viewport() const {
   return impl_->viewport;
 }
 
-const std::optional<FontCatalog>& RenderTree::fonts() const {
-  return impl_->fonts;
-}
-
 const NodeStyle& RenderTree::style(NodeId id) const {
   return impl_->nodes[id.index].style;
 }
@@ -387,15 +383,6 @@ void RenderTree::resize(PixelSize viewport) {
   impl_->reposition(0);
   impl_->picture_stale = true;
   damage_all();
-}
-
-void RenderTree::set_paint_mode(PaintMode mode) {
-  impl_->paint_mode = mode;
-  impl_->picture_stale = true;
-}
-
-PaintMode RenderTree::paint_mode() const {
-  return impl_->paint_mode;
 }
 
 const DamageRegion& RenderTree::damage() const {
