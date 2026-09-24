@@ -13,3 +13,6 @@ __pycache__/
 # example is meant to be run from anywhere, so the name is ignored everywhere
 # rather than only at the top level.
 drawgui-example.png
+
+# OpenCode codemap state (local only)
+.slim/
