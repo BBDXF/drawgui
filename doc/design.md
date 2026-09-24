@@ -64,32 +64,57 @@ designated initializers（属性结构体）、`<span>`（零拷贝缓冲传递�
 
 ### 3.2 Skia 集成策略
 
-**一期：消费预编译静态库。** 不进 GN/depot_tools 的坑。
+> **追记（7-1，记录在已移除的开发切片文档中，见 git 历史）**：本节最初设想的 `rust-skia/
+> skia-binaries` 方案已被放弃并替换，下面记录的是实际落地的方案；原方案的
+> 设想与放弃过程见本节末尾的历史记录。
 
-- 来源：`rust-skia/skia-binaries` releases（对应 Skia `chrome/m153`），活跃维护
-- 覆盖的 target triple 正好是本项目目标平台：`x86_64-pc-windows-msvc`、
-  `x86_64/aarch64-unknown-linux-gnu`、`x86_64/aarch64-apple-darwin`、
-  `aarch64/x86_64-linux-android`、`aarch64/x86_64-apple-ios`
-- 需要的 feature 组合：`textlayout`（SkParagraph）+ `svg` + `webp` +
-  `gl`（Linux/Win/Android）/ `metal`（macOS/iOS）/ `vulkan`（可选）
-  - **`webp` 必须显式启用** —— 默认 codec 集合仅含 BMP/GIF/ICO/JPEG/PNG/WBMP（§5.10.2）
-  - `textlayout` 引入 HarfBuzz + ICU 依赖，`icudtl.dat` 的分发方式需单独处理（§5.10.5）
-- 头文件：从 `rust-skia/skia` 对应 tag 取，与二进制版本严格对齐
-- 实现：`cmake/FetchSkia.cmake` —— 按 target triple 下载、校验 SHA256、解压到 `third_party/skia-prebuilt/`
+**消费预编译静态库，一期即最终形态。** 不进 GN/depot_tools 的坑。
 
-**已知风险与对策**：
+- 来源：`BBDXF/libskia2`（`cmake/FetchSkia2.cmake`），一个专为本类自绘 GUI
+  框架打包的 Skia 分发：每平台一个 release tarball，内含 7 个静态库
+  （`libskia`/`libskparagraph`/`libskshaper`/`libskunicode_core`/
+  `libskunicode_libgrapheme`/`libsvg`/`libskresources`）、完整头文件树
+  （`include/skia/{include,modules,src}`，与二进制在**同一个 tarball**里，
+  不再有"头文件与二进制分开 pin、可能不同步"的风险）以及一份生成好的
+  CMake package（`skia2Config.cmake`），链接顺序、include 路径、系统库
+  依赖、ABI 相关编译选项全部由它声明，不再手写
+- Skia 版本：`chrome/m153`（`key.txt` 内 `skia_commit=
+  4f574af2444846ceca4d277a8095c5d4229d175f`），GN 配置确认 fontconfig on，
+  `skia_use_libgrapheme=true` + `skia_use_icu=false` —— 文本整形走
+  libgrapheme，**没有 ICU、没有 `icudtl.dat`**（§5.10.5/§5.13 的 ICU 数据
+  依赖问题因此不是"裁剪"而是从未存在）
+- 实现：`cmake/FetchSkia2.cmake` —— 下载 tarball、SHA256 校验、解压到
+  `third_party/skia-prebuilt/`，无网络时若产物已在本地则可离线构建
 
-- rust-skia 的产物同时包含 `libskia.a` 和 `libskia-bindings.a`，后者是 Rust 专用，**不链接**
-- 该二进制来自 rust-skia 的 Skia fork（含少量 patch），需在 `doc/skia-provenance.md` 记录确切 tag 与 patch 列表
-- **备选来源**：skia4delphi 的 `Binary/` 提供 `libsk4d`（动态库 + C ABI），但既然核心是 C++
-  直接链 C++ API，不需要它。其真正价值是 GN args 与 compiler-rt workaround 参考
-  （macOS `os_version_check.c.o`、Android `emutls.c.o` 弱符号处理）
-- **JetBrains/skia-pack 已于 2026-03 归档，不作为依赖**
+**已验证、不是假设**：切换前后 `drawgui_render_png` 的输出 sha256 在
+gcc/clang 双编译器下均不变（记录在已移除的开发切片文档中，见 git 历史）；`nm -u` 确认 7
+个静态库里没有对外部 ICU 符号的未定义引用，也没有对 `libGL`/`glX` 的未定义
+引用（`GrGLMakeNativeInterface_none` 仍是构建时选中的入口）。
 
-**二期（可选）**：若需裁剪体积或改 Skia 行为，再引入自建 GN 构建。届时 `FetchSkia.cmake`
-的接口不变，只切换 provider。
+**二期（可选，仍未触发）**：若需裁剪体积或改 Skia 行为，再引入自建 GN 构建。
+届时 `FetchSkia2.cmake` 的接口不必变，只切换 provider。
+
+---
+
+**历史记录（已放弃的一期方案，仅供追溯）**：最初设想消费
+`rust-skia/skia-binaries` releases（对应 Skia `chrome/m153`），按 target
+triple（`x86_64-pc-windows-msvc`、`x86_64/aarch64-unknown-linux-gnu` 等）
+下载预编译静态库 + 单独 pin 的头文件 checkout，用手写的 `cmake/
+FetchSkia.cmake` 声明 include 路径、Freetype 链接、按 `-textlayout` 特性
+拼装模块列表。这个方案没有走到 P0 之外：`rust-skia` 的产物把头文件与二进
+制分开管理，导致两者是否同步一直是个悬而未决的问题；而 7-1 发现的
+`BBDXF/libskia2` 把两者装进同一个 tarball、外加一份生成好的 CMake
+package，直接消解了这个问题，而不是靠"记录确切 tag"的纪律去管理它。切换
+过程与验证证据的完整记录曾在已移除的开发切片文档中，现见 git 历史。
 
 ## 4. 总体架构
+
+> **追记**：下图是最初设想的分层，作为决策记录保留。与当前代码有出入的地方：
+> 「JS 框架层」「语言绑定」两层从未开始建（P6 未启动，见 §9 路线图）；
+> 「Platform」层没有落地成独立的 `IPlatform`/`IWindow` 抽象接口 —— SDL3 是
+> 唯一实现，README 明确记录了这一决定：抽象要从至少一个已验证工作的实现里
+> 提炼，不为一个还不存在的第二个后端预先搭建；「Widget」层今天是 9 个
+> `WidgetKind`，不是「30+ 控件」。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -161,6 +186,22 @@ struct PlatformCaps {
 MVP 实现：SDL3 后端一份代码覆盖五平台。但**接口设计不引用任何 SDL 类型**，
 将来 macOS 换 AppKit、Windows 换 Win32 时不动上层。
 
+> **追记**：上面这套 `IPlatform` / `IWindow` / `PlatformCaps` 接口**从未建成**。
+> 现实是 `src/platform/sdl3/window_manager.cpp` 单一实现，没有任何抽象基类——
+> 全仓库零个 `virtual`（已核实：`rg '^\s*virtual\b|\boverride\b' src include
+> --glob '!*generated*'` 零命中）。`include/drawgui/window/window_manager.h`
+> 的头注释自己写明了原因：接口要从至少一个已验证工作的实现中提炼，不为一个
+> 还不存在的第二个后端预先搭建；本项目此前恰恰做过一次相反的尝试——在任何
+> 后端存在之前先写了十二个抽象平台头文件，后来全部删除。
+>
+> `PlatformCaps` **曾经存在过**，只有一个字段 `native_popup`，随 §5.2 描述的
+> native popup 分支一起在 commit `48c9cd3` 中被整体删除。它不是"从未建成"，
+> 而是"建成过、用过、随它唯一的消费者一起被拆掉"。
+>
+> 这条追记不是说抽象层的想法错了——README 的论证本身依然成立，只是"从至少
+> 一个工作实现里提炼"这个前提至今没有出现第二个平台后端，所以提炼这一步
+> 尚未发生，也不会提前发生。
+
 ### 5.2 多窗口模型（C3）
 
 对象归属：
@@ -206,6 +247,26 @@ PopupHost::show(content_node, anchor_rect, placement, flags)
 
 **这个抽象必须在 MVP 就存在**。如果先用应用内模态层实现菜单，后期改成真窗口
 等于重写整个菜单/下拉/tooltip 子系统 —— 这正是 stonegui 复盘 2.1 描述的困境。
+
+> **追记**：这条论证依然成立，`PopupHost` 这个接缝也确实保住了——但它今天
+> 只剩一个实现。`caps.native_popup` 决定落地形式的 native 分支已在 commit
+> `48c9cd3` 中整体删除：`WindowManager::open_popup()`/`close_popup()`/
+> `platform_caps()`、`PlatformCaps`、`PopupWindowKind` 全部不再存在
+>（详见 §9 路线图 P4 的「验收标准变更记录」与 §10 风险登记）。原因是 native
+> 分支唯一独有的能力——超出父窗口边界——从未被摆放数学真正启用过，而它
+> 独有的代码路径反而带来了三个仅 native 分支可见的缺陷（文字不渲染、首帧后
+> 永久不重绘、焦点环溢出）。
+>
+> `PopupHost` 现在是 **overlay-only**：`show()` 总是把内容挂到当前窗口的
+> overlay 容器，不再有分支判断（见 `include/drawgui/window/popup_host.h`、
+> `src/window/popup_host.cpp`）。「移动端只能是应用内 overlay 层」这句原文
+> 判断依然成立，而且现在反而成了 overlay-only 方案本身的支持论据：移动端
+> 原本就走这条路径，桌面端不再需要维护第二条。
+>
+> 这不影响本节最关键的那句结论：`PopupHost` 这道接缝依然是"必须在 MVP 就
+> 存在"的东西——少了它，菜单/下拉/tooltip 会直接依赖窗口管理器的具体实现，
+> 而不是一个可以只保留一侧实现的抽象。少掉的只是**曾经存在的第二个实现**，
+> 不是接缝本身。
 
 **事件路由**：所有输入事件带 `window_id`。快捷键两级路由（窗口级 → App 级）。
 指针捕获是窗口级的（拖动时鼠标移出窗口仍收事件）。
@@ -622,6 +683,13 @@ MVP 八个：`Box` `Text` `Button` `TextField` `ScrollView` `List` `Image` `Row/
 **验收标准**：如果实现 `Slider` 需要新增 RenderObject，说明第 3 层的原语集设计有缺陷。
 MVP 阶段的八个控件就是用来验证这条的。
 
+> **追记**：现状与本节两处清单都有出入，详见 §4 的追记。实际是 9 个
+> `WidgetKind`（`include/drawgui/widget/widget_set.h`）：`Panel`/`Label`/
+> `Button`/`Checkbox`/`ScrollView`/`Slider`/`TextField`/`List`/`Dropdown`——
+> 既不是"MVP 八个"（`Box`/`Row`/`Column`/`Image` 未建成，`Checkbox`/`Slider`/
+> `Dropdown` 却已建成），也远未到"完整目标集约 30 个"。验收标准本身
+> （新增控件不应需要新增 RenderObject）依然是判断"何时该止步"的有效标尺。
+
 ### 5.7 Theme 层
 
 继承 stonegui 的 token 模型（复盘第 7 节列为可迁移资产），并扩展为
@@ -1032,8 +1100,8 @@ ICU 数据文件 `icudtl.dat` 是 BiDi、断行、grapheme 分割的前提，绕
 > 断行规则表以代码形式编译进 `libskunicode_libgrapheme.a`，不是外部可裁的
 > 数据文件，§5.13.6 "断行规则表不可裁掉"的约束因此被满足而非被违反。
 > 实测证据（grapheme cluster / CJK 断行 / BiDi 三项针对本项目实际构建的
-> 直接断言，而非转抄上游 README）见 `doc/skia-dependency.md` §5，
-> `tests/unit/test_skia_textlayout_smoke.cpp` 是可执行的证明。
+> 直接断言，而非转抄上游 README）曾记录在已移除的开发切片文档中（见 git 历史），
+> `tests/unit/test_skia_textlayout_smoke.cpp` 是仍然可执行的证明。
 
 ### 5.11 颜色与透明度
 
@@ -1104,6 +1172,13 @@ primary 色 12% 作为 hover 遮罩）**不引入表达式语法**：
 
 `IWindow::set_opacity()` 是另一回事 —— 它设置的是**整窗合成不透明度**（OS 合成器行为），
 与帧缓冲是否有 alpha 通道无关，可随时修改。两者不要混淆。
+
+> **追记**：`PlatformCaps`（连同它唯一的字段 `native_popup`）已在 commit
+> `48c9cd3` 中删除，`window_transparency`、`WindowDesc`、`IWindow::set_opacity()`
+> 均未建成——现存的窗口描述结构是 `WindowSpec`（`include/drawgui/window/
+> window_manager.h`），其 `fill` 字段的 alpha 通道被显式忽略，注释写明
+> "a window is opaque"。本节描述的透明窗口能力目前不存在，创建期/运行期
+> 两种不透明度的区分本身仍是合理的设计考量，保留在此供将来实现时参考。
 
 ### 5.12 文本：显示与编辑的能力边界
 
@@ -1216,8 +1291,8 @@ CJK 不以空格分词，断行完全依赖 **ICU 的 UAX #14 规则**。
 > **P7 切片 7-1**：本项目实际选用的 libgrapheme 后端不经过"裁剪 ICU 数据"
 > 这条路径，UAX #14 规则表随 `libskunicode_libgrapheme.a` 一起编译，
 > 因此这里描述的约束仍然成立（规则表确实没有被裁掉），只是成立的方式
-> 与 §5.10.5 原文设想的不同——见该节的更新注记与 `doc/skia-dependency.md`
-> §5。泰语/老挝语词典分词的取舍不变：仍然缺失，仍是已知取舍。
+> 与 §5.10.5 原文设想的不同——见该节的更新注记，完整验证过程曾记录在已移除的
+> 开发切片文档 §5 中（见 git 历史）。泰语/老挝语词典分词的取舍不变：仍然缺失，仍是已知取舍。
 
 #### 5.13.7 BiDi 与 RTL 布局镜像
 
@@ -1704,7 +1779,7 @@ int dg_set_log_callback(dg_app_t*, dg_log_cb, void* user, uint8_t min_level);
   门禁检查过。
 
 `.clang-format` 的 CI 强制**保留不变**。`.clang-tidy` 配置文件也保留，
-供本地按需运行（`doc/development.md` 有命令），但不再由任何东西强制。
+供本地按需运行（命令曾记录在已移除的开发切片文档中，见 git 历史；或参见 `doc/contributing.md`），但不再由任何东西强制。
 
 放弃的是什么：`gcc -Werror` 与 ASan+UBSan 仍在，但两者都抓不到
 `unchecked-optional-access` 这一类"API 误用但路径未必执行"的缺陷。
@@ -1713,34 +1788,45 @@ int dg_set_log_callback(dg_app_t*, dg_log_cb, void* user, uint8_t min_level);
 
 ## 8. 目录结构
 
+> **追记**：下表是当前仓库的实际布局，与 P0-P8 路线图设想时的目录树已有出入
+> （最明显的两处：`js/` 目录从未创建，因为 P6 从未开始；`platform/` 只存在于
+> `src/` 而不在 `include/` 下 —— `IPlatform`/`IWindow` 这层接口抽象本身就没有
+> 落地，见 README「no platform abstraction ahead of a second backend」一节
+> 的说明：SDL3 是唯一后端，抽象接口要等第二个后端出现才抽取）。`abi/
+> drawgui.d.ts` 确实存在，但它是给 P6 未来 JS 绑定用的生成产物，今天没有任何
+> 构建目标读取它。
+
 ```
 drawgui/
-├── cmake/                    FetchSkia.cmake 等
+├── cmake/                     FetchSkia2.cmake 等
 ├── include/drawgui/
-│   ├── platform/             IPlatform / IWindow / PlatformCaps
-│   ├── graphics/             Canvas / Paragraph / FontManager
-│   ├── render/               RenderObject 及派生
-│   ├── input/                FocusManager / PointerRouter / Shortcuts
-│   ├── widgets/
-│   └── theme/
-├── src/                      对应实现
-│   └── platform/sdl3/        SDL3 后端
+│   ├── base/                  Expected / UTF-8 / 像素几何等基础工具
+│   ├── graphics/              Canvas / Paragraph / FontManager 封装
+│   ├── layout/                布局相关类型
+│   ├── render/                RenderTree 及节点侧表
+│   ├── props/                 属性系统（生成头文件落在这里）
+│   ├── shortcuts/             action_id / 路由
+│   ├── widget/                WidgetKind、9 个控件的侧表
+│   ├── theme/                 token / 主题包
+│   ├── window/                WindowManager / PopupHost
+│   └── abi/                   ABI 头文件（生成）
+├── src/                       对应实现，另加：
+│   ├── platform/sdl3/          SDL3 后端（唯一后端，无上层抽象接口）
+│   └── anim/                   动画时钟
 ├── abi/
-│   ├── drawgui.def.toml      ★ ABI 单一真相源
-│   ├── drawgui.h             生成
-│   └── abi_impl.cpp
-├── js/
-│   ├── framework.js          响应式核心
-│   ├── runtime/              bun.js / node.js / quickjs.js
-│   └── drawgui.d.ts          生成
+│   ├── drawgui.def.toml       ★ ABI 单一真相源
+│   ├── drawgui.d.ts           生成，给未来 P6 JS 绑定用，今天无人读取
+│   └── drawgui_abi.lock       ABI 签名锁
+├── props/drawgui.props.toml  ★ 属性 schema 单一真相源
+├── input/shortcuts.toml      ★ action schema 单一真相源
 ├── themes/
-│   ├── schema.toml            ★ token schema 单一真相源（编译期契约）
-│   └── builtin/               内置主题 package（JSON + 资源，嵌入二进制）
-├── tools/                    代码生成器 + 一致性检查（★ 不许删）
+│   └── schema.toml            ★ token schema 单一真相源（编译期契约）
+├── tools/                     代码生成器 + 一致性检查（★ 不许删）
 ├── tests/
-│   ├── unit/
-│   └── golden/               黄金图像基准
-├── examples/
+│   ├── unit/                  doctest 用例
+│   ├── layout/ widget/        专项回归
+│   └── golden/                黄金图像基准（4 张裸 Canvas baseline）
+├── examples/                  26 个可独立运行的示例
 ├── third_party/skia-prebuilt/
 └── doc/design.md
 ```
@@ -1762,7 +1848,7 @@ drawgui/
 
 依赖关系：P2/P3 可与 P1 后半程并行；P4 依赖 P1+P3；P5 依赖 P3+P4；P6 依赖 P5。
 
-**验收标准变更记录（P4，`doc/popup.md` §11）**：原表述「右键菜单以真 OS 窗口弹出
+**验收标准变更记录（P4，记录在已移除的开发切片文档 §11 中，见 git 历史）**：原表述「右键菜单以真 OS 窗口弹出
 并超出父窗口边界」实际上是两个独立要求的合取，而它们各自的达成情况不同——不是
 "部分达成"这么简单，而是**一半确曾达成、另一半从未达成且现已被显式否决**：
 
@@ -1771,17 +1857,17 @@ drawgui/
   自身的高度（`popup_host.cpp:46-51`），不是屏幕；水平方向的裁剪/翻转当时也没有实现
   （§6 早已按名字承认这一点）。也就是说，即便在 native 分支存在的那段时间里，弹层
   也从未真正跨出过父窗口边界——它是一个真 OS 窗口，被摆放数学关在了父窗口里面。
-  **后续更新（`doc/popup.md` §12）**：`resolve_popup_placement()` 之后补上了水平翻转
+  **后续更新（记录在已移除的开发切片文档 §12 中，见 git 历史）**：`resolve_popup_placement()` 之后补上了水平翻转
   与双轴 clamp，但这不影响上面这条结论——它描述的是 native 分支存在时的历史事实，
   而 native 分支现已删除；水平摆放的补齐是针对 overlay-only 之后的新短板，不是
   重新打开"是否要让弹层跨出父窗口"这个已被否决的能力。
 
-`doc/popup.md` §11 记录了三个仅存在于 native 分支的缺陷（文字不渲染、首帧后永久
+已移除的开发切片文档 §11（见 git 历史）记录了三个仅存在于 native 分支的缺陷（文字不渲染、首帧后永久
 不重绘、焦点环溢出）、隔离它们到 native 分支自身而非平台差异的判别实验，以及据此
 做出的删除决定：native 分支已整体移除，`PopupHost` 现在只有 overlay 一条路径。
 新验收标准：**弹层（右键菜单/tooltip/下拉/对话框 overlay 面板）以 overlay 层实现，
-placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未实现，见 `doc/popup.md`
-§6——**后续已补齐，见 `doc/popup.md` §12**）**。
+placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未实现，见已移除的开发切片
+文档 §6——**后续已补齐，见已移除的开发切片文档 §12，均见 git 历史**）**。
 「超出父窗口边界」这条能力被显式放弃，而不是悄悄降级——恢复它仍需要 overlay 方案
 先支持跨出父窗口本身（现已不支持，是结构性限制），水平摆放逻辑的补齐只是让弹层
 在父窗口内部摆得更稳，不等同于恢复这条被否决的能力。
@@ -1790,8 +1876,8 @@ placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| SDL3 的 popup 窗口支持不足以实现原生菜单 | **高**（Linux 已降低，见 `doc/platform-notes.md`；Windows / macOS 未验证）——**已不再适用于本引擎的 popup 路径**：`PopupHost` 已删除 native 分支，改为 overlay-only（`doc/popup.md` §11），该风险原本设想的失败模式（"SDL 的 popup 不够好，需要自己写"）不会再发生，因为本引擎已不再依赖 SDL 的 popup 窗口能力 | ~~P1 就做 spike 验证；退路是桌面上直接写三份原生 popup~~ 已不需要 |
-| **第二棵树/第二个 surface/第二套重绘生命周期这条"平行路径"在 headless 环境下测不到** | 高——三个真实缺陷（文字不渲染、首帧后永久不重绘、焦点环溢出）全部只存在于这条平行路径里，且全部在同一轮才被发现；`SDL_CreatePopupWindow` 在 dummy driver 下直接失败（`doc/popup.md` §1），意味着 CTest 从未真正跑过这条路径本身，只跑过它"尝试失败"的分支 | 已通过删除该路径本身来解决（overlay-only，`doc/popup.md` §11）；这一行**登记的是"平行路径不可测"这一类风险**，与上面一行"SDL 的 popup 能力不够好"是不同的失败模式，故不合并进同一行 |
+| SDL3 的 popup 窗口支持不足以实现原生菜单 | **高**（Linux 已降低，spike 证据记录在已移除的开发切片文档中，见 git 历史；Windows / macOS 未验证）——**已不再适用于本引擎的 popup 路径**：`PopupHost` 已删除 native 分支，改为 overlay-only（记录在已移除的开发切片文档 §11 中，见 git 历史；代码依据见 `src/window/popup_host.cpp`），该风险原本设想的失败模式（"SDL 的 popup 不够好，需要自己写"）不会再发生，因为本引擎已不再依赖 SDL 的 popup 窗口能力 | ~~P1 就做 spike 验证；退路是桌面上直接写三份原生 popup~~ 已不需要 |
+| **第二棵树/第二个 surface/第二套重绘生命周期这条"平行路径"在 headless 环境下测不到** | 高——三个真实缺陷（文字不渲染、首帧后永久不重绘、焦点环溢出）全部只存在于这条平行路径里，且全部在同一轮才被发现；`SDL_CreatePopupWindow` 在 dummy driver 下直接失败（记录在已移除的开发切片文档 §1 中，见 git 历史），意味着 CTest 从未真正跑过这条路径本身，只跑过它"尝试失败"的分支 | 已通过删除该路径本身来解决（overlay-only，记录在已移除的开发切片文档 §11 中，见 git 历史）；这一行**登记的是"平行路径不可测"这一类风险**，与上面一行"SDL 的 popup 能力不够好"是不同的失败模式，故不合并进同一行 |
 | 预编译 Skia 的 fork patch 与官方行为有差异 | 中 | 记录确切 tag；黄金图像测试能发现渲染差异 |
 | 共享 GL context 在某平台失效 | 中 | 回退到每窗口独立 GrDirectContext（已有方案） |
 | Node FFI 事件泵与窗口消息循环的耦合 | 中 | `dg_wait_events(timeout)` + poll 模式已设计 |
@@ -1829,19 +1915,20 @@ placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未
 1. ~~SDL3 的 popup 窗口（`SDL_CreatePopupWindow`）在 Wayland / Windows / macOS 上的
    实际行为一致性~~ —— **Linux 已解决**：x11 与 wayland 均已 spike 验证，popup
    为真 OS 窗口且能超出父窗口边界，`PopupHost` 在 Linux 桌面上采用
-   `caps.native_popup == true` 路径，证据见 `doc/platform-notes.md`。
+   曾经支持的 `caps.native_popup == true` 路径（该分支现已删除，见下方追记），证据曾见
+   已移除的开发切片文档，现见 git 历史。
    Windows / macOS 仍未验证，问题对这两个平台保持未决。
 
-   **追记（`doc/popup.md` §11）**：`PopupHost` 的 native 分支已整体删除——它今天
+   **追记（记录在已移除的开发切片文档 §11 中，见 git 历史）**：`PopupHost` 的 native 分支已整体删除——它今天
    唯一独有的能力（超出父窗口边界）从未被摆放数学真正启用（见 P4 验收标准变更
    记录），而它独有的代码路径带来了三个仅 native 分支可见的缺陷。本引擎的
    popup 路径现在是 overlay-only，**不再依赖这个问题的答案**：Windows/macOS
    上 `SDL_CreatePopupWindow` 的行为一致性对本引擎的 popup 实现已经无关紧要。
    这个问题本身对 Windows/macOS 仍然保持未决，只是不再是本引擎的阻塞项——
    **若将来要恢复 native popup**（例如为了真正获得跨父窗口边界的能力），
-   需要重新在 Windows/macOS 上做一次 `doc/platform-notes.md` 那样的 spike，
+   需要重新在 Windows/macOS 上做一次与已移除的开发切片文档（见 git 历史）中同样性质的 spike，
    而不能假设 Linux 上的测量结果可以直接套用；同时也需要重新解决本次记录
-   的三个 native-only 缺陷（`doc/popup.md` §11.2），它们并非平台相关，但
+   的三个 native-only 缺陷（记录在已移除的开发切片文档 §11.2 中，见 git 历史），它们并非平台相关，但
    native 分支一旦恢复就会重新暴露。
 2. 多窗口下共享 GL context 与 `SkSurface` 的 MakeCurrent 开销 —— P1 基准测量
 3. JSON 解析器选型（nlohmann/json 便利 vs 更轻量的方案）—— P3 前定案，权衡二进制体积与编译时间
@@ -1851,7 +1938,7 @@ placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未
    分发（libskia2）选用 libgrapheme 后端而非 ICU，`icudtl.dat` 从未存在
    于本项目的构建或运行时——不是"裁剪到 10MB 以下"，是从零开始就没有这个
    文件。BiDi / 断行（UAX #14）/ grapheme 三项针对实际构建实测通过（见
-   `doc/skia-dependency.md` §5、`tests/unit/test_skia_textlayout_smoke.cpp`），
+   已移除的开发切片文档 §5（见 git 历史）、`tests/unit/test_skia_textlayout_smoke.cpp`），
    §5.13.6 的"断行规则表不可裁掉"约束因此以"根本不是数据而是编译进代码"
    的方式被满足。泰语/老挝语词典分词、locale 相关大小写映射、句子边界
    分割仍然缺失，与 libgrapheme 的已知取舍一致，非本项目独有代价
@@ -1861,7 +1948,7 @@ placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未
    **P7 切片 7-5 已解决，结论是"部分成立，部分不成立"，不是单选一边**：
    若列宽由调用方显式声明（每行一个 `kRow`，各子节点宽度与声明的列宽一致），
    Flex + 已有原语确实足够，不需要任何新 RenderObject —— 这是
-   `doc/scrolling.md` 早已证实的"list 不是控件，是 `kColumn`/`kRow` 组合"
+   已移除的开发切片文档早已证实的"list 不是控件，是 `kColumn`/`kRow` 组合"（见 git 历史）
    同一论证的直接推广，`Table` 这个子集因此不比任何一个已用组合搭出的控件
    更特殊。但若列宽需要"自动、且跨行取一致值"（第 N 列宽度 = 该列所有行中
    最宽单元格的宽度），这**确实是 Flex 表达不了的**，不是自研实现的遗漏：
@@ -1876,7 +1963,7 @@ placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未
    本切片不构建**——固定列宽的子集将来按 `kRow`/`kColumn` 组合直接实现，
    不需要 `RenderGrid`；自动列宽跨行取齐的子集则真的需要二维布局，到那天
    按 §5.4.11 的触发条件重新评估 Taffy，而非自研一个 grid 引擎。完整论证见
-   `doc/menus.md`（7-5）。
+   已移除的开发切片文档（7-5，见 git 历史）。
 7. ~~主题 `schema_version` 的跨版本迁移策略（拒绝旧版 vs 自动升级）—— P7 外部主题包落地前定案~~ ——
    **P7 切片 7-6 已解决：拒绝旧版/未知版本，不做自动升级**。加载器（`dg::load_theme()`，
    `src/theme/theme_loader.cpp`）自 6-2 起就只接受 `schema_version == 1`，本切片把这一行为
@@ -1889,7 +1976,7 @@ placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未
    一个**明确的整数集合**（今天是 `{1}`），未来出现第二个版本时按同样方式往集合里追加一个
    分支，而不是宽松的范围判断或任何形式的自动转换——这也是当前唯一实现（一次 `!= 1`
    判断）已经在做的事，本切片没有改变代码，只是把它从"隐含选择"确认为"明确决策"并记录在
-   此。完整论证见 `doc/theme-packages.md`。
+   此。完整论证曾记录在已移除的开发切片文档中，现见 git 历史。
 8. 窗口位置 / 尺寸 / 滚动位置的持久化：内置 vs 交给宿主 —— P7 评估
 9. ~~热重载的粒度：整树重建 vs 增量 patch —— P7 再定~~ ——
    **P7 切片 7-6 已解决：两者都不需要，因为已有机制的粒度已经是"按绑定"而非按树**。
@@ -1903,5 +1990,5 @@ placement 数学正确（垂直翻转已验证；水平翻转/裁剪当时仍未
    `examples/24_theme_package --verify-theme-package` 用两个独立的场景实例分别测出这两
    种代价（同一个场景若既绑了颜色又绑了整数 token，任何一次 reload 都会因为 6-2 已记录的
    "`apply()` 无条件重写每一条绑定"而带上 relayout 成本，这不是本切片的新发现，而是复用
-   `doc/theme.md` 已有的结论并再验证一次）。完整论证与实测数据见
-   `doc/theme-packages.md`。
+   已移除的开发切片文档（见 git 历史）已有的结论并再验证一次）。完整论证与实测数据曾见
+   已移除的开发切片文档，现见 git 历史。
