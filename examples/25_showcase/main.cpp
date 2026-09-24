@@ -1,7 +1,7 @@
 // The showcase demo, on screen and headless.
 //
 //   (no arguments)              the demo window
-//   --branch native|overlay     which branch dropdown/context menu/tooltip use (default native)
+//   --branch overlay            popups/tooltip are overlay-only now (native removed)
 //   --run-ms N                  close after N milliseconds
 //   --script                    drive a scripted sequence through real platform events
 //   --font-dir DIR              scan a different font directory
@@ -66,13 +66,17 @@ bool parse_value_flag(const std::string& arg, const std::vector<std::string>& ar
   return false;
 }
 
-// std::nullopt means "--branch was present but named neither branch".
+// std::nullopt means "--branch was present but named something other than
+// overlay". Native popup windows were removed - see doc/popup.md - so
+// "native" is now a loud, non-zero-exit-code failure rather than a silently
+// accepted no-op.
 std::optional<bool> parse_branch_value(const std::string& branch) {
-  if (branch == "native") {
-    return false;
-  }
   if (branch == "overlay") {
     return true;
+  }
+  if (branch == "native") {
+    std::cerr << "--branch native is no longer supported: native popup windows were removed; "
+                 "popups are overlay-only now. See doc/popup.md.\n";
   }
   return std::nullopt;
 }
@@ -95,10 +99,8 @@ std::optional<Options> parse_options(int argc, char** argv) {
     if (args[i] == "--branch" && i + 1 < args.size()) {
       const std::optional<bool> force_overlay = parse_branch_value(args[++i]);
       if (!force_overlay.has_value()) {
-        std::cerr << "unknown --branch value: " << args[i] << "\n";
         return std::nullopt;
       }
-      options.settings.force_overlay = *force_overlay;
       continue;
     }
     std::cerr << "unrecognized argument: " << args[i] << "\n";

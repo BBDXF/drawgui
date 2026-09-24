@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -57,8 +58,18 @@ inline constexpr int kRowPad = 6;
 // assignment (`font`/`font_size` passed straight through), not a measured
 // paragraph - the same "content is the caller's job" boundary kList's own
 // item nodes already have.
+//
+// `selected`, when set, names the one row whose label text is painted in
+// `selected_text_color` instead of the ordinary row text colour - the
+// lowest-cost way to show "this is what you picked before" when the popup
+// reopens (a single NodeStyle::text.color assignment, not a whole-row fill,
+// which would fight hover's own fill-based visual language). The caller
+// resolves `selected_text_color` from the theme (DG_TOKEN_COLOR_PRIMARY)
+// the same way dropdown_window.cpp's own ring_color() resolves the focus
+// ring's colour, so this file stays theme-agnostic.
 std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets, dg::NodeId parent,
                               const std::vector<std::string>& options, int width,
-                              dg::FontId font, float font_size);
+                              dg::FontId font, float font_size,
+                              std::optional<int> selected, dg::Color selected_text_color);
 
 }  // namespace dropdown_options

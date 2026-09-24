@@ -6,15 +6,21 @@
 //                  opens a 3-item menu through PopupHost, anchored at the
 //                  POINTER position rather than a widget's own bounds -
 //                  the one thing a dropdown's anchor never needed to be.
+//                  PopupHost is overlay-only (doc/popup.md's B-1/B-2
+//                  finding deleted the native-OS-popup branch this file
+//                  used to also drive) - the menu is always built into the
+//                  host's own scene_.tree.render(), never a second tree.
 //   Tooltip        continuous hover over hover_target for kTooltipDelayMs
-//                  opens a single-line label through PopupHost with
-//                  PopupWindowKind::kTooltip; leaving ends it immediately.
-//                  The frame loop's own timeout is -1 (block indefinitely)
-//                  whenever nothing is being timed toward a tooltip, and a
-//                  short poll only while one is - 6-1's own idle-vs-active
-//                  frame-loop shape (examples/17_animation's own
-//                  kFramePacerMs), reused for a NEW reason (a hover delay)
-//                  rather than re-derived.
+//                  opens a single-line label through PopupHost; leaving
+//                  ends it immediately. The frame loop's own timeout is -1
+//                  (block indefinitely) whenever nothing is being timed
+//                  toward a tooltip, and a short poll only while one is -
+//                  6-1's own idle-vs-active frame-loop shape (examples/
+//                  17_animation's own kFramePacerMs), reused for a NEW
+//                  reason (a hover delay) rather than re-derived. Like the
+//                  context menu, the tooltip is always overlay content now
+//                  - built into scene_.tree.render(), never a second tree
+//                  or window.
 //   Dialog         `--branch overlay` (the default in this demo's headless
 //                  check) opens a same-window modal panel - backdrop +
 //                  panel, dg::Focus::enter_scope(panel_root, /*modal=*/true)
@@ -30,9 +36,16 @@
 //                  the window (close_now()) or is silently ignored, proving
 //                  a handler can veto a close. The two are not the same
 //                  demonstration on purpose - see doc/menus.md section 6.3
-//                  for why a genuinely separate OS window (like a native
-//                  popup) has no meaningful Focus-level "outside" to refuse
-//                  in the first place.
+//                  for why a genuinely separate OS window has no meaningful
+//                  Focus-level "outside" to refuse in the first place.
+//                  Dialog is a genuinely separate window-layer addition
+//                  (doc/popup.md section 10, WindowManager::open_dialog()),
+//                  deliberately NOT built on PopupHost - it is unaffected
+//                  by PopupHost becoming overlay-only and both its branches
+//                  remain exactly as they were.
+//                  `--branch` therefore now only selects the Dialog's own
+//                  native/overlay branch; the context menu and tooltip are
+//                  overlay regardless of this flag.
 
 #pragma once
 

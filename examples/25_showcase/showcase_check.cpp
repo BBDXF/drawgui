@@ -158,8 +158,10 @@ void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
             anchor_before.top() == anchor_after_scroll.top(),
         "dropdown anchor position is unaffected by the list's own scroll offset", out, ok);
 
-  // Now actually open the dropdown's popup through the real PopupHost, with
-  // caps.native_popup forced false so this runs on any headless machine.
+  // Now actually open the dropdown's popup through the real PopupHost -
+  // overlay-only (native popup windows were removed; see doc/popup.md), so
+  // this runs deterministically on any headless machine with no caps to
+  // force.
   dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
   if (!made) {
     out << "  SKIP (no window system: " << made.error().message << ")\n";
@@ -176,21 +178,18 @@ void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
     return;
   }
   dg::PopupHost host{manager};
-  dg::PlatformCaps caps;
-  caps.native_popup = false;  // force the overlay branch - deterministic headless
   const dg::LayoutStats before_popup = scene.tree.layout();
   (void)before_popup;
   const dg::PixelSize popup_size = sort_options::size_for(
       static_cast<int>(showcase_scene::kSortOptions.size()), anchor_after_scroll.width);
   const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      host.show(window.value(), scene.tree.render(), caps, anchor_after_scroll, popup_size,
+      host.show(window.value(), scene.tree.render(), anchor_after_scroll, popup_size,
                 dg::PopupPlacement::kBelow, dg::PopupFlags{});
   check(shown.has_value(), "PopupHost::show() succeeds for the sort dropdown", out, ok);
   if (!shown.has_value()) {
     return;
   }
   const dg::PopupHandle handle = shown.value();
-  check(!handle.is_native, "overlay branch used (caps forced)", out, ok);
   check(handle.content_bounds.top() == anchor_after_scroll.bottom(),
         "popup opens directly below the anchor, not shifted by the list's scroll offset", out,
         ok);

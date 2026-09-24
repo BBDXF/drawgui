@@ -110,8 +110,8 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
 
   auto open = [&]() -> std::optional<Opened> {
     const dg::Expected<PopupHandle, dg::WindowError> shown =
-        host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = false},
-                  anchor, popup_size, PopupPlacement::kBelow, PopupFlags{});
+        host.show(window.value(), scene.tree.render(), anchor, popup_size,
+                  PopupPlacement::kBelow, PopupFlags{});
     if (!shown) {
       out << "  FAIL: overlay show() failed: " << shown.error().message << "\n";
       ok = false;
@@ -119,12 +119,13 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
     }
     Opened opened;
     opened.handle = shown.value();
-    opened.rows = dropdown_options::build(scene.tree.render(), scene.widgets,
-                                          opened.handle.content_root, dropdown_scene::kOptions,
-                                          popup_size.width, scene.ui_font, 15.0F);
-    scene.focus.enter_scope(opened.handle.content_root);
     const std::optional<int> selected =
         scene.widgets.dropdown_selected_index(scene.handles.dropdown);
+    opened.rows = dropdown_options::build(scene.tree.render(), scene.widgets,
+                                          opened.handle.content_root, dropdown_scene::kOptions,
+                                          popup_size.width, scene.ui_font, 15.0F, selected,
+                                          dg::Color::from_argb(0xFF6699FF));
+    scene.focus.enter_scope(opened.handle.content_root);
     scene.focus.set(opened.rows[static_cast<std::size_t>(selected.value_or(0))]);
     return opened;
   };
@@ -238,55 +239,43 @@ void check_overlay_full_cycle(std::ostream& out, bool& ok) {
 }
 
 // --------------------------------------------------------------------------
-// Claim 3: the native branch, attempted for real under the headless dummy
-// driver - matching doc/popup.md section 4 and doc/focus.md's own headless
-// check's precedent exactly: SDL_VIDEODRIVER=dummy opens an ordinary
-// window but SDL_CreatePopupWindow fails under it, so this reports a loud,
-// specific reason rather than skipping silently.
+// Claim 3: dropdown_options::build()'s own selected-row colour - a pure
+// data-layer assertion, no RasterSurface anywhere in this file. The row
+// named `selected` gets its label text painted in `selected_text_color`;
+// every OTHER row keeps the ordinary row text colour, so the selected row's
+// text colour must differ from every other row's.
 // --------------------------------------------------------------------------
 
-void attempt_native_popup(std::ostream& out) {
-  out << "\nnative popup: attempting a real SDL_CreatePopupWindow under the headless dummy "
-         "driver (measured, not assumed, that this fails - doc/popup.md section 1)\n";
-  dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
-  if (!made) {
-    out << "  SKIP (loud, specific): could not even start the window system: "
-        << made.error().message << "\n";
-    return;
-  }
-  dg::WindowManager manager = std::move(made.value());
-  dg::WindowSpec spec;
-  spec.title = "dropdown (headless, native attempt)";
-  spec.width = kSize.width;
-  spec.height = kSize.height;
-  const dg::Expected<dg::WindowId, dg::WindowError> window = manager.open(spec);
-  if (!window) {
-    out << "  SKIP (loud, specific): could not open a host window under the dummy driver: "
-        << window.error().message << "\n";
-    return;
-  }
+void check_selected_row_color(std::ostream& out, bool& ok) {
+  out << "\nselected row: build() paints the selected row's label text in a distinct colour\n";
   dropdown_scene::Scene scene = dropdown_scene::build(options_for(kSize));
-  PopupHost host{manager};
-  const PixelRect anchor = scene.tree.render().absolute_bounds(scene.handles.dropdown);
-  const dg::PixelSize popup_size = dropdown_options::size_for(
-      static_cast<int>(dropdown_scene::kOptions.size()), anchor.width);
-  const dg::Expected<PopupHandle, dg::WindowError> native =
-      host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = true},
-                anchor, popup_size, PopupPlacement::kBelow, PopupFlags{});
-  if (!native) {
-    out << "  SKIPPED, loudly and specifically: SDL_CreatePopupWindow failed under the dummy "
-           "video driver, with: \""
-        << native.error().message
-        << "\". Real coverage of the native branch (a genuine second OS window, its own "
-           "dg::Focus/WidgetSet, Up/Down/Enter driving it) comes from "
-           "examples/22_dropdown_menu's interactive mode against an actual display, matching "
-           "doc/popup.md's own precedent.\n";
-    return;
+  const dg::Color selected_color = dg::Color::from_argb(0xFF6699FF);
+  constexpr int kSelected = 2;
+  const std::vector<NodeId> rows = dropdown_options::build(
+      scene.tree.render(), scene.widgets, scene.handles.body, dropdown_scene::kOptions,
+      kSize.width, scene.ui_font, 15.0F, kSelected, selected_color);
+
+  auto label_color = [&](NodeId row) -> dg::Color {
+    const std::vector<NodeId> kids = scene.tree.render().children(row);
+    return scene.tree.render().style(kids.front()).text.color;
+  };
+
+  const dg::Color selected_label = label_color(rows[static_cast<std::size_t>(kSelected)]);
+  check(selected_label == selected_color, "the selected row's label text colour is the primary "
+                                          "token colour passed to build()",
+        out, ok);
+
+  bool all_others_differ = true;
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    if (static_cast<int>(i) == kSelected) {
+      continue;
+    }
+    if (label_color(rows[i]) == selected_color) {
+      all_others_differ = false;
+    }
   }
-  out << "  UNEXPECTED PASS: this environment's dummy driver created a real popup window - "
-         "bonus coverage, not a failure.\n";
-  PopupHandle handle = native.value();
-  host.close(handle);
+  check(all_others_differ,
+        "every non-selected row's label text colour differs from the selected row's", out, ok);
 }
 
 }  // namespace
@@ -296,12 +285,12 @@ int run(std::ostream& out) {
 
   out << "DROPDOWN: keyboard/mouse selection over a 5-option list, first/middle/last "
          "positions, "
-         "wraparound, both PopupHost branches.\n\n";
+         "wraparound, overlay popup branch.\n\n";
 
   bool ok = true;
   check_tab_order(out, ok);
   check_overlay_full_cycle(out, ok);
-  attempt_native_popup(out);
+  check_selected_row_color(out, ok);
   out << "\n" << (ok ? "ALL CHECKS PASSED" : "SOME CHECKS FAILED") << "\n";
   return ok ? 0 : 1;
 }

@@ -3,54 +3,50 @@
 // declined Dropdown for the want of.
 //
 // Widgets never create windows. They ask PopupHost to show content at an
-// anchor, and PopupHost decides the real form:
+// anchor, and PopupHost appends an overlay node to the CALLER's own
+// RenderTree (the parent window's) - it never opens a second OS window.
 //
-//   PopupHost::show(...) -> caps.native_popup ? a real Popup window
-//                                              : an overlay node in the
-//                                                caller's own RenderTree
-//
-// BOTH BRANCHES ARE REAL, on purpose. design.md's argument for the whole
-// abstraction is that it survives the desktop/mobile split; a branch that has
-// never run has never been falsified, which is the same "twelve speculative
-// platform headers" trap this project's own README already names. `caps` is
-// therefore a VALUE passed in, not queried internally - WindowManager::
-// platform_caps() answers truthfully for this SDL3/Linux backend
-// (native_popup == true), and a caller that wants to exercise the overlay
-// branch on this same desktop constructs its own PlatformCaps{false} instead
-// of asking the platform. That is how examples/14_popup drives both branches
-// on one machine without a second platform or a fake one.
+// OVERLAY-ONLY, by decision (see doc/popup.md): a prior slice also supported
+// a native-OS-popup branch (SDL_CreatePopupWindow, escaping the parent
+// window's own bounds), but nothing in this codebase's own placement logic
+// ever used the one capability that branch had and the overlay branch does
+// not (resolve_popup_placement() below's own fit test is against the parent
+// window's drawable size, never the screen's - true before and after this
+// function grew a horizontal flip/clamp to match its vertical one), the
+// native branch could not be exercised at all under the dummy video driver
+// headless tests run under, and every defect this round
+// found (font inheritance, expose repaint, focus-ring overflow) existed only
+// in that branch. It has been deleted rather than fixed. A caller that later
+// needs content to escape its own parent window's bounds is a new,
+// independently-justified feature, not a resurrection of this one.
 //
 // NO VIRTUAL, matching the whole codebase (grep -rn virtual src/ include/
-// finds only comments explaining its absence). The platform branch here is
-// an ordinary runtime if/else on a bool field, exactly the technique
-// WindowManager's own SDL3 backend already uses to keep a single concrete
-// class free of an abstract base nothing has contradicted yet.
+// finds only comments explaining its absence).
 //
-// THE SECOND-ROOT QUESTION, decided: a popup shown through the native branch
-// gets its own RenderTree instance - PopupHost owns one per open native
-// popup, because a second OS window needs a second SkSurface/RasterSurface
-// and RenderTree::root() is always NodeId{0}, so two independent surfaces
-// cannot share one RenderTree. This is a second INSTANCE of the existing
-// class, never a new tree TYPE: WidgetSet's two-tree invariant (layout +
-// render, no third) is unaffected, because nothing here adds a node kind, a
-// RenderObject, or a table WidgetSet would need to grow a case for.
-//
-// The overlay branch needs no second instance at all: its content is
-// appended as ordinary children of the CALLER's own RenderTree (the parent
-// window's), added directly through RenderTree::add_child() rather than
-// through the caller's LayoutTree - verified safe because LayoutTree::layout
-// walks LayoutTree::Impl's own node vector (sized to what IT created), never
-// RenderTree::node_count(), so a RenderTree-only child sits outside layout's
-// bookkeeping without corrupting it. The caller's LayoutTree must not be
-// asked to lay out again while a popup added this way is open, because doing
-// so has never been exercised and the reason it happens to be safe today
-// (index parity by construction, not by a checked invariant) is fragile
-// enough to name rather than rely on silently - see doc/popup.md.
+// A STRUCTURAL SAFETY CONSTRAINT THIS TYPE NOW GUARDS: overlay content is
+// appended as ordinary children of the caller's own RenderTree, added
+// directly through RenderTree::add_child() rather than through the caller's
+// LayoutTree - verified safe because LayoutTree::layout walks LayoutTree::
+// Impl's own node vector (sized to what IT created), never
+// RenderTree::node_count(), so a RenderTree-only child sits outside
+// layout's bookkeeping without corrupting it - PROVIDED the caller's
+// LayoutTree is never asked to lay out again while an overlay popup added
+// this way is open (doing so has never been exercised, and the reason it
+// happens to be safe today - index parity by construction, not a checked
+// invariant - is fragile enough to name rather than rely on silently).
+// Overlay-only makes this the ONLY way content ever reaches PopupHost, so
+// PopupHost now tracks whether it currently has an overlay open
+// (has_open_overlay(), maintained by show()/close()) so a caller CAN check
+// before calling layout()/layout_full() again. This is a checkable fact a
+// caller can consult, not an enforced assertion inside LayoutTree/RenderTree
+// itself - doing that would mean changing either class's public API, which
+// is out of scope here. TODO: consider having LayoutTree::layout() itself
+// refuse (or PopupHost proactively close) rather than leaving this as a
+// contract the caller must uphold.
 
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <vector>
 
@@ -65,8 +61,11 @@ namespace dg {
 // CSS placement vocabulary (design.md never specifies one for PopupHost):
 // this is the minimum the task can prove with a hand-derived pixel oracle -
 // the flip from one to the other when the preferred side would not fit.
-// Left/right flipping and centred/corner variants are declined by name in
-// doc/popup.md.
+// Centred/corner variants are declined by name in doc/popup.md; a left/right
+// PLACEMENT PREFERENCE is too (the popup always starts left-aligned to the
+// anchor), but that is unrelated to resolve_popup_placement() itself now
+// flipping/clamping horizontally when left-alignment would not fit - see
+// this header's own comment on that function.
 enum class PopupPlacement : std::uint8_t {
   kBelow,
   kAbove,
@@ -77,44 +76,36 @@ struct PopupFlags {
   bool dismiss_on_escape = true;
 };
 
-// The below/above flip math PopupHost::show() applies, exposed standalone so
-// a headless check can pin it directly against hand-derived rectangles
-// without needing a WindowManager at all. `parent_height` is the parent
-// window's current drawable height; the popup keeps `anchor`'s left edge and
-// `content`'s own size in every case - only the vertical side flips.
+// The placement math PopupHost::show() applies, exposed standalone so a
+// headless check can pin it directly against hand-derived rectangles
+// without needing a WindowManager at all. `parent_size` is the parent
+// window's current drawable size. Vertically: prefers `preferred`, flips to
+// the other side when that would not fit, then clamps into
+// [0, parent_size.height - content.height] if even the flipped side runs
+// over (top-aligns instead if content is taller than the parent itself, see
+// this function's own definition comment). Horizontally: prefers
+// `anchor`'s left edge, flips to align with `anchor`'s right edge when that
+// would not fit, then clamps/left-aligns by the same rule. `content`'s own
+// size is unchanged in every case - only its position moves.
 [[nodiscard]] PixelRect resolve_popup_placement(const PixelRect& anchor, PixelSize content,
-                                                PopupPlacement preferred, int parent_height);
+                                                PopupPlacement preferred, PixelSize parent_size);
 
 // What show() actually did, and everything a caller needs to build content
-// into it and later route events to it.
+// into it and later route events to it. Overlay-only: there is no second
+// RenderTree here and no window id - build content into `content_root` using
+// the same RenderTree you passed to show().
 struct PopupHandle {
   bool open = false;
-  bool is_native = false;
 
-  // Native only. Where the popup actually lives, for close_popup() and for
-  // telling one window's events apart from another's in pump()'s results.
-  WindowId window;
-
-  // The tree to build content into - PopupHost's own owned tree for the
-  // native branch, or the caller's tree (the one passed to show()) for the
-  // overlay branch. Never null while `open` is true.
-  RenderTree* tree = nullptr;
-
-  // The node under which content was built. For the native branch this is
-  // always RenderTree::root() of the popup's own tree - content occupies
-  // the whole popup window, at LOCAL origin (0, 0). For the overlay branch
-  // this is a clipping container PopupHost added to the caller's tree,
-  // positioned at `content_bounds`'s absolute location; content is still
-  // built at LOCAL origin (0, 0) relative to `content_root`, which is what
-  // makes the same content-building code produce the same local geometry in
-  // both branches - the equivalence examples/14_popup's oracle checks.
+  // The clipping container PopupHost added to the caller's own RenderTree
+  // (the one passed to show()), positioned at `content_bounds`'s absolute
+  // location. Content is built at LOCAL origin (0, 0) relative to this node.
   NodeId content_root;
 
-  // The popup's own size, in both branches - what a caller needing to build
-  // content sized to it reads, and (overlay only) what close() clips back to
-  // empty to remove the popup without erasing the append-only nodes it
-  // added. Native: (0, 0, width, height). Overlay: the resolved position in
-  // the parent window's own coordinates, after placement/flip.
+  // The popup's resolved position and size, in the parent window's own
+  // physical-pixel coordinates, after placement/flip. What close() clips
+  // back to empty to remove the popup without erasing the append-only nodes
+  // it added.
   PixelRect content_bounds;
 };
 
@@ -123,51 +114,30 @@ class PopupHost {
   explicit PopupHost(WindowManager& windows);
 
   // Computes placement (kBelow, flipped to kAbove if it would run past
-  // `parent_window`'s current drawable height), then dispatches on
-  // `caps.native_popup`:
-  //
-  //   native   opens a real popup window via WindowManager::open_popup(),
-  //            and owns a fresh RenderTree for it. Repainting and
-  //            presenting that window is the caller's job, through its own
-  //            RasterSurface, exactly the same shape every other window in
-  //            this codebase is already drawn through (PopupHandle::window
-  //            plus PopupHandle::tree is everything that loop needs).
-  //   overlay  appends a clipping container node to `parent_tree`, confined
-  //            to `parent_window`'s own surface - it cannot escape the
-  //            parent's bounds, which is the accepted mobile-shaped
-  //            limitation design.md names for this branch.
+  // `parent_window`'s current drawable height), then appends a clipping
+  // container node to `parent_tree`, confined to `parent_window`'s own
+  // surface - it cannot escape the parent's bounds, which is the accepted
+  // limitation this overlay-only design keeps (see this header's own top
+  // comment).
   //
   // `anchor_rect` and the returned handle's `content_bounds` are both in
   // `parent_window`'s own physical-pixel coordinates.
   //
-  // `kind` defaults to kMenu (SDL_WINDOW_POPUP_MENU on the native branch) -
-  // every existing caller of show() keeps getting exactly the window it
-  // always has, unchanged. kTooltip (SDL_WINDOW_TOOLTIP) is 7-5b's own
-  // addition (doc/menus.md section 6.2): it accepts NO input at all on the
-  // native branch, which is why a Tooltip's own lifecycle is NOT driven
-  // through handle_pointer()/handle_key() below - a window that receives no
-  // input can never produce the click/Escape those two read, so a caller
-  // showing a tooltip manages show/hide itself (from hover-timer state,
-  // include/drawgui/widget/tooltip.h) and calls close() directly. The
-  // overlay branch reads `kind` for nothing today - an appended RenderTree
-  // node has no SDL flag of its own to choose - so the two branches are not
-  // symmetrical here on purpose: there is nothing yet for the overlay side
-  // to differ ON.
+  // Only one overlay popup may be open through this PopupHost at a time
+  // while the caller's LayoutTree is not re-laid-out - see this header's own
+  // top comment on the LayoutTree safety constraint. has_open_overlay()
+  // lets a caller check before calling layout()/layout_full() again.
   [[nodiscard]] Expected<PopupHandle, WindowError> show(
-      WindowId parent_window, RenderTree& parent_tree, PlatformCaps caps,
-      const PixelRect& anchor_rect, PixelSize content_size, PopupPlacement preferred,
-      PopupFlags flags, PopupWindowKind kind = PopupWindowKind::kMenu);
+      WindowId parent_window, RenderTree& parent_tree, const PixelRect& anchor_rect,
+      PixelSize content_size, PopupPlacement preferred, PopupFlags flags);
 
-  // Tears down whichever branch `handle` names and marks it closed.
-  // Idempotent: closing an already-closed handle does nothing.
+  // Tears down the overlay `handle` names and marks it closed. Idempotent:
+  // closing an already-closed handle does nothing.
   //
-  // Native: destroys the real OS window and drops its owned RenderTree - a
-  // genuine, complete teardown.
-  //
-  // Overlay: clips the container added by show() to an empty rectangle,
-  // which removes it from painting (Overflow::kClip on an empty box) and
-  // from hit testing (doc/clipping.md: "a clipping node with no area removes
-  // its whole subtree and is itself hittable nowhere") without deleting any
+  // Clips the container added by show() to an empty rectangle, which
+  // removes it from painting (Overflow::kClip on an empty box) and from hit
+  // testing (doc/clipping.md: "a clipping node with no area removes its
+  // whole subtree and is itself hittable nowhere") without deleting any
   // node - RenderTree is append-only (doc/widgets.md), so the content nodes
   // this popup added are never reclaimed. That is a real, permanent
   // per-open cost this slice accepts and names rather than hides; repeatedly
@@ -180,33 +150,38 @@ class PopupHost {
   // call closed `handle` (so the caller stops treating it as open and
   // refreshes whatever UI depended on it being there).
   //
-  // Click-outside: a kDown on any window OTHER than the popup's own (native)
-  // or the popup's parent window in a position outside content_bounds
-  // (overlay - since the popup has no window of its own to distinguish
-  // "outside" that way) dismisses it. This is the plumbing design.md section
-  // 5.2 asks for ("all input events carry window_id") already present on
-  // PointerEvent/KeyEvent before this slice - see doc/popup.md for the
+  // Click-outside: a kDown on the popup's parent window in a position
+  // outside content_bounds dismisses it - there is no popup window of its
+  // own to distinguish "outside" any other way. This is the plumbing
+  // design.md section 5.2 asks for ("all input events carry window_id"),
+  // already present on PointerEvent/KeyEvent - see doc/popup.md for the
   // finding that nothing new had to be added there.
   [[nodiscard]] bool handle_pointer(PopupHandle& handle, WindowId event_window,
                                     const PointerEvent& event, PopupFlags flags);
 
-  // Escape dismissal. Native: only reaches the popup while it holds keyboard
-  // focus (SDL_WINDOW_POPUP_MENU can gain it - see open_popup()'s own
-  // comment). Overlay: reaches it whenever the parent window has focus,
-  // since there is no second window to route through.
+  // Escape dismissal. Reaches the popup whenever the parent window has
+  // focus, since there is no second window to route through.
   [[nodiscard]] bool handle_key(PopupHandle& handle, WindowId event_window,
                                 const KeyEvent& event, PopupFlags flags);
 
+  // Whether this PopupHost currently has an overlay popup open - the check
+  // a caller should make before calling layout()/layout_full() again on the
+  // RenderTree an open overlay's content was appended to (see this header's
+  // own top comment on why that call is unsafe while one is open).
+  [[nodiscard]] bool has_open_overlay() const { return has_open_overlay_; }
+
  private:
-  struct NativePopup {
-    WindowId window;
-    std::unique_ptr<RenderTree> tree;
-  };
-
   WindowManager* windows_ = nullptr;
-  std::vector<NativePopup> native_popups_;
+  bool has_open_overlay_ = false;
 
-  [[nodiscard]] NativePopup* find_native(WindowId window);
+  // The RenderTree the currently-open overlay's container was added to -
+  // PopupHandle itself carries no RenderTree pointer (see this header's own
+  // top comment: a handle that just echoes back the tree its own caller
+  // passed in is a redundant field), so close() reaches the container
+  // through this instead. Valid only while has_open_overlay_ is true; this
+  // is also what enforces "at most one overlay open at a time" as an actual
+  // fact about this type rather than only a documented caller obligation.
+  RenderTree* open_tree_ = nullptr;
 };
 
 }  // namespace dg

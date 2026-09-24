@@ -230,6 +230,10 @@ PixelSize RenderTree::viewport() const {
   return impl_->viewport;
 }
 
+const std::optional<FontCatalog>& RenderTree::fonts() const {
+  return impl_->fonts;
+}
+
 const NodeStyle& RenderTree::style(NodeId id) const {
   return impl_->nodes[id.index].style;
 }

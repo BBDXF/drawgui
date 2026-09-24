@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -34,16 +35,14 @@ dg::TreeSpec host_spec(dg::PixelSize size) {
   return spec;
 }
 
-void legend(std::ostream& out, bool native) {
-  out << "  click the button to open a "
-      << (native ? "NATIVE (real SDL popup window)" : "OVERLAY (in-window layer)")
-      << " popup; click outside it or press Escape to dismiss it.\n";
+void legend(std::ostream& out) {
+  out << "  click the button to open an OVERLAY (in-window layer) popup; click outside it "
+         "or press Escape to dismiss it.\n";
 }
 
 // Presents whichever RenderTree/RasterSurface pair changed, through the
 // window id it belongs to - the same three-line shape every prior example's
-// window loop already repeats for its own single window, applied here to
-// two independent windows.
+// window loop already repeats for its own single window.
 void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::RenderTree& tree,
                         dg::RasterSurface& surface) {
   if (tree.damage().is_empty()) {
@@ -56,7 +55,15 @@ void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::Ren
   }
   const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
                             dg::PixelFormat::kBgra8888};
-  (void)manager.present(window, image, tree.painted().rects());
+  const dg::Expected<void, dg::WindowError> presented =
+      manager.present(window, image, tree.painted().rects());
+  if (!presented) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      std::cerr << "present() failed: " << presented.error().message << "\n";
+    }
+  }
 }
 
 // repaint_full() ends by retiring the tree's damage (RenderTree::repaint_full()'s
@@ -76,7 +83,15 @@ void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::Render
   }
   const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
                             dg::PixelFormat::kBgra8888};
-  (void)manager.present(window, image, tree.painted().rects());
+  const dg::Expected<void, dg::WindowError> presented =
+      manager.present(window, image, tree.painted().rects());
+  if (!presented) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      std::cerr << "present() failed: " << presented.error().message << "\n";
+    }
+  }
 }
 
 class Runner {
@@ -110,35 +125,24 @@ class Runner {
   std::optional<dg::RasterSurface> host_surface_;
   dg::PopupHost popup_host_;
   std::optional<dg::PopupHandle> popup_;
-  std::optional<dg::RasterSurface> popup_surface_;
 };
 
 void Runner::open_popup() {
-  dg::PlatformCaps caps = dg::WindowManager::platform_caps();
-  if (settings_.force_overlay) {
-    caps.native_popup = false;
-  }
   dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      popup_host_.show(host_window_, host_tree_, caps, kMenuButton, popup_scene::kContentSize,
+      popup_host_.show(host_window_, host_tree_, kMenuButton, popup_scene::kContentSize,
                        dg::PopupPlacement::kBelow, dg::PopupFlags{});
   if (!shown) {
     *out_ << "could not open the popup: " << shown.error().message << "\n";
     return;
   }
   popup_ = shown.value();
-  popup_scene::build_menu_content(*popup_->tree, popup_->content_root,
-                                  popup_scene::kContentSize);
-  if (popup_->is_native) {
-    popup_surface_ = dg::RasterSurface::create(popup_scene::kContentSize.width,
-                                               popup_scene::kContentSize.height);
-  }
+  popup_scene::build_menu_content(host_tree_, popup_->content_root, popup_scene::kContentSize);
 }
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
   if (popup_.has_value() && popup_->open) {
     if (popup_host_.handle_pointer(*popup_, event.window, event, dg::PopupFlags{})) {
       popup_.reset();
-      popup_surface_.reset();
       return;
     }
   }
@@ -153,7 +157,6 @@ void Runner::handle_key(const dg::KeyEvent& event) {
   if (popup_.has_value() && popup_->open) {
     if (popup_host_.handle_key(*popup_, event.window, event, dg::PopupFlags{})) {
       popup_.reset();
-      popup_surface_.reset();
     }
   }
 }
@@ -161,7 +164,7 @@ void Runner::handle_key(const dg::KeyEvent& event) {
 int Runner::run() {
   const Clock::time_point started = Clock::now();
   *out_ << "popup demo\n";
-  legend(*out_, !settings_.force_overlay);
+  legend(*out_);
 
   if (!host_surface_.has_value()) {
     return 1;
@@ -174,6 +177,11 @@ int Runner::run() {
       manager_->request_close(host_window_);
     }
     const dg::PumpResult pumped = manager_->pump(40);
+    for (const dg::WindowId id : pumped.needs_repaint) {
+      if (id == host_window_) {
+        host_tree_.damage_all();
+      }
+    }
     for (const dg::PointerEvent& event : pumped.pointer) {
       handle_pointer(event);
     }
@@ -184,9 +192,6 @@ int Runner::run() {
       return 1;
     }
     present_if_damaged(*manager_, host_window_, host_tree_, host_surface_.value());
-    if (popup_.has_value() && popup_->open && popup_->is_native && popup_surface_.has_value()) {
-      present_if_damaged(*manager_, popup_->window, *popup_->tree, *popup_surface_);
-    }
   }
   return 0;
 }

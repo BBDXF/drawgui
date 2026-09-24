@@ -27,7 +27,8 @@ dg::PixelSize size_for(int count, int width) {
 
 std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets, dg::NodeId parent,
                               const std::vector<std::string>& options, int width,
-                              dg::FontId font, float font_size) {
+                              dg::FontId font, float font_size,
+                              std::optional<int> selected, dg::Color selected_text_color) {
   NodeStyle background;
   background.fill = Color::from_argb(kBackground);
   tree.add_child(parent, PixelRect{0, 0, width, static_cast<int>(options.size()) * kRowHeight},
@@ -52,7 +53,9 @@ std::vector<dg::NodeId> build(dg::RenderTree& tree, dg::WidgetSet& widgets, dg::
     label_style.text.text = options[i];
     label_style.text.font = font;
     label_style.text.size = font_size;
-    label_style.text.color = Color::from_argb(kRowText);
+    label_style.text.color =
+        (selected.has_value() && *selected == static_cast<int>(i)) ? selected_text_color
+                                                                    : Color::from_argb(kRowText);
     label_style.text.align = TextAlign::kLeft;
     label_style.text.inset = kRowPad;
     tree.add_child(row, PixelRect{0, 0, width, kRowHeight}, label_style);

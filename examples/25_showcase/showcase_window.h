@@ -12,7 +12,6 @@ namespace showcase_window {
 struct Settings {
   dg::PixelSize size{900, 560};
   int run_ms = 0;
-  bool force_overlay = false;
   bool script = false;
   int tooltip_delay_ms = 400;
   std::string font_dir = "/usr/share/fonts";

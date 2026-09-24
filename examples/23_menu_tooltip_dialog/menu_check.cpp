@@ -1,10 +1,12 @@
 // The headless half of examples/23_menu_tooltip_dialog - matching
 // examples/22_dropdown_menu's own dropdown_check.cpp shape exactly (see
 // its own top comment for why: SDL_VIDEODRIVER=dummy opens an ordinary
-// window and drives the OVERLAY branch for real, but SDL_CreatePopupWindow
-// and this slice's own SDL_SetWindowParent()/SDL_SetWindowModal() both fail
-// under it - each is ATTEMPTED once and reported loudly and specifically,
-// never silently skipped).
+// window and drives the OVERLAY branch for real. PopupHost (context menu,
+// tooltip) is overlay-only now (doc/popup.md's B-1/B-2 finding) - there is
+// no second branch left to attempt for either. Dialog is a genuinely
+// separate window-layer addition, NOT built on PopupHost (doc/popup.md
+// section 10), and keeps its own real SDL_SetWindowParent()/
+// SDL_SetWindowModal() native attempt below, unaffected by this.
 
 #include "menu_check.h"
 
@@ -38,7 +40,6 @@ using dg::PopupFlags;
 using dg::PopupHandle;
 using dg::PopupHost;
 using dg::PopupPlacement;
-using dg::PopupWindowKind;
 
 bool check(bool condition, const char* what, std::ostream& out, bool& ok) {
   out << "  " << (condition ? "PASS" : "FAIL") << " " << what << "\n";
@@ -200,8 +201,8 @@ void check_context_menu(std::ostream& out, bool& ok) {
         out, ok);
 
   const dg::Expected<PopupHandle, dg::WindowError> shown =
-      host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = false},
-                anchor, menu_size, PopupPlacement::kBelow, PopupFlags{});
+      host.show(window.value(), scene.tree.render(), anchor, menu_size, PopupPlacement::kBelow,
+                PopupFlags{});
   if (!shown) {
     out << "  FAIL: overlay show() failed: " << shown.error().message << "\n";
     ok = false;
@@ -245,8 +246,8 @@ void check_context_menu(std::ostream& out, bool& ok) {
   // Reopen and close by a click OUTSIDE - the same PopupHost mechanism a
   // dropdown already relies on, now exercised by a context menu instead.
   const dg::Expected<PopupHandle, dg::WindowError> reopened =
-      host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = false},
-                anchor, menu_size, PopupPlacement::kBelow, PopupFlags{});
+      host.show(window.value(), scene.tree.render(), anchor, menu_size, PopupPlacement::kBelow,
+                PopupFlags{});
   handle = reopened.value();
   rows = menu_rows::build(scene.tree.render(), scene.widgets, handle.content_root, kMenuItems,
                           menu_size.width, scene.ui_font, 14.0F);
@@ -276,50 +277,11 @@ void check_context_menu(std::ostream& out, bool& ok) {
         out, ok);
 }
 
-void attempt_native_context_menu(std::ostream& out) {
-  out << "\ncontext menu, native branch: attempting a real SDL_CreatePopupWindow under the "
-         "headless dummy driver (measured to fail, doc/popup.md section 1 - unchanged by this "
-         "slice's own SDL_WINDOW_POPUP_MENU flag choice)\n";
-  dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
-  if (!made) {
-    out << "  SKIP (loud, specific): could not even start the window system: "
-        << made.error().message << "\n";
-    return;
-  }
-  dg::WindowManager manager = std::move(made.value());
-  dg::WindowSpec spec;
-  spec.title = "context menu (headless, native attempt)";
-  spec.width = kSize.width;
-  spec.height = kSize.height;
-  const dg::Expected<dg::WindowId, dg::WindowError> window = manager.open(spec);
-  if (!window) {
-    out << "  SKIP (loud, specific): could not open a host window: " << window.error().message
-        << "\n";
-    return;
-  }
-  menu_scene::Scene scene = menu_scene::build(options_for(kSize));
-  PopupHost host{manager};
-  const PixelRect anchor{60, 60, 1, 1};
-  const PixelSize size = menu_rows::size_for(static_cast<int>(kMenuItems.size()), 140);
-  const dg::Expected<PopupHandle, dg::WindowError> native =
-      host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = true},
-                anchor, size, PopupPlacement::kBelow, PopupFlags{});
-  if (!native) {
-    out << "  SKIPPED, loudly and specifically: \"" << native.error().message
-        << "\". Real coverage of the native branch comes from "
-           "examples/23_menu_tooltip_dialog's interactive mode against an actual display.\n";
-    return;
-  }
-  out << "  UNEXPECTED PASS: this environment's dummy driver created a real popup window.\n";
-  PopupHandle handle = native.value();
-  host.close(handle);
-}
-
 // --------------------------------------------------------------------------
 // Claim 3: the tooltip - the hover-delay timer (HoverTimer/update_hover_
-// timer/hover_ready, tooltip.h), the kTooltip SDL flag threaded through
-// PopupHost::show() for the overlay branch, and the native branch's own
-// loud, specific measured failure under the dummy driver.
+// timer/hover_ready, tooltip.h) and PopupHost::show()'s overlay path built
+// for real. PopupHost is overlay-only (doc/popup.md's B-1/B-2 finding) -
+// there is no native branch left to attempt against the dummy driver.
 // --------------------------------------------------------------------------
 
 void check_hover_timer(std::ostream& out, bool& ok) {
@@ -361,8 +323,7 @@ void check_hover_timer(std::ostream& out, bool& ok) {
 }
 
 void check_tooltip_popup(std::ostream& out, bool& ok) {
-  out << "\ntooltip: PopupWindowKind::kTooltip threaded through PopupHost::show(), overlay "
-         "branch built for real\n";
+  out << "\ntooltip: PopupHost::show() overlay branch built for real\n";
   dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
   if (!made) {
     out << "  FAIL: could not start the window system: " << made.error().message << "\n";
@@ -386,9 +347,9 @@ void check_tooltip_popup(std::ostream& out, bool& ok) {
   const std::string text = "This button opens a tooltip";
   const PixelSize size = tooltip_content::size_for(text, 13);
   const dg::Expected<PopupHandle, dg::WindowError> shown =
-      host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = false},
-                anchor, size, PopupPlacement::kBelow, PopupFlags{}, PopupWindowKind::kTooltip);
-  check(shown.has_value(), "PopupHost::show(kind=kTooltip) succeeds on the overlay branch", out,
+      host.show(window.value(), scene.tree.render(), anchor, size, PopupPlacement::kBelow,
+                PopupFlags{});
+  check(shown.has_value(), "PopupHost::show() succeeds for the tooltip's overlay content", out,
         ok);
   if (shown.has_value()) {
     PopupHandle handle = shown.value();
@@ -397,21 +358,6 @@ void check_tooltip_popup(std::ostream& out, bool& ok) {
     const dg::LayoutStats stats = scene.tree.layout();
     check(stats.nodes_visited == 0 && stats.nodes_relaid_out == 0,
           "showing a tooltip's content costs a repaint, never a relayout", out, ok);
-    host.close(handle);
-  }
-
-  const dg::Expected<PopupHandle, dg::WindowError> native =
-      host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = true},
-                anchor, size, PopupPlacement::kBelow, PopupFlags{}, PopupWindowKind::kTooltip);
-  if (!native) {
-    out << "  SKIPPED, loudly and specifically (native tooltip window): \""
-        << native.error().message
-        << "\" - matching SDL_CreatePopupWindow's own measured failure under the dummy driver "
-           "regardless of which popup-window flag is requested.\n";
-  } else {
-    out << "  UNEXPECTED PASS: this environment's dummy driver created a real tooltip "
-           "window.\n";
-    PopupHandle handle = native.value();
     host.close(handle);
   }
 }
@@ -638,7 +584,6 @@ int run(std::ostream& out) {
   bool ok = true;
   check_button_identity(out, ok);
   check_context_menu(out, ok);
-  attempt_native_context_menu(out);
   check_hover_timer(out, ok);
   check_tooltip_popup(out, ok);
   check_modal_focus_refusal(out, ok);

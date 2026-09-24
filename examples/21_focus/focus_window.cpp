@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -45,7 +46,15 @@ void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::Ren
   }
   const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
                             dg::PixelFormat::kBgra8888};
-  (void)manager.present(window, image, tree.painted().rects());
+  const dg::Expected<void, dg::WindowError> presented =
+      manager.present(window, image, tree.painted().rects());
+  if (!presented) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      std::cerr << "present() failed: " << presented.error().message << "\n";
+    }
+  }
 }
 
 // repaint_full() ends by retiring the tree's damage (RenderTree::repaint_full()'s
@@ -65,7 +74,15 @@ void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::Render
   }
   const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
                             dg::PixelFormat::kBgra8888};
-  (void)manager.present(window, image, tree.painted().rects());
+  const dg::Expected<void, dg::WindowError> presented =
+      manager.present(window, image, tree.painted().rects());
+  if (!presented) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      std::cerr << "present() failed: " << presented.error().message << "\n";
+    }
+  }
 }
 
 class Runner {
@@ -95,9 +112,6 @@ class Runner {
   void handle_key(const dg::KeyEvent& event);
   void open_popup();
   void close_popup();
-  void dispatch_popup_native_pointer(const dg::PointerEvent& event);
-  void dispatch_popup_native_tab(bool backwards);
-  void refresh_native_ring();
 
   Settings settings_;
   std::ostream* out_;
@@ -109,24 +123,12 @@ class Runner {
   dg::PopupHost popup_host_;
   std::optional<dg::PopupHandle> popup_;
   popup_menu::Handles popup_handles_;
-
-  // Native branch only - a genuinely separate WidgetSet/Focus/ring, because
-  // a native popup is a genuinely separate RenderTree/window (doc/popup.md
-  // section 3; doc/focus.md section 6).
-  std::optional<dg::WidgetSet> popup_native_widgets_;
-  std::optional<dg::Focus> popup_native_focus_;
-  dg::FocusRing popup_native_ring_;
-  std::optional<dg::RasterSurface> popup_native_surface_;
 };
 
 void Runner::open_popup() {
-  dg::PlatformCaps caps = dg::WindowManager::platform_caps();
-  if (settings_.force_overlay) {
-    caps.native_popup = false;
-  }
   const dg::PixelRect anchor = scene_.tree.render().absolute_bounds(scene_.handles.btn_open);
   dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      popup_host_.show(host_window_, scene_.tree.render(), caps, anchor, popup_menu::kSize,
+      popup_host_.show(host_window_, scene_.tree.render(), anchor, popup_menu::kSize,
                        dg::PopupPlacement::kBelow, dg::PopupFlags{});
   if (!shown) {
     *out_ << "could not open the popup: " << shown.error().message << "\n";
@@ -134,82 +136,20 @@ void Runner::open_popup() {
   }
   popup_ = shown.value();
 
-  if (popup_->is_native) {
-    popup_native_widgets_.emplace();
-    popup_native_focus_.emplace();
-    popup_native_ring_ = dg::FocusRing{};
-    popup_handles_ =
-        popup_menu::build(*popup_->tree, *popup_native_widgets_, popup_->content_root);
-    popup_native_surface_ =
-        dg::RasterSurface::create(popup_menu::kSize.width, popup_menu::kSize.height);
-    // The OS just moved real keyboard focus to the new window; this
-    // engine's own model mirrors that with a fresh dg::Focus rather than a
-    // scope, because there is nothing to escape FROM - the popup's node
-    // ids live in a different RenderTree entirely, so scene_.focus (the
-    // host's own) is simply never consulted while this window has OS
-    // focus, and stays exactly as it was.
-  } else {
-    popup_handles_ =
-        popup_menu::build(scene_.tree.render(), scene_.widgets, popup_->content_root);
-    scene_.focus.enter_scope(popup_->content_root);
-  }
+  popup_handles_ =
+      popup_menu::build(scene_.tree.render(), scene_.widgets, popup_->content_root);
+  scene_.focus.enter_scope(popup_->content_root);
 }
 
 void Runner::close_popup() {
   if (!popup_.has_value()) {
     return;
   }
-  if (popup_->is_native) {
-    popup_native_widgets_.reset();
-    popup_native_focus_.reset();
-    popup_native_ring_ = dg::FocusRing{};
-    popup_native_surface_.reset();
-  } else {
-    scene_.focus.exit_scope(scene_.tree.render());
-    dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
-                          scene_.focus.current(), ring_color(scene_.theme));
-  }
+  scene_.focus.exit_scope(scene_.tree.render());
+  dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
+                        scene_.focus.current(), ring_color(scene_.theme));
   popup_host_.close(*popup_);
   popup_.reset();
-}
-
-void Runner::refresh_native_ring() {
-  if (!popup_.has_value() || !popup_native_focus_.has_value()) {
-    return;
-  }
-  dg::update_focus_ring(*popup_->tree, popup_->content_root, popup_native_ring_,
-                        popup_native_focus_->current(), ring_color(scene_.theme));
-}
-
-void Runner::dispatch_popup_native_pointer(const dg::PointerEvent& event) {
-  if (event.action != dg::PointerAction::kDown) {
-    return;
-  }
-  if (!popup_.has_value() || !popup_native_widgets_.has_value() ||
-      !popup_native_focus_.has_value()) {
-    return;
-  }
-  const dg::PixelPoint at{event.x, event.y};
-  const std::optional<dg::NodeId> hit = popup_native_widgets_->widget_at(*popup_->tree, at);
-  const bool focusable =
-      hit.has_value() && dg::is_focusable(popup_native_widgets_->at(*hit).kind);
-  popup_native_focus_->set(focusable ? hit : std::nullopt);
-  refresh_native_ring();
-}
-
-void Runner::dispatch_popup_native_tab(bool backwards) {
-  if (!popup_.has_value() || !popup_native_widgets_.has_value() ||
-      !popup_native_focus_.has_value()) {
-    return;
-  }
-  if (backwards) {
-    popup_native_focus_->focus_previous(*popup_->tree, *popup_native_widgets_,
-                                        popup_->content_root);
-  } else {
-    popup_native_focus_->focus_next(*popup_->tree, *popup_native_widgets_,
-                                    popup_->content_root);
-  }
-  refresh_native_ring();
 }
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
@@ -218,18 +158,11 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
       close_popup();
       return;
     }
-    if (popup_->is_native) {
-      if (event.window == popup_->window) {
-        dispatch_popup_native_pointer(event);
-      }
-      return;
-    }
-    // Overlay: the click already survived handle_pointer()'s outside-
-    // dismissal check above, so it is either on the popup's own content or
-    // on host chrome still visible around it - either way, ordinary scene
-    // dispatch resolves it correctly because the popup's buttons are
-    // attached to this SAME scene_.widgets (popup_menu::build()'s own
-    // argument).
+    // The click already survived handle_pointer()'s outside-dismissal check
+    // above, so it is either on the popup's own content or on host chrome
+    // still visible around it - either way, ordinary scene dispatch resolves
+    // it correctly because the popup's buttons are attached to this SAME
+    // scene_.widgets (popup_menu::build()'s own argument).
     focus_scene::dispatch_pointer(scene_, *manager_, host_window_, event);
     return;
   }
@@ -249,12 +182,6 @@ void Runner::handle_key(const dg::KeyEvent& event) {
     if (event.action != dg::KeyAction::kDown || event.key != dg::Key::kTab) {
       return;
     }
-    if (popup_->is_native) {
-      if (event.window == popup_->window) {
-        dispatch_popup_native_tab(dg::has(event.mods, dg::Modifier::kShift));
-      }
-      return;
-    }
     if (event.window == host_window_) {
       focus_scene::tab(scene_, *manager_, host_window_,
                        dg::has(event.mods, dg::Modifier::kShift));
@@ -268,9 +195,7 @@ int Runner::run() {
   const Clock::time_point started = Clock::now();
   *out_ << "focus demo\n"
         << "  Tab/Shift-Tab moves focus; click a widget to focus it; click the \"open popup\" "
-           "button for a "
-        << (settings_.force_overlay ? "OVERLAY" : "NATIVE")
-        << " popup; click outside it or press Escape to dismiss it.\n";
+           "button for an OVERLAY popup; click outside it or press Escape to dismiss it.\n";
 
   if (!host_surface_.has_value()) {
     return 1;
@@ -283,6 +208,11 @@ int Runner::run() {
       manager_->request_close(host_window_);
     }
     const dg::PumpResult pumped = manager_->pump(40);
+    for (const dg::WindowId id : pumped.needs_repaint) {
+      if (id == host_window_) {
+        scene_.tree.render().damage_all();
+      }
+    }
     for (const dg::PointerEvent& event : pumped.pointer) {
       handle_pointer(event);
     }
@@ -293,10 +223,6 @@ int Runner::run() {
       return 1;
     }
     present_if_damaged(*manager_, host_window_, scene_.tree.render(), *host_surface_);
-    if (popup_.has_value() && popup_->open && popup_->is_native &&
-        popup_native_surface_.has_value()) {
-      present_if_damaged(*manager_, popup_->window, *popup_->tree, *popup_native_surface_);
-    }
   }
   return 0;
 }

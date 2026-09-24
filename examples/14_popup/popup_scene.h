@@ -1,19 +1,18 @@
 // The content examples/14_popup shows through PopupHost - a three-row menu,
 // built as flat colour blocks rather than text.
 //
-// Deliberately textless: the point of this demo is PopupHost itself (the
-// window-kind/overlay split, placement, dismissal), not a widget, and a
-// second FontCatalog per native popup window would be one more moving part
-// the equivalence oracle would have to hold equal for no reason - a future
-// slice building the Dropdown widget on top of PopupHost is where text
-// belongs. `doc/popup.md` records this scoping decision by name.
+// Deliberately textless: the point of this demo is PopupHost itself
+// (placement, dismissal), not a widget - a future slice building the
+// Dropdown widget on top of PopupHost is where text belongs.
+// `doc/popup.md` records this scoping decision by name.
 //
-// build_menu_content() is called with THE SAME LOCAL geometry by both
-// branches - RenderTree::add_child()'s bounds are always relative to the
-// parent it is given, so calling this against a fresh tree's root() (native)
-// or against an overlay container appended into the host's own tree
-// (overlay) produces byte-identical local rectangles either way. That
-// equality is the whole of what examples/14_popup's oracle checks.
+// PopupHost is overlay-only (doc/popup.md's B-1/B-2 finding): there is no
+// second (native) branch left to hold this content's geometry equal
+// against, so build_menu_content() is called exactly once per popup open,
+// against whichever RenderTree/content_root PopupHost::show() handed back -
+// content is always built at LOCAL origin (0, 0) relative to `parent`,
+// which is what makes this call site identical regardless of where in the
+// host's own tree that container ended up.
 
 #pragma once
 

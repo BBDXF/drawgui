@@ -590,68 +590,6 @@ Expected<WindowId, WindowError> WindowManager::open(const WindowSpec& spec) {
   return WindowId{sdl_id};
 }
 
-PlatformCaps WindowManager::platform_caps() {
-  // Measured, not assumed: doc/platform-notes.md's P1 spike ran
-  // SDL_CreatePopupWindow on both the x11 and wayland SDL video drivers and
-  // found a real OS window that escapes its parent's bounds on both. This
-  // backend is compiled only for SDL3/Linux desktop (no #ifdef, per this
-  // file's own top comment), so the answer is a constant here rather than a
-  // runtime probe - the day a backend exists where it varies, THAT backend
-  // measures its own answer.
-  return PlatformCaps{.native_popup = true};
-}
-
-Expected<WindowId, WindowError> WindowManager::open_popup(WindowId parent, int offset_x,
-                                                          int offset_y, int width, int height,
-                                                          PopupWindowKind kind) {
-  const auto parent_entry = impl_->find(parent.value);
-  if (parent_entry == impl_->windows.end()) {
-    return Unexpected{WindowError{"open_popup: no such parent window"}};
-  }
-
-  // Offsets and size are logical, matching what SDL_CreateWindow already
-  // takes for width/height (see open() above) and what SDL_CreatePopupWindow
-  // documents: "relative to the origin of the parent". Divided by the same
-  // density warp_pointer() already divides by, so a popup anchored at a
-  // physical-pixel rectangle this library computed lands where it was asked
-  // to at any DPI, not only at density 1.
-  const float density = SDL_GetWindowPixelDensity(parent_entry->window);
-  const float scale = density > 0.0F ? density : 1.0F;
-  const auto to_logical = [scale](int value) {
-    return static_cast<int>(static_cast<float>(value) / scale);
-  };
-
-  // kMenu (SDL_WINDOW_POPUP_MENU) can gain keyboard focus, which is the only
-  // way an Escape key ever reaches it; kTooltip (SDL_WINDOW_TOOLTIP) accepts
-  // no input at all - doc/popup.md section 1's own measurement, exposed by
-  // 7-5b (doc/menus.md section 6.2) instead of hardcoded.
-  const SDL_WindowFlags flags =
-      kind == PopupWindowKind::kTooltip ? SDL_WINDOW_TOOLTIP : SDL_WINDOW_POPUP_MENU;
-  SDL_Window* popup =
-      SDL_CreatePopupWindow(parent_entry->window, to_logical(offset_x), to_logical(offset_y),
-                            to_logical(width), to_logical(height), flags);
-  if (popup == nullptr) {
-    return Unexpected{WindowError{sdl_failure("SDL_CreatePopupWindow")}};
-  }
-
-  const SDL_WindowID sdl_id = SDL_GetWindowID(popup);
-  if (sdl_id == 0) {
-    SDL_DestroyWindow(popup);
-    return Unexpected{WindowError{sdl_failure("SDL_GetWindowID")}};
-  }
-
-  impl_->windows.push_back(OwnedWindow{.sdl_id = sdl_id, .window = popup, .fill = Color{}});
-  return WindowId{sdl_id};
-}
-
-void WindowManager::close_popup(WindowId id) {
-  const auto entry = impl_->find(id.value);
-  if (entry == impl_->windows.end()) {
-    return;
-  }
-  impl_->close(entry);
-}
-
 Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spec,
                                                            WindowId owner) {
   const auto owner_entry = impl_->find(owner.value);
@@ -667,7 +605,7 @@ Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spe
   // Real OS ownership/modality, in that order - SDL_SetWindowModal()'s own
   // documented precondition ("the window must currently be the child of a
   // parent"). Failure here fails open_dialog() outright (through the
-  // ordinary WindowError path, matching open_popup()'s own precedent)
+  // ordinary WindowError path)
   // rather than silently degrading to an unowned/non-modal window -
   // measured, not assumed, that this happens under SDL_VIDEODRIVER=dummy
   // (see examples/23_menu_tooltip_dialog's own headless check, section
@@ -754,6 +692,21 @@ void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y,
   event.button.clicks = 1;
   event.button.x = static_cast<float>(x) / scale;
   event.button.y = static_cast<float>(y) / scale;
+  SDL_PushEvent(&event);
+}
+
+void WindowManager::post_expose(WindowId id) {
+  if (impl_->find(id.value) == impl_->windows.end()) {
+    return;
+  }
+
+  // A real SDL_EVENT_WINDOW_EXPOSED on the real queue - same precedent
+  // request_close() (:717-725) argues for: a scripted expose that called an
+  // internal repaint function directly would exercise a path no compositor
+  // can reach, and would prove nothing about the one it actually takes.
+  SDL_Event event{};
+  event.window.type = SDL_EVENT_WINDOW_EXPOSED;
+  event.window.windowID = id.value;
   SDL_PushEvent(&event);
 }
 

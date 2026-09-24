@@ -1,8 +1,8 @@
 // The popup demo, on screen and headless.
 //
-//   (no arguments)       the demo window - click the "menu" button to open a
-//                        popup; click outside or press Escape to dismiss it
-//   --branch native|overlay   which branch the button opens (default native)
+//   (no arguments)       the demo window - click the "menu" button to open
+//                        an overlay popup; click outside or press Escape to
+//                        dismiss it
 //   --run-ms N           close after N milliseconds
 //   --verify-popup       the headless check. No display needed.
 //   --dump-png FILE      rasterize one frame (host window only) and write it
@@ -47,25 +47,13 @@ std::optional<Options> parse_options(int argc, char** argv) {
       options.settings.run_ms = std::stoi(args[++i]);
       continue;
     }
-    if (args[i] == "--branch" && i + 1 < args.size()) {
-      const std::string& branch = args[++i];
-      if (branch == "native") {
-        options.settings.force_overlay = false;
-      } else if (branch == "overlay") {
-        options.settings.force_overlay = true;
-      } else {
-        return std::nullopt;
-      }
-      continue;
-    }
     return std::nullopt;
   }
   return options;
 }
 
 void usage() {
-  std::cerr << "usage: drawgui_popup [--branch native|overlay] [--run-ms N] "
-               "[--dump-png FILE] [--verify-popup]\n";
+  std::cerr << "usage: drawgui_popup [--run-ms N] [--dump-png FILE] [--verify-popup]\n";
 }
 
 }  // namespace

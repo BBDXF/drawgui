@@ -30,6 +30,7 @@ struct Options {
   Mode mode = Mode::kWindow;
   focus_window::Settings settings;
   std::string png_path;
+  std::string branch;  // empty means not passed
 };
 
 std::optional<Options> parse_options(int argc, char** argv) {
@@ -54,14 +55,7 @@ std::optional<Options> parse_options(int argc, char** argv) {
       continue;
     }
     if (args[i] == "--branch" && i + 1 < args.size()) {
-      const std::string& branch = args[++i];
-      if (branch == "native") {
-        options.settings.force_overlay = false;
-      } else if (branch == "overlay") {
-        options.settings.force_overlay = true;
-      } else {
-        return std::nullopt;
-      }
+      options.branch = args[++i];
       continue;
     }
     return std::nullopt;
@@ -70,7 +64,7 @@ std::optional<Options> parse_options(int argc, char** argv) {
 }
 
 void usage() {
-  std::cerr << "usage: drawgui_focus [--branch native|overlay] [--run-ms N] "
+  std::cerr << "usage: drawgui_focus [--branch overlay] [--run-ms N] "
                "[--font-dir DIR] [--dump-png FILE] [--verify-focus]\n";
 }
 
@@ -80,6 +74,11 @@ int main(int argc, char** argv) {
   const std::optional<Options> options = parse_options(argc, argv);
   if (!options.has_value()) {
     usage();
+    return 2;
+  }
+  if (!options->branch.empty() && options->branch != "overlay") {
+    std::cerr << "--branch native is no longer supported: native popup windows were removed; "
+                 "popups are overlay-only now. See doc/popup.md.\n";
     return 2;
   }
 

@@ -571,6 +571,11 @@ class RenderTree {
 
   [[nodiscard]] std::size_t node_count() const;
   [[nodiscard]] PixelSize viewport() const;
+
+  // Read-only accessor - moves no pixels. Public FontCatalog access for
+  // whatever a caller needs a tree's fonts for.
+  [[nodiscard]] const std::optional<FontCatalog>& fonts() const;
+
   [[nodiscard]] const NodeStyle& style(NodeId id) const;
 
   // The node this one hangs from. The root is its own parent, which is what

@@ -36,59 +36,88 @@ bool check(bool condition, const char* what, std::ostream& out, bool& ok) {
   return condition;
 }
 
-// Every pixel of `crop_from` at `crop_at` against every pixel of
-// `reference`, which must be exactly `crop_at`'s size. Two different
-// RasterSurfaces of two different overall sizes, so row_bytes differs -
-// this compares row by row rather than as one flat memcmp.
-bool crop_matches(const dg::PixelView& crop_from, const PixelRect& crop_at,
-                  const dg::PixelView& reference) {
-  if (!crop_from.is_bgra8888 || !reference.is_bgra8888) {
-    return false;
-  }
-  if (reference.width != crop_at.width || reference.height != crop_at.height) {
-    return false;
-  }
-  const auto row_span = static_cast<std::size_t>(crop_at.width) * 4;
-  for (int row = 0; row < crop_at.height; ++row) {
-    const std::uint8_t* from_row =
-        crop_from.pixels + (static_cast<std::size_t>(crop_at.y + row) * crop_from.row_bytes) +
-        (static_cast<std::size_t>(crop_at.x) * 4);
-    const std::uint8_t* reference_row =
-        reference.pixels + (static_cast<std::size_t>(row) * reference.row_bytes);
-    if (std::memcmp(from_row, reference_row, row_span) != 0) {
-      return false;
-    }
-  }
-  return true;
-}
-
 void check_placement(std::ostream& out, bool& ok) {
-  out << "placement: below/above flip against hand-derived rectangles\n";
+  out << "placement: below/above and left/right flip, plus clamp, against hand-derived "
+         "rectangles\n";
 
-  // Fits below: anchor near the top of a 300px-tall parent, 104px of content.
-  const PixelRect fits_below = dg::resolve_popup_placement(
-      PixelRect{40, 40, 100, 24}, popup_scene::kContentSize, PopupPlacement::kBelow, 300);
+  // Fits below: anchor near the top of a 400x300 parent, 160x104 content.
+  // Horizontally the anchor's left edge (40) plus content width (160) is
+  // 200, comfortably inside 400, so no horizontal flip/clamp triggers here.
+  const PixelRect fits_below =
+      dg::resolve_popup_placement(PixelRect{40, 40, 100, 24}, popup_scene::kContentSize,
+                                  PopupPlacement::kBelow, PixelSize{400, 300});
   check(fits_below == (PixelRect{40, 64, 160, 104}), "fits below stays below", out, ok);
 
   // Does not fit below (anchor at y=220, content 104 tall, bottom 220+24+104
   // = 348 > 300): flips to above, top = anchor.top() - content.height = 116.
-  const PixelRect flips_above = dg::resolve_popup_placement(
-      PixelRect{40, 220, 100, 24}, popup_scene::kContentSize, PopupPlacement::kBelow, 300);
+  const PixelRect flips_above =
+      dg::resolve_popup_placement(PixelRect{40, 220, 100, 24}, popup_scene::kContentSize,
+                                  PopupPlacement::kBelow, PixelSize{400, 300});
   check(flips_above == (PixelRect{40, 116, 160, 104}), "flips to above when below overruns",
         out, ok);
 
-  // Neither fits (anchor square in the middle of a parent shorter than the
-  // content on both sides): stays with the caller's stated preference rather
-  // than oscillating - declined by name in doc/popup.md as the case this
-  // slice does not resolve further (horizontal clamping is the same
-  // decline).
-  const PixelRect neither_fits = dg::resolve_popup_placement(
-      PixelRect{40, 50, 100, 24}, popup_scene::kContentSize, PopupPlacement::kBelow, 90);
-  check(neither_fits.left() == 40 && neither_fits.width == 160, "neither-fits keeps horizontal",
+  // Neither vertical side fits (anchor bottom 74, content 104 tall, against
+  // a 90px-tall parent: below overruns to 178, above goes negative to -54).
+  // Hand-derived: use_below stays true (the caller's stated kBelow
+  // preference, since above doesn't fit either so the flip condition never
+  // triggers), giving top = anchor.bottom() = 74 before clamping. But
+  // content.height (104) >= parent height (90), so the clamp interval
+  // [0, 90-104] is empty/inverted and this falls into the "content taller
+  // than parent" branch instead: top = 0. Horizontally nothing changes
+  // (40 + 160 = 200 <= 400), so left stays 40.
+  const PixelRect neither_fits =
+      dg::resolve_popup_placement(PixelRect{40, 50, 100, 24}, popup_scene::kContentSize,
+                                  PopupPlacement::kBelow, PixelSize{400, 90});
+  check(neither_fits == (PixelRect{40, 0, 160, 104}),
+        "neither vertical side fits: top-aligns instead of overrunning", out, ok);
+
+  // --- Horizontal: flip, clamp, and the content-wider-than-parent edge case,
+  // mirroring the vertical cases above. Parent is 400 wide in every case
+  // below; vertical stays trivial (anchor near the top, content well under
+  // 300 tall) so only the horizontal axis is exercised.
+
+  // Anchor near the right edge: left-aligned (anchor.left() + content.width
+  // = 350 + 160 = 510 > 400) does not fit, but right-aligned to the anchor
+  // (anchor.right() - content.width = 370 - 160 = 210 >= 0) does. Flips to
+  // left = 210.
+  const PixelRect flips_right =
+      dg::resolve_popup_placement(PixelRect{350, 40, 20, 24}, popup_scene::kContentSize,
+                                  PopupPlacement::kBelow, PixelSize{400, 300});
+  check(flips_right == (PixelRect{210, 64, 160, 104}),
+        "flips to right-aligned-to-anchor when left-aligned overruns", out, ok);
+
+  // Anchor extremely close to the right edge with content almost as wide as
+  // the parent (380 of 400): left-aligned overruns (350+380=730>400) AND
+  // right-aligned-to-anchor goes negative (anchor.right()=360, 360-380=-20
+  // < 0). Neither flip fits but content (380) is still narrower than the
+  // parent (400), so this clamps rather than falling into the
+  // wider-than-parent branch: left = parent.width - content.width =
+  // 400 - 380 = 20 (flush against the parent's own right edge).
+  const PixelSize wide_content{380, 40};
+  const PixelRect clamped_right = dg::resolve_popup_placement(
+      PixelRect{350, 40, 10, 24}, wide_content, PopupPlacement::kBelow, PixelSize{400, 300});
+  check(clamped_right.left() == 20, "neither horizontal side fits: clamps to the right edge",
         out, ok);
+
+  // Anchor near the left edge with content wider than the parent itself
+  // (450 of 400): both flips fail for the same reason as the vertical
+  // content-taller-than-parent case, and the clamp interval
+  // [0, 400-450] is empty/inverted, so this left-aligns at 0 instead of
+  // producing a negative left edge.
+  const PixelSize overwide_content{450, 40};
+  const PixelRect overwide = dg::resolve_popup_placement(
+      PixelRect{10, 40, 20, 24}, overwide_content, PopupPlacement::kBelow, PixelSize{400, 300});
+  check(overwide.left() == 0, "content wider than the parent: left-aligns at 0", out, ok);
 }
 
-int check_overlay_and_equivalence(std::ostream& out, bool& ok) {
+// The overlay branch driven through the real API against a real (dummy
+// video driver) WindowManager - PopupHost is overlay-only now (doc/popup.md
+// B-1/B-2), so there is no second branch left to hold this equal against;
+// what this checks is that PopupHost::show()/close()/handle_pointer()/
+// handle_key() behave correctly end to end against a real host window and
+// a real placement flip, which is the whole of what a caller needs from
+// this type.
+int check_overlay(std::ostream& out, bool& ok) {
   dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
   if (!made) {
     out << "  FAIL: could not start the window system (even under the dummy driver): "
@@ -116,61 +145,40 @@ int check_overlay_and_equivalence(std::ostream& out, bool& ok) {
   PopupHost host{windows};
   const PixelRect anchor{40, 40, 100, 24};
 
-  const dg::Expected<PopupHandle, dg::WindowError> overlay =
-      host.show(host_window.value(), host_tree, dg::PlatformCaps{.native_popup = false}, anchor,
-                popup_scene::kContentSize, PopupPlacement::kBelow, PopupFlags{});
-  if (!overlay) {
-    out << "  FAIL: overlay show() failed: " << overlay.error().message << "\n";
+  const dg::Expected<PopupHandle, dg::WindowError> opened =
+      host.show(host_window.value(), host_tree, anchor, popup_scene::kContentSize,
+                PopupPlacement::kBelow, PopupFlags{});
+  if (!opened) {
+    out << "  FAIL: show() failed: " << opened.error().message << "\n";
     return 1;
   }
-  PopupHandle overlay_handle = overlay.value();
-  check(overlay_handle.open && !overlay_handle.is_native, "overlay show() opened, non-native",
-        out, ok);
-  popup_scene::build_menu_content(*overlay_handle.tree, overlay_handle.content_root,
-                                  popup_scene::kContentSize);
+  PopupHandle handle = opened.value();
+  check(handle.open, "show() opened the overlay", out, ok);
+
+  // The real placement math, exercised through the real API rather than
+  // only checked standalone above: this anchor is near the top of a
+  // 300px-tall host, so it must have stayed below, at the same rectangle
+  // resolve_popup_placement() itself would produce.
+  const PixelRect expected_bounds = dg::resolve_popup_placement(
+      anchor, popup_scene::kContentSize, PopupPlacement::kBelow, kHostViewport);
+  check(handle.content_bounds == expected_bounds,
+        "show()'s content_bounds matches resolve_popup_placement() for this anchor", out, ok);
+
+  popup_scene::build_menu_content(host_tree, handle.content_root, popup_scene::kContentSize);
 
   std::optional<RasterSurface> host_surface =
       RasterSurface::create(kHostViewport.width, kHostViewport.height);
-  std::optional<RasterSurface> native_surface =
-      RasterSurface::create(popup_scene::kContentSize.width, popup_scene::kContentSize.height);
-  if (!host_surface.has_value() || !native_surface.has_value()) {
+  if (!host_surface.has_value()) {
     out << "  FAIL: could not allocate a surface\n";
     return 1;
   }
   host_tree.repaint_full(*host_surface);
 
-  // The native branch's content, built through the identical
-  // build_menu_content() call against a tree/surface pair shaped exactly the
-  // way PopupHost::show()'s own native branch builds one (TreeSpec sized to
-  // content_size, root() as the parent) - this is the real graphics
-  // pipeline (RenderTree + Skia CPU raster), not a stand-in, run without a
-  // real second OS window because SDL_CreatePopupWindow itself is not
-  // available under the headless dummy driver (see run()'s own attempt
-  // below). What this DOES prove: the same content nodes, at the same local
-  // geometry, rasterize to the same bytes whether their tree is a fresh
-  // instance (as the native branch's would be) or a subtree of the host's
-  // own tree cropped out (the overlay branch, exercised above for real).
-  // What it does NOT prove: that a genuine second OS window's own
-  // presentation pipeline (a second SDL surface, SDL_UpdateWindowSurfaceRects)
-  // reproduces this - that claim is what the interactive mode's manual
-  // measurement is for.
-  TreeSpec native_spec;
-  native_spec.viewport = popup_scene::kContentSize;
-  RenderTree native_tree{native_spec};
-  popup_scene::build_menu_content(native_tree, RenderTree::root(), popup_scene::kContentSize);
-  native_tree.repaint_full(*native_surface);
-
-  const bool equivalent =
-      crop_matches(host_surface->peek_pixels(), overlay_handle.content_bounds,
-                   native_surface->peek_pixels());
-  check(equivalent, "overlay content == native-equivalent content, byte for byte", out, ok);
-
   // Dismissal: click outside closes it.
   const dg::PointerEvent outside_click{host_window.value(), dg::PointerAction::kDown, 5, 5};
   const bool dismissed_by_click =
-      host.handle_pointer(overlay_handle, host_window.value(), outside_click, PopupFlags{});
-  check(dismissed_by_click && !overlay_handle.open, "click outside dismisses the overlay", out,
-        ok);
+      host.handle_pointer(handle, host_window.value(), outside_click, PopupFlags{});
+  check(dismissed_by_click && !handle.open, "click outside dismisses the overlay", out, ok);
 
   // Once closed, the region it used to occupy is not hittable as the
   // popup's content any more - the clip-to-empty technique this slice uses
@@ -178,18 +186,25 @@ int check_overlay_and_equivalence(std::ostream& out, bool& ok) {
   host_tree.repaint_full(*host_surface);
   const std::optional<dg::NodeId> hit_after_close =
       host_tree.hit_test(dg::PixelPoint{anchor.left() + 10, anchor.bottom() + 10});
-  check(hit_after_close != overlay_handle.content_root, "closed overlay is not hittable", out,
-        ok);
+  check(hit_after_close != handle.content_root, "closed overlay is not hittable", out, ok);
 
-  // Re-open, click inside: stays open.
+  // Re-open near the BOTTOM of the host window this time, so this exercises
+  // the flip-to-above branch through the real API too, not just fits-below.
+  const PixelRect low_anchor{40, 220, 100, 24};
   const dg::Expected<PopupHandle, dg::WindowError> reopened =
-      host.show(host_window.value(), host_tree, dg::PlatformCaps{.native_popup = false}, anchor,
-                popup_scene::kContentSize, PopupPlacement::kBelow, PopupFlags{});
+      host.show(host_window.value(), host_tree, low_anchor, popup_scene::kContentSize,
+                PopupPlacement::kBelow, PopupFlags{});
   if (!reopened) {
     out << "  FAIL: re-open failed: " << reopened.error().message << "\n";
     return 1;
   }
   PopupHandle reopened_handle = reopened.value();
+  const PixelRect expected_flip = dg::resolve_popup_placement(
+      low_anchor, popup_scene::kContentSize, PopupPlacement::kBelow, kHostViewport);
+  check(expected_flip.top() < low_anchor.top(), "this anchor genuinely needs the flip", out, ok);
+  check(reopened_handle.content_bounds == expected_flip,
+        "show() flips to above for an anchor near the bottom, through the real API", out, ok);
+
   const dg::PointerEvent inside_click{host_window.value(), dg::PointerAction::kDown,
                                       reopened_handle.content_bounds.x + 10,
                                       reopened_handle.content_bounds.y + 10};
@@ -204,52 +219,26 @@ int check_overlay_and_equivalence(std::ostream& out, bool& ok) {
       host.handle_key(reopened_handle, host_window.value(), escape, PopupFlags{});
   check(dismissed_by_escape && !reopened_handle.open, "Escape dismisses the overlay", out, ok);
 
-  return 0;
-}
+  // Re-open near the RIGHT edge of the host window, exercising the
+  // left/right flip through the real API too, not just standalone above.
+  const PixelRect right_anchor{350, 40, 20, 24};
+  const dg::Expected<PopupHandle, dg::WindowError> reopened_right =
+      host.show(host_window.value(), host_tree, right_anchor, popup_scene::kContentSize,
+                PopupPlacement::kBelow, PopupFlags{});
+  if (!reopened_right) {
+    out << "  FAIL: re-open (right anchor) failed: " << reopened_right.error().message << "\n";
+    return 1;
+  }
+  PopupHandle right_handle = reopened_right.value();
+  const PixelRect expected_right_flip = dg::resolve_popup_placement(
+      right_anchor, popup_scene::kContentSize, PopupPlacement::kBelow, kHostViewport);
+  check(expected_right_flip.left() < right_anchor.left(),
+        "this anchor genuinely needs the horizontal flip", out, ok);
+  check(right_handle.content_bounds == expected_right_flip,
+        "show() flips to right-aligned-to-anchor for an anchor near the right edge, through "
+        "the real API",
+        out, ok);
 
-int attempt_native(std::ostream& out) {
-  out << "native branch: attempting a real SDL_CreatePopupWindow under the headless dummy "
-         "driver (measured, not assumed, that this fails)\n";
-  dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
-  if (!made) {
-    out << "  SKIP (loud, specific): could not even start the window system: "
-        << made.error().message << "\n";
-    return 0;
-  }
-  dg::WindowManager windows = std::move(made.value());
-  dg::WindowSpec spec;
-  spec.title = "popup host (native attempt)";
-  spec.width = kHostViewport.width;
-  spec.height = kHostViewport.height;
-  const dg::Expected<dg::WindowId, dg::WindowError> host_window = windows.open(spec);
-  if (!host_window) {
-    out << "  SKIP (loud, specific): could not open a host window under the dummy driver: "
-        << host_window.error().message << "\n";
-    return 0;
-  }
-  TreeSpec host_spec;
-  host_spec.viewport = kHostViewport;
-  RenderTree host_tree{host_spec};
-  PopupHost host{windows};
-  const dg::Expected<PopupHandle, dg::WindowError> native =
-      host.show(host_window.value(), host_tree, dg::PlatformCaps{.native_popup = true},
-                PixelRect{40, 40, 100, 24}, popup_scene::kContentSize, PopupPlacement::kBelow,
-                PopupFlags{});
-  if (!native) {
-    out << "  SKIPPED, loudly and specifically: SDL_CreatePopupWindow failed under the SDL "
-           "dummy video driver used for headless CI, with: \""
-        << native.error().message
-        << "\". This is the expected, measured behaviour (doc/popup.md records it) - the "
-           "dummy driver can open ordinary windows but not real popup windows, so this "
-           "branch's real-OS-window claim is verified instead by examples/14_popup's "
-           "interactive mode against an actual display. Not a silent pass: the attempt above "
-           "ran for real and its failure is printed.\n";
-    return 0;
-  }
-  out << "  UNEXPECTED PASS: this environment's dummy driver created a real popup window. "
-         "Treating this as a bonus success, not a failure.\n";
-  PopupHandle handle = native.value();
-  host.close(handle);
   return 0;
 }
 
@@ -264,17 +253,16 @@ int run(std::ostream& out) {
   // a genuine dg::WindowManager, rather than skipped.
   setenv("SDL_VIDEODRIVER", "dummy", 1);
 
-  out << "POPUP: placement math, the overlay branch through the real API, and the "
-         "same-content equivalence oracle - PopupHost's single most valuable artifact.\n\n";
+  out << "POPUP: placement math standalone, then the same math exercised through the real "
+         "overlay API (PopupHost is overlay-only now - doc/popup.md's B-1/B-2 finding deleted "
+         "the native branch this check used to also hold equal).\n\n";
 
   bool ok = true;
   check_placement(out, ok);
-  out << "\noverlay branch + equivalence (dummy-driver window, no display needed):\n";
-  if (check_overlay_and_equivalence(out, ok) != 0) {
+  out << "\noverlay branch through the real API (dummy-driver window, no display needed):\n";
+  if (check_overlay(out, ok) != 0) {
     return 1;
   }
-  out << "\n";
-  attempt_native(out);
 
   out << (ok ? "\nPASS\n" : "\nFAIL\n");
   return ok ? 0 : 1;

@@ -168,15 +168,10 @@ void check_real_tab_key_event(std::ostream& out, bool& ok) {
 }
 
 // --------------------------------------------------------------------------
-// Claim 3: focus crossing into a popup - both PopupHost branches.
-// Overlay: dg::Focus::enter_scope()/exit_scope() over the SAME Focus
-// instance, confirmed to blur a widget still focused inside the popup when
-// it closes (the popup-close hazard). Native: attempted for real (expected,
-// measured, to fail under the dummy driver, exactly like doc/popup.md's own
-// precedent), plus a structural proof that two independent Focus instances
-// never confuse each other even when they hand out the identical NodeId
-// value - which is why cross-window focus needed no NodeId-plus-window-id
-// struct here.
+// Claim 3: focus crossing into a popup - overlay-only (native OS popup
+// windows were removed; see doc/popup.md). dg::Focus::enter_scope()/
+// exit_scope() over the SAME Focus instance, confirmed to blur a widget
+// still focused inside the popup when it closes (the popup-close hazard).
 // --------------------------------------------------------------------------
 
 void check_overlay_scope_and_close(std::ostream& out, bool& ok) {
@@ -210,8 +205,8 @@ void check_overlay_scope_and_close(std::ostream& out, bool& ok) {
   // stale one left over from the previous cycle.
   for (int cycle = 0; cycle < 3; ++cycle) {
     const dg::Expected<PopupHandle, dg::WindowError> shown =
-        host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = false},
-                  anchor, popup_menu::kSize, PopupPlacement::kBelow, PopupFlags{});
+        host.show(window.value(), scene.tree.render(), anchor, popup_menu::kSize,
+                  PopupPlacement::kBelow, PopupFlags{});
     if (!shown) {
       out << "  FAIL: overlay show() failed: " << shown.error().message << "\n";
       ok = false;
@@ -238,48 +233,6 @@ void check_overlay_scope_and_close(std::ostream& out, bool& ok) {
           "closing the overlay blurs a widget still focused inside it", out, ok);
     check(!scene.focus.current().has_value(), "focus is nullopt immediately after", out, ok);
   }
-}
-
-void attempt_native_popup(std::ostream& out) {
-  out << "\nnative popup: attempting a real SDL_CreatePopupWindow under the headless dummy "
-         "driver (measured, not assumed, that this fails - doc/popup.md section 1)\n";
-  dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
-  if (!made) {
-    out << "  SKIP (loud, specific): could not even start the window system: "
-        << made.error().message << "\n";
-    return;
-  }
-  dg::WindowManager manager = std::move(made.value());
-  dg::WindowSpec spec;
-  spec.title = "focus (headless, native attempt)";
-  spec.width = kSize.width;
-  spec.height = kSize.height;
-  const dg::Expected<dg::WindowId, dg::WindowError> window = manager.open(spec);
-  if (!window) {
-    out << "  SKIP (loud, specific): could not open a host window under the dummy driver: "
-        << window.error().message << "\n";
-    return;
-  }
-  focus_scene::Scene scene = focus_scene::build(options_for(kSize));
-  PopupHost host{manager};
-  const PixelRect anchor = scene.tree.render().absolute_bounds(scene.handles.btn_open);
-  const dg::Expected<PopupHandle, dg::WindowError> native =
-      host.show(window.value(), scene.tree.render(), dg::PlatformCaps{.native_popup = true},
-                anchor, popup_menu::kSize, PopupPlacement::kBelow, PopupFlags{});
-  if (!native) {
-    out << "  SKIPPED, loudly and specifically: SDL_CreatePopupWindow failed under the dummy "
-           "video driver, with: \""
-        << native.error().message
-        << "\". Real doc/focus.md section 6 evidence (a genuine second OS window gaining real "
-           "keyboard focus, and this engine's own separate dg::Focus instance for it) comes "
-           "from examples/21_focus's interactive mode against an actual display, matching "
-           "doc/popup.md's own precedent exactly.\n";
-    return;
-  }
-  out << "  UNEXPECTED PASS: this environment's dummy driver created a real popup window - "
-         "bonus coverage, not a failure.\n";
-  PopupHandle handle = native.value();
-  host.close(handle);
 }
 
 // A structural proof, needing no window at all: two entirely independent
@@ -392,7 +345,6 @@ int run(std::ostream& out) {
   check_order_and_wrapping(out, ok);
   check_real_tab_key_event(out, ok);
   check_overlay_scope_and_close(out, ok);
-  attempt_native_popup(out);
   check_two_focus_instances_never_collide(out, ok);
   check_tab_away_mid_composition(out, ok);
 

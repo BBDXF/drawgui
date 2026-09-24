@@ -82,43 +82,6 @@ struct WindowSpec {
   bool cancellable_close = false;
 };
 
-// What this platform can do, so a layer above never has to assume.
-//
-// design.md section 5.1 defines PlatformCaps as several fields
-// (multi_window/native_popup/native_menubar/system_tray/window_transparency/
-// file_dialog); this slice's actual consumer is PopupHost, which reads only
-// `native_popup`, so only that one is here - the same "an interface no
-// implementation has ever contradicted is a guess with a build rule" policy
-// window_manager.h's own top comment already states. The other five are
-// unclaimed by any caller and are not speculatively added.
-struct PlatformCaps {
-  // True on this SDL3/Linux desktop backend: doc/platform-notes.md's P1
-  // spike measured SDL_CreatePopupWindow producing a real, bounds-escaping
-  // OS window on both x11 and wayland. A mobile backend would report false
-  // here, which is the whole reason PopupHost takes this as a value rather
-  // than querying it implicitly - see PopupHost's own header for why a
-  // caller can also override it to exercise the overlay branch on a desktop
-  // that does have native popups.
-  bool native_popup = false;
-};
-
-// Which of the two genuinely different SDL popup-window capabilities
-// open_popup() should create - doc/popup.md section 1's own measurement,
-// closed by 7-5b (doc/menus.md section 6.2): SDL_WINDOW_POPUP_MENU (kMenu)
-// CAN gain keyboard focus, which is the only way Escape ever reaches it;
-// SDL_WINDOW_TOOLTIP (kTooltip) accepts NO input at all, which is exactly
-// what a tooltip needs (nothing should ever be able to click or type into
-// one) and exactly wrong for a menu (Escape/arrow-key navigation would
-// never arrive). Two enumerators rather than a bool, because "which flag"
-// reads at a call site the way `PopupPlacement::kBelow`/`kAbove` already do
-// on the same signature's neighbour, not because a third value is
-// anticipated - SDL itself has exactly two borderless-popup-shaped window
-// flags, not three.
-enum class PopupWindowKind : std::uint8_t {
-  kMenu,
-  kTooltip,
-};
-
 // How the bytes of one pixel are arranged in memory.
 //
 // One enumerator, because one is what has been measured. A window surface on
@@ -457,44 +420,6 @@ class WindowManager {
   // new one is filled with spec.fill before this returns.
   [[nodiscard]] Expected<WindowId, WindowError> open(const WindowSpec& spec);
 
-  // What this backend can do, queried rather than assumed. See PlatformCaps.
-  [[nodiscard]] static PlatformCaps platform_caps();
-
-  // Opens a real popup window owned by `parent`, positioned `offset_x`,
-  // `offset_y` from parent's own top-left - SDL_CreatePopupWindow's own
-  // coordinate system, verified by doc/platform-notes.md's P1 spike to place
-  // and size the popup exactly as asked and to let it overhang parent's
-  // bounds on both the x11 and wayland drivers. `parent` must already be
-  // open; an id naming no window, or one that is itself a popup's ancestor
-  // beyond what SDL accepts, fails through the ordinary WindowError path
-  // rather than asserting.
-  //
-  // The window this returns can gain keyboard focus (SDL_WINDOW_POPUP_MENU),
-  // which is what lets Escape reach it - the tooltip variant
-  // (SDL_WINDOW_TOOLTIP, no input at all) is a real, different SDL flag
-  // `kind` (below) now exposes, doc/popup.md's own named decline, closed by
-  // 7-5b (doc/menus.md section 6.2).
-  //
-  // `kind` defaults to kMenu, so every existing call site (5-2's own
-  // PopupHost, and every dropdown/menu example built on it since) keeps
-  // opening the exact SDL_WINDOW_POPUP_MENU window it always has, with no
-  // source change required. kTooltip opens SDL_WINDOW_TOOLTIP instead - a
-  // window that, per doc/popup.md section 1's own measurement, accepts NO
-  // input at all, which is why PopupHost::handle_pointer()/handle_key()
-  // dismissal is not how a tooltip is ever closed (see popup_host.h).
-  [[nodiscard]] Expected<WindowId, WindowError> open_popup(
-      WindowId parent, int offset_x, int offset_y, int width, int height,
-      PopupWindowKind kind = PopupWindowKind::kMenu);
-
-  // Destroys a popup window immediately, synchronously, unlike
-  // request_close(). A popup has no title bar and no user-driven close
-  // button, so there is no "same route a user takes" to imitate; the
-  // decision to dismiss it is the caller's (PopupHost's), made in response to
-  // a click outside or an Escape key, and it must take effect before the next
-  // frame is drawn rather than round-tripping through pump(). An id naming no
-  // open window is ignored, matching request_close()'s idempotence.
-  void close_popup(WindowId id);
-
   // Opens an ordinary top-level window that is also `owner`'s CHILD - real
   // SDL_SetWindowParent()/SDL_SetWindowModal() ownership, not a convention
   // this engine invents on top of an unrelated window - design.md section
@@ -506,9 +431,8 @@ class WindowManager {
   // owner at the platform level) and this engine's own click/set() routing
   // are two different layers - a headless/dummy-driver backend, in
   // particular, has no platform-level modal enforcement to fall back on at
-  // all, matching open_popup()'s own measured "dummy can open ordinary
-  // windows but not this" limitation (doc/popup.md section 1) - see
-  // doc/menus.md section 6.3 for the measurement on THIS call specifically.
+  // all (doc/popup.md section 1) - see doc/menus.md section 6.3 for the
+  // measurement on THIS call specifically.
   [[nodiscard]] Expected<WindowId, WindowError> open_dialog(const WindowSpec& spec,
                                                             WindowId owner);
 
@@ -525,14 +449,13 @@ class WindowManager {
   // destroys it.
   void request_close(WindowId id);
 
-  // Destroys a window immediately and synchronously - close_popup()'s own
-  // shape, applied to an ordinary/dialog window instead of a popup, for the
-  // identical reason: once a caller has decided (perhaps after running its
-  // own on_close_request veto logic) that a close should actually happen,
-  // there is no "same route a user takes" left to imitate, because the
-  // route a user took is exactly what already produced the
-  // close_requested entry this is answering. An id naming no open window is
-  // ignored, matching close_popup()'s/request_close()'s idempotence. Safe
+  // Destroys a window immediately and synchronously, applied to an
+  // ordinary/dialog window: once a caller has decided (perhaps after
+  // running its own on_close_request veto logic) that a close should
+  // actually happen, there is no "same route a user takes" left to
+  // imitate, because the route a user took is exactly what already
+  // produced the close_requested entry this is answering. An id naming no
+  // open window is ignored, matching request_close()'s idempotence. Safe
   // to call on a window that was never cancellable_close at all - it is
   // simply request_close() without the round trip through pump().
   void close_now(WindowId id);
@@ -566,6 +489,13 @@ class WindowManager {
   // as it is for a user.
   void post_pointer_button(WindowId id, bool down, int x, int y,
                            PointerButton button = PointerButton::kPrimary);
+
+  // Puts a real SDL_EVENT_WINDOW_EXPOSED on the platform's own event queue,
+  // by the same route request_close()/post_pointer_button() use. Exists so
+  // tests/unit/ can verify the expose -> PumpResult::needs_repaint dispatch
+  // contract under the dummy video driver, which never generates a real
+  // expose on its own.
+  void post_expose(WindowId id);
 
   // Puts a wheel scroll on the platform's own event queue, same route as
   // post_pointer_button(). `dx`/`dy` are notches, matching

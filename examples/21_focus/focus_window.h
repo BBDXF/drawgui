@@ -1,7 +1,7 @@
 // The interactive half of examples/21_focus: a host window with the mixed-
 // kind scene focus_scene.h builds, plus a "open popup" button that opens a
-// popup through PopupHost - `--branch native|overlay` forces which one,
-// matching examples/14_popup's own precedent exactly.
+// popup through PopupHost - overlay-only (native OS popup windows were
+// removed; see doc/popup.md).
 
 #pragma once
 
@@ -15,7 +15,6 @@ namespace focus_window {
 struct Settings {
   dg::PixelSize size{620, 260};
   int run_ms = 0;
-  bool force_overlay = false;
   std::string font_dir = "/usr/share/fonts";
 };
 

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -54,7 +55,15 @@ void present_if_damaged(dg::WindowManager& manager, dg::WindowId window, dg::Ren
   }
   const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
                             dg::PixelFormat::kBgra8888};
-  (void)manager.present(window, image, tree.painted().rects());
+  const dg::Expected<void, dg::WindowError> presented =
+      manager.present(window, image, tree.painted().rects());
+  if (!presented) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      std::cerr << "present() failed: " << presented.error().message << "\n";
+    }
+  }
 }
 
 // repaint_full() ends by retiring the tree's damage (RenderTree::repaint_full()'s
@@ -74,7 +83,15 @@ void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::Render
   }
   const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
                             dg::PixelFormat::kBgra8888};
-  (void)manager.present(window, image, tree.painted().rects());
+  const dg::Expected<void, dg::WindowError> presented =
+      manager.present(window, image, tree.painted().rects());
+  if (!presented) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      std::cerr << "present() failed: " << presented.error().message << "\n";
+    }
+  }
 }
 
 enum class PopupKind : std::uint8_t { kNone, kDropdown, kContextMenu };
@@ -110,9 +127,6 @@ class Runner {
 
   void open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSize size);
   void close_popup(std::optional<int> select_index);
-  dg::WidgetSet& active_widgets();
-  dg::Focus& active_focus();
-  dg::RenderTree& active_tree();
   void refresh_ring();
   std::optional<int> row_index_of(dg::NodeId id) const;
 
@@ -124,6 +138,7 @@ class Runner {
   int next_pump_timeout_ms(Clock::time_point started) const;
   void dispatch_text_events(const dg::PumpResult& pumped);
   void present_all_surfaces();
+  void apply_needs_repaint(const dg::PumpResult& pumped);
   void run_script();
 
   Settings settings_;
@@ -137,35 +152,12 @@ class Runner {
   std::optional<dg::PopupHandle> popup_;
   PopupKind popup_kind_ = PopupKind::kNone;
   std::vector<dg::NodeId> popup_rows_;
-  std::optional<dg::WidgetSet> popup_native_widgets_;
-  std::optional<dg::Focus> popup_native_focus_;
-  dg::FocusRing popup_native_ring_;
-  std::optional<dg::RasterSurface> popup_native_surface_;
 
   std::optional<dg::PopupHandle> tooltip_popup_;
-  std::optional<dg::RasterSurface> tooltip_native_surface_;
 
   bool dialog_open_ = false;
   std::optional<profile_dialog::Handles> dialog_handles_;
 };
-
-dg::WidgetSet& Runner::active_widgets() {
-  if (popup_.has_value() && popup_->is_native && popup_native_widgets_.has_value()) {
-    return *popup_native_widgets_;
-  }
-  return scene_.widgets;
-}
-
-dg::Focus& Runner::active_focus() {
-  if (popup_.has_value() && popup_->is_native && popup_native_focus_.has_value()) {
-    return *popup_native_focus_;
-  }
-  return scene_.focus;
-}
-
-dg::RenderTree& Runner::active_tree() {
-  return (popup_.has_value() && popup_->is_native) ? *popup_->tree : scene_.tree.render();
-}
 
 std::optional<int> Runner::row_index_of(dg::NodeId id) const {
   for (std::size_t i = 0; i < popup_rows_.size(); ++i) {
@@ -177,24 +169,13 @@ std::optional<int> Runner::row_index_of(dg::NodeId id) const {
 }
 
 void Runner::refresh_ring() {
-  if (popup_.has_value() && popup_->is_native) {
-    if (popup_native_focus_.has_value()) {
-      dg::update_focus_ring(*popup_->tree, popup_->content_root, popup_native_ring_,
-                            popup_native_focus_->current(), ring_color(scene_.theme));
-    }
-    return;
-  }
   dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
                         scene_.focus.current(), ring_color(scene_.theme));
 }
 
 void Runner::open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSize size) {
-  dg::PlatformCaps caps = dg::WindowManager::platform_caps();
-  if (settings_.force_overlay) {
-    caps.native_popup = false;
-  }
   const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      popup_host_.show(host_window_, scene_.tree.render(), caps, anchor, size,
+      popup_host_.show(host_window_, scene_.tree.render(), anchor, size,
                        dg::PopupPlacement::kBelow, dg::PopupFlags{});
   if (!shown) {
     *out_ << "could not open the popup: " << shown.error().message << "\n";
@@ -205,29 +186,15 @@ void Runner::open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSi
   const std::vector<std::string>& items =
       kind == PopupKind::kDropdown ? showcase_scene::kSortOptions : kContextMenuItems;
 
-  if (popup_->is_native) {
-    popup_native_widgets_.emplace();
-    popup_native_focus_.emplace();
-    popup_native_ring_ = dg::FocusRing{};
-    popup_rows_ = kind == PopupKind::kDropdown
-                      ? sort_options::build(*popup_->tree, *popup_native_widgets_,
-                                            popup_->content_root, items, size.width,
-                                            scene_.ui_font, scene_.theme, scene_.variant)
-                      : context_menu::build(*popup_->tree, *popup_native_widgets_,
-                                            popup_->content_root, items, size.width,
-                                            scene_.ui_font, scene_.theme, scene_.variant);
-    popup_native_surface_ = dg::RasterSurface::create(size.width, size.height);
-  } else {
-    popup_rows_ = kind == PopupKind::kDropdown
-                      ? sort_options::build(scene_.tree.render(), scene_.widgets,
-                                            popup_->content_root, items, size.width,
-                                            scene_.ui_font, scene_.theme, scene_.variant)
-                      : context_menu::build(scene_.tree.render(), scene_.widgets,
-                                            popup_->content_root, items, size.width,
-                                            scene_.ui_font, scene_.theme, scene_.variant);
-    scene_.focus.enter_scope(popup_->content_root);
-  }
-  active_focus().set(popup_rows_.front());
+  popup_rows_ = kind == PopupKind::kDropdown
+                    ? sort_options::build(scene_.tree.render(), scene_.widgets,
+                                          popup_->content_root, items, size.width,
+                                          scene_.ui_font, scene_.theme, scene_.variant)
+                    : context_menu::build(scene_.tree.render(), scene_.widgets,
+                                          popup_->content_root, items, size.width,
+                                          scene_.ui_font, scene_.theme, scene_.variant);
+  scene_.focus.enter_scope(popup_->content_root);
+  scene_.focus.set(popup_rows_.front());
   refresh_ring();
 }
 
@@ -243,14 +210,7 @@ void Runner::close_popup(std::optional<int> select_index) {
     *out_ << "context menu: \"" << kContextMenuItems[static_cast<std::size_t>(*select_index)]
           << "\" selected\n";
   }
-  if (popup_->is_native) {
-    popup_native_widgets_.reset();
-    popup_native_focus_.reset();
-    popup_native_ring_ = dg::FocusRing{};
-    popup_native_surface_.reset();
-  } else {
-    scene_.focus.exit_scope(scene_.tree.render());
-  }
+  scene_.focus.exit_scope(scene_.tree.render());
   popup_host_.close(*popup_);
   popup_.reset();
   popup_rows_.clear();
@@ -279,29 +239,19 @@ void Runner::update_tooltip() {
 }
 
 void Runner::open_tooltip() {
-  dg::PlatformCaps caps = dg::WindowManager::platform_caps();
-  if (settings_.force_overlay) {
-    caps.native_popup = false;
-  }
   const dg::PixelRect anchor = scene_.tree.render().absolute_bounds(scene_.handles.help_button);
   const std::string text = "\u9f9f\u5751\u63d0\u793a\uff1a\u53f3\u952e\u6587\u4ef6\u4fe1\u606f";
   const dg::PixelSize size = tooltip_content::size_for(text, 13);
   const dg::Expected<dg::PopupHandle, dg::WindowError> shown = popup_host_.show(
-      host_window_, scene_.tree.render(), caps, anchor, size, dg::PopupPlacement::kBelow,
-      dg::PopupFlags{}, dg::PopupWindowKind::kTooltip);
+      host_window_, scene_.tree.render(), anchor, size, dg::PopupPlacement::kBelow,
+      dg::PopupFlags{});
   if (!shown) {
     *out_ << "could not open the tooltip: " << shown.error().message << "\n";
     return;
   }
   tooltip_popup_ = shown.value();
-  if (tooltip_popup_->is_native) {
-    tooltip_content::build(*tooltip_popup_->tree, tooltip_popup_->content_root, text,
-                           scene_.ui_font, 13.0F, size, scene_.theme, scene_.variant);
-    tooltip_native_surface_ = dg::RasterSurface::create(size.width, size.height);
-  } else {
-    tooltip_content::build(scene_.tree.render(), tooltip_popup_->content_root, text,
-                           scene_.ui_font, 13.0F, size, scene_.theme, scene_.variant);
-  }
+  tooltip_content::build(scene_.tree.render(), tooltip_popup_->content_root, text,
+                         scene_.ui_font, 13.0F, size, scene_.theme, scene_.variant);
 }
 
 void Runner::close_tooltip() {
@@ -310,7 +260,6 @@ void Runner::close_tooltip() {
   }
   popup_host_.close(*tooltip_popup_);
   tooltip_popup_.reset();
-  tooltip_native_surface_.reset();
 }
 
 void Runner::open_dialog() {
@@ -417,20 +366,17 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
     if (event.action != dg::PointerAction::kDown) {
       return;
     }
-    if (popup_->is_native && event.window != popup_->window) {
-      return;
-    }
-    if (!popup_->is_native && event.window != host_window_) {
+    if (event.window != host_window_) {
       return;
     }
     const dg::PixelPoint at{event.x, event.y};
-    const std::optional<dg::NodeId> hit = active_widgets().widget_at(active_tree(), at);
+    const std::optional<dg::NodeId> hit = scene_.widgets.widget_at(scene_.tree.render(), at);
     const std::optional<int> index = hit.has_value() ? row_index_of(*hit) : std::nullopt;
     if (index.has_value()) {
       close_popup(index);
       return;
     }
-    active_focus().set(hit);
+    scene_.focus.set(hit);
     refresh_ring();
     return;
   }
@@ -479,17 +425,17 @@ void Runner::handle_key(const dg::KeyEvent& event) {
       return;
     }
     if (event.key == dg::Key::kUp) {
-      active_focus().focus_previous(active_tree(), active_widgets(), handle.content_root);
+      scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets, handle.content_root);
       refresh_ring();
       return;
     }
     if (event.key == dg::Key::kDown) {
-      active_focus().focus_next(active_tree(), active_widgets(), handle.content_root);
+      scene_.focus.focus_next(scene_.tree.render(), scene_.widgets, handle.content_root);
       refresh_ring();
       return;
     }
     if (event.key == dg::Key::kEnter) {
-      const std::optional<dg::NodeId> highlighted = active_focus().current();
+      const std::optional<dg::NodeId> highlighted = scene_.focus.current();
       close_popup(highlighted.has_value() ? row_index_of(*highlighted) : std::nullopt);
       return;
     }
@@ -525,20 +471,19 @@ int Runner::next_pump_timeout_ms(Clock::time_point started) const {
   return -1;
 }
 
+void Runner::apply_needs_repaint(const dg::PumpResult& pumped) {
+  for (const dg::WindowId id : pumped.needs_repaint) {
+    if (id == host_window_) {
+      scene_.tree.render().damage_all();
+    }
+  }
+}
+
 void Runner::present_all_surfaces() {
   if (!host_surface_.has_value()) {
     return;
   }
   present_if_damaged(*manager_, host_window_, scene_.tree.render(), *host_surface_);
-  if (popup_.has_value() && popup_->open && popup_->is_native &&
-      popup_native_surface_.has_value()) {
-    present_if_damaged(*manager_, popup_->window, *popup_->tree, *popup_native_surface_);
-  }
-  if (tooltip_popup_.has_value() && tooltip_popup_->open && tooltip_popup_->is_native &&
-      tooltip_native_surface_.has_value()) {
-    present_if_damaged(*manager_, tooltip_popup_->window, *tooltip_popup_->tree,
-                       *tooltip_native_surface_);
-  }
 }
 
 int Runner::run() {
@@ -548,8 +493,7 @@ int Runner::run() {
            "sort dropdown or Tab+Down/Enter to open it; right-click \"File Info\" for a "
            "context menu; hover \"Help\" for a tooltip; \"Open Profile\" opens a modal "
            "dialog with a CJK-capable name field; click \"Toggle Theme\" to switch "
-           "light/dark. "
-        << (settings_.force_overlay ? "OVERLAY" : "NATIVE") << " popup branch.\n";
+           "light/dark. OVERLAY popup branch.\n";
 
   if (!host_surface_.has_value()) {
     return 1;
@@ -566,6 +510,7 @@ int Runner::run() {
       manager_->request_close(host_window_);
     }
     const dg::PumpResult pumped = manager_->pump(next_pump_timeout_ms(started));
+    apply_needs_repaint(pumped);
     for (const dg::PointerEvent& event : pumped.pointer) {
       handle_pointer(event);
     }
