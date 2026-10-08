@@ -80,7 +80,7 @@ std::size_t switch_variant(Scene& scene) {
 | radius | `radius.md` | 默认圆角 |
 | space | `space.sm` | 小间距 |
 | space | `space.md` | 默认间距/padding |
-| size | `size.scrollbar` | 滚动条粗细（设备像素），也是视口要预留的槽宽 |
+| size | `size.scrollbar` | 滚动条粗细（设备像素），也是视口要预留的槽宽；胶囊的圆角和滑块内缩都按它换算 |
 
 即 7 个基础语义色 + 1 个 focus-ring 色 + 2 个禁用态颜色 + 4 个滚动条颜色 = 14 个 color
 token，加 2 个圆角 + 2 个间距 + 1 个滚动条粗细 = 5 个 int token（见 `themes/schema.toml`）。

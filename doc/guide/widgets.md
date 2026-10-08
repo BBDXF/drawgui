@@ -243,6 +243,13 @@ widgets.sync_scrollbar(tree.render(), viewport, viewport_extent);
 夹在 `[min_thumb_length, 轨道长]`；位置随偏移在 `0..(轨道长 - 滑块长)` 之间线性移动。
 `scrollbar_geometry()` 返回这些数，测试和自定义绘制可以直接用。
 
+**外观**：`refresh()` 把轨道和滑块都画成圆角胶囊（圆角半径 = `size / 2`）。滑块节点占满
+整条轨道的宽度，看到的胶囊比它窄一圈：滑块带一圈和轨道同色的边框（静止时 `size / 5`，
+至少 1 像素），所以看起来离轨道边缘留了空隙。指针移上去或按住时边框变成 `size / 10`，
+胶囊变宽，再配合 hover/pressed 颜色一级级加深（暗色主题是变亮）。这圈空隙只是画出来的，
+**点击范围仍是整个滑块节点**，不会因此变难抓。禁用时边框改用禁用调色板的 `fill`，
+和变灰的轨道融为一体。颜色全部来自主题（`color.scrollbar-*`），没有写死的值。
+
 **跟随滚动**：`scroll_by()`/`list_scroll_by()` 自己会更新滚动条，所以滚轮、键盘
 （`apply_keyboard_scroll()`）和程序化的 `scroll_by()` 都不用额外操作。需要手动
 `sync_scrollbar()` 的场合：建好场景后、任何碰到这个视口的 `layout()` 之后（布局会把轨道

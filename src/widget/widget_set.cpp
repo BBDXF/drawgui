@@ -863,18 +863,37 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
 
   if (widget.kind == WidgetKind::kScrollbar) {
     const bool is_thumb = widget.scrollbar_thumb == RenderTree::root();
-    Color fill = (is_thumb ? scrollbar_style_.thumb : scrollbar_style_.track).value_or(Color{});
-    if (is_disabled(tree, id)) {
+    Color track_fill = scrollbar_style_.track.value_or(Color{});
+    Color fill = is_thumb ? scrollbar_style_.thumb.value_or(Color{}) : track_fill;
+    const bool disabled = is_disabled(tree, id);
+    const bool active = is_thumb && !disabled && (state.pressed || state.hovered);
+    if (disabled) {
       // The slider's disabled split, reused: the strip recedes into the
       // disabled surface, the thumb stays readable on it.
-      fill = (is_thumb ? disabled_palette_.on : disabled_palette_.fill).value_or(fill);
+      track_fill = disabled_palette_.fill.value_or(track_fill);
+      fill = is_thumb ? disabled_palette_.on.value_or(fill) : track_fill;
     } else if (is_thumb && state.pressed) {
       fill = scrollbar_style_.thumb_pressed.value_or(fill);
     } else if (is_thumb && state.hovered) {
       fill = scrollbar_style_.thumb_hover.value_or(fill);
     }
-    if (tree.style(id).fill != fill) {
-      tree.set_fill(id, fill);
+    // Pill look: both parts are fully rounded. The thumb's node keeps the
+    // whole bar width (so the grab area is not reduced); a border painted in
+    // the track colour makes the visible pill sit inset inside it. Hover
+    // and press thin that border so the pill widens under the pointer.
+    NodeStyle style = tree.style(id);
+    const float size = static_cast<float>(std::max(1, scrollbar_style_.size));
+    const float inset = !is_thumb ? 0.0F : active ? std::max(1.0F, size / 10.0F)
+                                                  : std::max(1.0F, size / 5.0F);
+    style.fill = fill;
+    style.radii = Radii::all(size / 2.0F);
+    style.border_width = BorderWidths::all(inset);
+    style.border_color = is_thumb ? track_fill : Color{};
+    const NodeStyle& current = tree.style(id);
+    if (current.fill != style.fill || !(current.radii == style.radii) ||
+        !(current.border_width == style.border_width) ||
+        current.border_color != style.border_color) {
+      tree.set_style(id, style);
     }
     return;
   }
