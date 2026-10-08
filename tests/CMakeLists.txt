@@ -114,7 +114,8 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_expose_repaint.cpp
     unit/test_abi_tree_ops.cpp
     unit/test_window_ops.cpp
-    unit/test_abi_window_ops.cpp)
+    unit/test_abi_window_ops.cpp
+    unit/test_cursor.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

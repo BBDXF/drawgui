@@ -77,7 +77,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
 `kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
 
-## 5. 属性表（52 项）
+## 5. 属性表（53 项）
 
 列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
 常量与文档、setter 里出现的那个词汇）；**内部字段**是
@@ -163,16 +163,17 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 |---|---|---|---|---|
 | 42-45 | `left`/`top`/`right`/`bottom` | float | 完整 | 相对 stack 内容盒的偏移；写入任一个即视为定位该子节点 |
 
-### 5.7 interaction（id 52）
+### 5.7 interaction（id 52-53）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
 | 52 | `disabled` | bool | 完整 | `NodeStyle::disabled`。禁用本节点**及其整棵子树**的 hover/press/click/拖动/文本编辑与焦点（`dg::is_disabled()` 沿父链判断）；写入只产生重绘，不重排。C++ 调用方写完需调用 `cancel_disabled()`/`blur_if_disabled()`/`refresh_subtree()`，C ABI 的 `dg_node_set_prop()` 已自动完成。行为细节见 `doc/guide/widgets.md`「禁用状态」 |
+| 53 | `cursor` | enum | 完整 | `NodeStyle::cursor`，鼠标指针形状。取值（序号即 `DG_CURSOR_*`）：`auto`(0，默认)、`default`(1)、`pointer`(2，手形)、`text`(3，I 形)、`crosshair`(4)、`move`(5)、`not_allowed`(6)、`wait`(7)、`progress`(8)、`resize_ew`(9)、`resize_ns`(10)、`resize_nwse`(11)、`resize_nesw`(12)，一一对应 SDL 的系统光标。`auto` 表示继承：从指针下的节点沿父链找第一个非 `auto` 的值，途中遇到有自己默认值的控件（目前只有文本框 → `text`）就用它。不是绘制输入，写入不重排。解析规则见 `doc/guide/input.md`「鼠标指针形状」 |
 
 ## 6. 状态汇总（自查结果）
 
-- 41 项完整、10 项部分实现、1 项未实现（`transform`），共 52 项（含 P6 a1
-  新增的 `text`/`text_color`，以及 `disabled`）。
+- 42 项完整、10 项部分实现、1 项未实现（`transform`），共 53 项（含 P6 a1
+  新增的 `text`/`text_color`，以及 `disabled`、`cursor`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
   （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。

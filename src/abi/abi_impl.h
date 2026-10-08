@@ -78,6 +78,7 @@ std::int32_t theme_override(dg_theme_t* theme, std::uint16_t token_id, const dg_
 std::int32_t app_set_theme(dg_app_t* app, dg_theme_t* theme);
 
 std::int32_t debug_warp_pointer(dg_window_t* window, std::int32_t x, std::int32_t y);
+std::int32_t debug_get_cursor(dg_window_t* window);
 std::int32_t debug_post_pointer_button(dg_window_t* window, std::int32_t down, std::int32_t x,
                                        std::int32_t y);
 std::int32_t debug_post_key(dg_window_t* window, std::int32_t down,

@@ -146,6 +146,8 @@ PropValue::boolean(true))`，C ABI 走 `dg_node_set_prop()` 加 `DG_VALUE_BOOL`�
   这是刻意的简化：要给禁用控件解释「为什么不可用」，应把提示挂在外层容器上。
 - **滚动**：`kScrollView`/`kList` 的滚轮滚动**不受影响**（`scrollable_owner_of()`/
   `list_owner_of()` 不看禁用位）——查看内容不算交互；被禁用列表里的行照样不能点。
+- **鼠标指针**：控件的默认光标（文本框的 I 形）失效，显示箭头；节点上显式设置的
+  `DG_PROP_CURSOR` 仍然生效（见 `doc/guide/input.md`「鼠标指针形状」）。
 - **程序化修改不受限**：`toggle()`/`set_slider_value()`/`text_field_insert()` 等仍然有效，
   禁用只拦截用户输入。
 

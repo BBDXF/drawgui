@@ -30,6 +30,7 @@
 #include <string>
 #include <vector>
 
+#include "drawgui/base/cursor.h"
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/graphics/types.h"
@@ -453,6 +454,11 @@ struct NodeStyle {
   // dg::is_disabled() (widget/interaction.h), which climbs ancestors, so
   // setting it on a container disables that container's whole subtree.
   bool disabled = false;
+
+  // DG_PROP_CURSOR. Not a paint input either: dg::resolve_cursor()
+  // (widget/cursor.h) climbs ancestors from the node under the pointer, so
+  // kAuto - the default - inherits.
+  Cursor cursor = Cursor::kAuto;
 };
 
 // How a repaint turns nodes into draw calls.

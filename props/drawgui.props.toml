@@ -71,7 +71,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 53
+next_id = 54
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -657,3 +657,22 @@ group = "interaction"
 field = "disabled"
 applies_to = ["box"]
 summary = "Disables this node and its whole subtree for hover/press/click/drag/text editing and focus."
+
+# ---------------------------------------------------------------------------
+# Interaction - the MOUSE CURSOR shape over this node. Not a paint input: the
+# widget layer resolves it per pointer position (dg::resolve_cursor(),
+# include/drawgui/widget/cursor.h) by climbing from the hit node towards the
+# root, so `auto` (ordinal 0, the default) means "inherit from the nearest
+# ancestor that says otherwise, else the widget kind's own default". The
+# values map one-to-one onto the platform's system cursors (SDL_SystemCursor).
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "cursor"
+id = 53
+type = "enum"
+values = ["auto", "default", "pointer", "text", "crosshair", "move", "not_allowed", "wait", "progress", "resize_ew", "resize_ns", "resize_nwse", "resize_nesw"]
+group = "interaction"
+field = "cursor"
+applies_to = ["box"]
+summary = "Mouse cursor shape over this node; auto inherits from ancestors, then the widget kind's default."

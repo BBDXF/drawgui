@@ -486,6 +486,73 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_TEXT_COLOR 51
 /* Disables this node and its whole subtree for hover/press/click/drag/text editing and focus. */
 #define DG_PROP_DISABLED 52
+/* Mouse cursor shape over this node; auto inherits from ancestors, then the widget kind's default. */
+#define DG_PROP_CURSOR 53
+
+/* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for
+ * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names
+ * prop_ids.generated.h declares for C++, hence inside this guard too. */
+/* overflow */
+#define DG_OVERFLOW_VISIBLE 0u
+#define DG_OVERFLOW_CLIP 1u
+/* direction */
+#define DG_DIRECTION_ROW 0u
+#define DG_DIRECTION_COLUMN 1u
+#define DG_DIRECTION_ROW_REVERSE 2u
+#define DG_DIRECTION_COLUMN_REVERSE 3u
+/* justify */
+#define DG_JUSTIFY_START 0u
+#define DG_JUSTIFY_END 1u
+#define DG_JUSTIFY_CENTER 2u
+#define DG_JUSTIFY_SPACE_BETWEEN 3u
+#define DG_JUSTIFY_SPACE_AROUND 4u
+#define DG_JUSTIFY_SPACE_EVENLY 5u
+/* align */
+#define DG_ALIGN_START 0u
+#define DG_ALIGN_END 1u
+#define DG_ALIGN_CENTER 2u
+#define DG_ALIGN_STRETCH 3u
+#define DG_ALIGN_BASELINE 4u
+/* main_size */
+#define DG_MAIN_SIZE_MIN 0u
+#define DG_MAIN_SIZE_MAX 1u
+/* align_content */
+#define DG_ALIGN_CONTENT_START 0u
+#define DG_ALIGN_CONTENT_END 1u
+#define DG_ALIGN_CONTENT_CENTER 2u
+#define DG_ALIGN_CONTENT_STRETCH 3u
+#define DG_ALIGN_CONTENT_SPACE_BETWEEN 4u
+#define DG_ALIGN_CONTENT_SPACE_AROUND 5u
+/* align_self */
+#define DG_ALIGN_SELF_AUTO 0u
+#define DG_ALIGN_SELF_START 1u
+#define DG_ALIGN_SELF_END 2u
+#define DG_ALIGN_SELF_CENTER 3u
+#define DG_ALIGN_SELF_STRETCH 4u
+#define DG_ALIGN_SELF_BASELINE 5u
+/* scroll_axis */
+#define DG_SCROLL_AXIS_NONE 0u
+#define DG_SCROLL_AXIS_VERTICAL 1u
+#define DG_SCROLL_AXIS_HORIZONTAL 2u
+/* image_fit */
+#define DG_IMAGE_FIT_FILL 0u
+#define DG_IMAGE_FIT_CONTAIN 1u
+#define DG_IMAGE_FIT_COVER 2u
+#define DG_IMAGE_FIT_NONE 3u
+/* cursor */
+#define DG_CURSOR_AUTO 0u
+#define DG_CURSOR_DEFAULT 1u
+#define DG_CURSOR_POINTER 2u
+#define DG_CURSOR_TEXT 3u
+#define DG_CURSOR_CROSSHAIR 4u
+#define DG_CURSOR_MOVE 5u
+#define DG_CURSOR_NOT_ALLOWED 6u
+#define DG_CURSOR_WAIT 7u
+#define DG_CURSOR_PROGRESS 8u
+#define DG_CURSOR_RESIZE_EW 9u
+#define DG_CURSOR_RESIZE_NS 10u
+#define DG_CURSOR_RESIZE_NWSE 11u
+#define DG_CURSOR_RESIZE_NESW 12u
 
 #endif /* !__cplusplus */
 
@@ -930,6 +997,13 @@ DG_EXPORT int32_t dg_window_set_icon(dg_window_t* window, const void* pixels, in
 /* (the same 'non-negative is data, negative is DG_ERR_*' convention as */
 /* dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a closed/unknown window. */
 DG_EXPORT int32_t dg_window_get_state(dg_window_t* window);
+
+/* TEST-ONLY. ABI 0.2: the window's current cursor as a DG_CURSOR_* value (never */
+/* DG_CURSOR_AUTO), or a negative DG_ERR_* - WindowManager::current_cursor() at */
+/* the ABI boundary. The cursor itself follows the pointer automatically inside */
+/* dg_wait_events()/dg_poll_events() (DG_PROP_CURSOR); this only observes the */
+/* result, which a headless run cannot see on screen. */
+DG_EXPORT int32_t dg_debug_get_cursor(dg_window_t* window);
 
 #ifdef __cplusplus
 } /* extern "C" */

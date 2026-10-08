@@ -155,6 +155,81 @@ export const theme_err = {
   TOO_MANY_RESOURCES: 9,
 } as const;
 
+// Enum property values (ABI 0.2) - the ordinal a DG_VALUE_ENUM write carries.
+export const prop_enum = {
+  overflow: {
+    visible: 0,
+    clip: 1,
+  },
+  direction: {
+    row: 0,
+    column: 1,
+    row_reverse: 2,
+    column_reverse: 3,
+  },
+  justify: {
+    start: 0,
+    end: 1,
+    center: 2,
+    space_between: 3,
+    space_around: 4,
+    space_evenly: 5,
+  },
+  align: {
+    start: 0,
+    end: 1,
+    center: 2,
+    stretch: 3,
+    baseline: 4,
+  },
+  main_size: {
+    min: 0,
+    max: 1,
+  },
+  align_content: {
+    start: 0,
+    end: 1,
+    center: 2,
+    stretch: 3,
+    space_between: 4,
+    space_around: 5,
+  },
+  align_self: {
+    auto: 0,
+    start: 1,
+    end: 2,
+    center: 3,
+    stretch: 4,
+    baseline: 5,
+  },
+  scroll_axis: {
+    none: 0,
+    vertical: 1,
+    horizontal: 2,
+  },
+  image_fit: {
+    fill: 0,
+    contain: 1,
+    cover: 2,
+    none: 3,
+  },
+  cursor: {
+    auto: 0,
+    default: 1,
+    pointer: 2,
+    text: 3,
+    crosshair: 4,
+    move: 5,
+    not_allowed: 6,
+    wait: 7,
+    progress: 8,
+    resize_ew: 9,
+    resize_ns: 10,
+    resize_nwse: 11,
+    resize_nesw: 12,
+  },
+} as const;
+
 // Property ids - props/drawgui.props.toml, re-emitted (see gen_abi.py).
 export const prop = {
   width: 1,
@@ -209,6 +284,7 @@ export const prop = {
   text: 50,
   text_color: 51,
   disabled: 52,
+  cursor: 53,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -525,4 +601,10 @@ export declare namespace DrawguiAbi {
   // (the same 'non-negative is data, negative is DG_ERR_*' convention as
   // dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a closed/unknown window.
   function dg_window_get_state(window: dg_window_t | null): number;
+  // TEST-ONLY. ABI 0.2: the window's current cursor as a DG_CURSOR_* value (never
+  // DG_CURSOR_AUTO), or a negative DG_ERR_* - WindowManager::current_cursor() at
+  // the ABI boundary. The cursor itself follows the pointer automatically inside
+  // dg_wait_events()/dg_poll_events() (DG_PROP_CURSOR); this only observes the
+  // result, which a headless run cannot see on screen.
+  function dg_debug_get_cursor(window: dg_window_t | null): number;
 }

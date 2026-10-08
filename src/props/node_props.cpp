@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "drawgui/base/cursor.h"
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/box.h"
 #include "drawgui/layout/layout_tree.h"
@@ -852,6 +853,21 @@ PropWrite apply_disabled(Target& target, const PropValue& value) {
     return out_of_range(target, "disabled needs a bool: 0 (false) or 1 (true)");
   }
   target.style.disabled = value.ordinal() == 1U;
+  target.style_changed = true;
+  return PropWrite{};
+}
+
+static_assert(DG_CURSOR_AUTO == static_cast<std::uint32_t>(Cursor::kAuto) &&
+                  DG_CURSOR_RESIZE_NESW == static_cast<std::uint32_t>(Cursor::kResizeNesw) &&
+                  DG_CURSOR_RESIZE_NESW + 1 == kCursorCount,
+              "dg::Cursor must list DG_PROP_CURSOR's values in the TOML's order");
+
+PropWrite apply_cursor(Target& target, const PropValue& value) {
+  if (value.ordinal() >= kCursorCount) {
+    return out_of_range(target,
+                        "cursor has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.style.cursor = static_cast<Cursor>(value.ordinal());
   target.style_changed = true;
   return PropWrite{};
 }

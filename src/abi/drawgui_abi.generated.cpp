@@ -741,3 +741,18 @@ extern "C" DG_EXPORT int32_t dg_window_get_state(dg_window_t* window) {
     return DG_ERR_INTERNAL;
   }
 }
+
+extern "C" DG_EXPORT int32_t dg_debug_get_cursor(dg_window_t* window) {
+  try {
+    return dg::abi::debug_get_cursor(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_debug_get_cursor: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_debug_get_cursor: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_debug_get_cursor: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}

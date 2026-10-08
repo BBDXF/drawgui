@@ -128,4 +128,5 @@ dg_window_set_min_size: int32_t(dg_window_t*,int32_t,int32_t)
 dg_window_set_max_size: int32_t(dg_window_t*,int32_t,int32_t)
 dg_window_set_icon: int32_t(dg_window_t*,const void*,int32_t,int32_t,uint32_t,uint32_t)
 dg_window_get_state: int32_t(dg_window_t*)
+dg_debug_get_cursor: int32_t(dg_window_t*)
 

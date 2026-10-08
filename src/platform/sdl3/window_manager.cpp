@@ -27,6 +27,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -90,7 +91,48 @@ struct OwnedWindow {
   // every no-op resize request; comparing against this is what keeps
   // kResized meaning "the size is now different".
   PixelSize reported_size;
+
+  // WindowManager::set_cursor() / set_cursor_override(). Never kAuto.
+  Cursor cursor = Cursor::kDefault;
+  std::optional<Cursor> cursor_override;
+
+  [[nodiscard]] Cursor effective_cursor() const { return cursor_override.value_or(cursor); }
 };
+
+SDL_SystemCursor to_system_cursor(Cursor cursor) {
+  switch (cursor) {
+    case Cursor::kAuto:
+    case Cursor::kDefault:
+      return SDL_SYSTEM_CURSOR_DEFAULT;
+    case Cursor::kPointer:
+      return SDL_SYSTEM_CURSOR_POINTER;
+    case Cursor::kText:
+      return SDL_SYSTEM_CURSOR_TEXT;
+    case Cursor::kCrosshair:
+      return SDL_SYSTEM_CURSOR_CROSSHAIR;
+    case Cursor::kMove:
+      return SDL_SYSTEM_CURSOR_MOVE;
+    case Cursor::kNotAllowed:
+      return SDL_SYSTEM_CURSOR_NOT_ALLOWED;
+    case Cursor::kWait:
+      return SDL_SYSTEM_CURSOR_WAIT;
+    case Cursor::kProgress:
+      return SDL_SYSTEM_CURSOR_PROGRESS;
+    case Cursor::kResizeEw:
+      return SDL_SYSTEM_CURSOR_EW_RESIZE;
+    case Cursor::kResizeNs:
+      return SDL_SYSTEM_CURSOR_NS_RESIZE;
+    case Cursor::kResizeNwse:
+      return SDL_SYSTEM_CURSOR_NWSE_RESIZE;
+    case Cursor::kResizeNesw:
+      return SDL_SYSTEM_CURSOR_NESW_RESIZE;
+  }
+  return SDL_SYSTEM_CURSOR_DEFAULT;
+}
+
+Cursor normalized(Cursor cursor) {
+  return cursor == Cursor::kAuto ? Cursor::kDefault : cursor;
+}
 
 // SDL reports failure as false or nullptr and leaves the reason in
 // SDL_GetError(). Losing that string is what turns "window creation failed"
@@ -442,6 +484,11 @@ struct WindowManager::Impl {
     for (const OwnedWindow& owned : windows) {
       SDL_DestroyWindow(owned.window);
     }
+    for (SDL_Cursor* cursor : system_cursors) {
+      if (cursor != nullptr) {
+        SDL_DestroyCursor(cursor);
+      }
+    }
     SDL_Quit();
   }
 
@@ -453,8 +500,49 @@ struct WindowManager::Impl {
   // Destroys one window and forgets it. Every other window is untouched -
   // this is the operation the whole file exists to get right.
   void close(std::vector<OwnedWindow>::iterator entry) {
+    if (pointer_window == entry->sdl_id) {
+      pointer_window = 0;
+    }
     SDL_DestroyWindow(entry->window);
     windows.erase(entry);
+  }
+
+  // Created on first use and kept until shutdown; a shape the platform
+  // cannot make is tried once and then remembered as missing, so a driver
+  // with no cursors (SDL's dummy one) is not asked again on every move.
+  [[nodiscard]] SDL_Cursor* system_cursor(Cursor cursor) {
+    const auto index = static_cast<std::size_t>(cursor);
+    if (!cursor_tried[index]) {
+      cursor_tried[index] = true;
+      system_cursors[index] = SDL_CreateSystemCursor(to_system_cursor(cursor));
+    }
+    return system_cursors[index];
+  }
+
+  // Puts `owned`'s cursor on screen if the pointer is in it (or has not been
+  // seen in any window yet) and it differs from what is already showing.
+  void apply_cursor(const OwnedWindow& owned) {
+    if (pointer_window != 0 && pointer_window != owned.sdl_id) {
+      return;
+    }
+    const Cursor wanted = owned.effective_cursor();
+    if (shown_cursor == wanted) {
+      return;
+    }
+    shown_cursor = wanted;
+    ++cursor_switches;
+    SDL_Cursor* cursor = system_cursor(wanted);
+    if (cursor != nullptr) {
+      SDL_SetCursor(cursor);
+    }
+  }
+
+  void pointer_entered(const OwnedWindow& owned) {
+    if (pointer_window == owned.sdl_id) {
+      return;
+    }
+    pointer_window = owned.sdl_id;
+    apply_cursor(owned);
   }
 
   // Handles one event and records what the caller now has to do about it.
@@ -482,6 +570,7 @@ struct WindowManager::Impl {
       case SDL_EVENT_MOUSE_MOTION: {
         const auto entry = find(event.motion.windowID);
         if (entry != windows.end()) {
+          pointer_entered(*entry);
           const PixelPoint at = to_physical(entry->window, event.motion.x, event.motion.y);
           result.pointer.push_back(
               PointerEvent{WindowId{entry->sdl_id}, PointerAction::kMove, at.x, at.y});
@@ -507,6 +596,13 @@ struct WindowManager::Impl {
           PointerEvent pointer_event{WindowId{entry->sdl_id}, action, at.x, at.y};
           pointer_event.button = *button;
           result.pointer.push_back(pointer_event);
+        }
+        break;
+      }
+      case SDL_EVENT_WINDOW_MOUSE_ENTER: {
+        const auto entry = find(event.window.windowID);
+        if (entry != windows.end()) {
+          pointer_entered(*entry);
         }
         break;
       }
@@ -671,6 +767,15 @@ struct WindowManager::Impl {
 
   std::vector<OwnedWindow> windows;
 
+  // The cursor machinery (apply_cursor()). `pointer_window` is the window
+  // the last motion/enter event came from, 0 before the first one;
+  // `shown_cursor` is what the platform was last told to show.
+  std::array<SDL_Cursor*, kCursorCount> system_cursors{};
+  std::array<bool, kCursorCount> cursor_tried{};
+  SDL_WindowID pointer_window = 0;
+  std::optional<Cursor> shown_cursor;
+  std::uint64_t cursor_switches = 0;
+
   // Backing storage for text this manager pushes onto the event queue
   // itself (post_text_input()). SDL_TextInputEvent::text is a pointer, and
   // SDL owns the string for a REAL SDL_EVENT_TEXT_INPUT it generates, but
@@ -718,7 +823,9 @@ Expected<WindowId, WindowError> WindowManager::open(const WindowSpec& spec) {
                                        .window = window,
                                        .fill = spec.fill,
                                        .cancellable_close = spec.cancellable_close,
-                                       .reported_size = pixel_size_of(window)});
+                                       .reported_size = pixel_size_of(window),
+                                       .cursor = Cursor::kDefault,
+                                       .cursor_override = std::nullopt});
   paint(impl_->windows.back());
   return WindowId{sdl_id};
 }
@@ -764,9 +871,42 @@ Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spe
                                        .window = window,
                                        .fill = spec.fill,
                                        .cancellable_close = spec.cancellable_close,
-                                       .reported_size = pixel_size_of(window)});
+                                       .reported_size = pixel_size_of(window),
+                                       .cursor = Cursor::kDefault,
+                                       .cursor_override = std::nullopt});
   paint(impl_->windows.back());
   return WindowId{sdl_id};
+}
+
+void WindowManager::set_cursor(WindowId id, Cursor cursor) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  entry->cursor = normalized(cursor);
+  impl_->apply_cursor(*entry);
+}
+
+void WindowManager::set_cursor_override(WindowId id, std::optional<Cursor> cursor) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return;
+  }
+  entry->cursor_override =
+      cursor.has_value() ? std::optional<Cursor>{normalized(*cursor)} : std::nullopt;
+  impl_->apply_cursor(*entry);
+}
+
+Expected<Cursor, WindowError> WindowManager::current_cursor(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return entry->effective_cursor();
+}
+
+std::uint64_t WindowManager::cursor_switch_count() const {
+  return impl_->cursor_switches;
 }
 
 std::size_t WindowManager::open_window_count() const {

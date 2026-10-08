@@ -224,6 +224,10 @@ inline constexpr dg_prop_id DG_PROP_TEXT_COLOR = 51;
 // Disables this node and its whole subtree for hover/press/click/drag/text editing and focus.
 // type=bool; applies_to=box
 inline constexpr dg_prop_id DG_PROP_DISABLED = 52;
+// Mouse cursor shape over this node; auto inherits from ancestors, then the widget kind's default.
+// type=enum; applies_to=box
+// values: auto | default | pointer | text | crosshair | move | not_allowed | wait | progress | resize_ew | resize_ns | resize_nwse | resize_nesw
+inline constexpr dg_prop_id DG_PROP_CURSOR = 53;
 
 // -- enum property values ----------------------------------------------
 //
@@ -286,11 +290,25 @@ inline constexpr std::uint32_t DG_IMAGE_FIT_FILL = 0;
 inline constexpr std::uint32_t DG_IMAGE_FIT_CONTAIN = 1;
 inline constexpr std::uint32_t DG_IMAGE_FIT_COVER = 2;
 inline constexpr std::uint32_t DG_IMAGE_FIT_NONE = 3;
+// cursor
+inline constexpr std::uint32_t DG_CURSOR_AUTO = 0;
+inline constexpr std::uint32_t DG_CURSOR_DEFAULT = 1;
+inline constexpr std::uint32_t DG_CURSOR_POINTER = 2;
+inline constexpr std::uint32_t DG_CURSOR_TEXT = 3;
+inline constexpr std::uint32_t DG_CURSOR_CROSSHAIR = 4;
+inline constexpr std::uint32_t DG_CURSOR_MOVE = 5;
+inline constexpr std::uint32_t DG_CURSOR_NOT_ALLOWED = 6;
+inline constexpr std::uint32_t DG_CURSOR_WAIT = 7;
+inline constexpr std::uint32_t DG_CURSOR_PROGRESS = 8;
+inline constexpr std::uint32_t DG_CURSOR_RESIZE_EW = 9;
+inline constexpr std::uint32_t DG_CURSOR_RESIZE_NS = 10;
+inline constexpr std::uint32_t DG_CURSOR_RESIZE_NWSE = 11;
+inline constexpr std::uint32_t DG_CURSOR_RESIZE_NESW = 12;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 52;
+inline constexpr std::uint16_t kDgPropMaxId = 53;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 52;
+inline constexpr std::uint16_t kDgPropCount = 53;

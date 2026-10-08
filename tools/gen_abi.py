@@ -605,6 +605,16 @@ def render_header(defs: Definitions) -> str:
         lines.append(f"/* {prop.summary} */")
         lines.append(f"#define DG_PROP_{prop.name.upper()} {prop.id}")
     lines.append("")
+    lines.append("/* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for")
+    lines.append(" * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names")
+    lines.append(" * prop_ids.generated.h declares for C++, hence inside this guard too. */")
+    for prop in defs.props.properties:
+        if not prop.values:
+            continue
+        lines.append(f"/* {prop.name} */")
+        for constant, ordinal in prop.value_constants:
+            lines.append(f"#define {constant} {ordinal}u")
+    lines.append("")
     lines.append("#endif /* !__cplusplus */")
     lines.append("")
 
@@ -796,6 +806,17 @@ def render_dts(defs: Definitions) -> str:
         lines.append("} as const;")
         lines.append("")
 
+    lines.append("// Enum property values (ABI 0.2) - the ordinal a DG_VALUE_ENUM write carries.")
+    lines.append("export const prop_enum = {")
+    for prop in defs.props.properties:
+        if not prop.values:
+            continue
+        lines.append(f"  {prop.name}: {{")
+        for index, value in enumerate(prop.values):
+            lines.append(f"    {value}: {index},")
+        lines.append("  },")
+    lines.append("} as const;")
+    lines.append("")
     lines.append("// Property ids - props/drawgui.props.toml, re-emitted (see gen_abi.py).")
     lines.append("export const prop = {")
     for prop in defs.props.properties:

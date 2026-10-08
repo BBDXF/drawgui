@@ -203,6 +203,9 @@ switch (prop_id) {
   case DG_PROP_DISABLED:
     DG_PROP_ASSIGN(disabled, bool);
     break;
+  case DG_PROP_CURSOR:
+    DG_PROP_ASSIGN(cursor, enum);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

@@ -128,6 +128,7 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 - 真实系统剪贴板与其他应用的互操作
 - `present()` 之后像素真正落到屏幕上这一步
 - 真实窗口 resize 的用户手感（大小、时序）
+- 鼠标指针形状：dummy 驱动没有光标，测试只能通过 `WindowManager::current_cursor()`/`cursor_switch_count()`（ABI 是 `dg_debug_get_cursor()`）验证解析结果和“只在变化时切换”，屏幕上是否真的换成了对应的系统光标、多窗口之间切换是否正确（依赖真实的 mouse-enter 事件）没有自动化覆盖
 - 窗口的最小化/最大化/还原和图标：测试跑在 SDL 的 dummy 视频驱动下，它直接拒绝这几个请求（`DG_ERR_UNSUPPORTED`），所以测试只能验证"拒绝会被如实报告"和参数校验，以及用 `WindowManager::post_window_event()` 注入的事件能正确分发；真实窗口管理器上是否真的最小化、图标是否显示、`set_resizable()` 是否生效（dummy 驱动接受但从不报告可调整）都没有自动化覆盖。标题、尺寸、位置、最小/最大尺寸、全屏在 dummy 驱动下是真实生效、可测的
 
 以上这些，测试套件只能覆盖到“合成事件驱动下代码路径没有崩溃/结果符合预期结构”，不能覆盖到“真实设备上确实是这个效果”。

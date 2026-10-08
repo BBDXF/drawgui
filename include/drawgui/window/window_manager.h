@@ -20,11 +20,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "drawgui/base/cursor.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/types.h"
@@ -764,6 +766,37 @@ class WindowManager {
   // payload here and are ignored - set_size()/set_position() produce real
   // ones.
   void post_window_event(WindowId id, WindowEventKind kind);
+
+  // -- Mouse cursor ----------------------------------------------------------
+  //
+  // Each window remembers the cursor it wants: the RESOLVED one - what the
+  // node under the pointer asks for, normally dg::cursor_at()
+  // (widget/cursor.h) recomputed by the caller after every pointer event -
+  // and an optional OVERRIDE that wins over it while set (a caller keeping a
+  // resize cursor for the length of its own drag, say). kAuto is stored as
+  // kDefault. An id naming no open window is ignored.
+  //
+  // The platform cursor is one per pointer, not one per window, so a
+  // window's cursor is put on screen only while the pointer is in that
+  // window (the last one a motion or enter event came from - or any window
+  // before the first such event), and again when the pointer enters it.
+  // The platform is only called when the shape actually changes, so calling
+  // set_cursor() on every motion event with the same value costs nothing.
+  //
+  // Best effort: a platform without the shape (SDL's dummy driver has no
+  // cursors at all) keeps whatever it showed, silently and only tried once
+  // per shape - current_cursor() still reports what was asked for.
+  void set_cursor(WindowId id, Cursor cursor);
+  void set_cursor_override(WindowId id, std::optional<Cursor> cursor);
+
+  // The window's effective cursor: the override if set, else the resolved
+  // one. Never kAuto.
+  [[nodiscard]] Expected<Cursor, WindowError> current_cursor(WindowId id) const;
+
+  // How many times the platform cursor has been switched (or a switch
+  // attempted, on a platform with no cursors). A test observation point for
+  // "only on change"; nothing else should need it.
+  [[nodiscard]] std::uint64_t cursor_switch_count() const;
 
   // Copies `dirty` out of `image` onto the window and puts it on screen.
   //

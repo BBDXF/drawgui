@@ -25,6 +25,7 @@
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/router.h"
 #include "drawgui/theme/theme_loader.h"
+#include "drawgui/widget/cursor.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
@@ -728,6 +729,12 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
       return;
   }
   refresh_touched(window, change);
+  // ABI 0.2: the cursor follows the pointer. WindowManager only calls the
+  // platform when the shape changes, so this is cheap on every motion.
+  if (event.action != dg::PointerAction::kLeave) {
+    impl.wm.set_cursor(window.sdl_window, dg::cursor_at(window.tree.render(), window.widgets,
+                                                        window.interaction, at));
+  }
   if (change.clicked.has_value() && window.widgets.has(*change.clicked) &&
       window.widgets.at(*change.clicked).kind == dg::WidgetKind::kCheckbox) {
     // P6 sub-step a2: a completed click on a checkbox flips its checked bit
@@ -2004,6 +2011,20 @@ std::int32_t debug_warp_pointer(dg_window_t* window_h, std::int32_t x, std::int3
   AppImpl* impl = resolve_app(window_h->app);
   impl->wm.warp_pointer(window->sdl_window, x, y);
   return DG_ERR_OK;
+}
+
+std::int32_t debug_get_cursor(dg_window_t* window_h) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  AppImpl* impl = resolve_app(window_h->app);
+  const dg::Expected<dg::Cursor, dg::WindowError> cursor =
+      impl->wm.current_cursor(window->sdl_window);
+  if (!cursor) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return static_cast<std::int32_t>(cursor.value());
 }
 
 std::int32_t debug_post_pointer_button(dg_window_t* window_h, std::int32_t down, std::int32_t x,

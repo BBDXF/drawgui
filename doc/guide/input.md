@@ -232,6 +232,50 @@ target 永远是 `std::nullopt`），而是**从当前聚焦节点向上找最�
 都是合法的 no-op，不发明"滚动树里第一个/唯一一个 ScrollView"这类兜底
 目标。
 
+## 鼠标指针形状
+
+指针形状是**节点属性** `DG_PROP_CURSOR`（id 53，枚举，见 `doc/reference/properties.md`），
+写进 `NodeStyle::cursor`；默认 `auto` = 继承。解析在 `drawgui/widget/cursor.h`：
+
+- `dg::resolve_cursor(tree, widgets, node)`：从 `node` 沿父链往上，
+  1. 第一个自己设了非 `auto` 值的节点决定（包括被禁用的节点——想在禁用按钮上显示
+     `not_allowed` 就显式设它）；
+  2. 否则，第一个**有自己默认值**的控件决定，但命中节点被禁用（`is_disabled()`）时控件
+     默认值一律不算；
+  3. 都没有：`default`（箭头）。
+- `dg::widget_default_cursor(kind)`：**只有文本框是 `text`（I 形），其余全是箭头**。这是
+  桌面惯例（Windows/macOS/GNOME/KDE 的原生按钮、勾选框、下拉框、列表行、滑块都不变成
+  手形；手形是超链接光标），不是网页惯例。想要网页风格就给按钮（或它们的容器）设
+  `pointer`。默认值是箭头的控件“没有意见”，不会挡住祖先设置的值。禁用控件显示箭头，
+  不是 `not_allowed`，同样是原生工具包的做法。
+- `dg::cursor_at(tree, widgets, interaction, point)`：事件循环该调的入口。没有按压时对
+  `hit_test(point)` 的节点做上面的解析；**按压进行中则由被按住的控件决定**——在文本框
+  里拖选拖出框外仍是 I 形，按住按钮拖到别处也不会一路闪过邻居的光标，和
+  `Interaction::moved_over()` 的隐式抓取一致。
+
+窗口这一侧（`WindowManager`）：
+
+```cpp
+manager.set_cursor(window, dg::cursor_at(tree.render(), widgets, interaction, at)); // 每次指针事件后
+manager.set_cursor_override(window, dg::Cursor::kResizeEw);  // 自己的拖拽期间钉住光标
+manager.set_cursor_override(window, std::nullopt);           // 拖拽结束
+manager.current_cursor(window);                               // 生效值：覆盖值优先
+```
+
+- 每个窗口各记一份“解析值”和可选的“覆盖值”；`auto` 按 `default` 存。
+- 平台光标是全局（每个指针一个）的，所以只有指针所在的窗口（最近一次 motion/enter
+  事件来自的窗口；还没有过这类事件时任何窗口都算）的光标会真正上屏，指针进入另一个窗口
+  时切换成那个窗口的。
+- **只在形状变化时才调用 `SDL_SetCursor`**，所以每次 motion 都调 `set_cursor()` 是安全的。
+  系统光标按需 `SDL_CreateSystemCursor` 并缓存到 `WindowManager` 销毁。
+- 平台造不出某个光标（SDL 的 dummy 驱动根本没有光标）时静默跳过，每种形状只尝试一次，
+  不刷错误；`current_cursor()` 照样报告请求的值。`cursor_switch_count()` 是给测试观察
+  “只在变化时切换”用的计数器。
+
+C ABI 不需要做任何事：`dg_wait_events()`/`dg_poll_events()` 的内部泵在每次指针
+移动/按下/抬起后调用 `cursor_at()` + `set_cursor()`。注意属性改了但指针没动时，光标要等
+下一次指针事件才更新。示例：`examples/12_text_input`（文本框上 I 形、拖选期间用覆盖值钉住）。
+
 ## 边界与坑
 
 - `needs_repaint` 必须先于 `pointer` 处理，否则可能对旧布局做命中测试。

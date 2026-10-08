@@ -12,6 +12,7 @@
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/layout_tree.h"
+#include "drawgui/widget/cursor.h"
 #include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
 
@@ -36,7 +37,8 @@ text_field_scene::Options spec_for(dg::PixelSize size) {
 void legend(std::ostream& out) {
   out << "  click a field to focus it and place the cursor; type; drag to select;\n"
       << "  Left/Right/Home/End move the cursor, Shift extends a selection;\n"
-      << "  Backspace/Delete edit; click elsewhere (or the other field) to blur.\n";
+      << "  Backspace/Delete edit; click elsewhere (or the other field) to blur.\n"
+      << "  The mouse cursor is an I-beam over a field (and during a selection drag).\n";
 }
 
 void apply_presets(text_field_scene::Scene& scene, const Settings& settings) {
@@ -172,9 +174,15 @@ void Runner::handle_down(text_field_scene::Scene& scene, dg::PixelPoint at) {
                                    /*extend_selection=*/false);
   }
   dragging_ = *field;
+  // A selection drag keeps the I-beam even when it leaves the field.
+  manager_->set_cursor_override(window_, dg::Cursor::kText);
 }
 
 void Runner::handle_move(text_field_scene::Scene& scene, dg::PixelPoint at) {
+  // The I-beam over the fields, the arrow elsewhere (dg::resolve_cursor()).
+  // set_cursor() only reaches the platform when the shape changes.
+  manager_->set_cursor(window_, dg::resolve_cursor(scene.tree.render(), scene.widgets,
+                                                   scene.tree.render().hit_test(at)));
   if (!dragging_.has_value() || !scene.fonts.has_value()) {
     return;
   }
@@ -184,6 +192,7 @@ void Runner::handle_move(text_field_scene::Scene& scene, dg::PixelPoint at) {
 
 void Runner::handle_up() {
   dragging_.reset();
+  manager_->set_cursor_override(window_, std::nullopt);
 }
 
 void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& event) {
