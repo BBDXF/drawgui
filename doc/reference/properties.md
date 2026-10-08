@@ -32,7 +32,7 @@ id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 
 `PropWrite { status, message }`：失败时 `message`带节点路径；写入失败不会让节点
 处于半配置状态——applier 先在 `BoxStyle`/`NodeStyle` 的副本上操作，成功才提交。
 
-## 3. `PropValue`（四种标量载荷）
+## 3. `PropValue`（五种标量载荷）
 
 `PropValue` 是一个带类型标签的标量，只能通过以下工厂构造：
 
@@ -42,6 +42,7 @@ id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 
 | `PropValue::length(float)` | `k_length` | 绝对长度；toml 描述的百分比模式（相对 `max_*` 约束）**没有构造函数**——布局侧尚不能解析它，未到实现它的阶段 |
 | `PropValue::color(Color)` | `k_color` | 0xAARRGGBB，边界处非预乘 |
 | `PropValue::option(uint32_t ordinal)` | `k_enum` | 属性 `values` 列表的下标；顺序本身是 ABI 契约（生成的 `DG_<PROP>_<VALUE>` 常量就是这个序号） |
+| `PropValue::boolean(bool)` | `k_bool` | 0/1，放在整数半边；C ABI 为 `DG_VALUE_BOOL`，`bits` 不是 0/1 时返回 `kValueOutOfRange`（`PropValue::boolean_bits()` 用于原样转交 ABI 传入的位） |
 
 没有能构造 `k_gradient`/`k_shadow`/`k_transform`/`k_image`/`k_text` 的工厂——因此任何
 针对这五个属性的标量写入天然走错入口。
@@ -76,7 +77,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
 `kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
 
-## 5. 属性表（51 项）
+## 5. 属性表（52 项）
 
 列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
 常量与文档、setter 里出现的那个词汇）；**内部字段**是
@@ -162,10 +163,16 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 |---|---|---|---|---|
 | 42-45 | `left`/`top`/`right`/`bottom` | float | 完整 | 相对 stack 内容盒的偏移；写入任一个即视为定位该子节点 |
 
+### 5.7 interaction（id 52）
+
+| id | 名称 | 类型 | 状态 | 说明 |
+|---|---|---|---|---|
+| 52 | `disabled` | bool | 完整 | `NodeStyle::disabled`。禁用本节点**及其整棵子树**的 hover/press/click/拖动/文本编辑与焦点（`dg::is_disabled()` 沿父链判断）；写入只产生重绘，不重排。C++ 调用方写完需调用 `cancel_disabled()`/`blur_if_disabled()`/`refresh_subtree()`，C ABI 的 `dg_node_set_prop()` 已自动完成。行为细节见 `doc/guide/widgets.md`「禁用状态」 |
+
 ## 6. 状态汇总（自查结果）
 
-- 40 项完整、10 项部分实现、1 项未实现（`transform`），共 51 项（含 P6 a1
-  新增的 `text`/`text_color`）。
+- 41 项完整、10 项部分实现、1 项未实现（`transform`），共 52 项（含 P6 a1
+  新增的 `text`/`text_color`，以及 `disabled`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
   （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。

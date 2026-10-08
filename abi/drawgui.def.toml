@@ -224,7 +224,7 @@ fields = [
   { name = "size", type = "uint32_t", summary = "sizeof(dg_value)." },
   { name = "type", type = "uint32_t", summary = "DG_VALUE_* - which field below is meaningful." },
   { name = "number", type = "float", summary = "meaningful for DG_VALUE_FLOAT / DG_VALUE_LENGTH." },
-  { name = "bits", type = "uint32_t", summary = "ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM." },
+  { name = "bits", type = "uint32_t", summary = "ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM, 0/1 for DG_VALUE_BOOL." },
 ]
 
 [[struct]]
@@ -301,6 +301,7 @@ values = [
   { name = "COLOR", id = 3, summary = "PropType::k_color." },
   { name = "ENUM", id = 4, summary = "PropType::k_enum." },
   { name = "TOKEN", id = 5, summary = "7-6: bits names a token_id (themes/schema.toml). dg_node_set_prop() with this type calls dg::bind_token() instead of a literal write - the ABI's own instance of design.md section 5.7.2's $token live reference, reusing dg_node_set_prop() unchanged rather than adding a second, bind-shaped function." },
+  { name = "BOOL", id = 6, summary = "PropType::k_bool - bits is 0 (false) or 1 (true); any other value is DG_ERR_VALUE_OUT_OF_RANGE. First consumer: DG_PROP_DISABLED." },
 ]
 
 [[constant_group]]

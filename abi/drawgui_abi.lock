@@ -36,6 +36,7 @@ value_type.LENGTH=2
 value_type.COLOR=3
 value_type.ENUM=4
 value_type.TOKEN=5
+value_type.BOOL=6
 event_kind.WINDOW_CLOSED=1
 event_kind.CLICK=2
 event_kind.ACTION=3

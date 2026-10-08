@@ -71,6 +71,12 @@ inline constexpr dg_token_id DG_TOKEN_SPACE_MD = 11;  // "space.md"
 // The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (include/drawgui/widget/focus.h: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are).
 // type=color
 inline constexpr dg_token_id DG_TOKEN_COLOR_FOCUS_RING = 12;  // "color.focus-ring"
+// The surface fill of a disabled interactive widget (Widget::fill_disabled) - replaces its normal/hover/pressed fills while dg::is_disabled() holds.
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_DISABLED = 13;  // "color.disabled"
+// Foreground marks on a disabled widget - a checked checkbox/radio indicator (Widget::indicator_disabled).
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_ON_DISABLED = 14;  // "color.on-disabled"
 
-inline constexpr std::uint16_t kDgTokenMaxId = 12;
-inline constexpr std::uint16_t kDgTokenCount = 12;
+inline constexpr std::uint16_t kDgTokenMaxId = 14;
+inline constexpr std::uint16_t kDgTokenCount = 14;

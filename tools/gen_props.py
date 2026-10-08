@@ -38,7 +38,7 @@ SUPPORTED_SCHEMA_VERSION = 1
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 MAX_PROP_ID = 0xFFFF
 
-SCALAR_TYPES = ("float", "length", "color", "enum")
+SCALAR_TYPES = ("float", "length", "color", "enum", "bool")
 COMPLEX_TYPES = ("gradient", "shadow", "transform", "image", "text")
 ALL_TYPES = SCALAR_TYPES + COMPLEX_TYPES
 

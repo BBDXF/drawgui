@@ -71,6 +71,15 @@ struct Handles {
   dg::NodeId slider_volume;
   dg::NodeId slider_brightness;
 
+  // The disabled-state demo: `enable_switch` is a plain checkbox that writes
+  // DG_PROP_DISABLED on `disabled_group` (a row) - unchecked at start, so
+  // the row, and through inheritance `disabled_checkbox` and
+  // `disabled_slider` inside it, starts disabled.
+  dg::NodeId enable_switch;
+  dg::NodeId disabled_group;
+  dg::NodeId disabled_checkbox;
+  dg::NodeId disabled_slider;
+
   // Every kCheckbox node (the plain checkbox and both radio groups) - what a
   // click loop and a resize/hover check both want without caring which is
   // which.
@@ -101,6 +110,10 @@ dg::InteractionChange dispatch(Scene& scene, dg::Interaction& interaction,
 
 // Re-resolves hover at a fixed point without moving anything - the resync a
 // resize needs, reused verbatim.
+// Writes DG_PROP_DISABLED on `disabled_group` through dg::set_prop(), then
+// cancels any press/hover it just disabled and repaints the subtree.
+void set_group_disabled(Scene& scene, dg::Interaction& interaction, bool disabled);
+
 dg::InteractionChange resync(Scene& scene, dg::Interaction& interaction, dg::PixelPoint at);
 
 }  // namespace form_scene

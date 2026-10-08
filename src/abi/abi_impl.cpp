@@ -22,6 +22,8 @@
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/router.h"
+#include "drawgui/theme/theme_loader.h"
+#include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
@@ -77,6 +79,14 @@ dg::NodeStyle text_field_box_style(bool focused) {
   style.radii = dg::Radii::all(6.0F);
   style.overflow = dg::Overflow::kClip;
   return style;
+}
+
+// Re-applies text_field_box_style() without clobbering DG_PROP_DISABLED,
+// which lives in the same NodeStyle this replaces wholesale.
+void set_text_field_box_style(dg::RenderTree& tree, dg::NodeId id, bool focused) {
+  dg::NodeStyle style = text_field_box_style(focused);
+  style.disabled = tree.style(id).disabled;
+  tree.set_style(id, style);
 }
 
 // -- Global arenas ------------------------------------------------------
@@ -276,6 +286,8 @@ std::optional<dg::PropValue> to_prop_value(const dg_value& value) {
       return dg::PropValue::color(dg::Color::from_argb(value.bits));
     case DG_VALUE_ENUM:
       return dg::PropValue::option(value.bits);
+    case DG_VALUE_BOOL:
+      return dg::PropValue::boolean_bits(value.bits);
     default:
       return std::nullopt;
   }
@@ -366,6 +378,52 @@ void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
 
 // -- Node attachment --------------------------------------------------------
 //
+// DG_PROP_DISABLED's appearance, from the theme tokens color.disabled/
+// color.on-disabled: the app's active theme when it has one, else the
+// builtin theme (dark variant, matching this file's own dark default
+// palette). Read once at attach time - a later dg_app_set_theme() does not
+// re-read it, the same as every other attach-time widget colour here.
+void apply_disabled_colors(const AppImpl& impl, dg::Widget& widget) {
+  const dg::Theme* theme = nullptr;
+  dg::ThemeVariant variant = dg::ThemeVariant::kDark;
+  if (impl.active_theme != nullptr) {
+    theme = &impl.active_theme->theme;
+    variant = impl.active_theme->variant;
+  } else {
+    static const dg::Expected<dg::Theme, dg::ThemeLoadError> builtin = dg::load_builtin_theme();
+    if (builtin.has_value()) {
+      theme = &builtin.value();
+    }
+  }
+  if (theme == nullptr) {
+    return;
+  }
+  widget.fill_disabled = theme->color_value(DG_TOKEN_COLOR_DISABLED, variant);
+  widget.indicator_disabled = theme->color_value(DG_TOKEN_COLOR_ON_DISABLED, variant);
+}
+
+// After a DG_PROP_DISABLED write on `node`: cancel a press/hover the write
+// just disabled (no click fires), blur a focus it just disabled, and repaint
+// every widget in the subtree, since the bit inherits.
+void sync_disabled(AppImpl& impl, WindowImpl& window, dg::NodeId node) {
+  dg::RenderTree& tree = window.tree.render();
+  const dg::InteractionChange change = window.interaction.cancel_disabled(tree);
+  const dg::FocusChange focus_change = window.focus.blur_if_disabled(tree);
+  if (focus_change.blurred.has_value() && window.widgets.has(*focus_change.blurred) &&
+      window.widgets.at(*focus_change.blurred).kind == dg::WidgetKind::kTextField &&
+      impl.fonts.has_value()) {
+    window.widgets.text_field_set_focus(tree, *impl.fonts, *focus_change.blurred, false);
+    set_text_field_box_style(tree, *focus_change.blurred, false);
+  }
+  const std::optional<dg::NodeId> touched[] = {change.left, change.released};
+  for (const std::optional<dg::NodeId>& id : touched) {
+    if (id.has_value()) {
+      window.widgets.refresh(tree, *id, window.interaction.state_of(*id));
+    }
+  }
+  window.widgets.refresh_subtree(tree, node, window.interaction);
+}
+
 // The one place a PENDING node becomes LIVE - shared by dg_window_set_root()
 // (parent_id == the tree's own structural root) and dg_node_insert_before()
 // (parent_id == an already-live node). Defaults are chosen by type_id
@@ -444,6 +502,7 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     widget.fill_normal = dg::Color::rgba(0x35, 0x6B, 0xC7);
     widget.fill_hover = dg::Color::rgba(0x4A, 0x86, 0xE3);
     widget.fill_pressed = dg::Color::rgba(0x25, 0x50, 0x9C);
+    apply_disabled_colors(impl, widget);
     window.widgets.attach(new_id, widget);
     window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
   } else if (slot.type_id == DG_NODE_TYPE_LABEL) {
@@ -472,6 +531,7 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     widget.indicator_on = dg::Color::from_argb(kCheckboxOnArgb);
     widget.indicator_off = dg::Color::from_argb(kCheckboxOffArgb);
     widget.checked = false;
+    apply_disabled_colors(impl, widget);
     // widget.group left unset (std::nullopt): this ABI never exports radio
     // grouping - see abi/drawgui.def.toml's own "WHAT IS DELIBERATELY NOT
     // HERE" entry on Widget::group for why.
@@ -521,6 +581,7 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     widget.caret = caret;
     widget.selection_highlight = highlight;
     widget.composition_underline = underline;
+    apply_disabled_colors(impl, widget);
     window.widgets.attach(new_id, widget);
     if (impl.fonts.has_value()) {
       window.widgets.text_field_set_focus(window.tree.render(), *impl.fonts, new_id, false);
@@ -632,13 +693,13 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
             window.widgets.at(*focus_change.blurred).kind == dg::WidgetKind::kTextField) {
           window.widgets.text_field_set_focus(window.tree.render(), fonts,
                                               *focus_change.blurred, false);
-          window.tree.render().set_style(*focus_change.blurred, text_field_box_style(false));
+          set_text_field_box_style(window.tree.render(), *focus_change.blurred, false);
         }
         if (focus_change.focused.has_value() && window.widgets.has(*focus_change.focused) &&
             window.widgets.at(*focus_change.focused).kind == dg::WidgetKind::kTextField) {
           window.widgets.text_field_set_focus(window.tree.render(), fonts,
                                               *focus_change.focused, true);
-          window.tree.render().set_style(*focus_change.focused, text_field_box_style(true));
+          set_text_field_box_style(window.tree.render(), *focus_change.focused, true);
           window.widgets.text_field_click(window.tree.render(), fonts, *focus_change.focused,
                                           event.x, /*extend_selection=*/false);
         }
@@ -1207,6 +1268,9 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
     return DG_ERR_INVALID_ARGUMENT;
   }
   const dg::PropWrite result = dg::set_prop(window.tree, slot->node_id, prop_id, *prop_value);
+  if (result.ok() && prop_id == DG_PROP_DISABLED) {
+    sync_disabled(*impl, window, slot->node_id);
+  }
   return to_error_code(result.status);
 }
 

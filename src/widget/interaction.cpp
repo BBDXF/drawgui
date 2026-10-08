@@ -4,6 +4,33 @@
 
 namespace dg {
 
+bool is_disabled(const RenderTree& tree, NodeId id) {
+  NodeId current = id;
+  while (true) {
+    if (tree.style(current).disabled) {
+      return true;
+    }
+    const NodeId parent = tree.parent(current);
+    if (parent == current) {
+      return false;
+    }
+    current = parent;
+  }
+}
+
+InteractionChange Interaction::cancel_disabled(const RenderTree& tree) {
+  InteractionChange change;
+  if (holding_.has_value() && is_disabled(tree, *holding_)) {
+    change.released = holding_;
+    holding_.reset();
+    holding_inside_ = false;
+  }
+  if (hovered_.has_value() && is_disabled(tree, *hovered_)) {
+    set_hover(std::nullopt, change);
+  }
+  return change;
+}
+
 void Interaction::set_hover(std::optional<NodeId> target, InteractionChange& change) {
   if (hovered_ == target) {
     return;

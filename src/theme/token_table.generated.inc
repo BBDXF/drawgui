@@ -18,3 +18,5 @@
 {"space.sm", DG_TOKEN_SPACE_SM, TokenType::k_int},
 {"space.md", DG_TOKEN_SPACE_MD, TokenType::k_int},
 {"color.focus-ring", DG_TOKEN_COLOR_FOCUS_RING, TokenType::k_color},
+{"color.disabled", DG_TOKEN_COLOR_DISABLED, TokenType::k_color},
+{"color.on-disabled", DG_TOKEN_COLOR_ON_DISABLED, TokenType::k_color},

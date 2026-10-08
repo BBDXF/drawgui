@@ -7,6 +7,11 @@
 
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/box.h"
+#include "drawgui/props/node_props.h"
+#include "drawgui/render/prop_ids.generated.h"
+#include "drawgui/theme/theme.h"
+#include "drawgui/theme/theme_loader.h"
+#include "drawgui/theme/token_ids.generated.h"
 
 namespace form_scene {
 namespace {
@@ -129,6 +134,25 @@ NodeId add_slider(Scene& scene, NodeId parent, int width, float min_value, float
   return track;
 }
 
+// The disabled look comes from the builtin theme's tokens, never a literal
+// here - the dark variant, matching this example's dark palette.
+void apply_disabled_tokens(Scene& scene) {
+  const dg::Expected<dg::Theme, dg::ThemeLoadError> theme = dg::load_builtin_theme();
+  if (!theme.has_value()) {
+    return;
+  }
+  const std::optional<Color> fill =
+      theme.value().color_value(DG_TOKEN_COLOR_DISABLED, dg::ThemeVariant::kDark);
+  const std::optional<Color> mark =
+      theme.value().color_value(DG_TOKEN_COLOR_ON_DISABLED, dg::ThemeVariant::kDark);
+  for (const NodeId id : scene.handles.toggles) {
+    Widget widget = scene.widgets.at(id);
+    widget.fill_disabled = fill;
+    widget.indicator_disabled = mark;
+    scene.widgets.attach(id, widget);
+  }
+}
+
 NodeId add_section(Scene& scene, NodeId parent, int gap, CrossAlign cross) {
   BoxStyle box;
   box.kind = LayoutKind::kRow;
@@ -184,7 +208,27 @@ Scene build(const dg::TreeSpec& spec) {
       add_slider(scene, slider_section, kFixedTrackWidth, kBrightnessMin, kBrightnessMax,
                  kBrightnessStep, kBrightnessInitial);
 
+  // --- Disabled state: a switch that enables/disables a row holding a
+  //     checkbox and a slider. The row starts disabled. ---
+  const NodeId disabled_section =
+      add_section(scene, scene.handles.body, 24, CrossAlign::kCenter);
+  scene.handles.enable_switch = add_toggle(scene, disabled_section, std::nullopt, false);
+  BoxStyle group_box;
+  group_box.kind = LayoutKind::kRow;
+  group_box.gap = 24;
+  group_box.grow = 1;
+  group_box.cross_align = CrossAlign::kCenter;
+  scene.handles.disabled_group = scene.tree.add_child(disabled_section, group_box, NodeStyle{});
+  scene.handles.disabled_checkbox =
+      add_toggle(scene, scene.handles.disabled_group, std::nullopt, true);
+  scene.handles.disabled_slider = add_slider(scene, scene.handles.disabled_group, 0, kVolumeMin,
+                                             kVolumeMax, 0.0F, kVolumeInitial);
+  apply_disabled_tokens(scene);
+
   scene.tree.layout_full();
+
+  dg::Interaction no_pointer;
+  set_group_disabled(scene, no_pointer, true);
 
   // Nothing has ever positioned a thumb yet - see resync_sliders()'s own
   // doc comment for why this is the same obligation a resize re-triggers.
@@ -212,6 +256,15 @@ std::string describe(const Scene& scene, NodeId id) {
   }
   if (id == scene.handles.checkbox) {
     return "checkbox";
+  }
+  if (id == scene.handles.enable_switch) {
+    return "enable switch";
+  }
+  if (id == scene.handles.disabled_checkbox) {
+    return "disableable checkbox";
+  }
+  if (id == scene.handles.disabled_slider) {
+    return "disableable slider";
   }
   if (id == scene.handles.slider_volume) {
     return "slider volume";
@@ -248,6 +301,10 @@ dg::InteractionChange dispatch(Scene& scene, dg::Interaction& interaction,
   if (change.clicked.has_value()) {
     ++scene.clicks;
     scene.widgets.toggle(*change.clicked);
+    if (*change.clicked == scene.handles.enable_switch) {
+      set_group_disabled(scene, interaction,
+                         !scene.widgets.is_checked(scene.handles.enable_switch));
+    }
     // The clicked widget's own appearance, plus every OTHER member of its
     // radio group - toggle() cannot repaint what it just deselected, so
     // group_members() is what tells this loop which other widgets to
@@ -265,6 +322,22 @@ dg::InteractionChange dispatch(Scene& scene, dg::Interaction& interaction,
     }
   }
   return change;
+}
+
+void set_group_disabled(Scene& scene, dg::Interaction& interaction, bool disabled) {
+  const dg::PropWrite write = dg::set_prop(scene.tree, scene.handles.disabled_group,
+                                           DG_PROP_DISABLED, dg::PropValue::boolean(disabled));
+  if (!write.ok()) {
+    return;
+  }
+  dg::RenderTree& tree = scene.tree.render();
+  const dg::InteractionChange change = interaction.cancel_disabled(tree);
+  for (const std::optional<NodeId> id : {change.left, change.released}) {
+    if (id.has_value()) {
+      scene.widgets.refresh(tree, *id, interaction.state_of(*id));
+    }
+  }
+  scene.widgets.refresh_subtree(tree, scene.handles.disabled_group, interaction);
 }
 
 dg::InteractionChange resync(Scene& scene, dg::Interaction& interaction, dg::PixelPoint at) {

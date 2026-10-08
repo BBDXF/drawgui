@@ -148,7 +148,8 @@ struct FocusChange {
 //     convention.
 //
 // Skipped entirely, at any tab_index: a node with no attached Widget, a
-// Widget whose `kind` is_focusable() rejects, and a ZERO-AREA node
+// Widget whose `kind` is_focusable() rejects, a DISABLED node together with
+// its whole subtree (NodeStyle::disabled, dg::is_disabled()), and a ZERO-AREA node
 // (`RenderTree::absolute_bounds().is_empty()`) - the mechanism that makes a
 // popup closed by clipping its container to empty
 // or a not-yet-assigned kList pool slot fall out of Tab order for free,
@@ -195,6 +196,10 @@ class Focus {
   // popup's enter_scope(root) with modal defaulted to false) sees this
   // behave identically to set() - there is nothing to refuse when
   // scope_modal_ is false.
+  //
+  // Also refuses a DISABLED target (dg::is_disabled()), modal or not: a
+  // disabled widget is never focusable, by click or by Tab (focus_order()
+  // skips a disabled subtree too). set() itself stays unconditional.
   FocusChange set_guarded(const RenderTree& tree, std::optional<NodeId> target);
 
   [[nodiscard]] std::optional<NodeId> current() const { return focused_; }
@@ -285,6 +290,13 @@ class Focus {
   // kList fields to stay decoupled the way its own header already argues
   // Focus should be.
   FocusChange blur_if_any_of(std::span<const NodeId> recycled);
+
+  // Blurs the current focus if it is now disabled (dg::is_disabled(): its
+  // own DG_PROP_DISABLED or an ancestor's). Blur, not advance - the same
+  // convention blur_if_any_of() and exit_scope() follow; a caller wanting
+  // the next widget calls focus_next() afterwards. Call after any
+  // DG_PROP_DISABLED write.
+  FocusChange blur_if_disabled(const RenderTree& tree);
 
  private:
   std::optional<NodeId> focused_;

@@ -70,6 +70,7 @@ enum class PropType : std::uint8_t {
   k_transform,
   k_image,
   k_text,
+  k_bool,
 };
 
 // The declared type of `prop_id`, or nothing when no property has that id.
@@ -165,6 +166,15 @@ class PropValue {
   // crosses the boundary, so the ORDER of that list is an ABI contract too.
   [[nodiscard]] static constexpr PropValue option(std::uint32_t ordinal) {
     return PropValue{PropType::k_enum, 0.0F, ordinal};
+  }
+
+  // 0 or 1 in the integer half. Built from a C++ bool here, so only the C
+  // ABI (DG_VALUE_BOOL with any other `bits`) can carry an out-of-range one.
+  [[nodiscard]] static constexpr PropValue boolean(bool value) {
+    return PropValue{PropType::k_bool, 0.0F, value ? 1U : 0U};
+  }
+  [[nodiscard]] static constexpr PropValue boolean_bits(std::uint32_t bits) {
+    return PropValue{PropType::k_bool, 0.0F, bits};
   }
 
   [[nodiscard]] constexpr PropType type() const { return type_; }

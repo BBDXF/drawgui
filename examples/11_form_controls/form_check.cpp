@@ -28,7 +28,7 @@ dg::TreeSpec spec_for(PixelSize size) {
   return spec;
 }
 
-constexpr PixelSize kSize{760, 420};
+constexpr PixelSize kSize{760, 500};
 
 std::vector<std::uint8_t> snapshot(const RasterSurface& surface) {
   const dg::PixelView view = surface.peek_pixels();
@@ -433,6 +433,75 @@ bool check_resync_does_not_move_root(std::ostream& out) {
 }
 
 // --------------------------------------------------------------------------
+// Claim: DG_PROP_DISABLED on the demo row. It starts disabled - a click on
+// its checkbox neither clicks nor toggles, its slider cannot be grabbed, and
+// the checkbox paints the theme's disabled fill - and the enable switch
+// turns all of that back on, then off again.
+// --------------------------------------------------------------------------
+
+bool check_disabled_group(std::ostream& out) {
+  form_scene::Scene scene = form_scene::build(spec_for(kSize));
+  dg::Interaction interaction;
+  bool ok = true;
+  const dg::RenderTree& tree = scene.tree.render();
+  const NodeId target = scene.handles.disabled_checkbox;
+
+  const auto centre_of = [&](NodeId id) {
+    const PixelRect bounds = scene.tree.bounds(id);
+    return dg::PixelPoint{bounds.x + (bounds.width / 2), bounds.y + (bounds.height / 2)};
+  };
+  const auto click = [&](NodeId id) {
+    const dg::PixelPoint at = centre_of(id);
+    for (const dg::PointerAction action :
+         {dg::PointerAction::kMove, dg::PointerAction::kDown, dg::PointerAction::kUp}) {
+      form_scene::dispatch(scene, interaction,
+                           dg::PointerEvent{dg::WindowId{}, action, at.x, at.y});
+    }
+  };
+  const auto grabbable = [&]() {
+    const std::optional<NodeId> hit = tree.hit_test(centre_of(scene.handles.disabled_slider));
+    return hit.has_value() && scene.widgets.slidable_owner_of(tree, *hit).has_value();
+  };
+  const std::optional<dg::Color> disabled_fill = scene.widgets.at(target).fill_disabled;
+
+  const int clicks_before = scene.clicks;
+  click(target);
+  if (scene.clicks != clicks_before || !scene.widgets.is_checked(target)) {
+    out << "  FAIL: a click on the disabled checkbox clicked or toggled it\n";
+    ok = false;
+  }
+  if (grabbable()) {
+    out << "  FAIL: the disabled slider can still be grabbed for a drag\n";
+    ok = false;
+  }
+  if (!disabled_fill.has_value() || tree.style(target).fill != *disabled_fill) {
+    out << "  FAIL: the disabled checkbox does not paint the theme's color.disabled fill\n";
+    ok = false;
+  }
+
+  click(scene.handles.enable_switch);
+  click(target);
+  if (scene.widgets.is_checked(target) || !grabbable() ||
+      (disabled_fill.has_value() && tree.style(target).fill == *disabled_fill)) {
+    out << "  FAIL: after the enable switch, the row did not become interactive again\n";
+    ok = false;
+  }
+
+  click(scene.handles.enable_switch);
+  click(target);
+  if (scene.widgets.is_checked(target) || grabbable()) {
+    out << "  FAIL: switching the row off again did not disable it again\n";
+    ok = false;
+  }
+
+  if (ok) {
+    out << "  OK: the disabled row ignores clicks and drags and paints the theme's disabled "
+           "fill; the enable switch turns it on and off again through DG_PROP_DISABLED\n";
+  }
+  return ok;
+}
+
+// --------------------------------------------------------------------------
 // The standing gate: incremental equals full, across a script mixing radio
 // clicks, checkbox toggles and slider drags.
 // --------------------------------------------------------------------------
@@ -494,6 +563,7 @@ int run(std::ostream& out) {
   ok = check_resize_reflows_thumb(out) && ok;
   ok = check_no_relayout_during_drag(out) && ok;
   ok = check_resync_does_not_move_root(out) && ok;
+  ok = check_disabled_group(out) && ok;
   ok = check_identity(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;

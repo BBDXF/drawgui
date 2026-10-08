@@ -9,6 +9,11 @@ namespace {
 
 void collect_focus_order(const RenderTree& tree, const WidgetSet& widgets, NodeId id,
                          std::vector<NodeId>& out) {
+  // A disabled node takes its whole subtree out of Tab order (is_disabled()
+  // inheritance), so the walk stops here rather than re-climbing per child.
+  if (tree.style(id).disabled) {
+    return;
+  }
   if (widgets.has(id)) {
     const Widget& widget = widgets.at(id);
     if (is_focusable(widget.kind) &&
@@ -112,6 +117,9 @@ bool is_within(const RenderTree& tree, NodeId scope_root, NodeId id) {
 std::vector<NodeId> focus_order(const RenderTree& tree, const WidgetSet& widgets,
                                 NodeId scope_root) {
   std::vector<NodeId> ids;
+  if (is_disabled(tree, scope_root)) {
+    return ids;
+  }
   collect_focus_order(tree, widgets, scope_root, ids);
   std::stable_sort(ids.begin(), ids.end(), [&widgets](NodeId a, NodeId b) {
     return tab_index_precedes(widgets, a, b);
@@ -195,7 +203,17 @@ FocusChange Focus::set_guarded(const RenderTree& tree, std::optional<NodeId> tar
     // see this method's own header comment for why.
     return FocusChange{};
   }
+  if (target.has_value() && is_disabled(tree, *target)) {
+    return FocusChange{};
+  }
   return set(target);
+}
+
+FocusChange Focus::blur_if_disabled(const RenderTree& tree) {
+  if (focused_.has_value() && is_disabled(tree, *focused_)) {
+    return set(std::nullopt);
+  }
+  return FocusChange{};
 }
 
 FocusChange Focus::blur_if_any_of(std::span<const NodeId> recycled) {

@@ -84,6 +84,7 @@ export const value_type = {
   COLOR: 3,
   ENUM: 4,
   TOKEN: 5,
+  BOOL: 6,
 } as const;
 
 // dg_event::kind.
@@ -178,6 +179,7 @@ export const prop = {
   image_placeholder_color: 49,
   text: 50,
   text_color: 51,
+  disabled: 52,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -194,6 +196,8 @@ export const token = {
   'space.sm': 10,
   'space.md': 11,
   'color.focus-ring': 12,
+  'color.disabled': 13,
+  'color.on-disabled': 14,
 } as const;
 
 export declare namespace DrawguiAbi {

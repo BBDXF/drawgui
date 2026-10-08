@@ -85,6 +85,7 @@ PropValue AnimationEngine::interpolated_value(const AnimSlot& slot) {
     case PropType::k_color:
       return PropValue::color(lerp_color(slot.from.as_color(), slot.to.as_color(), eased));
     case PropType::k_enum:
+    case PropType::k_bool:
     case PropType::k_gradient:
     case PropType::k_shadow:
     case PropType::k_transform:

@@ -87,6 +87,7 @@ add_executable(drawgui_unit_test
   unit/test_paragraph.cpp
   unit/test_grapheme.cpp
   unit/test_focus.cpp
+  unit/test_disabled.cpp
   unit/test_dropdown.cpp
   unit/test_tooltip.cpp
   unit/test_shortcuts.cpp

@@ -34,6 +34,7 @@ dg::TreeSpec spec_for(dg::PixelSize size) {
 
 void legend(std::ostream& out) {
   out << "  click the checkbox or a radio option; drag either slider's track.\n";
+  out << "  the bottom-left switch enables/disables the row beside it (DG_PROP_DISABLED).\n";
 }
 
 void apply_presets(form_scene::Scene& scene, const Settings& settings) {

@@ -220,6 +220,11 @@ inline constexpr dg_prop_id DG_PROP_TEXT = 50;
 // type=color; applies_to=box
 inline constexpr dg_prop_id DG_PROP_TEXT_COLOR = 51;
 
+// -- interaction -------------------------------------------------
+// Disables this node and its whole subtree for hover/press/click/drag/text editing and focus.
+// type=bool; applies_to=box
+inline constexpr dg_prop_id DG_PROP_DISABLED = 52;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -284,8 +289,8 @@ inline constexpr std::uint32_t DG_IMAGE_FIT_NONE = 3;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 51;
+inline constexpr std::uint16_t kDgPropMaxId = 52;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 51;
+inline constexpr std::uint16_t kDgPropCount = 52;

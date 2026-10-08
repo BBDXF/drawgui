@@ -323,6 +323,12 @@ std::optional<NodeId> WidgetSet::owner_of(const RenderTree& tree, NodeId id) con
   NodeId current = id;
   while (true) {
     if (accepts_pointer(current)) {
+      // A disabled owner SWALLOWS the pointer rather than passing it on to an
+      // enabled ancestor: a click on a disabled button inside a clickable
+      // card must not click the card.
+      if (is_disabled(tree, current)) {
+        return std::nullopt;
+      }
       return current;
     }
     const NodeId parent = tree.parent(current);
@@ -479,6 +485,9 @@ std::optional<NodeId> WidgetSet::slidable_owner_of(const RenderTree& tree, NodeI
   while (true) {
     const Widget* widget = find(current);
     if (widget != nullptr && widget->kind == WidgetKind::kSlider) {
+      if (is_disabled(tree, current)) {
+        return std::nullopt;
+      }
       return current;
     }
     const NodeId parent = tree.parent(current);
@@ -628,7 +637,9 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
   // hovered too, and reporting it as merely hovered would drop the press
   // feedback exactly while the user is asking for it.
   Color fill = widget.fill_normal;
-  if (state.pressed) {
+  if (is_disabled(tree, id)) {
+    fill = widget.fill_disabled.value_or(widget.fill_normal);
+  } else if (state.pressed) {
     fill = widget.fill_pressed;
   } else if (state.hovered) {
     fill = widget.fill_hover;
@@ -640,9 +651,24 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
   if (widget.kind != WidgetKind::kCheckbox || widget.indicator == RenderTree::root()) {
     return;
   }
-  const Color mark = widget.checked ? widget.indicator_on : widget.indicator_off;
+  Color mark = widget.checked ? widget.indicator_on : widget.indicator_off;
+  if (widget.checked && widget.indicator_disabled.has_value() && is_disabled(tree, id)) {
+    mark = *widget.indicator_disabled;
+  }
   if (tree.style(widget.indicator).fill != mark) {
     tree.set_fill(widget.indicator, mark);
+  }
+}
+
+void WidgetSet::refresh_subtree(RenderTree& tree, NodeId root,
+                                const Interaction& interaction) const {
+  // Only pointer-owning kinds have hover/press/disabled fills to repaint; a
+  // panel, a checkbox's indicator or a slider's thumb keeps its own fill.
+  if (accepts_pointer(root)) {
+    refresh(tree, root, interaction.state_of(root));
+  }
+  for (const NodeId child : tree.children(root)) {
+    refresh_subtree(tree, child, interaction);
   }
 }
 

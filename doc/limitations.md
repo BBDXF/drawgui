@@ -70,6 +70,14 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 字体 fallback 链（`src/render/font_fallback.cpp`）是这个项目自己实现的显式规则表，绕开了 `matchFamilyStyleCharacter()` 在这台开发机上七次测试七次返回 null 的事实（`src/render/font_fallback.cpp:3-7` 附近的注释）。这个自建链条覆盖了常见语言组合，但对完全没被任何规则覆盖的字符——`src/render/skia_paint.cpp:209-213`：每个未覆盖的 codepoint 会画出一个 `.notdef` 方框（tofu），而不是空白；这是有意的决定，为的是让"这台机器没有对应字体"和"这段文字本来就是空的"两种情况可以被肉眼区分。排查这类问题时应该找方块字，而不是空白。
 
+### A13. 禁用状态的外观只是最小实现
+
+`DG_PROP_DISABLED` 的行为是完整的（见 `doc/guide/widgets.md`「禁用状态」），但外观只覆盖
+`refresh()` 管理的填充：控件表面换成 `color.disabled`，已勾选指示器换成
+`color.on-disabled`。**标签文字颜色、滑块轨道/滑块头、文本框边框/文字不会变灰**；禁用控件上
+**不显示 tooltip**；C++ 调用方写完该属性要自己调用 `cancel_disabled()`/`blur_if_disabled()`/
+`refresh_subtree()`（C ABI 已自动做）；ABI 在创建控件时读入禁用色，之后切换主题不会刷新。
+
 ---
 
 ## B.「配方」不是「控件」
@@ -86,7 +94,7 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` 节点、设置 51 个属性（含专用的 `dg_node_set_text()` 通道）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件、加载主题包。
+C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` 节点、设置 52 个属性（含专用的 `dg_node_set_text()` 通道，以及 `DG_PROP_DISABLED` 禁用状态）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件、加载主题包。
 
 **P6 sub-step a1 起，能画文字了**——但只是最小可见的一行：`DG_NODE_TYPE_LABEL` 有引擎内置的默认字号（16px）和默认黑色，`font_size`/`text_align` 这两个属性**故意没做**（够用就不加，是这个仓库的纪律），所以想要更大字号、居左/居右对齐，ABI 现阶段做不到，只能直接用 C++ 层的 `TextStyle`。
 

@@ -30,7 +30,9 @@ inline constexpr char kBuiltinThemeJson[] = R"DGTHEMEJSON(
       "color.on-primary": "#FFFFFFFF",
       "color.primary-hover": "#4A78D6FF",
       "color.primary-pressed": "#2952A3FF",
-      "color.focus-ring": "#FF8800FF"
+      "color.focus-ring": "#FF8800FF",
+      "color.disabled": "#E4E6E9FF",
+      "color.on-disabled": "#A0A6ADFF"
     },
     "dark": {
       "color.surface": "#1E1E1EFF",
@@ -40,7 +42,9 @@ inline constexpr char kBuiltinThemeJson[] = R"DGTHEMEJSON(
       "color.on-primary": "#0D1117FF",
       "color.primary-hover": "#7FAAFFFF",
       "color.primary-pressed": "#5580D9FF",
-      "color.focus-ring": "#FFA733FF"
+      "color.focus-ring": "#FFA733FF",
+      "color.disabled": "#2E3238FF",
+      "color.on-disabled": "#5C636BFF"
     }
   }
 }

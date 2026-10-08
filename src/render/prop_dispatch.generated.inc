@@ -18,7 +18,7 @@
 //
 //   DG_PROP_ASSIGN(field, type)
 //       Write the incoming scalar value into `field`, interpreting it as
-//       `type` (one of: float, length, color, enum).
+//       `type` (one of: float, length, color, enum, bool).
 //   DG_PROP_ASSIGN_COMPLEX(field, type)
 //       Write the incoming descriptor into `field`. These types do not fit
 //       the scalar tagged union and arrive through a dedicated setter
@@ -198,6 +198,10 @@ switch (prop_id) {
     break;
   case DG_PROP_TEXT_COLOR:
     DG_PROP_ASSIGN(text_color, color);
+    break;
+  // -- interaction -----------------------------------------------
+  case DG_PROP_DISABLED:
+    DG_PROP_ASSIGN(disabled, bool);
     break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:

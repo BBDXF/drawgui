@@ -21,3 +21,5 @@
    10  space.sm
    11  space.md
    12  color.focus-ring
+   13  color.disabled
+   14  color.on-disabled

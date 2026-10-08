@@ -13,7 +13,7 @@
 namespace form_window {
 
 struct Settings {
-  dg::PixelSize size{760, 420};
+  dg::PixelSize size{760, 500};
   int run_ms = 0;
 
   // Applied once, before the first frame - lets --dump-png/--probe

@@ -56,7 +56,7 @@ schema_version = 1
 
 [meta]
 # The id the next new token must take. Bump it when appending.
-next_id = 13
+next_id = 15
 
 # ---------------------------------------------------------------------------
 # Colour tokens - variant-dependent (light/dark). design.md section 5.11.4:
@@ -161,3 +161,23 @@ id = 12
 type = "color"
 group = "color"
 summary = "The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (include/drawgui/widget/focus.h: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are)."
+
+# ---------------------------------------------------------------------------
+# The widget DISABLED state (DG_PROP_DISABLED). Two colours, read directly via
+# Theme::color_value() into Widget::fill_disabled/indicator_disabled - the
+# same direct-read shape color.focus-ring already has.
+# ---------------------------------------------------------------------------
+
+[[token]]
+name = "color.disabled"
+id = 13
+type = "color"
+group = "color"
+summary = "The surface fill of a disabled interactive widget (Widget::fill_disabled) - replaces its normal/hover/pressed fills while dg::is_disabled() holds."
+
+[[token]]
+name = "color.on-disabled"
+id = 14
+type = "color"
+group = "color"
+summary = "Foreground marks on a disabled widget - a checked checkbox/radio indicator (Widget::indicator_disabled)."

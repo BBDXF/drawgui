@@ -26,6 +26,19 @@ dg_value length(float number) {
   return value;
 }
 
+dg_value boolean(std::uint32_t bits) {
+  dg_value value{};
+  value.size = sizeof(dg_value);
+  value.type = DG_VALUE_BOOL;
+  value.bits = bits;
+  return value;
+}
+
+void set_disabled(dg_node_t* node, bool disabled) {
+  const dg_value value = boolean(disabled ? 1U : 0U);
+  REQUIRE(dg_node_set_prop(node, DG_PROP_DISABLED, &value) == DG_ERR_OK);
+}
+
 dg_app_t* create_headless_app() {
   setenv("SDL_VIDEODRIVER", "dummy", 1);
   return dg_app_create(nullptr);
@@ -235,5 +248,45 @@ TEST_SUITE("abi_tree_ops") {
     dg_node_t* pending = f.box();
     CHECK(dg_node_remove(pending) == DG_ERR_OK);
     CHECK(dg_node_insert_before(f.root, pending, nullptr) == DG_ERR_INVALID_HANDLE);
+  }
+
+  TEST_CASE("DG_PROP_DISABLED takes DG_VALUE_BOOL 0/1 through dg_node_set_prop()") {
+    Fixture f;
+    dg_node_t* button = dg_node_create(f.app, DG_NODE_TYPE_BUTTON);
+    REQUIRE(dg_node_insert_before(f.root, button, nullptr) == DG_ERR_OK);
+    const dg_value bad = boolean(2);
+    CHECK(dg_node_set_prop(button, DG_PROP_DISABLED, &bad) == DG_ERR_VALUE_OUT_OF_RANGE);
+    const dg_value wrong_type = length(1);
+    CHECK(dg_node_set_prop(button, DG_PROP_DISABLED, &wrong_type) == DG_ERR_TYPE_MISMATCH);
+    CHECK(f.clicked(button, 50, 30));
+    set_disabled(button, true);
+    CHECK_FALSE(f.clicked(button, 50, 30));
+    set_disabled(button, false);
+    CHECK(f.clicked(button, 50, 30));
+  }
+
+  TEST_CASE("a disabled checkbox neither clicks nor toggles") {
+    Fixture f;
+    dg_node_t* checkbox = dg_node_create(f.app, DG_NODE_TYPE_CHECKBOX);
+    REQUIRE(dg_node_insert_before(f.root, checkbox, nullptr) == DG_ERR_OK);
+    set_disabled(checkbox, true);
+    CHECK_FALSE(f.clicked(checkbox, 16, 16));
+    CHECK(dg_node_get_checked(checkbox) == 0);
+    set_disabled(checkbox, false);
+    CHECK(f.clicked(checkbox, 16, 16));
+    CHECK(dg_node_get_checked(checkbox) == 1);
+  }
+
+  TEST_CASE("a disabled container disables the buttons inside it") {
+    Fixture f;
+    dg_node_t* group = f.box();
+    dg_node_t* button = dg_node_create(f.app, DG_NODE_TYPE_BUTTON);
+    REQUIRE(dg_node_insert_before(f.root, group, nullptr) == DG_ERR_OK);
+    REQUIRE(dg_node_insert_before(group, button, nullptr) == DG_ERR_OK);
+    CHECK(f.clicked(button, 50, 30));
+    set_disabled(group, true);
+    CHECK_FALSE(f.clicked(button, 50, 30));
+    set_disabled(group, false);
+    CHECK(f.clicked(button, 50, 30));
   }
 }

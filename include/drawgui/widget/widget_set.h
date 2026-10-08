@@ -154,12 +154,21 @@ struct Widget {
   Color fill_hover;
   Color fill_pressed;
 
+  // Painted instead of the three above while dg::is_disabled() holds for
+  // this node (its own DG_PROP_DISABLED or an ancestor's). Meant to be read
+  // from the theme's `color.disabled` token; unset keeps `fill_normal`, so a
+  // disabled widget at least stops reacting visually to hover and press.
+  std::optional<Color> fill_disabled;
+
   // kCheckbox only: the child node whose fill is turned on when checked.
   // Default-constructed NodeId names the root, which is never an indicator, so
   // it doubles as "none" without a second field to disagree with.
   NodeId indicator;
   Color indicator_on;
   Color indicator_off;
+  // The checked mark while disabled (theme `color.on-disabled`); unset keeps
+  // `indicator_on`. An unchecked disabled indicator keeps `indicator_off`.
+  std::optional<Color> indicator_disabled;
 
   bool checked = false;
 
@@ -539,7 +548,16 @@ class WidgetSet {
   // whenever its state is touched, and a checkbox toggled while hovered would
   // otherwise damage its box for a colour that did not change. Damage has to
   // be a function of what the user can see, not of how often the loop asks.
+  //
+  // A DISABLED widget (dg::is_disabled()) ignores `state` and paints
+  // Widget::fill_disabled.
   void refresh(RenderTree& tree, NodeId id, PointerState state) const;
+
+  // refresh() for every pointer-owning widget (accepts_pointer()) in
+  // `root`'s subtree - what a caller runs after writing DG_PROP_DISABLED,
+  // since the bit inherits to descendants. A kSlider has no fills here, so
+  // a disabled slider does not change appearance yet.
+  void refresh_subtree(RenderTree& tree, NodeId root, const Interaction& interaction) const;
 
   // --- kTextField ---
   //

@@ -67,7 +67,7 @@ typedef struct dg_value {
   uint32_t type;
   /* meaningful for DG_VALUE_FLOAT / DG_VALUE_LENGTH. */
   float number;
-  /* ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM. */
+  /* ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM, 0/1 for DG_VALUE_BOOL. */
   uint32_t bits;
 } dg_value;
 
@@ -205,6 +205,9 @@ typedef struct dg_theme_err {
 /* dg_node_set_prop() unchanged rather than adding a second, bind-shaped */
 /* function. */
 #define DG_VALUE_TOKEN 5u
+/* PropType::k_bool - bits is 0 (false) or 1 (true); any other value is */
+/* DG_ERR_VALUE_OUT_OF_RANGE. First consumer: DG_PROP_DISABLED. */
+#define DG_VALUE_BOOL 6u
 
 /* dg_event::kind. */
 /* The window closed (user or dg_debug_ script); the dg_window_t handle is now */
@@ -423,6 +426,8 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_TEXT 50
 /* TextStyle::color. Its own default is fully transparent, so set this to make `text` visible. */
 #define DG_PROP_TEXT_COLOR 51
+/* Disables this node and its whole subtree for hover/press/click/drag/text editing and focus. */
+#define DG_PROP_DISABLED 52
 
 #endif /* !__cplusplus */
 
@@ -472,6 +477,12 @@ typedef uint16_t dg_token_id;
 /* the ring is paint/positioning state with no LayoutTree node of its own, the */
 /* same shape TextField's caret/selection_highlight already are). */
 #define DG_TOKEN_COLOR_FOCUS_RING 12
+/* The surface fill of a disabled interactive widget (Widget::fill_disabled) - */
+/* replaces its normal/hover/pressed fills while dg::is_disabled() holds. */
+#define DG_TOKEN_COLOR_DISABLED 13
+/* Foreground marks on a disabled widget - a checked checkbox/radio indicator */
+/* (Widget::indicator_disabled). */
+#define DG_TOKEN_COLOR_ON_DISABLED 14
 
 #endif /* !__cplusplus */
 

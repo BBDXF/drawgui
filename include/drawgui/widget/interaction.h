@@ -74,6 +74,14 @@ struct PointerState {
   friend bool operator==(PointerState, PointerState) = default;
 };
 
+// True when `id` or any ancestor has NodeStyle::disabled (DG_PROP_DISABLED).
+//
+// INHERITED BY CLIMBING, not by copying: a disabled container disables its
+// whole subtree for interaction and focus, and re-enabling the container
+// restores every descendant's own bit untouched. The bit is read at event
+// time rather than cached, so there is no second copy to fall out of sync.
+[[nodiscard]] bool is_disabled(const RenderTree& tree, NodeId id);
+
 class Interaction {
  public:
   // The pointer is now over `target`, or over no widget at all.
@@ -116,6 +124,12 @@ class Interaction {
   // is cleanup for a node that is GONE, not an ordinary transition a
   // caller repaints from - there is nothing left on screen to update.
   void forget(NodeId id);
+
+  // Drops hover and any in-progress press on a widget that has become
+  // disabled (is_disabled()). A held press is reported as `released` with no
+  // `clicked`, so disabling during a press cancels it rather than firing on
+  // release. Call after any DG_PROP_DISABLED write; a no-op otherwise.
+  InteractionChange cancel_disabled(const RenderTree& tree);
 
  private:
   void set_hover(std::optional<NodeId> target, InteractionChange& change);

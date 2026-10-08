@@ -1,5 +1,7 @@
 #include "drawgui/shortcuts/router.h"
 
+#include "drawgui/widget/interaction.h"
+
 namespace dg {
 namespace {
 
@@ -52,8 +54,10 @@ std::optional<ResolvedAction> resolve_action(Chord chord, WindowId window,
                                              std::span<const ShortcutBinding> app_table) {
   // Level 2: focused -> ancestors -> root, nearest match wins. RenderTree::
   // parent()'s own comment is what lets this stop on `id == parent(id)`
-  // with no separate root check.
-  if (focused.has_value()) {
+  // with no separate root check. A DISABLED focus (a caller that wrote
+  // DG_PROP_DISABLED without Focus::blur_if_disabled()) resolves nothing
+  // node-scoped: actions scoped to a disabled widget never fire.
+  if (focused.has_value() && !is_disabled(tree, *focused)) {
     NodeId node = *focused;
     while (true) {
       for (const ShortcutBinding& binding : app_table) {
@@ -84,6 +88,9 @@ std::optional<ResolvedAction> resolve_action(Chord chord, WindowId window,
 
 KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
                                std::optional<NodeId> focused, const RoutingContext& ctx) {
+  if (focused.has_value() && is_disabled(ctx.tree, *focused)) {
+    focused.reset();
+  }
   // Level 1, checked FIRST, with an early return before resolve_action() is
   // named anywhere below - see this file's header comment for why that
   // ordering, not a flag resolve_action() itself consults, is what makes

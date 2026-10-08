@@ -448,6 +448,11 @@ struct NodeStyle {
   // `overflow` and
   // `opacity`.
   std::optional<ShadowStyle> shadow;
+
+  // DG_PROP_DISABLED. Not a paint input: the widget layer reads it through
+  // dg::is_disabled() (widget/interaction.h), which climbs ancestors, so
+  // setting it on a container disables that container's whole subtree.
+  bool disabled = false;
 };
 
 // How a repaint turns nodes into draw calls.

@@ -117,6 +117,53 @@ if (release_change.clicked) {
 
 **这条父链爬升不会横跨到兄弟子树**——如果一个面板里挂了两个互不相关的按钮，点击落在按钮 A 内部的某个几何上层叠着但不属于按钮 A 子树的东西上，`owner_of()` 绝不会跳到按钮 B。这个语义直接决定了「遮挡」行为：一个不可交互的装饰性覆盖层如果几何上盖住了按钮，会拦下点击（`hit_test()` 命中的是它），除非它下面确实有个可交互祖先能被爬到。
 
+## 禁用状态（`disabled`）
+
+禁用是一个**节点属性**，不是 `Widget` 字段：`DG_PROP_DISABLED`（id 52，`bool`），写进
+`NodeStyle::disabled`。C++ 走 `dg::set_prop(tree, node, DG_PROP_DISABLED,
+PropValue::boolean(true))`，C ABI 走 `dg_node_set_prop()` 加 `DG_VALUE_BOOL`。
+
+**继承**：`dg::is_disabled(tree, id)`（`widget/interaction.h`）沿父链往上爬，自身或任一祖先
+被禁用即为禁用。所以禁用一个容器会禁用它的整棵子树；重新启用容器后，子节点自己的
+`disabled` 位原样保留（不是复制下去的）。
+
+禁用后的行为：
+
+- **指针**：`owner_of()`/`widget_at()` 爬到一个被禁用的可交互 widget 时返回 `nullopt`——
+  而且是**吞掉**这次指针，不会继续往上交给启用中的祖先（禁用卡片里的按钮不会点到卡片）。
+  因此没有 hover/press/click/toggle，文本框点不进去；`slidable_owner_of()` 同样返回
+  `nullopt`，滑块拖不动。
+- **按压中被禁用**：调用 `Interaction::cancel_disabled(tree)`，它把正被按住的 widget 报告为
+  `released`、**不报告 `clicked`**，并清掉 hover。即便调用方没调它，之后的抬起也会落在
+  `nullopt` 上，同样不会触发点击。
+- **焦点**：`focus_order()` 跳过被禁用的节点及其整棵子树（Tab/Shift-Tab 不会停留）；
+  `Focus::set_guarded()` 拒绝禁用目标；`Focus::blur_if_disabled(tree)` 在焦点变成禁用时
+  **失焦**（不是跳到下一个——与 `blur_if_any_of()`/`exit_scope()` 的约定一致，要前进的
+  调用方自己再调 `focus_next()`）。`Focus::set()` 依旧无条件。
+- **快捷键**：`resolve_action()`/`route_key_event()` 把禁用的焦点视为没有焦点，挂在它
+  （及其祖先链）上的节点级 action 不会触发；应用级（level 4）action 不受影响。
+- **tooltip**：不显示。`widget_at()` 对禁用控件返回 `nullopt`，hover 计时器看不到它。
+  这是刻意的简化：要给禁用控件解释「为什么不可用」，应把提示挂在外层容器上。
+- **滚动**：`kScrollView`/`kList` 的滚轮滚动**不受影响**（`scrollable_owner_of()`/
+  `list_owner_of()` 不看禁用位）——查看内容不算交互；被禁用列表里的行照样不能点。
+- **程序化修改不受限**：`toggle()`/`set_slider_value()`/`text_field_insert()` 等仍然有效，
+  禁用只拦截用户输入。
+
+写完 `DG_PROP_DISABLED` 后，C++ 调用方要自己做同步（C ABI 的 `dg_node_set_prop()` 已替你做）：
+
+```cpp
+dg::set_prop(tree, group, DG_PROP_DISABLED, dg::PropValue::boolean(true));
+InteractionChange c = interaction.cancel_disabled(tree.render());   // 取消按压/hover
+FocusChange f = focus.blur_if_disabled(tree.render());              // 失焦
+widgets.refresh_subtree(tree.render(), group, interaction);         // 重绘子树
+```
+
+外观：`refresh()` 在禁用时忽略 `PointerState`，画 `Widget::fill_disabled`（未设置时退回
+`fill_normal`）；已勾选的 checkbox/radio 指示器画 `Widget::indicator_disabled`（未设置时
+保持 `indicator_on`）。这两个颜色应从主题 token `color.disabled`/`color.on-disabled`
+读取（见 `doc/guide/theming.md`）。`kSlider` 没有由 `refresh()` 管理的填充色，所以禁用的
+滑块目前**外观不变**，只是拖不动。
+
 ## 常见任务怎么做
 
 ### 虚拟化列表：1000 项跑在固定数量的节点上
@@ -181,12 +228,16 @@ tree.add_child(parent, box, style);
 - **没有 widget 树、没有 `createXxx()` 工厂函数**——上文已经讲透。
 - **dropdown/菜单/tooltip/对话框是应用层配方，不是库能力**——见上文★。
 - **`kScrollView`/`kList` 不能获得键盘焦点**。
+- **禁用是节点属性，写完要同步**：C++ 侧写 `DG_PROP_DISABLED` 后要调用
+  `cancel_disabled()`/`blur_if_disabled()`/`refresh_subtree()`，见上文「禁用状态」。
 - 完整清单见 `doc/limitations.md` 对应条目。
 
 ## 相关 example
 
 - `examples/05_widgets` —— 按钮/checkbox/radio/panel 的基本搭法
-- `examples/11_form_controls` —— slider、更完整的表单控件组合
+- `examples/11_form_controls` —— slider、更完整的表单控件组合；底部一行演示禁用状态
+  （开关通过 `DG_PROP_DISABLED` 启用/禁用旁边的 checkbox 与 slider，`--verify-form-controls`
+  校验它）
 - `examples/12_text_input` —— 文本框（另见 `doc/guide/text.md`）
 - `examples/13_image` —— 四种 `ImageFit` 对比
 - `examples/15_list` —— 虚拟化列表的回收池

@@ -58,7 +58,7 @@ std::size_t switch_variant(Scene& scene) {
 
 `themes/schema.toml` 是 token 的编译期契约（生成
 `include/drawgui/theme/token_ids.generated.h` 等文件），运行时数据在
-`themes/builtin/theme.json` 里。当前定义了 12 个 token：
+`themes/builtin/theme.json` 里。当前定义了 14 个 token：
 
 | 分组 | token | 说明 |
 |---|---|---|
@@ -70,13 +70,23 @@ std::size_t switch_variant(Scene& scene) {
 | color | `color.primary-hover` | primary 的 hover 态 |
 | color | `color.primary-pressed` | primary 的 pressed 态 |
 | color | `color.focus-ring` | 焦点环颜色 |
+| color | `color.disabled` | 禁用控件的表面填充（`Widget::fill_disabled`），禁用时取代 normal/hover/pressed 三态 |
+| color | `color.on-disabled` | 禁用控件上的前景标记——已勾选 checkbox/radio 的指示器（`Widget::indicator_disabled`） |
 | radius | `radius.sm` | 小圆角 |
 | radius | `radius.md` | 默认圆角 |
 | space | `space.sm` | 小间距 |
 | space | `space.md` | 默认间距/padding |
 
-即 7 个基础语义色 + 1 个 focus-ring 色 = 8 个 color token，加 2 个圆角 +
-2 个间距 = 4 个 int token（见 `themes/schema.toml:67-162`）。
+即 7 个基础语义色 + 1 个 focus-ring 色 + 2 个禁用态颜色 = 10 个 color token，
+加 2 个圆角 + 2 个间距 = 4 个 int token（见 `themes/schema.toml`）。
+
+两个禁用态 token 和 `color.focus-ring` 一样是**直接读取**（`Theme::color_value()`），
+不是 `$token` 绑定：调用方在搭建 widget 时把它们读进 `Widget::fill_disabled`/
+`indicator_disabled`，`WidgetSet::refresh()` 在 `dg::is_disabled()` 成立时使用它们。
+C ABI 在创建 button/checkbox/text field 时自动读取（有活动主题用活动主题，否则用内建
+主题的 dark variant）；之后再切换主题**不会**刷新这两个已读入的颜色，与 ABI 里其它
+控件颜色一致。透明度式的「禁用 = 半透明」没有采用，原因同上：没有透明度表达式，
+禁用态是两个完整写出的颜色。
 
 `TokenType` 只有两种（`theme.h:40-43`）：
 

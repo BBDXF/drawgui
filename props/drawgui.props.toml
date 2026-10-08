@@ -31,6 +31,8 @@
 #                       color     - 0xAARRGGBB, unpremultiplied at the
 #                                   boundary (section 5.11.3)
 #                       enum      - one of `values`, below
+#                       bool      - 0 or 1, carried in the scalar union's
+#                                   integer half (DG_VALUE_BOOL)
 #                       gradient  - NOT a scalar; dedicated setter
 #                       shadow    - NOT a scalar; dedicated setter
 #                       transform - NOT a scalar; dedicated setter
@@ -69,7 +71,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 52
+next_id = 53
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -638,3 +640,20 @@ group = "visual"
 field = "text_color"
 applies_to = ["box"]
 summary = "TextStyle::color. Its own default is fully transparent, so set this to make `text` visible."
+
+# ---------------------------------------------------------------------------
+# Interaction - the widget DISABLED state. A plain NodeStyle bit, so it rides
+# the ordinary scalar path and dg_node_set_prop(); the widget layer reads it
+# by climbing ancestors (dg::is_disabled(), include/drawgui/widget/
+# interaction.h), which is what makes a disabled container disable its whole
+# subtree without copying the bit onto every descendant.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "disabled"
+id = 52
+type = "bool"
+group = "interaction"
+field = "disabled"
+applies_to = ["box"]
+summary = "Disables this node and its whole subtree for hover/press/click/drag/text editing and focus."

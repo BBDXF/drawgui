@@ -847,6 +847,15 @@ PropWrite apply_text_color(Target& target, const PropValue& value) {
   return PropWrite{};
 }
 
+PropWrite apply_disabled(Target& target, const PropValue& value) {
+  if (value.ordinal() > 1U) {
+    return out_of_range(target, "disabled needs a bool: 0 (false) or 1 (true)");
+  }
+  target.style.disabled = value.ordinal() == 1U;
+  target.style_changed = true;
+  return PropWrite{};
+}
+
 // --------------------------------------------------------------------------
 // The generated dispatch.
 // --------------------------------------------------------------------------
