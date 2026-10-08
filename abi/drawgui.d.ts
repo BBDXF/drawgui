@@ -228,6 +228,11 @@ export const prop_enum = {
     resize_nwse: 11,
     resize_nesw: 12,
   },
+  scrollbar: {
+    auto: 0,
+    always: 1,
+    never: 2,
+  },
 } as const;
 
 // Property ids - props/drawgui.props.toml, re-emitted (see gen_abi.py).
@@ -285,6 +290,7 @@ export const prop = {
   text_color: 51,
   disabled: 52,
   cursor: 53,
+  scrollbar: 54,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -303,6 +309,11 @@ export const token = {
   'color.focus-ring': 12,
   'color.disabled': 13,
   'color.on-disabled': 14,
+  'color.scrollbar-track': 15,
+  'color.scrollbar-thumb': 16,
+  'color.scrollbar-thumb-hover': 17,
+  'color.scrollbar-thumb-pressed': 18,
+  'size.scrollbar': 19,
 } as const;
 
 export declare namespace DrawguiAbi {

@@ -46,6 +46,17 @@
 
 `include/drawgui/widget/focus.h:99-108`：焦点遍历不会落到滚动容器本身上。键盘滚动（PageUp/PageDown、方向键滚动列表）需要应用层自己实现为 action，不能指望 Tab 把焦点带到滚动区域再用方向键滚动。
 
+### A6b. 滚动条：节点由调用方创建，布局后要 sync，没有连续翻页
+
+`kScrollView`/`kList` 的滚动条（`WidgetSet::attach_scrollbar()`，见 `doc/guide/widgets.md`「滚动条」）有这些边界：
+
+- **轨道和滑块是调用方建的普通节点**，和滑块控件一样；库不会替你建，也不会替你在视口上留槽——不留 padding 时滚动条覆盖在内容边缘上。
+- **布局之后要 `sync_scrollbar()`**：布局会把轨道放回内容原点（和 `resync_sliders()` 同一种义务）；写完 `DG_PROP_SCROLLBAR`、或绕过 `scroll_by()` 直接 `RenderTree::set_scroll_offset()` 之后也要。
+- **每个视图只有一根滚动条**：一个 `kScrollView` 只沿一个轴滚动（`scroll_axis`），所以没有双轴、也没有右下角的交汇块。
+- **点轨道只翻一页**，按住不会连续翻页（没有定时器驱动的重复）；没有「点哪跳哪」模式，也没有滚动条上的箭头按钮。
+- **滚动条不会自动隐藏/淡出**（没有 overlay 式滚动条）；外观只有纯色填充，最小滑块长度 `min_thumb_length` 不是主题 token。
+- **C ABI 没有滚动视图节点类型**，`DG_PROP_SCROLLBAR` 在 ABI 侧只是被校验和保存。
+
 ### A7. `transform` 属性设置永远返回 `kUnsupported`
 
 setter 存在、参数校验正确，但功能完全没有实现（`include/drawgui/props/node_props.h` 中 `set_transform()` 的注释："EXISTS AS A FOURTH ENTRY POINT BUT ALWAYS REFUSES"；`src/render/prop_dispatch.generated.inc` 的 `DG_PROP_TRANSFORM` 分支只做赋值，绘制侧没有消费）。这不是即将修的小 bug，是被三个未决问题卡住的功能：非轴对齐的 damage 矩形怎么算、逆变换命中测试怎么做、是否要影响父节点的布局尺寸。三个问题都没有结论前，`transform` 不会真正生效。

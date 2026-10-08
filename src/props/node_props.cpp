@@ -872,6 +872,21 @@ PropWrite apply_cursor(Target& target, const PropValue& value) {
   return PropWrite{};
 }
 
+static_assert(DG_SCROLLBAR_AUTO == static_cast<std::uint32_t>(ScrollbarMode::kAuto) &&
+                  DG_SCROLLBAR_ALWAYS == static_cast<std::uint32_t>(ScrollbarMode::kAlways) &&
+                  DG_SCROLLBAR_NEVER == static_cast<std::uint32_t>(ScrollbarMode::kNever),
+              "dg::ScrollbarMode must list DG_PROP_SCROLLBAR's values in the TOML's order");
+
+PropWrite apply_scrollbar(Target& target, const PropValue& value) {
+  if (value.ordinal() > DG_SCROLLBAR_NEVER) {
+    return out_of_range(
+        target, "scrollbar has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.style.scrollbar = static_cast<ScrollbarMode>(value.ordinal());
+  target.style_changed = true;
+  return PropWrite{};
+}
+
 // --------------------------------------------------------------------------
 // The generated dispatch.
 // --------------------------------------------------------------------------
@@ -1105,14 +1120,13 @@ PropWrite set_shadow(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
     return *rejected;
   }
   if (!valid_shadow(shadow)) {
-    return complex_out_of_range(
-        tree, node,
-        "shadow needs a finite offset/spread within +/-" +
-            std::to_string(static_cast<int>(kMaxShadowOffset)) +
-            " and a blur_radius in "
-            "0.." +
-            std::to_string(static_cast<int>(kMaxShadowBlur)) +
-            " - budgeted per this engine's measured blur cost");
+    return complex_out_of_range(tree, node,
+                                "shadow needs a finite offset/spread within +/-" +
+                                    std::to_string(static_cast<int>(kMaxShadowOffset)) +
+                                    " and a blur_radius in "
+                                    "0.." +
+                                    std::to_string(static_cast<int>(kMaxShadowBlur)) +
+                                    " - budgeted per this engine's measured blur cost");
   }
   NodeStyle style = tree.render().style(node);
   style.shadow = shadow;

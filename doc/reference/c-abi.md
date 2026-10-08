@@ -125,7 +125,7 @@
 | 函数 | 用途 |
 |---|---|
 | `dg_node_create(app, type_id)` | 分配一个 pending 节点；`type_id` 只能是 `DG_NODE_TYPE_BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` |
-| `dg_node_set_prop(node, prop_id, value)` | 标量属性写入，`dg::set_prop()` 的 ABI 映射；对 pending 或 live 节点都有效。写 `DG_PROP_DISABLED`（`DG_VALUE_BOOL`）成功后会自动取消该子树上的按压/hover（不产生 `DG_EVENT_CLICK`）、让落在其中的焦点失焦并重绘子树；禁用的 button/checkbox/text field 用主题 token `color.disabled`/`color.on-disabled` 着色。0.2：`DG_PROP_CURSOR`（`DG_VALUE_ENUM`，值为 `DG_CURSOR_*`）设置指针形状，事件泵在每次指针移动/按下/抬起后自动解析并切换光标（只在形状变化时才调用平台）；改了属性但指针没动时，要等下一次指针事件才生效 |
+| `dg_node_set_prop(node, prop_id, value)` | 标量属性写入，`dg::set_prop()` 的 ABI 映射；对 pending 或 live 节点都有效。写 `DG_PROP_DISABLED`（`DG_VALUE_BOOL`）成功后会自动取消该子树上的按压/hover（不产生 `DG_EVENT_CLICK`）、让落在其中的焦点失焦并重绘子树；禁用的 button/checkbox/text field 用主题 token `color.disabled`/`color.on-disabled` 着色。0.2：`DG_PROP_CURSOR`（`DG_VALUE_ENUM`，值为 `DG_CURSOR_*`）设置指针形状，事件泵在每次指针移动/按下/抬起后自动解析并切换光标（只在形状变化时才调用平台）；改了属性但指针没动时，要等下一次指针事件才生效。0.2：`DG_PROP_SCROLLBAR`（`DG_VALUE_ENUM`，`DG_SCROLLBAR_AUTO/ALWAYS/NEVER`）可以写入并会被校验，但 ABI 目前没有滚动视图/列表节点类型，所以对 ABI 创建的节点没有可见效果——它是给将来的节点类型和 C++ 场景（`doc/guide/widgets.md`「滚动条」）用的 |
 | `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效（pending 返回 `DG_ERR_NO_WINDOW`） |
 | `dg_node_get_checked(node)` | 查询 live `CHECKBOX` 的勾选状态：返回 1/0，负数为 `DG_ERR_*`（非 checkbox 为 `DG_ERR_UNSUPPORTED`）；"收到 CLICK 再查询"的形状 |
 | `dg_node_get_text(node, buf, cap, out_len)` | 读取 live `TEXT_FIELD` 的当前文字：两趟调用（先 `cap=0` 取 `out_len` 全长，再分配缓冲读取）；按字节截断 |
@@ -229,7 +229,7 @@ try {
 | 版本 | 内容 |
 |---|---|
 | 0.1 | 初始接口（94d53af），到 `dg_node_get_text()` 为止 |
-| 0.2 | `dg_node_insert_before()` 按位置插入/移动、`dg_node_remove()` 删除整棵子树（5f3917b）；`DG_PROP_DISABLED` + `DG_VALUE_BOOL`（e8bdea9）；禁用控件跟随主题切换（c488360）；窗口操作 `dg_window_set_title()` … `dg_window_get_state()`、`DG_EVENT_WINDOW_*` 状态事件、`DG_PIXEL_FORMAT_*`、`DG_WINDOW_STATE_*`、`dg_window_opts` 追加的 `resizable`/最小/最大尺寸字段；`DG_PROP_CURSOR`（事件泵自动切换光标）、C 侧的枚举属性值常量（`DG_CURSOR_*` 及其它 `DG_<PROP>_<VALUE>`）、`dg_debug_get_cursor()` |
+| 0.2 | `dg_node_insert_before()` 按位置插入/移动、`dg_node_remove()` 删除整棵子树（5f3917b）；`DG_PROP_DISABLED` + `DG_VALUE_BOOL`（e8bdea9）；禁用控件跟随主题切换（c488360）；窗口操作 `dg_window_set_title()` … `dg_window_get_state()`、`DG_EVENT_WINDOW_*` 状态事件、`DG_PIXEL_FORMAT_*`、`DG_WINDOW_STATE_*`、`dg_window_opts` 追加的 `resizable`/最小/最大尺寸字段；`DG_PROP_CURSOR`（事件泵自动切换光标）、C 侧的枚举属性值常量（`DG_CURSOR_*` 及其它 `DG_<PROP>_<VALUE>`）、`dg_debug_get_cursor()`；`DG_PROP_SCROLLBAR` + `DG_SCROLLBAR_*`，以及滚动条主题 token `DG_TOKEN_COLOR_SCROLLBAR_*`/`DG_TOKEN_SIZE_SCROLLBAR` |
 
 ## 8. 相关文档
 

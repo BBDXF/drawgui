@@ -73,6 +73,12 @@ enum class ItemImage : std::uint8_t { kA, kB, kNone };
 struct Handles {
   dg::NodeId body;
   dg::NodeId list;
+  // The list's scrollbar (WidgetSet::attach_scrollbar()), coloured and sized
+  // from the builtin theme's tokens. Items are `gutter` narrower than the
+  // viewport so the bar never covers one. Both stay unset in the baseline.
+  dg::NodeId track;
+  dg::NodeId thumb;
+  int gutter = 0;
 };
 
 struct Options {
@@ -115,6 +121,10 @@ void refresh(Scene& scene, const std::vector<dg::ListSlot>& slots);
 // independent of WidgetSet's own bookkeeping, which is what lets a check
 // verify the OBSERVABLE effect rather than re-reading the same state
 // list_sync() just wrote.
+// Re-places the list's scrollbar against kViewportHeight - after build and
+// after any layout pass (list_scroll_by() keeps it in step by itself).
+void sync_scrollbar(Scene& scene);
+
 [[nodiscard]] int logical_index_of(const dg::RenderTree& tree, dg::NodeId node);
 
 }  // namespace list_scene

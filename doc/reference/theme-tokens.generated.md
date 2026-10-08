@@ -25,3 +25,8 @@ on every change, never edited directly.
 | 12 | `color.focus-ring` | color | color | The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (include/drawgui/widget/focus.h: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are). |
 | 13 | `color.disabled` | color | color | The surface of a disabled widget (DisabledPalette::fill) - replaces its normal/hover/pressed fills while dg::is_disabled() holds; also a disabled slider track and every disabled border. |
 | 14 | `color.on-disabled` | color | color | Foreground on a disabled widget (DisabledPalette::on) - its text, a checked checkbox/radio mark, a slider thumb. |
+| 15 | `color.scrollbar-track` | color | color | The scrollbar track (ScrollbarStyle::track) - the strip the thumb travels along, shown while the bar is visible. |
+| 16 | `color.scrollbar-thumb` | color | color | The scrollbar thumb at rest (ScrollbarStyle::thumb). |
+| 17 | `color.scrollbar-thumb-hover` | color | color | The scrollbar thumb while the pointer is over it (ScrollbarStyle::thumb_hover). |
+| 18 | `color.scrollbar-thumb-pressed` | color | color | The scrollbar thumb while it is being dragged (ScrollbarStyle::thumb_pressed). |
+| 19 | `size.scrollbar` | int | size | The scrollbar's thickness in device pixels (ScrollbarStyle::size) - also the gutter a scroll view reserves for it. |

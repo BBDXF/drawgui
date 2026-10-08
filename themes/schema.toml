@@ -56,7 +56,7 @@ schema_version = 1
 
 [meta]
 # The id the next new token must take. Bump it when appending.
-next_id = 15
+next_id = 20
 
 # ---------------------------------------------------------------------------
 # Colour tokens - variant-dependent (light/dark). design.md section 5.11.4:
@@ -181,3 +181,45 @@ id = 14
 type = "color"
 group = "color"
 summary = "Foreground on a disabled widget (DisabledPalette::on) - its text, a checked checkbox/radio mark, a slider thumb."
+
+# ---------------------------------------------------------------------------
+# The SCROLLBAR of a kScrollView/kList (DG_PROP_SCROLLBAR). Read directly via
+# Theme::color_value()/int_value() into one dg::ScrollbarStyle per WidgetSet -
+# the same direct-read, set-then-refresh_subtree() shape the disabled palette
+# above already has.
+# ---------------------------------------------------------------------------
+
+[[token]]
+name = "color.scrollbar-track"
+id = 15
+type = "color"
+group = "color"
+summary = "The scrollbar track (ScrollbarStyle::track) - the strip the thumb travels along, shown while the bar is visible."
+
+[[token]]
+name = "color.scrollbar-thumb"
+id = 16
+type = "color"
+group = "color"
+summary = "The scrollbar thumb at rest (ScrollbarStyle::thumb)."
+
+[[token]]
+name = "color.scrollbar-thumb-hover"
+id = 17
+type = "color"
+group = "color"
+summary = "The scrollbar thumb while the pointer is over it (ScrollbarStyle::thumb_hover)."
+
+[[token]]
+name = "color.scrollbar-thumb-pressed"
+id = 18
+type = "color"
+group = "color"
+summary = "The scrollbar thumb while it is being dragged (ScrollbarStyle::thumb_pressed)."
+
+[[token]]
+name = "size.scrollbar"
+id = 19
+type = "int"
+group = "size"
+summary = "The scrollbar's thickness in device pixels (ScrollbarStyle::size) - also the gutter a scroll view reserves for it."

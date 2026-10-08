@@ -229,6 +229,12 @@ inline constexpr dg_prop_id DG_PROP_DISABLED = 52;
 // values: auto | default | pointer | text | crosshair | move | not_allowed | wait | progress | resize_ew | resize_ns | resize_nwse | resize_nesw
 inline constexpr dg_prop_id DG_PROP_CURSOR = 53;
 
+// -- container ---------------------------------------------------
+// Scrollbar visibility on a scroll view or list: auto shows it only while content overflows.
+// type=enum; applies_to=box
+// values: auto | always | never
+inline constexpr dg_prop_id DG_PROP_SCROLLBAR = 54;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -304,11 +310,15 @@ inline constexpr std::uint32_t DG_CURSOR_RESIZE_EW = 9;
 inline constexpr std::uint32_t DG_CURSOR_RESIZE_NS = 10;
 inline constexpr std::uint32_t DG_CURSOR_RESIZE_NWSE = 11;
 inline constexpr std::uint32_t DG_CURSOR_RESIZE_NESW = 12;
+// scrollbar
+inline constexpr std::uint32_t DG_SCROLLBAR_AUTO = 0;
+inline constexpr std::uint32_t DG_SCROLLBAR_ALWAYS = 1;
+inline constexpr std::uint32_t DG_SCROLLBAR_NEVER = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 53;
+inline constexpr std::uint16_t kDgPropMaxId = 54;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 53;
+inline constexpr std::uint16_t kDgPropCount = 54;

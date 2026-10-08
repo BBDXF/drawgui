@@ -72,6 +72,7 @@ add_executable(drawgui_unit_test
   unit/test_sizing.cpp
   unit/test_scroll.cpp
   unit/test_list.cpp
+  unit/test_scrollbar.cpp
   unit/test_form_controls.cpp
   unit/test_text_input.cpp
   unit/test_border_paint.cpp
@@ -115,7 +116,8 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_abi_tree_ops.cpp
     unit/test_window_ops.cpp
     unit/test_abi_window_ops.cpp
-    unit/test_cursor.cpp)
+    unit/test_cursor.cpp
+    unit/test_scrollbar_abi.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

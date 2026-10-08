@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <initializer_list>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -13,6 +14,7 @@
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/layout_tree.h"
+#include "drawgui/widget/interaction.h"
 #include "drawgui/window/window_manager.h"
 
 #include "scroll_scene.h"
@@ -35,6 +37,7 @@ dg::TreeSpec spec_for(dg::PixelSize size) {
 
 void legend(std::ostream& out) {
   out << "  wheel over either strip scrolls it; click-drag inside one grabs its content.\n"
+      << "  drag a scrollbar thumb to scroll; click its track to page by one viewport.\n"
       << "  vertical:   " << scroll_scene::kVerticalItemCount << " items x "
       << scroll_scene::kVerticalItemHeight << " px in a "
       << scroll_scene::kVerticalViewportWidth << "x" << scroll_scene::kVerticalViewportHeight
@@ -65,6 +68,18 @@ void apply_presets(scroll_scene::Scene& scene, const Settings& settings) {
   }
 }
 
+// Repaints whichever widgets an Interaction change touched - here only ever
+// scrollbar parts, the scene's one pointer-owning widget kind.
+void refresh_touched(scroll_scene::Scene& scene, const dg::Interaction& interaction,
+                     const dg::InteractionChange& change) {
+  for (const std::optional<dg::NodeId>& id :
+       {change.left, change.entered, change.pressed, change.released}) {
+    if (id.has_value()) {
+      scene.widgets.refresh(scene.tree.render(), *id, interaction.state_of(*id));
+    }
+  }
+}
+
 class Runner {
  public:
   Runner(dg::WindowManager& manager, dg::WindowId window, const Settings& settings,
@@ -79,7 +94,7 @@ class Runner {
   void handle_wheel(scroll_scene::Scene& scene, const dg::PointerEvent& event);
   void handle_down(scroll_scene::Scene& scene, dg::PixelPoint at);
   void handle_move(scroll_scene::Scene& scene, dg::PixelPoint at);
-  void handle_up();
+  void handle_up(scroll_scene::Scene& scene, std::optional<dg::NodeId> over);
 
   Settings settings_;
   std::ostream* out_;
@@ -95,6 +110,11 @@ class Runner {
   // nothing for a drag to compete against.
   std::optional<dg::NodeId> dragging_;
   dg::PixelPoint drag_last_;
+
+  // Hover/press on the scrollbars. A press on a thumb or track is captured
+  // here (Interaction::holding()) until release, which is what lets a thumb
+  // drag keep going after the pointer leaves the bar.
+  dg::Interaction interaction_;
 };
 
 bool Runner::resize_if_needed() {
@@ -110,6 +130,7 @@ bool Runner::resize_if_needed() {
     }
     scene.tree.resize(pixels);
     scene.tree.layout();
+    scroll_scene::sync_scrollbars(scene);
   } else {
     scene_ = scroll_scene::build(spec_for(pixels));
     apply_presets(*scene_, settings_);
@@ -120,7 +141,9 @@ bool Runner::resize_if_needed() {
 }
 
 void Runner::draw(scroll_scene::Scene& scene, dg::RasterSurface& surface) {
-  scene.tree.layout();
+  if (scene.tree.layout().nodes_relaid_out != 0) {
+    scroll_scene::sync_scrollbars(scene);
+  }
   if (scene.tree.render().damage().is_empty()) {
     return;
   }
@@ -164,11 +187,32 @@ void Runner::handle_down(scroll_scene::Scene& scene, dg::PixelPoint at) {
   if (!hit.has_value()) {
     return;
   }
+  const std::optional<dg::NodeId> owner = scene.widgets.owner_of(scene.tree.render(), *hit);
+  refresh_touched(scene, interaction_, interaction_.pressed_on(owner));
+  if (scene.widgets.scrollbar_owner_of(*hit).has_value()) {
+    // A scrollbar press never grabs the content, and never focuses anything.
+    const std::optional<dg::NodeId> viewport =
+        owner.has_value() ? scene.widgets.scrollbar_owner_of(*owner) : std::nullopt;
+    if (viewport.has_value()) {
+      (void)scene.widgets.scrollbar_press(scene.tree.render(), *owner,
+                                          scroll_scene::scroll_extent(scene, *viewport), at);
+    }
+    return;
+  }
   dragging_ = scene.widgets.scrollable_owner_of(scene.tree.render(), *hit);
   drag_last_ = at;
 }
 
 void Runner::handle_move(scroll_scene::Scene& scene, dg::PixelPoint at) {
+  refresh_touched(scene, interaction_,
+                  interaction_.moved_over(scene.widgets.widget_at(scene.tree.render(), at)));
+  if (const std::optional<dg::NodeId> held = interaction_.holding(); held.has_value()) {
+    const std::optional<dg::NodeId> viewport = scene.widgets.scrollbar_owner_of(*held);
+    if (viewport.has_value()) {
+      (void)scene.widgets.scrollbar_drag(scene.tree.render(), *held,
+                                         scroll_scene::scroll_extent(scene, *viewport), at);
+    }
+  }
   if (!dragging_.has_value()) {
     return;
   }
@@ -184,8 +228,10 @@ void Runner::handle_move(scroll_scene::Scene& scene, dg::PixelPoint at) {
   scene.widgets.scroll_by(scene.tree.render(), *dragging_, content, -dx, -dy);
 }
 
-void Runner::handle_up() {
+void Runner::handle_up(scroll_scene::Scene& scene, std::optional<dg::NodeId> over) {
   dragging_.reset();
+  scene.widgets.scrollbar_release();
+  refresh_touched(scene, interaction_, interaction_.released_on(over));
 }
 
 int Runner::run() {
@@ -221,8 +267,11 @@ int Runner::run() {
           handle_move(scene, dg::PixelPoint{event.x, event.y});
           break;
         case dg::PointerAction::kUp:
+          handle_up(scene, scene.widgets.widget_at(scene.tree.render(), {event.x, event.y}));
+          break;
         case dg::PointerAction::kLeave:
-          handle_up();
+          handle_up(scene, std::nullopt);
+          refresh_touched(scene, interaction_, interaction_.left_window());
           break;
       }
     }

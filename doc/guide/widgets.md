@@ -56,9 +56,9 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 
 参考实现：`include/drawgui/widget/widget_set.h`、`include/drawgui/widget/interaction.h`、`include/drawgui/widget/focus.h`。
 
-## 9 种 WidgetKind
+## 10 种 WidgetKind
 
-`WidgetKind` 是闭集合，一共 9 个值（`widget_set.h` 头部注释仍写着「四种」，那是历史遗留，已经过时——实际数量以枚举本身为准）：
+`WidgetKind` 是闭集合，一共 10 个值（`widget_set.h` 头部注释仍写着「四种」，那是历史遗留，已经过时——实际数量以枚举本身为准）：
 
 | kind | 是否接受指针输入 | 能否获得键盘焦点 | 说明 |
 |---|---|---|---|
@@ -71,6 +71,7 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 | `kTextField` | 是 | 是 | 单行可编辑文本框，详见 `doc/guide/text.md` |
 | `kList` | 是（用于滚轮）| **否** | 固定回收池的虚拟化列表（见下） |
 | `kDropdown` | 是 | 是 | 只是「锚点 + 选项 + 已选索引」，弹出层要自己搭（见下方「配方」一节） |
+| `kScrollbar` | 是 | **否** | 滚动条的轨道或滑块，由 `attach_scrollbar()` 挂上，不要手动 attach（见下方「滚动条」） |
 
 ### radio 不是独立的 kind
 
@@ -146,6 +147,9 @@ PropValue::boolean(true))`，C ABI 走 `dg_node_set_prop()` 加 `DG_VALUE_BOOL`�
   这是刻意的简化：要给禁用控件解释「为什么不可用」，应把提示挂在外层容器上。
 - **滚动**：`kScrollView`/`kList` 的滚轮滚动**不受影响**（`scrollable_owner_of()`/
   `list_owner_of()` 不看禁用位）——查看内容不算交互；被禁用列表里的行照样不能点。
+  滚动条**照常显示**（滑块位置继续跟随滚轮），但**拖不动、点轨道也不翻页**：
+  `owner_of()` 对禁用的滚动条部件返回 `nullopt`，`scrollbar_press()`/`scrollbar_drag()`
+  自己也再查一次禁用位。
 - **鼠标指针**：控件的默认光标（文本框的 I 形）失效，显示箭头；节点上显式设置的
   `DG_PROP_CURSOR` 仍然生效（见 `doc/guide/input.md`「鼠标指针形状」）。
 - **程序化修改不受限**：`toggle()`/`set_slider_value()`/`text_field_insert()` 等仍然有效，
@@ -171,6 +175,7 @@ widgets.refresh_subtree(tree.render(), group, interaction);         // 重绘子
 | 文字（标签、按钮文字、文本框内容） | `on` |
 | 已勾选的 checkbox/radio 标记 | `on`；未勾选的保持 `indicator_off` |
 | 滑块轨道 / 圆点 | `fill` / `on` |
+| 滚动条轨道 / 滑块 | `fill` / `on` |
 
 禁用的控件本来就不会获得焦点，所以也不会画焦点环。单个 widget 仍可用
 `Widget::fill_disabled`/`indicator_disabled` 覆盖调色板。
@@ -208,6 +213,90 @@ std::vector<ListSlot> reassigned =
 
 回收池大小由**视口**决定，不由 `list_item_count` 决定——1000 项和 10 项用的是同一个池（例子里是 14 个节点）。`list_sync()` 只重绘真正改变了显示内容的槽位，不会全量刷新。
 
+### 滚动条
+
+`kScrollView` 和 `kList` 可以带一个滚动条：两个**由调用方创建**的普通节点（和滑块的
+轨道/圆点一样），交给 `attach_scrollbar()`：
+
+```cpp
+// 1. 视口在滚动条那一侧留出「槽」（reserved gutter），宽度 = 滚动条粗细
+BoxStyle viewport_box;
+viewport_box.scroll_axis = ScrollAxis::kVertical;
+viewport_box.padding.right = widgets.scrollbar_style().size;   // 横向滚动则是 padding.bottom
+// kList 不按 padding 摆放池节点，所以列表项本身要窄 size 个像素
+
+// 2. 内容之后再加轨道，滑块是轨道唯一的子节点（盒子随便给，sync 会覆盖）
+NodeId track = tree.add_child(viewport, BoxStyle{}, NodeStyle{});
+NodeId thumb = tree.add_child(track, BoxStyle{}, NodeStyle{});
+widgets.attach_scrollbar(tree.render(), viewport, track, thumb);
+
+// 3. 布局之后摆一次
+tree.layout_full();
+widgets.sync_scrollbar(tree.render(), viewport, viewport_extent);
+```
+
+`viewport_extent` 是滚动方向上的可见长度——`kScrollView` 传
+`content_bounds(viewport)` 的高（或宽），`kList` 传和 `list_scroll_by()` 相同的值。
+
+**几何**：每个滚动视图只在它唯一的滚动轴上有一根滚动条（纵向滚动在右侧，横向在底部），
+贴着视口边框盒的末端，粗 `ScrollbarStyle::size`。滑块长度 = 轨道长 × 视口 / 内容，
+夹在 `[min_thumb_length, 轨道长]`；位置随偏移在 `0..(轨道长 - 滑块长)` 之间线性移动。
+`scrollbar_geometry()` 返回这些数，测试和自定义绘制可以直接用。
+
+**跟随滚动**：`scroll_by()`/`list_scroll_by()` 自己会更新滚动条，所以滚轮、键盘
+（`apply_keyboard_scroll()`）和程序化的 `scroll_by()` 都不用额外操作。需要手动
+`sync_scrollbar()` 的场合：建好场景后、任何碰到这个视口的 `layout()` 之后（布局会把轨道
+放回内容原点，和 `resync_sliders()` 是同一种义务）、写完 `DG_PROP_SCROLLBAR` 后、以及绕过
+`scroll_by()` 直接调 `RenderTree::set_scroll_offset()` 之后。
+
+**槽还是覆盖**：选的是**预留槽**——视口自己留出 padding，滚动条永远不盖住可点的内容。
+不留 padding 也能用，那时滚动条就覆盖在内容边缘上（库不会替你改布局）。`auto` 模式下槽
+始终保留（内容变短、滚动条隐藏时也不重新布局），相当于 CSS 的 `scrollbar-gutter: stable`。
+
+**可见性**：`DG_PROP_SCROLLBAR`（id 54，枚举）写在视口节点上：
+
+| 值 | 行为 |
+|----|------|
+| `auto`（默认） | 内容溢出时显示，放得下时隐藏 |
+| `always` | 总是显示；内容放得下时滑块占满整条轨道 |
+| `never` | 不显示；滚轮/键盘/拖内容照常滚动 |
+
+隐藏的滚动条把轨道和滑块缩成空矩形，命中测试永远找不到它们。
+
+**交互**：轨道和滑块都是 `kScrollbar` widget，走普通的 `Interaction`（hover/press/按住
+捕获），**都不能获得焦点**——点滚动条不会抢走正在输入的文本框的焦点。事件循环这样接：
+
+```cpp
+// 按下
+auto owner = widgets.owner_of(tree.render(), hit);           // 轨道或滑块
+interaction.pressed_on(owner);  /* refresh 受影响的节点 */
+if (owner && widgets.scrollbar_owner_of(*owner)) {
+  ScrollResult r = widgets.scrollbar_press(tree.render(), *owner, extent, pointer);
+  // kList: r.slots 是被回收的槽位，像普通列表滚动一样重绘
+}
+// 移动（按住期间 Interaction::holding() 就是捕获对象）
+if (auto held = interaction.holding()) {
+  ScrollResult r = widgets.scrollbar_drag(tree.render(), *held, extent, pointer);
+}
+// 抬起
+widgets.scrollbar_release();
+interaction.released_on(target);
+```
+
+- **拖滑块**：按下时记住抓取点在滑块里的位置，之后滑块跟着指针走，偏移 =
+  滑块位置 × max_offset / 行程，夹在两端。指针离开滚动条（甚至离开视口）继续拖也有效。
+- **点轨道**：朝点击方向**翻一页**（一个 `viewport_extent`），不是跳到点击位置；按住
+  不会连续翻页（没有定时器）。
+- **hover/press 外观**：只有滑块变色（`thumb_hover`/`thumb_pressed`），轨道保持 `track` 色。
+- **列表**：拖动经由 `list_scroll_by()`，所以回收池和普通滚动一样被正确重新分配；
+  `ScrollResult::slots` 要传给重绘、`Focus::blur_if_any_of()`、`Interaction::forget()`。
+
+**外观**来自 `WidgetSet` 上的 `dg::ScrollbarStyle`（`set_scrollbar_style()`），对应主题
+token `color.scrollbar-track`/`-thumb`/`-thumb-hover`/`-thumb-pressed` 和
+`size.scrollbar`，见 `doc/guide/theming.md`。
+
+参考实现：`examples/10_scrolling`、`examples/15_list`（两者的 `--verify-*` 都检查滚动条）。
+
 ### 图片
 
 ```cpp
@@ -238,13 +327,14 @@ tree.add_child(parent, box, style);
 
 ### kScrollView/kList 不能获得焦点
 
-`focus.h:109-123` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList` 不行。后两者被排除是**故意的**而非疏漏——把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。键盘滚动（PageUp/PageDown/Home/End）现在由 `apply_keyboard_scroll()` 实现，但它是从当前焦点向上找最近的可滚动祖先，而不是让 ScrollView/List 自身可聚焦（见 `doc/guide/input.md`）。
+`focus.h` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList`/`kScrollbar` 不行。后两者被排除是**故意的**而非疏漏——把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。键盘滚动（PageUp/PageDown/Home/End）现在由 `apply_keyboard_scroll()` 实现，但它是从当前焦点向上找最近的可滚动祖先，而不是让 ScrollView/List 自身可聚焦（见 `doc/guide/input.md`）。
 
 ## 边界与坑
 
 - **没有 widget 树、没有 `createXxx()` 工厂函数**——上文已经讲透。
 - **dropdown/菜单/tooltip/对话框是应用层配方，不是库能力**——见上文★。
-- **`kScrollView`/`kList` 不能获得键盘焦点**。
+- **`kScrollView`/`kList` 不能获得键盘焦点**，它们的滚动条也不能。
+- **滚动条的节点由调用方创建**，布局之后要 `sync_scrollbar()`；视口要自己留出槽，见上文「滚动条」。
 - **禁用是节点属性，写完要同步**：C++ 侧写 `DG_PROP_DISABLED` 后要调用
   `cancel_disabled()`/`blur_if_disabled()`/`refresh_subtree()`，见上文「禁用状态」。
 - 完整清单见 `doc/limitations.md` 对应条目。

@@ -16,6 +16,7 @@ Cursor widget_default_cursor(WidgetKind kind) {
     case WidgetKind::kSlider:
     case WidgetKind::kList:
     case WidgetKind::kDropdown:
+    case WidgetKind::kScrollbar:
       return Cursor::kDefault;
   }
   return Cursor::kDefault;

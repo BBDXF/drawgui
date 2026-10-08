@@ -8,6 +8,9 @@
 #include "drawgui/graphics/canvas.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/box.h"
+#include "drawgui/theme/theme.h"
+#include "drawgui/theme/theme_loader.h"
+#include "drawgui/theme/token_ids.generated.h"
 
 namespace list_scene {
 namespace {
@@ -154,6 +157,24 @@ std::pair<ImageCatalog, std::pair<ImageId, ImageId>> load_images() {
   return {images, {decoded_a.value_or(ImageId{}), decoded_b.value_or(ImageId{})}};
 }
 
+// The scrollbar look, from the builtin theme's dark variant - the same
+// direct token read examples/10_scrolling makes.
+dg::ScrollbarStyle scrollbar_tokens() {
+  dg::ScrollbarStyle style;
+  const Expected<dg::Theme, dg::ThemeLoadError> theme = dg::load_builtin_theme();
+  if (!theme.has_value()) {
+    return style;
+  }
+  const dg::Theme& t = theme.value();
+  const dg::ThemeVariant dark = dg::ThemeVariant::kDark;
+  style.track = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_TRACK, dark);
+  style.thumb = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB, dark);
+  style.thumb_hover = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER, dark);
+  style.thumb_pressed = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED, dark);
+  style.size = t.int_value(DG_TOKEN_SIZE_SCROLLBAR).value_or(style.size);
+  return style;
+}
+
 }  // namespace
 
 Scene build(const Options& options) {
@@ -169,6 +190,8 @@ Scene build(const Options& options) {
   LayoutTree tree{spec};
   WidgetSet widgets;
   Handles handles;
+  widgets.set_scrollbar_style(scrollbar_tokens());
+  handles.gutter = widgets.scrollbar_style().size;
 
   BoxStyle body_box;
   body_box.kind = LayoutKind::kColumn;
@@ -181,6 +204,7 @@ Scene build(const Options& options) {
   list_box.kind = LayoutKind::kLeaf;
   list_box.width = kViewportWidth;
   list_box.height = kViewportHeight;
+  list_box.padding.right = handles.gutter;  // the scrollbar's reserved gutter
   NodeStyle list_style;
   list_style.fill = Color::from_argb(0xFF14171C);
   list_style.overflow = Overflow::kClip;
@@ -196,12 +220,17 @@ Scene build(const Options& options) {
   pool.reserve(static_cast<std::size_t>(kPoolSize));
   for (int i = 0; i < kPoolSize; ++i) {
     BoxStyle item_box;
-    item_box.width = kViewportWidth;
+    item_box.width = kViewportWidth - handles.gutter;
     item_box.height = kItemHeight;
     pool.push_back(tree.add_child(handles.list, item_box, NodeStyle{}));
   }
   list_widget.list_pool = pool;
   widgets.attach(handles.list, list_widget);
+
+  // After the pool, so it paints and hit-tests above every item.
+  handles.track = tree.add_child(handles.list, BoxStyle{}, NodeStyle{});
+  handles.thumb = tree.add_child(handles.track, BoxStyle{}, NodeStyle{});
+  widgets.attach_scrollbar(tree.render(), handles.list, handles.track, handles.thumb);
 
   tree.layout_full();
 
@@ -214,7 +243,12 @@ Scene build(const Options& options) {
               font,
               handles};
   refresh(scene, scene.widgets.list_sync(scene.tree.render(), scene.handles.list, 0));
+  sync_scrollbar(scene);
   return scene;
+}
+
+void sync_scrollbar(Scene& scene) {
+  scene.widgets.sync_scrollbar(scene.tree.render(), scene.handles.list, kViewportHeight);
 }
 
 Scene build_baseline(const Options& options) {

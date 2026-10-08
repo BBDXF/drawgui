@@ -106,6 +106,10 @@ struct FocusChange {
 // focusable now would draw a visible ring around a widget that Tab can
 // reach but no key can then act on - worse than not reaching it at all.
 // This is unblocked-but-not-built.
+//
+// kScrollbar: no. A scrollbar is a pointer affordance for a region the
+// keyboard already scrolls (PageUp/PageDown/Home/End); clicking one must not
+// take focus away from whatever the user is typing into.
 [[nodiscard]] constexpr bool is_focusable(WidgetKind kind) {
   switch (kind) {
     case WidgetKind::kButton:
@@ -118,6 +122,7 @@ struct FocusChange {
     case WidgetKind::kLabel:
     case WidgetKind::kScrollView:
     case WidgetKind::kList:
+    case WidgetKind::kScrollbar:
       break;
   }
   return false;
@@ -231,8 +236,8 @@ class Focus {
   // matching exit_scope() - the popup case: Tab inside an open dropdown/menu
   // must not walk back out into the window that opened it.
   //
-  // `modal` (default false) is 7-5b's own addition: false is 7-4's original, unchanged meaning - nothing refuses a
-  // direct click or a plain set() from escaping, only Tab/Shift-Tab's own
+  // `modal` (default false) is 7-5b's own addition: false is 7-4's original, unchanged meaning
+  // - nothing refuses a direct click or a plain set() from escaping, only Tab/Shift-Tab's own
   // traversal is bounded, so every existing caller (a plain popup/dropdown
   // scope) is unaffected by this parameter existing. true additionally
   // makes set_guarded() (above) refuse a target outside `root` - a

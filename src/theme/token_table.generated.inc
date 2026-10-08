@@ -20,3 +20,8 @@
 {"color.focus-ring", DG_TOKEN_COLOR_FOCUS_RING, TokenType::k_color},
 {"color.disabled", DG_TOKEN_COLOR_DISABLED, TokenType::k_color},
 {"color.on-disabled", DG_TOKEN_COLOR_ON_DISABLED, TokenType::k_color},
+{"color.scrollbar-track", DG_TOKEN_COLOR_SCROLLBAR_TRACK, TokenType::k_color},
+{"color.scrollbar-thumb", DG_TOKEN_COLOR_SCROLLBAR_THUMB, TokenType::k_color},
+{"color.scrollbar-thumb-hover", DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER, TokenType::k_color},
+{"color.scrollbar-thumb-pressed", DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED, TokenType::k_color},
+{"size.scrollbar", DG_TOKEN_SIZE_SCROLLBAR, TokenType::k_int},

@@ -1,8 +1,14 @@
 #include "scroll_scene.h"
 
 #include <cstdint>
+#include <initializer_list>
+#include <tuple>
+#include <utility>
 
 #include "drawgui/layout/box.h"
+#include "drawgui/theme/theme.h"
+#include "drawgui/theme/theme_loader.h"
+#include "drawgui/theme/token_ids.generated.h"
 
 namespace scroll_scene {
 namespace {
@@ -37,12 +43,43 @@ NodeStyle chip_style(int index, int count) {
   return style;
 }
 
+// The scrollbar look, from the builtin theme's dark variant (this scene's
+// own background is dark) - the same direct token read the disabled
+// palette uses in examples/11_form_controls.
+dg::ScrollbarStyle scrollbar_tokens() {
+  dg::ScrollbarStyle style;
+  const dg::Expected<dg::Theme, dg::ThemeLoadError> theme = dg::load_builtin_theme();
+  if (!theme.has_value()) {
+    return style;
+  }
+  const dg::Theme& t = theme.value();
+  const dg::ThemeVariant dark = dg::ThemeVariant::kDark;
+  style.track = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_TRACK, dark);
+  style.thumb = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB, dark);
+  style.thumb_hover = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER, dark);
+  style.thumb_pressed = t.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED, dark);
+  style.size = t.int_value(DG_TOKEN_SIZE_SCROLLBAR).value_or(style.size);
+  return style;
+}
+
+// The track (added after the content, so it paints and hit-tests on top)
+// and its thumb. Their boxes do not matter: sync_scrollbar() places both.
+std::pair<NodeId, NodeId> add_scrollbar(LayoutTree& tree, dg::WidgetSet& widgets,
+                                        NodeId viewport) {
+  const NodeId track = tree.add_child(viewport, BoxStyle{}, NodeStyle{});
+  const NodeId thumb = tree.add_child(track, BoxStyle{}, NodeStyle{});
+  widgets.attach_scrollbar(tree.render(), viewport, track, thumb);
+  return {track, thumb};
+}
+
 }  // namespace
 
 Scene build(const dg::TreeSpec& spec) {
   LayoutTree tree{spec};
   dg::WidgetSet widgets;
   Handles handles;
+  widgets.set_scrollbar_style(scrollbar_tokens());
+  handles.gutter = widgets.scrollbar_style().size;
 
   BoxStyle body_box;
   body_box.kind = LayoutKind::kColumn;
@@ -58,6 +95,7 @@ Scene build(const dg::TreeSpec& spec) {
   vertical_box.scroll_axis = ScrollAxis::kVertical;
   vertical_box.width = kVerticalViewportWidth;
   vertical_box.height = kVerticalViewportHeight;
+  vertical_box.padding.right = handles.gutter;  // the scrollbar's reserved gutter
   NodeStyle vertical_style;
   vertical_style.fill = Color::from_argb(0xFF14171C);
   vertical_style.overflow = Overflow::kClip;
@@ -72,7 +110,7 @@ Scene build(const dg::TreeSpec& spec) {
   handles.vertical_items.reserve(kVerticalItemCount);
   for (int i = 0; i < kVerticalItemCount; ++i) {
     BoxStyle item;
-    item.width = kVerticalViewportWidth;
+    item.width = kVerticalViewportWidth - handles.gutter;
     item.height = kVerticalItemHeight;
     handles.vertical_items.push_back(
         tree.add_child(handles.vertical_content, item, chip_style(i, kVerticalItemCount)));
@@ -83,6 +121,8 @@ Scene build(const dg::TreeSpec& spec) {
   vertical_widget.scroll_axis = ScrollAxis::kVertical;
   vertical_widget.scroll_content = handles.vertical_content;
   widgets.attach(handles.vertical_viewport, vertical_widget);
+  std::tie(handles.vertical_track, handles.vertical_thumb) =
+      add_scrollbar(tree, widgets, handles.vertical_viewport);
 
   // --- The horizontal strip ------------------------------------------------
 
@@ -95,6 +135,7 @@ Scene build(const dg::TreeSpec& spec) {
   // children of its own to fill anything with).
   horizontal_box.align_self = dg::CrossAlign::kStretch;
   horizontal_box.height = kHorizontalViewportHeight;
+  horizontal_box.padding.bottom = handles.gutter;
   NodeStyle horizontal_style;
   horizontal_style.fill = Color::from_argb(0xFF14171C);
   horizontal_style.overflow = Overflow::kClip;
@@ -110,7 +151,7 @@ Scene build(const dg::TreeSpec& spec) {
   for (int i = 0; i < kHorizontalItemCount; ++i) {
     BoxStyle item;
     item.width = kHorizontalItemWidth;
-    item.height = kHorizontalViewportHeight;
+    item.height = kHorizontalViewportHeight - handles.gutter;
     handles.horizontal_items.push_back(
         tree.add_child(handles.horizontal_content, item, chip_style(i, kHorizontalItemCount)));
   }
@@ -120,9 +161,26 @@ Scene build(const dg::TreeSpec& spec) {
   horizontal_widget.scroll_axis = ScrollAxis::kHorizontal;
   horizontal_widget.scroll_content = handles.horizontal_content;
   widgets.attach(handles.horizontal_viewport, horizontal_widget);
+  std::tie(handles.horizontal_track, handles.horizontal_thumb) =
+      add_scrollbar(tree, widgets, handles.horizontal_viewport);
 
   tree.layout_full();
-  return Scene{std::move(tree), std::move(widgets), std::move(handles)};
+  Scene scene{std::move(tree), std::move(widgets), std::move(handles)};
+  sync_scrollbars(scene);
+  return scene;
+}
+
+int scroll_extent(const Scene& scene, NodeId viewport) {
+  const dg::PixelRect content = scene.tree.content_bounds(viewport);
+  return scene.widgets.at(viewport).scroll_axis == ScrollAxis::kHorizontal ? content.width
+                                                                           : content.height;
+}
+
+void sync_scrollbars(Scene& scene) {
+  for (const NodeId viewport :
+       {scene.handles.vertical_viewport, scene.handles.horizontal_viewport}) {
+    scene.widgets.sync_scrollbar(scene.tree.render(), viewport, scroll_extent(scene, viewport));
+  }
 }
 
 std::string describe(const Scene& scene, NodeId id) {
@@ -147,6 +205,14 @@ std::string describe(const Scene& scene, NodeId id) {
   }
   if (id == scene.handles.horizontal_viewport) {
     return "horizontal viewport background";
+  }
+  if (id == scene.handles.vertical_track || id == scene.handles.vertical_thumb) {
+    return id == scene.handles.vertical_thumb ? "vertical scrollbar thumb"
+                                              : "vertical scrollbar track";
+  }
+  if (id == scene.handles.horizontal_track || id == scene.handles.horizontal_thumb) {
+    return id == scene.handles.horizontal_thumb ? "horizontal scrollbar thumb"
+                                                : "horizontal scrollbar track";
   }
   if (id == scene.handles.body) {
     return "body";

@@ -23,3 +23,8 @@
    12  color.focus-ring
    13  color.disabled
    14  color.on-disabled
+   15  color.scrollbar-track
+   16  color.scrollbar-thumb
+   17  color.scrollbar-thumb-hover
+   18  color.scrollbar-thumb-pressed
+   19  size.scrollbar

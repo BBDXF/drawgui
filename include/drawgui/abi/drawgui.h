@@ -488,6 +488,8 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_DISABLED 52
 /* Mouse cursor shape over this node; auto inherits from ancestors, then the widget kind's default. */
 #define DG_PROP_CURSOR 53
+/* Scrollbar visibility on a scroll view or list: auto shows it only while content overflows. */
+#define DG_PROP_SCROLLBAR 54
 
 /* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for
  * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names
@@ -553,6 +555,10 @@ typedef uint16_t dg_prop_id;
 #define DG_CURSOR_RESIZE_NS 10u
 #define DG_CURSOR_RESIZE_NWSE 11u
 #define DG_CURSOR_RESIZE_NESW 12u
+/* scrollbar */
+#define DG_SCROLLBAR_AUTO 0u
+#define DG_SCROLLBAR_ALWAYS 1u
+#define DG_SCROLLBAR_NEVER 2u
 
 #endif /* !__cplusplus */
 
@@ -609,6 +615,20 @@ typedef uint16_t dg_token_id;
 /* Foreground on a disabled widget (DisabledPalette::on) - its text, a checked */
 /* checkbox/radio mark, a slider thumb. */
 #define DG_TOKEN_COLOR_ON_DISABLED 14
+/* The scrollbar track (ScrollbarStyle::track) - the strip the thumb travels */
+/* along, shown while the bar is visible. */
+#define DG_TOKEN_COLOR_SCROLLBAR_TRACK 15
+/* The scrollbar thumb at rest (ScrollbarStyle::thumb). */
+#define DG_TOKEN_COLOR_SCROLLBAR_THUMB 16
+/* The scrollbar thumb while the pointer is over it */
+/* (ScrollbarStyle::thumb_hover). */
+#define DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER 17
+/* The scrollbar thumb while it is being dragged */
+/* (ScrollbarStyle::thumb_pressed). */
+#define DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED 18
+/* The scrollbar's thickness in device pixels (ScrollbarStyle::size) - also the */
+/* gutter a scroll view reserves for it. */
+#define DG_TOKEN_SIZE_SCROLLBAR 19
 
 #endif /* !__cplusplus */
 

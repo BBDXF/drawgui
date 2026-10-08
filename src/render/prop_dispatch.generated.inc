@@ -206,6 +206,10 @@ switch (prop_id) {
   case DG_PROP_CURSOR:
     DG_PROP_ASSIGN(cursor, enum);
     break;
+  // -- container -------------------------------------------------
+  case DG_PROP_SCROLLBAR:
+    DG_PROP_ASSIGN(scrollbar, enum);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

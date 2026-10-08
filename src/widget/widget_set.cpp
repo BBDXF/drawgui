@@ -27,6 +27,9 @@ bool interactive(WidgetKind kind) {
     // A dropdown's anchor is a plain click target exactly like kButton -
     // opening the popup IS the activation.
     case WidgetKind::kDropdown:
+    // A scrollbar's track and thumb own their hover/press like a button, so
+    // dg::Interaction's press capture is what a thumb drag runs on.
+    case WidgetKind::kScrollbar:
       return true;
     case WidgetKind::kPanel:
     case WidgetKind::kLabel:
@@ -44,10 +47,10 @@ bool interactive(WidgetKind kind) {
 // Two things are still rejected, not merely "everything except ASCII":
 //
 //   - malformed UTF-8 (a lone continuation byte, a truncated multi-byte
-  //     lead, an overlong encoding, a surrogate codepoint) is repaired to
-  //     U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
-  //     paragraph_build.cpp substitution,
-  //     reused here rather than a second hand-rolled policy;
+//     lead, an overlong encoding, a surrogate codepoint) is repaired to
+//     U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
+//     paragraph_build.cpp substitution,
+//     reused here rather than a second hand-rolled policy;
 //   - ASCII control characters (0x00-0x1F) and DEL (0x7F) are dropped: a
 //     literal newline or tab a paste/IME might commit has no meaning in a
 //     single-line field (multi-line TextArea editing stays out of scope -
@@ -227,6 +230,9 @@ void WidgetSet::forget(NodeId id) {
     return;
   }
   widgets_[id.index].reset();
+  if (scrollbar_drag_.has_value() && scrollbar_drag_->thumb == id) {
+    scrollbar_drag_.reset();
+  }
   if (id.index < dimmed_.size()) {
     dimmed_[id.index].reset();
   }
@@ -407,6 +413,9 @@ bool WidgetSet::scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport
     return false;
   }
   tree.set_scroll_offset(id, offset);
+  sync_scrollbar(tree, id,
+                 widget->scroll_axis == ScrollAxis::kVertical ? viewport_content.height
+                                                              : viewport_content.width);
   return true;
 }
 
@@ -485,6 +494,7 @@ std::vector<ListSlot> WidgetSet::list_scroll_by(RenderTree& tree, NodeId id,
   }
   moved = next;
   tree.set_scroll_offset(id, offset);
+  sync_scrollbar(tree, id, viewport_extent);
 
   const int extent = widget->list_item_extent;
   const int top_index = extent > 0 ? next / extent : 0;
@@ -555,6 +565,213 @@ float WidgetSet::slider_value_at(const RenderTree& tree, NodeId id, int pointer_
                                    0.0F, 1.0F)
                       : 0.0F;
   return widget->min_value + (t * (widget->max_value - widget->min_value));
+}
+
+void WidgetSet::attach_scrollbar(RenderTree& tree, NodeId id, NodeId track, NodeId thumb) {
+  Widget* widget = find(id);
+  if (widget == nullptr ||
+      (widget->kind != WidgetKind::kScrollView && widget->kind != WidgetKind::kList)) {
+    return;
+  }
+  widget->scrollbar_track = track;
+  widget->scrollbar_thumb = thumb;
+
+  Widget part;
+  part.kind = WidgetKind::kScrollbar;
+  part.scrollbar_of = id;
+  attach(thumb, part);
+  part.scrollbar_thumb = thumb;
+  attach(track, part);
+  refresh(tree, track, PointerState{});
+  refresh(tree, thumb, PointerState{});
+}
+
+void WidgetSet::set_scrollbar_style(const ScrollbarStyle& style) {
+  scrollbar_style_ = style;
+}
+
+const ScrollbarStyle& WidgetSet::scrollbar_style() const {
+  return scrollbar_style_;
+}
+
+ScrollbarGeometry WidgetSet::scrollbar_geometry(const RenderTree& tree, NodeId id,
+                                                int viewport_extent) const {
+  ScrollbarGeometry geometry;
+  const Widget* widget = find(id);
+  if (widget == nullptr || widget->scrollbar_track == RenderTree::root()) {
+    return geometry;
+  }
+  int content = 0;
+  if (widget->kind == WidgetKind::kScrollView) {
+    geometry.axis = widget->scroll_axis;
+    const PixelRect bounds = tree.local_bounds(widget->scroll_content);
+    content = geometry.axis == ScrollAxis::kHorizontal ? bounds.width : bounds.height;
+  } else if (widget->kind == WidgetKind::kList) {
+    geometry.axis = widget->list_axis;
+    content = widget->list_item_count * widget->list_item_extent;
+  }
+  if (geometry.axis == ScrollAxis::kNone) {
+    return geometry;
+  }
+  const bool vertical = geometry.axis == ScrollAxis::kVertical;
+  const PixelPoint offset = tree.scroll_offset(id);
+  geometry.offset = vertical ? offset.y : offset.x;
+  geometry.max_offset = std::max(0, content - viewport_extent);
+
+  const ScrollbarMode mode = tree.style(id).scrollbar;
+  if (mode == ScrollbarMode::kNever || viewport_extent <= 0 ||
+      (mode == ScrollbarMode::kAuto && geometry.max_offset == 0)) {
+    return geometry;
+  }
+
+  const PixelRect view = tree.local_bounds(id);
+  const int length = vertical ? view.height : view.width;
+  const int size =
+      std::clamp(scrollbar_style_.size, 1, std::max(1, vertical ? view.width : view.height));
+  if (length <= 0) {
+    return geometry;
+  }
+  int thumb = length;
+  if (geometry.max_offset > 0 && content > 0) {
+    thumb = static_cast<int>(std::lround(static_cast<double>(length) * viewport_extent /
+                                         static_cast<double>(content)));
+    thumb = std::clamp(thumb, std::min(scrollbar_style_.min_thumb_length, length), length);
+  }
+  const int travel = length - thumb;
+  const int position =
+      geometry.max_offset > 0
+          ? static_cast<int>(std::lround(static_cast<double>(travel) *
+                                         std::clamp(geometry.offset, 0, geometry.max_offset) /
+                                         static_cast<double>(geometry.max_offset)))
+          : 0;
+
+  geometry.visible = true;
+  geometry.track = vertical ? PixelRect{view.width - size, 0, size, length}
+                            : PixelRect{0, view.height - size, length, size};
+  geometry.thumb =
+      vertical ? PixelRect{0, position, size, thumb} : PixelRect{position, 0, thumb, size};
+  return geometry;
+}
+
+void WidgetSet::sync_scrollbar(RenderTree& tree, NodeId id, int viewport_extent) const {
+  const Widget* widget = find(id);
+  if (widget == nullptr || widget->scrollbar_track == RenderTree::root()) {
+    return;
+  }
+  const ScrollbarGeometry geometry = scrollbar_geometry(tree, id, viewport_extent);
+  // The track is a child of the scrolled node, so RenderTree subtracts the
+  // scroll offset from it like from the content; adding it back here is
+  // what pins the bar to the viewport.
+  const PixelPoint offset = tree.scroll_offset(id);
+  const PixelRect track = geometry.visible ? geometry.track : PixelRect{};
+  const PixelRect placed{track.x + offset.x, track.y + offset.y, track.width, track.height};
+  if (tree.local_bounds(widget->scrollbar_track) != placed) {
+    tree.set_local_bounds(widget->scrollbar_track, placed);
+  }
+  const PixelRect thumb = geometry.visible ? geometry.thumb : PixelRect{};
+  if (tree.local_bounds(widget->scrollbar_thumb) != thumb) {
+    tree.set_local_bounds(widget->scrollbar_thumb, thumb);
+  }
+}
+
+std::optional<NodeId> WidgetSet::scrollbar_owner_of(NodeId id) const {
+  const Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kScrollbar) {
+    return std::nullopt;
+  }
+  return widget->scrollbar_of;
+}
+
+bool WidgetSet::is_scrollbar_thumb(NodeId id) const {
+  const Widget* widget = find(id);
+  return widget != nullptr && widget->kind == WidgetKind::kScrollbar &&
+         widget->scrollbar_thumb == RenderTree::root();
+}
+
+ScrollResult WidgetSet::scroll_to(RenderTree& tree, NodeId id, int viewport_extent,
+                                  int offset) {
+  const Widget* widget = find(id);
+  if (widget == nullptr) {
+    return {};
+  }
+  const PixelPoint current = tree.scroll_offset(id);
+  ScrollResult result;
+  if (widget->kind == WidgetKind::kScrollView) {
+    const bool vertical = widget->scroll_axis == ScrollAxis::kVertical;
+    const int delta = offset - (vertical ? current.y : current.x);
+    // scroll_by() reads only the scrolled axis' extent of this rectangle.
+    const PixelRect viewport{0, 0, viewport_extent, viewport_extent};
+    result.moved = scroll_by(tree, id, viewport, vertical ? 0 : delta, vertical ? delta : 0);
+  } else if (widget->kind == WidgetKind::kList) {
+    const bool vertical = widget->list_axis == ScrollAxis::kVertical;
+    const int delta = offset - (vertical ? current.y : current.x);
+    result.slots =
+        list_scroll_by(tree, id, viewport_extent, vertical ? 0 : delta, vertical ? delta : 0);
+    result.moved = tree.scroll_offset(id) != current;
+  }
+  return result;
+}
+
+ScrollResult WidgetSet::scrollbar_press(RenderTree& tree, NodeId part, int viewport_extent,
+                                        PixelPoint pointer) {
+  scrollbar_drag_.reset();
+  const std::optional<NodeId> owner = scrollbar_owner_of(part);
+  if (!owner.has_value() || is_disabled(tree, part)) {
+    return {};
+  }
+  const ScrollbarGeometry geometry = scrollbar_geometry(tree, *owner, viewport_extent);
+  if (!geometry.visible) {
+    return {};
+  }
+  const bool vertical = geometry.axis == ScrollAxis::kVertical;
+  const NodeId thumb_node = find(*owner)->scrollbar_thumb;
+  const PixelRect thumb = tree.absolute_bounds(thumb_node);
+  const int along = vertical ? pointer.y : pointer.x;
+  const int thumb_start = vertical ? thumb.y : thumb.x;
+  const int thumb_length = vertical ? thumb.height : thumb.width;
+
+  if (is_scrollbar_thumb(part)) {
+    scrollbar_drag_ = ScrollbarDrag{part, along - thumb_start};
+    return {};
+  }
+  if (along >= thumb_start && along < thumb_start + thumb_length) {
+    return {};
+  }
+  const int page = along < thumb_start ? -viewport_extent : viewport_extent;
+  return scroll_to(tree, *owner, viewport_extent,
+                   std::clamp(geometry.offset + page, 0, geometry.max_offset));
+}
+
+ScrollResult WidgetSet::scrollbar_drag(RenderTree& tree, NodeId part, int viewport_extent,
+                                       PixelPoint pointer) {
+  if (!scrollbar_drag_.has_value() || scrollbar_drag_->thumb != part) {
+    return {};
+  }
+  const int grab = scrollbar_drag_->grab;
+  const std::optional<NodeId> owner = scrollbar_owner_of(part);
+  if (!owner.has_value() || is_disabled(tree, part)) {
+    return {};
+  }
+  const ScrollbarGeometry geometry = scrollbar_geometry(tree, *owner, viewport_extent);
+  if (!geometry.visible || geometry.max_offset == 0) {
+    return {};
+  }
+  const bool vertical = geometry.axis == ScrollAxis::kVertical;
+  const PixelRect track = tree.absolute_bounds(find(*owner)->scrollbar_track);
+  const int travel = vertical ? geometry.track.height - geometry.thumb.height
+                              : geometry.track.width - geometry.thumb.width;
+  if (travel <= 0) {
+    return {};
+  }
+  const int along = vertical ? pointer.y - track.y : pointer.x - track.x;
+  const int position = std::clamp(along - grab, 0, travel);
+  const auto offset = static_cast<int>(std::lround(
+      static_cast<double>(position) * geometry.max_offset / static_cast<double>(travel)));
+  return scroll_to(tree, *owner, viewport_extent, offset);
+}
+
+void WidgetSet::scrollbar_release() {
+  scrollbar_drag_.reset();
 }
 
 void WidgetSet::resync_sliders(RenderTree& tree) const {
@@ -644,6 +861,24 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
   }
   const Widget& widget = *found;
 
+  if (widget.kind == WidgetKind::kScrollbar) {
+    const bool is_thumb = widget.scrollbar_thumb == RenderTree::root();
+    Color fill = (is_thumb ? scrollbar_style_.thumb : scrollbar_style_.track).value_or(Color{});
+    if (is_disabled(tree, id)) {
+      // The slider's disabled split, reused: the strip recedes into the
+      // disabled surface, the thumb stays readable on it.
+      fill = (is_thumb ? disabled_palette_.on : disabled_palette_.fill).value_or(fill);
+    } else if (is_thumb && state.pressed) {
+      fill = scrollbar_style_.thumb_pressed.value_or(fill);
+    } else if (is_thumb && state.hovered) {
+      fill = scrollbar_style_.thumb_hover.value_or(fill);
+    }
+    if (tree.style(id).fill != fill) {
+      tree.set_fill(id, fill);
+    }
+    return;
+  }
+
   // Pressed beats hovered: a widget the pointer is held down on is always
   // hovered too, and reporting it as merely hovered would drop the press
   // feedback exactly while the user is asking for it.
@@ -730,9 +965,10 @@ void WidgetSet::apply_disabled_look(RenderTree& tree, NodeId id, bool disabled,
     dimmed_.resize(static_cast<std::size_t>(id.index) + 1);
   }
   std::optional<DimmedNode>& slot = dimmed_[id.index];
-  DimmedNode& entry = (slot.has_value() && slot->id == id)
-                          ? *slot
-                          : slot.emplace(DimmedNode{id, std::nullopt, std::nullopt, std::nullopt});
+  DimmedNode& entry =
+      (slot.has_value() && slot->id == id)
+          ? *slot
+          : slot.emplace(DimmedNode{id, std::nullopt, std::nullopt, std::nullopt});
 
   const NodeStyle& style = tree.style(id);
   const bool has_border = !style.border_width.is_zero() && style.border_color.alpha() != 0;
@@ -919,12 +1155,11 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
     content_style.text = ellipsize(fonts, font, size, widget.text, visible_width);
     tree.set_text(widget.content, content_style);
     // The content child's own box must be wide enough to hold what it
-    // paints - paint_text() clips to ITS OWN NODE's bounds, which is a different clip than the field's `overflow:
-    // kClip` and runs regardless of it. A 1px placeholder box (this
-    // widget's construction-time default, never since resized) would clip
-    // away all but a sliver of the text before the field's own clip is ever
-    // consulted - visible_width is always enough because ellipsize()
-    // guarantees the truncated string fits inside it.
+    // paints - paint_text() clips to ITS OWN NODE's bounds, which is a different clip than the
+    // field's `overflow: kClip` and runs regardless of it. A 1px placeholder box (this widget's
+    // construction-time default, never since resized) would clip away all but a sliver of the
+    // text before the field's own clip is ever consulted - visible_width is always enough
+    // because ellipsize() guarantees the truncated string fits inside it.
     tree.set_local_bounds(widget.content,
                           PixelRect{0, 0, std::max(1, visible_width), inner_height});
     tree.set_local_bounds(widget.caret, PixelRect{0, 0, 0, inner_height});

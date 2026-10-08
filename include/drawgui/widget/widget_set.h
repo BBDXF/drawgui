@@ -103,7 +103,8 @@ enum class WidgetKind : std::uint8_t {
   // reused verbatim) whose children are a small, PERMANENT pool of item
   // nodes - never one node per logical item. `list_pool.size()` is bounded
   // by the VIEWPORT, not by `list_item_count`, and stays that way at 1000
-  // items exactly as it is at 10 - the recycling is what makes that true. Earns a kind of its own over
+  // items exactly as it is at 10 - the recycling is what makes that true. Earns a kind of its
+  // own over
   // extending kScrollView because it needs RUNTIME BOOKKEEPING no existing
   // kind carries (`list_assigned` - which logical index each pool slot
   // currently shows) and because a kScrollView's `scroll_content` is one
@@ -114,7 +115,8 @@ enum class WidgetKind : std::uint8_t {
   // An anchor (this node, interactive like kButton) plus a caller-declared
   // list of option strings and a selected index that OUTLIVES the click
   // that set it - the same "state a checkbox's checked or a slider's value
-  // already earns a kind over" argument made for kSlider, one control over: kButton alone has nowhere to keep
+  // already earns a kind over" argument made for kSlider, one control over: kButton alone has
+  // nowhere to keep
   // "which option is selected" once the popup that showed the choice has
   // closed. The open/closed popup itself is NOT part of this state -
   // PopupHost's own handle already owns that, matching every other popup
@@ -126,6 +128,13 @@ enum class WidgetKind : std::uint8_t {
   // traversal Tab already performs (7-4), routed by Up/Down instead -
   // so no highlight-cursor field belongs here either.
   kDropdown,
+
+  // One part of a kScrollView's/kList's scrollbar: the TRACK (a plain child
+  // of the scrolling node) or the THUMB (the track's one child). Both accept
+  // pointer input, so dg::Interaction's ordinary hover/press/capture drives
+  // them, and neither is focusable - a click on a scrollbar never moves
+  // keyboard focus. Attached by WidgetSet::attach_scrollbar(), never by hand.
+  kScrollbar,
 };
 
 // One widget's whole state. A plain struct of plain fields, for the reason
@@ -317,6 +326,14 @@ struct Widget {
   NodeId label;
   std::vector<std::string> options;
   std::optional<int> selected_index;
+
+  // kScrollView/kList: the scrollbar's two nodes, set by
+  // WidgetSet::attach_scrollbar(); root (the default) means "no scrollbar".
+  // kScrollbar: `scrollbar_of` names the kScrollView/kList the part belongs
+  // to; only the TRACK's widget also carries `scrollbar_thumb`.
+  NodeId scrollbar_track;
+  NodeId scrollbar_thumb;
+  NodeId scrollbar_of;
 };
 
 // A normalized [start, end) byte range into a kTextField's Widget::text.
@@ -327,9 +344,9 @@ struct TextSelection {
 
 // One pool slot's new identity after `WidgetSet::list_sync()`/
 // `list_scroll_by()` reassigned it. `node` never changes once the pool is
-  // built; `logical_index` is what the caller must now
+// built; `logical_index` is what the caller must now
 // paint there - the whole of the data-source seam this slice needed:
-  // the engine reports WHICH node needs WHICH item's
+// the engine reports WHICH node needs WHICH item's
 // content, and the caller writes that content through the exact same
 // `RenderTree::set_fill`/`set_text`/`set_image` calls an unrecycled node
 // would use. No callback, no interface, `virtual`-free by construction
@@ -343,8 +360,8 @@ struct ListSlot {
 // 5.5.2's "text-editing keys are not shortcuts, they are editing intents the
 // TextField itself registers" (line ~595), applied at the smallest scope
 // this slice needs rather than through the intent-binding system design.md
-  // asks for, which does not exist yet (this precondition for keyboard
-  // scrolling was already named elsewhere; it is still absent).
+// asks for, which does not exist yet (this precondition for keyboard
+// scrolling was already named elsewhere; it is still absent).
 enum class TextFieldMove : std::uint8_t {
   kCharLeft,
   kCharRight,
@@ -363,6 +380,49 @@ struct DisabledPalette {
   std::optional<Color> on;
 
   friend bool operator==(const DisabledPalette&, const DisabledPalette&) = default;
+};
+
+// How every scrollbar in one WidgetSet looks, normally resolved from the
+// theme tokens color.scrollbar-track/-thumb/-thumb-hover/-thumb-pressed and
+// size.scrollbar. Held once per set exactly like DisabledPalette, so a theme
+// switch is "set the new style, refresh_subtree() from the root, then
+// sync_scrollbar() each view" (the last step only matters when `size`
+// changed). Unset colours paint transparent.
+struct ScrollbarStyle {
+  std::optional<Color> track;
+  std::optional<Color> thumb;
+  std::optional<Color> thumb_hover;
+  std::optional<Color> thumb_pressed;
+  // Thickness across the scroll axis, device pixels. Also the gutter a
+  // caller reserves for the bar (see attach_scrollbar()).
+  int size = 10;
+  // The thumb never gets shorter than this (nor longer than the track), so
+  // a very long content stays grabbable.
+  int min_thumb_length = 24;
+
+  friend bool operator==(const ScrollbarStyle&, const ScrollbarStyle&) = default;
+};
+
+// Where a scrollbar currently sits, re-derived from scratch on every call.
+// `track` is in the scrolling node's own UNSCROLLED local coordinates (its
+// border box); `thumb` is relative to the track. `offset`/`max_offset` are
+// the scroll position along the bar's axis and its clamp.
+struct ScrollbarGeometry {
+  bool visible = false;
+  ScrollAxis axis = ScrollAxis::kNone;
+  PixelRect track;
+  PixelRect thumb;
+  int offset = 0;
+  int max_offset = 0;
+};
+
+// What a scrollbar interaction did: whether the offset moved, and - for a
+// kList - the pool slots list_scroll_by() reassigned, which the caller must
+// repaint and pass to Focus::blur_if_any_of()/Interaction::forget() exactly
+// as after any other list scroll.
+struct ScrollResult {
+  bool moved = false;
+  std::vector<ListSlot> slots;
 };
 
 class WidgetSet {
@@ -513,6 +573,75 @@ class WidgetSet {
 
   [[nodiscard]] float slider_value(NodeId id) const;
 
+  // --- Scrollbars (kScrollView, kList) ---
+  //
+  // A scrollbar is two plain nodes the CALLER creates, like a slider's
+  // track and thumb: `track` a child of the scrolling node `id` (added after
+  // the content, so it paints and hit-tests on top), `thumb` the track's
+  // only child. Any box works - sync_scrollbar() overrides both nodes'
+  // bounds. The track sits flush against the trailing edge of `id`'s border
+  // box (right for vertical, bottom for horizontal), `ScrollbarStyle::size`
+  // thick. RESERVED GUTTER: the caller gives `id` that much padding on that
+  // edge (a kList: items that much narrower), so the bar never covers
+  // clickable content; without it the bar overlays the content's edge.
+  //
+  // Both parts become kScrollbar widgets (hover/press through Interaction,
+  // never focusable) and are painted once here. A no-op unless `id` is a
+  // kScrollView or kList.
+  void attach_scrollbar(RenderTree& tree, NodeId id, NodeId track, NodeId thumb);
+
+  void set_scrollbar_style(const ScrollbarStyle& style);
+  [[nodiscard]] const ScrollbarStyle& scrollbar_style() const;
+
+  // The bar's geometry for `id` against `viewport_extent` - the visible
+  // length along the scroll axis, the same number scroll_by()'s
+  // `viewport_content` (its height or width) or list_scroll_by()'s
+  // `viewport_extent` carries. Hidden (visible == false) when `id` has no
+  // scrollbar, scrolls on no axis, DG_PROP_SCROLLBAR is `never`, or it is
+  // `auto` and the content fits. The thumb is
+  // track * viewport / content long, clamped to [min_thumb_length, track],
+  // and travels (track - thumb) pixels as the offset goes 0..max_offset.
+  [[nodiscard]] ScrollbarGeometry scrollbar_geometry(const RenderTree& tree, NodeId id,
+                                                     int viewport_extent) const;
+
+  // Moves the track and thumb to scrollbar_geometry() (a hidden bar
+  // collapses both to empty rects, which hit testing never finds). The
+  // track is a child of the SCROLLED node, so its local position includes
+  // the current scroll offset to stay put on screen. scroll_by() and
+  // list_scroll_by() call this themselves; a caller calls it after building
+  // the scene, after any layout pass that touched `id` (layout re-places
+  // the track at the content origin, the same obligation resync_sliders()
+  // has), after writing DG_PROP_SCROLLBAR, and after a raw
+  // RenderTree::set_scroll_offset() that bypassed scroll_by().
+  void sync_scrollbar(RenderTree& tree, NodeId id, int viewport_extent) const;
+
+  // The kScrollView/kList a kScrollbar part `id` belongs to, or nothing
+  // when `id` is not a scrollbar part. Meant for an Interaction target
+  // (owner_of()'s answer), which is a part itself, never one of its
+  // ancestors.
+  [[nodiscard]] std::optional<NodeId> scrollbar_owner_of(NodeId id) const;
+  [[nodiscard]] bool is_scrollbar_thumb(NodeId id) const;
+
+  // A press on scrollbar part `part` at absolute `pointer`. On the THUMB it
+  // starts a drag (remembering where the thumb was grabbed) and scrolls
+  // nothing. On the TRACK it PAGES: moves the offset one `viewport_extent`
+  // toward the pointer, clamped like any scroll - paging, not jumping the
+  // thumb to the click (no "jump here" mode is offered, and holding the
+  // button does not repeat: there is no timer to repeat on).
+  // Does nothing for a disabled part (owner_of() already never reports one).
+  ScrollResult scrollbar_press(RenderTree& tree, NodeId part, int viewport_extent,
+                               PixelPoint pointer);
+
+  // A pointer move while Interaction holds `part`. Only after a press on the
+  // thumb does anything: the thumb follows the pointer (keeping the grab
+  // point under it) and the offset is mapped back from the thumb's
+  // position, clamped to [0, max_offset].
+  ScrollResult scrollbar_drag(RenderTree& tree, NodeId part, int viewport_extent,
+                              PixelPoint pointer);
+
+  // Ends any thumb drag (pointer up, or Interaction lost the capture).
+  void scrollbar_release();
+
   // The value an ABSOLUTE pointer x-coordinate maps to, against `id`'s
   // CURRENT track geometry - the read-side counterpart of the arithmetic
   // set_slider_value() runs in the other direction. A drag handler uses this
@@ -599,8 +728,8 @@ class WidgetSet {
   [[nodiscard]] std::optional<TextSelection> text_field_selection(NodeId id) const;
 
   // Replaces the current selection (if any) or inserts at the cursor.
-  // `input` is sanitized before it touches the model (7-2b): malformed UTF-8 (a lone continuation byte,
-  // a truncated lead, an overlong encoding, a surrogate) is repaired to
+  // `input` is sanitized before it touches the model (7-2b): malformed UTF-8 (a lone
+  // continuation byte, a truncated lead, an overlong encoding, a surrogate) is repaired to
   // U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
   // paragraph_build.cpp substitution, reused rather than a second policy -
   // and ASCII control characters (0x00-0x1F, 0x7F) are dropped, since a
@@ -647,8 +776,8 @@ class WidgetSet {
   bool text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id, int pointer_x,
                         bool extend_selection);
 
-  // Applies the focused/unfocused display mode: focused shows the full string scrolled so the cursor stays visible
-  // and draws a steady (non-blinking - no animation clock exists, matching
+  // Applies the focused/unfocused display mode: focused shows the full string scrolled so the
+  // cursor stays visible and draws a steady (non-blinking - no animation clock exists, matching
   // the declined fling for the identical reason) caret;
   // unfocused shows an ellipsis-truncated prefix when the string overflows
   // the field's width, and hides the caret and any selection highlight.
@@ -712,6 +841,19 @@ class WidgetSet {
   // lets resync_sliders() call this for every kSlider in one pass without
   // re-deriving the NodeId -> Widget* lookup it already has.
   static void reposition_slider(RenderTree& tree, NodeId id, const Widget& widget);
+
+  // Moves `id` (kScrollView or kList) to `offset` along its axis, through
+  // scroll_by()/list_scroll_by() so every side effect they have happens.
+  ScrollResult scroll_to(RenderTree& tree, NodeId id, int viewport_extent, int offset);
+
+  // The thumb drag in progress: which thumb, and how far from the thumb's
+  // leading edge it was grabbed.
+  struct ScrollbarDrag {
+    NodeId thumb;
+    int grab = 0;
+  };
+  std::optional<ScrollbarDrag> scrollbar_drag_;
+  ScrollbarStyle scrollbar_style_;
 
   // Replaces widget.text[lo:hi) with `replacement`, moves the cursor to just
   // past the replacement, clears any selection, then re-derives the

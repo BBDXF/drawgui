@@ -340,6 +340,15 @@ enum class Overflow : std::uint8_t {
 // here only behind an opt-in `std::optional` field with a capped radius
 // (`ShadowStyle::blur_radius`, validated by `dg::set_shadow()`), never as
 // something every node pays for by default.
+// DG_PROP_SCROLLBAR, in the TOML's ordinal order (src/props/node_props.cpp
+// static_asserts it). Read by the widget layer's scrollbar sync
+// (WidgetSet::sync_scrollbar()), never by paint.
+enum class ScrollbarMode : std::uint8_t {
+  kAuto,    // shown only while the content overflows the viewport
+  kAlways,  // shown even when everything fits (the thumb then fills the track)
+  kNever,   // never shown; wheel/keyboard/drag scrolling are unaffected
+};
+
 struct NodeStyle {
   Color fill;
 
@@ -459,6 +468,10 @@ struct NodeStyle {
   // (widget/cursor.h) climbs ancestors from the node under the pointer, so
   // kAuto - the default - inherits.
   Cursor cursor = Cursor::kAuto;
+
+  // DG_PROP_SCROLLBAR. Not a paint input: only a kScrollView/kList with an
+  // attached scrollbar reads it, at WidgetSet::sync_scrollbar() time.
+  ScrollbarMode scrollbar = ScrollbarMode::kAuto;
 };
 
 // How a repaint turns nodes into draw calls.
@@ -582,8 +595,8 @@ class RenderTree {
 
   // Detaches `id`'s whole subtree (id included) from the tree: dropped from
   // its parent's children, every node in the subtree tombstoned and its
-  // generation bumped, none of it compacted - the recorded reason (compacting would silently reattach every node whose
-  // index shifted). Returns false, and changes nothing, for the root
+  // generation bumped, none of it compacted - the recorded reason (compacting would silently
+  // reattach every node whose index shifted). Returns false, and changes nothing, for the root
   // (`id == root()`, which has no parent to detach from) or an already
   // invalid `id` - a reported failure a caller can check, not a silent
   // no-op with a surprising result.

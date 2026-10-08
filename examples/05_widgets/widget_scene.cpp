@@ -447,6 +447,9 @@ std::string describe(const Scene& scene, NodeId id) {
     case WidgetKind::kList:
       kind = "list";
       break;
+    case WidgetKind::kScrollbar:
+      kind = "scrollbar";
+      break;
     case WidgetKind::kDropdown:
       kind = "dropdown";
       break;

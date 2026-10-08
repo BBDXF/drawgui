@@ -58,7 +58,7 @@ std::size_t switch_variant(Scene& scene) {
 
 `themes/schema.toml` 是 token 的编译期契约（生成
 `include/drawgui/theme/token_ids.generated.h` 等文件），运行时数据在
-`themes/builtin/theme.json` 里。当前定义了 14 个 token：
+`themes/builtin/theme.json` 里。当前定义了 19 个 token：
 
 | 分组 | token | 说明 |
 |---|---|---|
@@ -72,13 +72,18 @@ std::size_t switch_variant(Scene& scene) {
 | color | `color.focus-ring` | 焦点环颜色 |
 | color | `color.disabled` | 禁用控件的表面：按钮/勾选框/文本框的填充（取代 normal/hover/pressed 三态）、滑块轨道，以及禁用控件的边框 |
 | color | `color.on-disabled` | 禁用控件上的前景：文字、已勾选 checkbox/radio 的标记、滑块的圆点 |
+| color | `color.scrollbar-track` | 滚动条轨道 |
+| color | `color.scrollbar-thumb` | 滚动条滑块（静止） |
+| color | `color.scrollbar-thumb-hover` | 指针悬停时的滑块 |
+| color | `color.scrollbar-thumb-pressed` | 拖动中的滑块 |
 | radius | `radius.sm` | 小圆角 |
 | radius | `radius.md` | 默认圆角 |
 | space | `space.sm` | 小间距 |
 | space | `space.md` | 默认间距/padding |
+| size | `size.scrollbar` | 滚动条粗细（设备像素），也是视口要预留的槽宽 |
 
-即 7 个基础语义色 + 1 个 focus-ring 色 + 2 个禁用态颜色 = 10 个 color token，
-加 2 个圆角 + 2 个间距 = 4 个 int token（见 `themes/schema.toml`）。
+即 7 个基础语义色 + 1 个 focus-ring 色 + 2 个禁用态颜色 + 4 个滚动条颜色 = 14 个 color
+token，加 2 个圆角 + 2 个间距 + 1 个滚动条粗细 = 5 个 int token（见 `themes/schema.toml`）。
 
 两个禁用态 token 和 `color.focus-ring` 一样是**直接读取**（`Theme::color_value()`），
 不是逐节点的 `$token` 绑定：整个 `WidgetSet` 共用一份 `dg::DisabledPalette{fill, on}`，
@@ -96,6 +101,25 @@ scene.widgets.refresh_subtree(scene.tree.render(), dg::LayoutTree::root(), inter
 `refresh_subtree()` 把它记作「恢复启用时要用的颜色」，然后重新盖上新主题的禁用色。
 C ABI 已经这样做了：开窗口时读一次，`dg_app_set_theme()`/`dg_theme_set_variant()`/
 `dg_theme_override()` 之后对每个窗口重新读取并刷新。
+
+滚动条 token 走同一条路：整个 `WidgetSet` 共用一份 `dg::ScrollbarStyle`
+（`set_scrollbar_style()`），轨道/滑块的颜色在 `refresh()` 时从它读取。切换主题：
+
+```cpp
+dg::ScrollbarStyle style;
+style.track = theme.color_value(DG_TOKEN_COLOR_SCROLLBAR_TRACK, variant);
+style.thumb = theme.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB, variant);
+style.thumb_hover = theme.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER, variant);
+style.thumb_pressed = theme.color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED, variant);
+style.size = theme.int_value(DG_TOKEN_SIZE_SCROLLBAR).value_or(style.size);
+widgets.set_scrollbar_style(style);
+widgets.refresh_subtree(tree.render(), dg::LayoutTree::root(), interaction);  // 颜色
+widgets.sync_scrollbar(tree.render(), viewport, extent);  // 只在 size 变了时需要
+```
+
+`size` 变了的话，视口预留的槽（padding）也要由调用方改成新值。禁用的滚动条用禁用调色板
+（轨道 `color.disabled`、滑块 `color.on-disabled`），和滑块控件一致。`min_thumb_length`
+（默认 24）目前不是 token。C ABI 还没有滚动视图节点类型，所以 ABI 侧没有对应的刷新。
 
 内建主题的取值：`on-disabled` 在 `surface` 上大约 3:1 的对比度——文字还能读，
 但明显比正文（约 15:1）暗；`disabled` 只比 `surface` 略深/略浅，控件轮廓还在但不抢眼。

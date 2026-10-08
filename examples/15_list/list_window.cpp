@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <initializer_list>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -12,6 +13,7 @@
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/layout_tree.h"
+#include "drawgui/widget/interaction.h"
 #include "drawgui/window/window_manager.h"
 
 #include "list_scene.h"
@@ -34,6 +36,7 @@ dg::TreeSpec spec_for(dg::PixelSize size) {
 
 void legend(std::ostream& out) {
   out << "  wheel or click-drag inside the panel scrolls a virtualized 1000-item list.\n"
+      << "  drag the scrollbar thumb, or click its track to page by one viewport.\n"
       << "  only " << list_scene::kPoolSize << " real nodes exist at any time - the rest is "
       << "recycled.\n";
 }
@@ -46,6 +49,16 @@ void apply_presets(list_scene::Scene& scene, const Settings& settings) {
       scene.tree.render(), scene.handles.list, list_scene::kViewportHeight, 0,
       settings.preset_jump_items * list_scene::kItemHeight);
   list_scene::refresh(scene, slots);
+}
+
+void refresh_touched(list_scene::Scene& scene, const dg::Interaction& interaction,
+                     const dg::InteractionChange& change) {
+  for (const std::optional<dg::NodeId>& id :
+       {change.left, change.entered, change.pressed, change.released}) {
+    if (id.has_value()) {
+      scene.widgets.refresh(scene.tree.render(), *id, interaction.state_of(*id));
+    }
+  }
 }
 
 class Runner {
@@ -62,7 +75,7 @@ class Runner {
   static void handle_wheel(list_scene::Scene& scene, const dg::PointerEvent& event);
   void handle_down(list_scene::Scene& scene, dg::PixelPoint at);
   void handle_move(list_scene::Scene& scene, dg::PixelPoint at);
-  void handle_up();
+  void handle_up(list_scene::Scene& scene, std::optional<dg::NodeId> over);
 
   Settings settings_;
   std::ostream* out_;
@@ -73,6 +86,9 @@ class Runner {
 
   std::optional<dg::NodeId> dragging_;
   dg::PixelPoint drag_last_;
+
+  // Scrollbar hover/press; a thumb drag runs on Interaction's press capture.
+  dg::Interaction interaction_;
 };
 
 bool Runner::resize_if_needed() {
@@ -87,6 +103,7 @@ bool Runner::resize_if_needed() {
     }
     scene_->tree.resize(pixels);
     scene_->tree.layout();
+    list_scene::sync_scrollbar(*scene_);
   } else {
     list_scene::Options options;
     options.spec = spec_for(pixels);
@@ -98,7 +115,9 @@ bool Runner::resize_if_needed() {
 }
 
 void Runner::draw(list_scene::Scene& scene, dg::RasterSurface& surface) {
-  scene.tree.layout();
+  if (scene.tree.layout().nodes_relaid_out != 0) {
+    list_scene::sync_scrollbar(scene);
+  }
   if (scene.tree.render().damage().is_empty()) {
     return;
   }
@@ -135,11 +154,30 @@ void Runner::handle_down(list_scene::Scene& scene, dg::PixelPoint at) {
   if (!hit.has_value()) {
     return;
   }
+  const std::optional<dg::NodeId> owner = scene.widgets.owner_of(scene.tree.render(), *hit);
+  refresh_touched(scene, interaction_, interaction_.pressed_on(owner));
+  if (scene.widgets.scrollbar_owner_of(*hit).has_value()) {
+    if (owner.has_value()) {
+      list_scene::refresh(scene, scene.widgets
+                                     .scrollbar_press(scene.tree.render(), *owner,
+                                                      list_scene::kViewportHeight, at)
+                                     .slots);
+    }
+    return;
+  }
   dragging_ = scene.widgets.list_owner_of(scene.tree.render(), *hit);
   drag_last_ = at;
 }
 
 void Runner::handle_move(list_scene::Scene& scene, dg::PixelPoint at) {
+  refresh_touched(scene, interaction_,
+                  interaction_.moved_over(scene.widgets.widget_at(scene.tree.render(), at)));
+  if (const std::optional<dg::NodeId> held = interaction_.holding(); held.has_value()) {
+    list_scene::refresh(
+        scene, scene.widgets
+                   .scrollbar_drag(scene.tree.render(), *held, list_scene::kViewportHeight, at)
+                   .slots);
+  }
   if (!dragging_.has_value()) {
     return;
   }
@@ -153,8 +191,10 @@ void Runner::handle_move(list_scene::Scene& scene, dg::PixelPoint at) {
   list_scene::refresh(scene, slots);
 }
 
-void Runner::handle_up() {
+void Runner::handle_up(list_scene::Scene& scene, std::optional<dg::NodeId> over) {
   dragging_.reset();
+  scene.widgets.scrollbar_release();
+  refresh_touched(scene, interaction_, interaction_.released_on(over));
 }
 
 int Runner::run() {
@@ -189,8 +229,11 @@ int Runner::run() {
           handle_move(scene, dg::PixelPoint{event.x, event.y});
           break;
         case dg::PointerAction::kUp:
+          handle_up(scene, scene.widgets.widget_at(scene.tree.render(), {event.x, event.y}));
+          break;
         case dg::PointerAction::kLeave:
-          handle_up();
+          handle_up(scene, std::nullopt);
+          refresh_touched(scene, interaction_, interaction_.left_window());
           break;
       }
     }

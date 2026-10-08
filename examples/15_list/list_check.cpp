@@ -84,11 +84,11 @@ bool check_pool_bounded(std::ostream& out) {
         << "items vs " << large.tree.node_count() << " at 1000) - the pool is not fixed\n";
     ok = false;
   }
-  // body + list viewport + pool.
-  const std::size_t expected = 2 + static_cast<std::size_t>(list_scene::kPoolSize);
+  // body + list viewport + pool + scrollbar track and thumb.
+  const std::size_t expected = 4 + static_cast<std::size_t>(list_scene::kPoolSize);
   if (large.tree.node_count() != expected) {
     out << "  FAIL: node_count is " << large.tree.node_count() << " at 1000 items, expected "
-        << expected << " (2 + kPoolSize)\n";
+        << expected << " (4 + kPoolSize)\n";
     ok = false;
   }
   if (ok) {
@@ -221,6 +221,78 @@ bool check_overscroll_clamps(std::ostream& out) {
   return ok;
 }
 
+// --------------------------------------------------------------------------
+// Claim 5: the scrollbar. Proportional (clamped to its minimum - 1000 items
+// make the exact proportion tiny), in a reserved gutter, and a thumb drag
+// recycles the pool to exactly the window the new offset shows, with no
+// residue - the same exact-content bar Claim 3 holds every scroll to.
+// --------------------------------------------------------------------------
+
+bool check_scrollbar(std::ostream& out) {
+  list_scene::Scene scene = list_scene::build(options_for(1000));
+  dg::RenderTree& tree = scene.tree.render();
+  const list_scene::Handles& h = scene.handles;
+  const std::vector<NodeId>& pool = scene.widgets.at(h.list).list_pool;
+  bool ok = true;
+
+  const dg::PixelRect list = tree.absolute_bounds(h.list);
+  const dg::PixelRect track = tree.absolute_bounds(h.track);
+  const dg::PixelRect thumb = tree.absolute_bounds(h.thumb);
+  if (h.gutter <= 0 ||
+      track != dg::PixelRect{list.right() - h.gutter, list.y, h.gutter, list.height}) {
+    out << "  FAIL: the track is not the list's right-hand gutter\n";
+    ok = false;
+  }
+  if (tree.absolute_bounds(pool.front()).right() > track.x) {
+    out << "  FAIL: a list item reaches under the scrollbar\n";
+    ok = false;
+  }
+  const int min_thumb = scene.widgets.scrollbar_style().min_thumb_length;
+  if (thumb.height != min_thumb || thumb.y != list.y) {
+    out << "  FAIL: thumb is " << thumb.height << " px at " << thumb.y << ", expected "
+        << min_thumb << " px at the top\n";
+    ok = false;
+  }
+
+  // Drag the thumb to the very end: the last items show, exactly.
+  const dg::PixelPoint grab{thumb.x + 2, thumb.y + 2};
+  if (scene.widgets.widget_at(tree, grab) != h.thumb) {
+    out << "  FAIL: a press on the thumb does not resolve to the thumb\n";
+    ok = false;
+  }
+  (void)scene.widgets.scrollbar_press(tree, h.thumb, list_scene::kViewportHeight, grab);
+  list_scene::refresh(scene, scene.widgets
+                                 .scrollbar_drag(tree, h.thumb, list_scene::kViewportHeight,
+                                                 dg::PixelPoint{grab.x, grab.y + 2000})
+                                 .slots);
+  scene.widgets.scrollbar_release();
+  const int max_offset = (1000 * list_scene::kItemHeight) - list_scene::kViewportHeight;
+  if (tree.scroll_offset(h.list).y != max_offset) {
+    out << "  FAIL: dragging the thumb to the end left offset " << tree.scroll_offset(h.list).y
+        << ", expected " << max_offset << "\n";
+    ok = false;
+  }
+  if (tree.absolute_bounds(h.thumb).bottom() != track.bottom()) {
+    out << "  FAIL: the thumb did not reach the bottom of the track\n";
+    ok = false;
+  }
+  ok = check_exact_content(scene, pool, out, "after thumb drag to end") && ok;
+
+  // A track click above the thumb pages back by one viewport.
+  (void)scene.widgets.scrollbar_press(tree, h.track, list_scene::kViewportHeight,
+                                      dg::PixelPoint{track.x + 2, track.y + 2});
+  if (tree.scroll_offset(h.list).y != max_offset - list_scene::kViewportHeight) {
+    out << "  FAIL: a track click did not page up by one viewport\n";
+    ok = false;
+  }
+  if (ok) {
+    out << "  OK: the list's " << h.gutter
+        << " px scrollbar sits in a reserved gutter, a thumb drag to the end recycles the "
+           "pool to the last items with no residue, and a track click pages back\n";
+  }
+  return ok;
+}
+
 }  // namespace
 
 int run(std::ostream& out) {
@@ -230,6 +302,7 @@ int run(std::ostream& out) {
   ok = check_no_relayout(out) && ok;
   ok = check_residue(out) && ok;
   ok = check_overscroll_clamps(out) && ok;
+  ok = check_scrollbar(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;
 }

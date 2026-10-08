@@ -1,5 +1,7 @@
 #include "scroll_check.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -10,6 +12,8 @@
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/layout_tree.h"
+#include "drawgui/props/node_props.h"
+#include "drawgui/render/prop_ids.generated.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/action_ids.generated.h"
 #include "drawgui/shortcuts/action_scopes.h"
@@ -410,6 +414,106 @@ bool check_keyboard_scroll_end_to_end(std::ostream& out) {
   return ok;
 }
 
+// --------------------------------------------------------------------------
+// Claim 7: scrollbars. Both viewports show one in their reserved gutter,
+// sized by the theme; the thumb follows the wheel; dragging the thumb and
+// clicking the track scroll by the amounts the geometry says; `never` hides
+// it. Driven through the same WidgetSet calls the window driver makes.
+// --------------------------------------------------------------------------
+
+bool check_scrollbars(std::ostream& out) {
+  scroll_scene::Scene scene = scroll_scene::build(spec_for(kSize));
+  RenderTree& tree = scene.tree.render();
+  const scroll_scene::Handles& h = scene.handles;
+  bool ok = true;
+  const auto fail = [&](const char* what) {
+    out << "  FAIL: " << what << "\n";
+    ok = false;
+  };
+
+  if (h.gutter <= 0) {
+    fail("the builtin theme gave no size.scrollbar");
+    return false;
+  }
+  const PixelRect vp = tree.absolute_bounds(h.vertical_viewport);
+  const PixelRect track = tree.absolute_bounds(h.vertical_track);
+  const PixelRect thumb = tree.absolute_bounds(h.vertical_thumb);
+  if (track != PixelRect{vp.right() - h.gutter, vp.y, h.gutter, vp.height}) {
+    fail("the vertical track is not the viewport's right-hand gutter");
+  }
+  if (tree.absolute_bounds(h.vertical_items.front()).right() > track.x) {
+    fail("an item reaches under the vertical scrollbar - the gutter is not reserved");
+  }
+  const int extent = scroll_scene::scroll_extent(scene, h.vertical_viewport);
+  const int content = tree.local_bounds(h.vertical_content).height;
+  const int max_offset = content - extent;
+  const int expected_thumb = static_cast<int>(
+      std::lround(static_cast<double>(vp.height) * extent / static_cast<double>(content)));
+  if (thumb.height != expected_thumb || thumb.y != vp.y) {
+    out << "  FAIL: vertical thumb " << thumb.height << " px at " << thumb.y << ", expected "
+        << expected_thumb << " px at " << vp.y << "\n";
+    ok = false;
+  }
+  const PixelRect htrack = tree.absolute_bounds(h.horizontal_track);
+  const PixelRect hp = tree.absolute_bounds(h.horizontal_viewport);
+  if (htrack != PixelRect{hp.x, hp.bottom() - h.gutter, hp.width, h.gutter}) {
+    fail("the horizontal track is not the strip's bottom gutter");
+  }
+
+  // The wheel moves the thumb to the end; the track does not move.
+  const PixelRect content_box = scene.tree.content_bounds(h.vertical_viewport);
+  scene.widgets.scroll_by(tree, h.vertical_viewport, content_box, 0, 1000000);
+  if (tree.absolute_bounds(h.vertical_thumb).bottom() != track.bottom() ||
+      tree.absolute_bounds(h.vertical_track) != track) {
+    fail("after scrolling to the end the thumb is not at the track's bottom");
+  }
+  scene.widgets.scroll_by(tree, h.vertical_viewport, content_box, 0, -1000000);
+
+  // Drag the thumb by half its travel: the offset follows proportionally.
+  const PixelPoint grab{thumb.x + (thumb.width / 2), thumb.y + 4};
+  const std::optional<NodeId> owner = scene.widgets.widget_at(tree, grab);
+  if (owner != h.vertical_thumb) {
+    fail("a press on the thumb does not resolve to the thumb");
+  }
+  const int travel = track.height - thumb.height;
+  (void)scene.widgets.scrollbar_press(tree, h.vertical_thumb, extent, grab);
+  (void)scene.widgets.scrollbar_drag(tree, h.vertical_thumb, extent,
+                                     PixelPoint{grab.x, grab.y + (travel / 2)});
+  scene.widgets.scrollbar_release();
+  const int half_travel = travel / 2;
+  const int expected = static_cast<int>(
+      std::lround(static_cast<double>(half_travel) * max_offset / static_cast<double>(travel)));
+  if (tree.scroll_offset(h.vertical_viewport).y != expected) {
+    out << "  FAIL: dragging the thumb " << travel / 2 << " px gave offset "
+        << tree.scroll_offset(h.vertical_viewport).y << ", expected " << expected << "\n";
+    ok = false;
+  }
+
+  // A click on the track below the thumb pages down one viewport.
+  const int before = tree.scroll_offset(h.vertical_viewport).y;
+  (void)scene.widgets.scrollbar_press(tree, h.vertical_track, extent,
+                                      PixelPoint{track.x + 2, track.bottom() - 2});
+  if (tree.scroll_offset(h.vertical_viewport).y != std::min(max_offset, before + extent)) {
+    fail("a track click below the thumb did not page down by one viewport");
+  }
+
+  // DG_PROP_SCROLLBAR = never hides the bar; scrolling still works.
+  (void)dg::set_prop(scene.tree, h.vertical_viewport, DG_PROP_SCROLLBAR,
+                     dg::PropValue::option(DG_SCROLLBAR_NEVER));
+  scroll_scene::sync_scrollbars(scene);
+  if (!tree.absolute_bounds(h.vertical_track).is_empty()) {
+    fail("scrollbar = never left the track on screen");
+  }
+
+  if (ok) {
+    out << "  OK: both strips show a " << h.gutter
+        << " px scrollbar in a reserved gutter; the thumb is proportional, follows the "
+           "wheel, maps a drag back onto the offset, a track click pages, and `never` hides "
+           "it\n";
+  }
+  return ok;
+}
+
 }  // namespace
 
 int run(std::ostream& out) {
@@ -422,6 +526,7 @@ int run(std::ostream& out) {
   ok = check_no_relayout(out) && ok;
   ok = check_identity(out) && ok;
   ok = check_keyboard_scroll_end_to_end(out) && ok;
+  ok = check_scrollbars(out) && ok;
   out << (ok ? "PASS\n" : "FAIL\n");
   return ok ? 0 : 1;
 }

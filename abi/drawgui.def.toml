@@ -190,7 +190,10 @@ schema_version = 1
 #        state events, DG_PIXEL_FORMAT_*, DG_WINDOW_STATE_*, and
 #        dg_window_opts' resizable/min/max fields; DG_PROP_CURSOR + the
 #        C-side enum value constants (DG_CURSOR_* and every other enum
-#        property's DG_<PROP>_<VALUE>), and dg_debug_get_cursor().
+#        property's DG_<PROP>_<VALUE>), and dg_debug_get_cursor();
+#        DG_PROP_SCROLLBAR + DG_SCROLLBAR_AUTO/ALWAYS/NEVER and the
+#        scrollbar theme tokens (DG_TOKEN_COLOR_SCROLLBAR_*,
+#        DG_TOKEN_SIZE_SCROLLBAR).
 [meta]
 abi_major = 0
 abi_minor = 2

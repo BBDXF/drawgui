@@ -71,7 +71,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 54
+next_id = 55
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -676,3 +676,22 @@ group = "interaction"
 field = "cursor"
 applies_to = ["box"]
 summary = "Mouse cursor shape over this node; auto inherits from ancestors, then the widget kind's default."
+
+# ---------------------------------------------------------------------------
+# Container - SCROLLBAR visibility on a kScrollView/kList. Not a paint input:
+# the widget layer reads it when it re-derives the bar's geometry
+# (WidgetSet::sync_scrollbar(), include/drawgui/widget/widget_set.h), so a
+# write takes effect at the next sync, the same caller obligation
+# DG_PROP_DISABLED has with refresh_subtree(). `auto` (ordinal 0, the
+# default) shows the bar only while the content overflows the viewport.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "scrollbar"
+id = 54
+type = "enum"
+values = ["auto", "always", "never"]
+group = "container"
+field = "scrollbar"
+applies_to = ["box"]
+summary = "Scrollbar visibility on a scroll view or list: auto shows it only while content overflows."

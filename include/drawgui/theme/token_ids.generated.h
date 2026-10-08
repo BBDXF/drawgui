@@ -77,6 +77,23 @@ inline constexpr dg_token_id DG_TOKEN_COLOR_DISABLED = 13;  // "color.disabled"
 // Foreground on a disabled widget (DisabledPalette::on) - its text, a checked checkbox/radio mark, a slider thumb.
 // type=color
 inline constexpr dg_token_id DG_TOKEN_COLOR_ON_DISABLED = 14;  // "color.on-disabled"
+// The scrollbar track (ScrollbarStyle::track) - the strip the thumb travels along, shown while the bar is visible.
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_SCROLLBAR_TRACK = 15;  // "color.scrollbar-track"
+// The scrollbar thumb at rest (ScrollbarStyle::thumb).
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_SCROLLBAR_THUMB = 16;  // "color.scrollbar-thumb"
+// The scrollbar thumb while the pointer is over it (ScrollbarStyle::thumb_hover).
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER = 17;  // "color.scrollbar-thumb-hover"
+// The scrollbar thumb while it is being dragged (ScrollbarStyle::thumb_pressed).
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED = 18;  // "color.scrollbar-thumb-pressed"
 
-inline constexpr std::uint16_t kDgTokenMaxId = 14;
-inline constexpr std::uint16_t kDgTokenCount = 14;
+// -- size --------------------------------------------------------
+// The scrollbar's thickness in device pixels (ScrollbarStyle::size) - also the gutter a scroll view reserves for it.
+// type=int
+inline constexpr dg_token_id DG_TOKEN_SIZE_SCROLLBAR = 19;  // "size.scrollbar"
+
+inline constexpr std::uint16_t kDgTokenMaxId = 19;
+inline constexpr std::uint16_t kDgTokenCount = 19;

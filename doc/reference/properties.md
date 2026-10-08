@@ -77,7 +77,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
 `kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
 
-## 5. 属性表（53 项）
+## 5. 属性表（54 项）
 
 列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
 常量与文档、setter 里出现的那个词汇）；**内部字段**是
@@ -135,7 +135,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 50 | `text` | text | 完整 | label/button 等绘制的 UTF-8 字符串；**专用 setter**（`set_text`，C ABI 为 `dg_node_set_text`），标量入口返回 `kTypeMismatch`；字体/字号/对齐不是属性，取引擎默认值 |
 | 51 | `text_color` | color | 完整 | `TextStyle::color`，走普通标量路径；默认全透明，只设 `text` 不设它则看不见文字 |
 
-### 5.4 container（id 31-37, 46）
+### 5.4 container（id 31-37, 46, 54）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -147,6 +147,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 36 | `run_gap` | float | 完整 | 仅 `RenderWrap` 有意义，用于换行后行间距 |
 | 37 | `align_content` | enum(6 值) | 完整 | 仅 `RenderWrap`；行堆叠方向的交叉轴对齐 |
 | 46 | `scroll_axis` | enum(`none`/`vertical`/`horizontal`) | 完整 | 仅限叶子节点（`kLeaf`）；决定该节点给子节点哪个轴的无界约束 |
+| 54 | `scrollbar` | enum(`auto`/`always`/`never`) | 完整 | `NodeStyle::scrollbar`，写在挂了滚动条的 `kScrollView`/`kList` 节点上。序号即 `DG_SCROLLBAR_*`：`auto`(0，默认，内容溢出才显示)、`always`(1)、`never`(2，隐藏但照常滚动)。不是绘制输入，写入不重排；在下一次 `WidgetSet::sync_scrollbar()` 时生效（C++ 调用方写完要自己调）。见 `doc/guide/widgets.md`「滚动条」 |
 
 ### 5.5 flex（parentData，id 38-41）
 
@@ -172,8 +173,8 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 
 ## 6. 状态汇总（自查结果）
 
-- 42 项完整、10 项部分实现、1 项未实现（`transform`），共 53 项（含 P6 a1
-  新增的 `text`/`text_color`，以及 `disabled`、`cursor`）。
+- 43 项完整、10 项部分实现、1 项未实现（`transform`），共 54 项（含 P6 a1
+  新增的 `text`/`text_color`，以及 `disabled`、`cursor`、`scrollbar`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
   （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。

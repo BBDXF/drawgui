@@ -19,7 +19,8 @@ inline constexpr char kBuiltinThemeJson[] = R"DGTHEMEJSON(
     "radius.sm": 4,
     "radius.md": 8,
     "space.sm": 4,
-    "space.md": 8
+    "space.md": 8,
+    "size.scrollbar": 10
   },
   "variants": {
     "light": {
@@ -32,7 +33,11 @@ inline constexpr char kBuiltinThemeJson[] = R"DGTHEMEJSON(
       "color.primary-pressed": "#2952A3FF",
       "color.focus-ring": "#FF8800FF",
       "color.disabled": "#E4E6E9FF",
-      "color.on-disabled": "#878D94FF"
+      "color.on-disabled": "#878D94FF",
+      "color.scrollbar-track": "#F0F1F3FF",
+      "color.scrollbar-thumb": "#B8BDC4FF",
+      "color.scrollbar-thumb-hover": "#9EA4ACFF",
+      "color.scrollbar-thumb-pressed": "#80868FFF"
     },
     "dark": {
       "color.surface": "#1E1E1EFF",
@@ -44,7 +49,11 @@ inline constexpr char kBuiltinThemeJson[] = R"DGTHEMEJSON(
       "color.primary-pressed": "#5580D9FF",
       "color.focus-ring": "#FFA733FF",
       "color.disabled": "#2E3238FF",
-      "color.on-disabled": "#6E757DFF"
+      "color.on-disabled": "#6E757DFF",
+      "color.scrollbar-track": "#202328FF",
+      "color.scrollbar-thumb": "#4A5059FF",
+      "color.scrollbar-thumb-hover": "#5E656FFF",
+      "color.scrollbar-thumb-pressed": "#767E89FF"
     }
   }
 }
