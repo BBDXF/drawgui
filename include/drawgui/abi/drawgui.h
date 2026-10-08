@@ -477,11 +477,12 @@ typedef uint16_t dg_token_id;
 /* the ring is paint/positioning state with no LayoutTree node of its own, the */
 /* same shape TextField's caret/selection_highlight already are). */
 #define DG_TOKEN_COLOR_FOCUS_RING 12
-/* The surface fill of a disabled interactive widget (Widget::fill_disabled) - */
-/* replaces its normal/hover/pressed fills while dg::is_disabled() holds. */
+/* The surface of a disabled widget (DisabledPalette::fill) - replaces its */
+/* normal/hover/pressed fills while dg::is_disabled() holds; also a disabled */
+/* slider track and every disabled border. */
 #define DG_TOKEN_COLOR_DISABLED 13
-/* Foreground marks on a disabled widget - a checked checkbox/radio indicator */
-/* (Widget::indicator_disabled). */
+/* Foreground on a disabled widget (DisabledPalette::on) - its text, a checked */
+/* checkbox/radio mark, a slider thumb. */
 #define DG_TOKEN_COLOR_ON_DISABLED 14
 
 #endif /* !__cplusplus */

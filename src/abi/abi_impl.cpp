@@ -359,31 +359,13 @@ std::optional<dg::ThemeVariant> parse_variant(const char* variant) {
   return std::nullopt;
 }
 
-// dg_app_set_theme()/dg_theme_set_variant()/dg_theme_override() all end
-// here: whichever one changed the theme's DATA, the same re-apply against
-// every open window's own dg::ThemeBindings is what makes the change live -
-// design.md section 5.7.6's hot reload, at the ABI boundary, reusing 6-2's
-// ThemeBindings::apply() unchanged rather than inventing per-caller
-// invalidation logic three times over.
-void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
-  if (impl.active_theme != &theme) {
-    return;
-  }
-  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
-    if (!window->closed) {
-      window->theme_bindings.apply(window->tree, theme.theme, theme.variant);
-    }
-  }
-}
-
-// -- Node attachment --------------------------------------------------------
-//
 // DG_PROP_DISABLED's appearance, from the theme tokens color.disabled/
 // color.on-disabled: the app's active theme when it has one, else the
 // builtin theme (dark variant, matching this file's own dark default
-// palette). Read once at attach time - a later dg_app_set_theme() does not
-// re-read it, the same as every other attach-time widget colour here.
-void apply_disabled_colors(const AppImpl& impl, dg::Widget& widget) {
+// palette). Held once per window (WidgetSet::set_disabled_palette()), so a
+// theme change re-resolves it below instead of leaving stale colours on
+// widgets attached earlier.
+dg::DisabledPalette disabled_palette_for(const AppImpl& impl) {
   const dg::Theme* theme = nullptr;
   dg::ThemeVariant variant = dg::ThemeVariant::kDark;
   if (impl.active_theme != nullptr) {
@@ -396,12 +378,37 @@ void apply_disabled_colors(const AppImpl& impl, dg::Widget& widget) {
     }
   }
   if (theme == nullptr) {
-    return;
+    return {};
   }
-  widget.fill_disabled = theme->color_value(DG_TOKEN_COLOR_DISABLED, variant);
-  widget.indicator_disabled = theme->color_value(DG_TOKEN_COLOR_ON_DISABLED, variant);
+  return dg::DisabledPalette{theme->color_value(DG_TOKEN_COLOR_DISABLED, variant),
+                             theme->color_value(DG_TOKEN_COLOR_ON_DISABLED, variant)};
 }
 
+// dg_app_set_theme()/dg_theme_set_variant()/dg_theme_override() all end
+// here: whichever one changed the theme's DATA, the same re-apply against
+// every open window's own dg::ThemeBindings is what makes the change live -
+// design.md section 5.7.6's hot reload, at the ABI boundary, reusing 6-2's
+// ThemeBindings::apply() unchanged rather than inventing per-caller
+// invalidation logic three times over. The disabled palette is re-resolved
+// AFTER the bindings, so a disabled node whose colour is token-bound keeps
+// its disabled look and remembers the new enabled colour for later.
+void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
+  if (impl.active_theme != &theme) {
+    return;
+  }
+  const dg::DisabledPalette palette = disabled_palette_for(impl);
+  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
+    if (!window->closed) {
+      window->theme_bindings.apply(window->tree, theme.theme, theme.variant);
+      window->widgets.set_disabled_palette(palette);
+      window->widgets.refresh_subtree(window->tree.render(), dg::LayoutTree::root(),
+                                      window->interaction);
+    }
+  }
+}
+
+// -- Node attachment --------------------------------------------------------
+//
 // After a DG_PROP_DISABLED write on `node`: cancel a press/hover the write
 // just disabled (no click fires), blur a focus it just disabled, and repaint
 // every widget in the subtree, since the bit inherits.
@@ -502,7 +509,6 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     widget.fill_normal = dg::Color::rgba(0x35, 0x6B, 0xC7);
     widget.fill_hover = dg::Color::rgba(0x4A, 0x86, 0xE3);
     widget.fill_pressed = dg::Color::rgba(0x25, 0x50, 0x9C);
-    apply_disabled_colors(impl, widget);
     window.widgets.attach(new_id, widget);
     window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
   } else if (slot.type_id == DG_NODE_TYPE_LABEL) {
@@ -531,7 +537,6 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     widget.indicator_on = dg::Color::from_argb(kCheckboxOnArgb);
     widget.indicator_off = dg::Color::from_argb(kCheckboxOffArgb);
     widget.checked = false;
-    apply_disabled_colors(impl, widget);
     // widget.group left unset (std::nullopt): this ABI never exports radio
     // grouping - see abi/drawgui.def.toml's own "WHAT IS DELIBERATELY NOT
     // HERE" entry on Widget::group for why.
@@ -577,11 +582,15 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
 
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kTextField;
+    // The box keeps its fill on hover/press, and gets it back after being
+    // disabled (refresh() paints fill_normal for an enabled widget).
+    widget.fill_normal = dg::Color::from_argb(kTextFieldFillArgb);
+    widget.fill_hover = widget.fill_normal;
+    widget.fill_pressed = widget.fill_normal;
     widget.content = content;
     widget.caret = caret;
     widget.selection_highlight = highlight;
     widget.composition_underline = underline;
-    apply_disabled_colors(impl, widget);
     window.widgets.attach(new_id, widget);
     if (impl.fonts.has_value()) {
       window.widgets.text_field_set_focus(window.tree.render(), *impl.fonts, new_id, false);
@@ -1152,6 +1161,7 @@ dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
   auto window = std::make_unique<WindowImpl>(tree_spec);
   window->sdl_window = opened.value();
   window->self_index = impl->windows.size();
+  window->widgets.set_disabled_palette(disabled_palette_for(*impl));
   // P6 sub-step a2 (second half): enabled for the window's whole lifetime,
   // never toggled per focus change - the identical choice
   // examples/12_text_input/text_field_window.cpp's own Runner::

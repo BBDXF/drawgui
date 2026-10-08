@@ -158,11 +158,26 @@ FocusChange f = focus.blur_if_disabled(tree.render());              // 失焦
 widgets.refresh_subtree(tree.render(), group, interaction);         // 重绘子树
 ```
 
-外观：`refresh()` 在禁用时忽略 `PointerState`，画 `Widget::fill_disabled`（未设置时退回
-`fill_normal`）；已勾选的 checkbox/radio 指示器画 `Widget::indicator_disabled`（未设置时
-保持 `indicator_on`）。这两个颜色应从主题 token `color.disabled`/`color.on-disabled`
-读取（见 `doc/guide/theming.md`）。`kSlider` 没有由 `refresh()` 管理的填充色，所以禁用的
-滑块目前**外观不变**，只是拖不动。
+外观：禁用控件只用两种颜色，都来自 `WidgetSet` 上的 `dg::DisabledPalette`
+（`set_disabled_palette()`，取主题 token `color.disabled`/`color.on-disabled`，见
+`doc/guide/theming.md`）：
+
+| 部位 | 禁用时 |
+|------|--------|
+| 按钮/勾选框/文本框的填充 | `fill`（不再有 hover/press 变化） |
+| 边框（任何有边框的节点） | `fill`——边框融进填充，控件变「平」，不会因为禁用反而多出一圈轮廓 |
+| 文字（标签、按钮文字、文本框内容） | `on` |
+| 已勾选的 checkbox/radio 标记 | `on`；未勾选的保持 `indicator_off` |
+| 滑块轨道 / 圆点 | `fill` / `on` |
+
+禁用的控件本来就不会获得焦点，所以也不会画焦点环。单个 widget 仍可用
+`Widget::fill_disabled`/`indicator_disabled` 覆盖调色板。
+
+`refresh()` 只管填充和勾选标记；文字、边框、滑块颜色由 `refresh_subtree()` 处理，它会
+遍历子树里的**每个节点**（不只是可交互的）。启用时的原颜色会被记住，重新启用后放回去；
+如果禁用期间有人改写了这个颜色（例如主题绑定重新应用），就以新写入的值为准。所以写完
+`DG_PROP_DISABLED`、或者切换主题后，都要对相关子树调一次 `refresh_subtree()`。
+已知限制：禁用期间直接写某个节点的文字颜色，要到下一次 `refresh_subtree()` 才会变灰。
 
 ## 常见任务怎么做
 

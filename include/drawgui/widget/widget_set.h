@@ -155,9 +155,9 @@ struct Widget {
   Color fill_pressed;
 
   // Painted instead of the three above while dg::is_disabled() holds for
-  // this node (its own DG_PROP_DISABLED or an ancestor's). Meant to be read
-  // from the theme's `color.disabled` token; unset keeps `fill_normal`, so a
-  // disabled widget at least stops reacting visually to hover and press.
+  // this node (its own DG_PROP_DISABLED or an ancestor's). A per-widget
+  // override: unset falls back to the set's DisabledPalette::fill (the
+  // theme's `color.disabled`), and to `fill_normal` when that is unset too.
   std::optional<Color> fill_disabled;
 
   // kCheckbox only: the child node whose fill is turned on when checked.
@@ -166,8 +166,9 @@ struct Widget {
   NodeId indicator;
   Color indicator_on;
   Color indicator_off;
-  // The checked mark while disabled (theme `color.on-disabled`); unset keeps
-  // `indicator_on`. An unchecked disabled indicator keeps `indicator_off`.
+  // The checked mark while disabled. A per-widget override: unset falls back
+  // to DisabledPalette::on (theme `color.on-disabled`), then `indicator_on`.
+  // An unchecked disabled indicator keeps `indicator_off`.
   std::optional<Color> indicator_disabled;
 
   bool checked = false;
@@ -351,9 +352,27 @@ enum class TextFieldMove : std::uint8_t {
   kLineEnd,
 };
 
+// The two colours every disabled widget is painted with, normally resolved
+// from the theme tokens `color.disabled` (surfaces) and `color.on-disabled`
+// (text, checked marks, a slider's thumb). One palette per WidgetSet rather
+// than per Widget, so a theme switch is "set the new palette, then
+// refresh_subtree() from the root" - nothing captured at attach time goes
+// stale. Unset members leave that part of the disabled look unchanged.
+struct DisabledPalette {
+  std::optional<Color> fill;
+  std::optional<Color> on;
+
+  friend bool operator==(const DisabledPalette&, const DisabledPalette&) = default;
+};
+
 class WidgetSet {
  public:
   void attach(NodeId id, const Widget& widget);
+
+  // The palette refresh()/refresh_subtree() paint disabled nodes with. Does
+  // not repaint by itself: follow it with refresh_subtree() over the tree.
+  void set_disabled_palette(const DisabledPalette& palette);
+  [[nodiscard]] const DisabledPalette& disabled_palette() const;
 
   // Drops `id`'s attached widget entirely, if any - node_lifecycle.h's
   // remove_subtree() calls this so a slot RenderTree recycles for a later
@@ -550,13 +569,20 @@ class WidgetSet {
   // be a function of what the user can see, not of how often the loop asks.
   //
   // A DISABLED widget (dg::is_disabled()) ignores `state` and paints
-  // Widget::fill_disabled.
+  // Widget::fill_disabled, else DisabledPalette::fill.
   void refresh(RenderTree& tree, NodeId id, PointerState state) const;
 
   // refresh() for every pointer-owning widget (accepts_pointer()) in
-  // `root`'s subtree - what a caller runs after writing DG_PROP_DISABLED,
-  // since the bit inherits to descendants. A kSlider has no fills here, so
-  // a disabled slider does not change appearance yet.
+  // `root`'s subtree, plus the rest of the disabled look on EVERY node in
+  // it: text colour turns DisabledPalette::on, a border melts into
+  // DisabledPalette::fill (a disabled control recedes rather than gaining
+  // an outline), a kSlider's
+  // track turns DisabledPalette::fill and its thumb DisabledPalette::on.
+  // The enabled colours are remembered and put back when the node is
+  // enabled again; a colour written by someone else meanwhile (a theme
+  // binding re-applied) is taken as the new enabled colour instead. What a
+  // caller runs after writing DG_PROP_DISABLED (the bit inherits to
+  // descendants) and after set_disabled_palette() (theme switch).
   void refresh_subtree(RenderTree& tree, NodeId root, const Interaction& interaction) const;
 
   // --- kTextField ---
@@ -703,7 +729,34 @@ class WidgetSet {
   static void text_field_refresh_display(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                          Widget& widget, bool focused);
 
+  // One remembered colour: what the node had while enabled, and what the
+  // disabled look wrote over it (to notice a later write by someone else).
+  struct DimmedColor {
+    Color original;
+    Color applied;
+  };
+  struct DimmedNode {
+    NodeId id;
+    std::optional<DimmedColor> fill;
+    std::optional<DimmedColor> border;
+    std::optional<DimmedColor> text;
+  };
+
+  // Applies (disabled) or undoes (enabled) the text/border/fill part of the
+  // disabled look on one node. `fill_target` is the disabled fill for nodes
+  // whose fill refresh() does not already own (slider track and thumb).
+  void apply_disabled_look(RenderTree& tree, NodeId id, bool disabled,
+                           std::optional<Color> fill_target) const;
+  // One colour of that look: what to write, if anything, updating `slot`.
+  static std::optional<Color> step_dimmed(std::optional<DimmedColor>& slot, Color current,
+                                          std::optional<Color> target, bool disabled);
+
   std::vector<std::optional<Widget>> widgets_;
+  DisabledPalette disabled_palette_;
+  // Indexed by NodeId::index; `mutable` because refresh()/refresh_subtree()
+  // are const by contract (they change the tree, not the widget model) and
+  // this is paint-side bookkeeping only.
+  mutable std::vector<std::optional<DimmedNode>> dimmed_;
 };
 
 }  // namespace dg

@@ -23,5 +23,5 @@ on every change, never edited directly.
 | 10 | `space.sm` | int | space | A small spacing unit - tight gaps, small padding. |
 | 11 | `space.md` | int | space | The default spacing unit - ordinary gaps and padding. |
 | 12 | `color.focus-ring` | color | color | The keyboard focus indicator (7-4) - a visible ring outset around whichever widget dg::Focus currently names, read directly via Theme::color_value() rather than through a $token live binding (include/drawgui/widget/focus.h: the ring is paint/positioning state with no LayoutTree node of its own, the same shape TextField's caret/selection_highlight already are). |
-| 13 | `color.disabled` | color | color | The surface fill of a disabled interactive widget (Widget::fill_disabled) - replaces its normal/hover/pressed fills while dg::is_disabled() holds. |
-| 14 | `color.on-disabled` | color | color | Foreground marks on a disabled widget - a checked checkbox/radio indicator (Widget::indicator_disabled). |
+| 13 | `color.disabled` | color | color | The surface of a disabled widget (DisabledPalette::fill) - replaces its normal/hover/pressed fills while dg::is_disabled() holds; also a disabled slider track and every disabled border. |
+| 14 | `color.on-disabled` | color | color | Foreground on a disabled widget (DisabledPalette::on) - its text, a checked checkbox/radio mark, a slider thumb. |

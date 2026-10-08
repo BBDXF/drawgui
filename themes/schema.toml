@@ -173,11 +173,11 @@ name = "color.disabled"
 id = 13
 type = "color"
 group = "color"
-summary = "The surface fill of a disabled interactive widget (Widget::fill_disabled) - replaces its normal/hover/pressed fills while dg::is_disabled() holds."
+summary = "The surface of a disabled widget (DisabledPalette::fill) - replaces its normal/hover/pressed fills while dg::is_disabled() holds; also a disabled slider track and every disabled border."
 
 [[token]]
 name = "color.on-disabled"
 id = 14
 type = "color"
 group = "color"
-summary = "Foreground marks on a disabled widget - a checked checkbox/radio indicator (Widget::indicator_disabled)."
+summary = "Foreground on a disabled widget (DisabledPalette::on) - its text, a checked checkbox/radio mark, a slider thumb."

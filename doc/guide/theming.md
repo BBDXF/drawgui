@@ -70,8 +70,8 @@ std::size_t switch_variant(Scene& scene) {
 | color | `color.primary-hover` | primary 的 hover 态 |
 | color | `color.primary-pressed` | primary 的 pressed 态 |
 | color | `color.focus-ring` | 焦点环颜色 |
-| color | `color.disabled` | 禁用控件的表面填充（`Widget::fill_disabled`），禁用时取代 normal/hover/pressed 三态 |
-| color | `color.on-disabled` | 禁用控件上的前景标记——已勾选 checkbox/radio 的指示器（`Widget::indicator_disabled`） |
+| color | `color.disabled` | 禁用控件的表面：按钮/勾选框/文本框的填充（取代 normal/hover/pressed 三态）、滑块轨道，以及禁用控件的边框 |
+| color | `color.on-disabled` | 禁用控件上的前景：文字、已勾选 checkbox/radio 的标记、滑块的圆点 |
 | radius | `radius.sm` | 小圆角 |
 | radius | `radius.md` | 默认圆角 |
 | space | `space.sm` | 小间距 |
@@ -81,12 +81,26 @@ std::size_t switch_variant(Scene& scene) {
 加 2 个圆角 + 2 个间距 = 4 个 int token（见 `themes/schema.toml`）。
 
 两个禁用态 token 和 `color.focus-ring` 一样是**直接读取**（`Theme::color_value()`），
-不是 `$token` 绑定：调用方在搭建 widget 时把它们读进 `Widget::fill_disabled`/
-`indicator_disabled`，`WidgetSet::refresh()` 在 `dg::is_disabled()` 成立时使用它们。
-C ABI 在创建 button/checkbox/text field 时自动读取（有活动主题用活动主题，否则用内建
-主题的 dark variant）；之后再切换主题**不会**刷新这两个已读入的颜色，与 ABI 里其它
-控件颜色一致。透明度式的「禁用 = 半透明」没有采用，原因同上：没有透明度表达式，
-禁用态是两个完整写出的颜色。
+不是逐节点的 `$token` 绑定：整个 `WidgetSet` 共用一份 `dg::DisabledPalette{fill, on}`，
+用 `widgets.set_disabled_palette()` 设置。切换主题时的顺序是：
+
+```cpp
+scene.bindings.apply(scene.tree, scene.theme, scene.variant);   // 先刷新普通绑定
+scene.widgets.set_disabled_palette(dg::DisabledPalette{
+    scene.theme.color_value(DG_TOKEN_COLOR_DISABLED, scene.variant),
+    scene.theme.color_value(DG_TOKEN_COLOR_ON_DISABLED, scene.variant)});
+scene.widgets.refresh_subtree(scene.tree.render(), dg::LayoutTree::root(), interaction);
+```
+
+先 `apply()` 再刷新禁用色：被禁用节点上的绑定颜色会被写成新主题的正常色，
+`refresh_subtree()` 把它记作「恢复启用时要用的颜色」，然后重新盖上新主题的禁用色。
+C ABI 已经这样做了：开窗口时读一次，`dg_app_set_theme()`/`dg_theme_set_variant()`/
+`dg_theme_override()` 之后对每个窗口重新读取并刷新。
+
+内建主题的取值：`on-disabled` 在 `surface` 上大约 3:1 的对比度——文字还能读，
+但明显比正文（约 15:1）暗；`disabled` 只比 `surface` 略深/略浅，控件轮廓还在但不抢眼。
+没有采用「禁用 = 半透明」，原因同上：没有透明度表达式，禁用态是两个完整写出的颜色；
+而且半透明会让底下的背景透出来，深浅主题下效果不一致。
 
 `TokenType` 只有两种（`theme.h:40-43`）：
 

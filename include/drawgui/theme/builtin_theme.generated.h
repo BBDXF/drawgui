@@ -32,7 +32,7 @@ inline constexpr char kBuiltinThemeJson[] = R"DGTHEMEJSON(
       "color.primary-pressed": "#2952A3FF",
       "color.focus-ring": "#FF8800FF",
       "color.disabled": "#E4E6E9FF",
-      "color.on-disabled": "#A0A6ADFF"
+      "color.on-disabled": "#878D94FF"
     },
     "dark": {
       "color.surface": "#1E1E1EFF",
@@ -44,7 +44,7 @@ inline constexpr char kBuiltinThemeJson[] = R"DGTHEMEJSON(
       "color.primary-pressed": "#5580D9FF",
       "color.focus-ring": "#FFA733FF",
       "color.disabled": "#2E3238FF",
-      "color.on-disabled": "#5C636BFF"
+      "color.on-disabled": "#6E757DFF"
     }
   }
 }

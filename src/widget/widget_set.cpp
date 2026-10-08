@@ -227,6 +227,17 @@ void WidgetSet::forget(NodeId id) {
     return;
   }
   widgets_[id.index].reset();
+  if (id.index < dimmed_.size()) {
+    dimmed_[id.index].reset();
+  }
+}
+
+void WidgetSet::set_disabled_palette(const DisabledPalette& palette) {
+  disabled_palette_ = palette;
+}
+
+const DisabledPalette& WidgetSet::disabled_palette() const {
+  return disabled_palette_;
 }
 
 const Widget* WidgetSet::find(NodeId id) const {
@@ -638,7 +649,7 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
   // feedback exactly while the user is asking for it.
   Color fill = widget.fill_normal;
   if (is_disabled(tree, id)) {
-    fill = widget.fill_disabled.value_or(widget.fill_normal);
+    fill = widget.fill_disabled.value_or(disabled_palette_.fill.value_or(widget.fill_normal));
   } else if (state.pressed) {
     fill = widget.fill_pressed;
   } else if (state.hovered) {
@@ -652,8 +663,8 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
     return;
   }
   Color mark = widget.checked ? widget.indicator_on : widget.indicator_off;
-  if (widget.checked && widget.indicator_disabled.has_value() && is_disabled(tree, id)) {
-    mark = *widget.indicator_disabled;
+  if (widget.checked && is_disabled(tree, id)) {
+    mark = widget.indicator_disabled.value_or(disabled_palette_.on.value_or(mark));
   }
   if (tree.style(widget.indicator).fill != mark) {
     tree.set_fill(widget.indicator, mark);
@@ -662,13 +673,92 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
 
 void WidgetSet::refresh_subtree(RenderTree& tree, NodeId root,
                                 const Interaction& interaction) const {
-  // Only pointer-owning kinds have hover/press/disabled fills to repaint; a
-  // panel, a checkbox's indicator or a slider's thumb keeps its own fill.
   if (accepts_pointer(root)) {
     refresh(tree, root, interaction.state_of(root));
   }
+
+  // The fill refresh() does not own: a slider's track and thumb.
+  std::optional<Color> fill_target;
+  const Widget* widget = find(root);
+  if (widget != nullptr && widget->kind == WidgetKind::kSlider) {
+    fill_target = disabled_palette_.fill;
+  } else if (root != RenderTree::root()) {
+    const Widget* parent = find(tree.parent(root));
+    if (parent != nullptr && parent->kind == WidgetKind::kSlider && parent->thumb == root) {
+      fill_target = disabled_palette_.on;
+    }
+  }
+  apply_disabled_look(tree, root, is_disabled(tree, root), fill_target);
+
   for (const NodeId child : tree.children(root)) {
     refresh_subtree(tree, child, interaction);
+  }
+}
+
+std::optional<Color> WidgetSet::step_dimmed(std::optional<DimmedColor>& slot, Color current,
+                                            std::optional<Color> target, bool disabled) {
+  // Disabled: remember the enabled colour - re-captured when someone else
+  // overwrote what was applied (a theme binding re-applied) - and paint
+  // `target`. Enabled: put the remembered colour back unless someone else
+  // has written the property since. Returns what to write, if anything.
+  if (disabled && target.has_value()) {
+    const Color applied = *target;
+    if (!slot.has_value() || current != slot->applied) {
+      slot = DimmedColor{current, applied};
+    } else {
+      slot->applied = applied;
+    }
+    return applied;
+  }
+  std::optional<Color> restore;
+  if (slot.has_value() && current == slot->applied) {
+    restore = slot->original;
+  }
+  slot.reset();
+  return restore;
+}
+
+void WidgetSet::apply_disabled_look(RenderTree& tree, NodeId id, bool disabled,
+                                    std::optional<Color> fill_target) const {
+  const std::optional<DimmedNode>* found =
+      id.index < dimmed_.size() ? &dimmed_[id.index] : nullptr;
+  const bool remembered = found != nullptr && found->has_value() && (*found)->id == id;
+  if (!disabled && !remembered) {
+    return;  // the common case: an enabled node never dimmed
+  }
+  if (dimmed_.size() <= id.index) {
+    dimmed_.resize(static_cast<std::size_t>(id.index) + 1);
+  }
+  std::optional<DimmedNode>& slot = dimmed_[id.index];
+  DimmedNode& entry = (slot.has_value() && slot->id == id)
+                          ? *slot
+                          : slot.emplace(DimmedNode{id, std::nullopt, std::nullopt, std::nullopt});
+
+  const NodeStyle& style = tree.style(id);
+  const bool has_border = !style.border_width.is_zero() && style.border_color.alpha() != 0;
+  const bool has_text = style.text.color.alpha() != 0;
+  const std::optional<Color> fill = step_dimmed(entry.fill, style.fill, fill_target, disabled);
+  const std::optional<Color> border =
+      step_dimmed(entry.border, style.border_color,
+                  has_border ? disabled_palette_.fill : std::nullopt, disabled);
+  const std::optional<Color> text = step_dimmed(
+      entry.text, style.text.color, has_text ? disabled_palette_.on : std::nullopt, disabled);
+
+  if (fill.has_value() && fill != style.fill) {
+    tree.set_fill(id, fill.value());
+  }
+  if (border.has_value() && border != tree.style(id).border_color) {
+    NodeStyle next = tree.style(id);
+    next.border_color = border.value();
+    tree.set_style(id, next);
+  }
+  if (text.has_value() && text != tree.style(id).text.color) {
+    TextStyle next = tree.style(id).text;
+    next.color = text.value();
+    tree.set_text(id, next);
+  }
+  if (!disabled) {
+    slot.reset();
   }
 }
 

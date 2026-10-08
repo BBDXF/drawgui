@@ -135,22 +135,17 @@ NodeId add_slider(Scene& scene, NodeId parent, int width, float min_value, float
 }
 
 // The disabled look comes from the builtin theme's tokens, never a literal
-// here - the dark variant, matching this example's dark palette.
+// here - the dark variant, matching this example's dark palette. One
+// palette for the whole WidgetSet: refresh_subtree() paints fills, text,
+// borders, checked marks and the slider's track/thumb from it.
 void apply_disabled_tokens(Scene& scene) {
   const dg::Expected<dg::Theme, dg::ThemeLoadError> theme = dg::load_builtin_theme();
   if (!theme.has_value()) {
     return;
   }
-  const std::optional<Color> fill =
-      theme.value().color_value(DG_TOKEN_COLOR_DISABLED, dg::ThemeVariant::kDark);
-  const std::optional<Color> mark =
-      theme.value().color_value(DG_TOKEN_COLOR_ON_DISABLED, dg::ThemeVariant::kDark);
-  for (const NodeId id : scene.handles.toggles) {
-    Widget widget = scene.widgets.at(id);
-    widget.fill_disabled = fill;
-    widget.indicator_disabled = mark;
-    scene.widgets.attach(id, widget);
-  }
+  scene.widgets.set_disabled_palette(dg::DisabledPalette{
+      theme.value().color_value(DG_TOKEN_COLOR_DISABLED, dg::ThemeVariant::kDark),
+      theme.value().color_value(DG_TOKEN_COLOR_ON_DISABLED, dg::ThemeVariant::kDark)});
 }
 
 NodeId add_section(Scene& scene, NodeId parent, int gap, CrossAlign cross) {

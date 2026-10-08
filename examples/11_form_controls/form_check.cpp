@@ -462,7 +462,7 @@ bool check_disabled_group(std::ostream& out) {
     const std::optional<NodeId> hit = tree.hit_test(centre_of(scene.handles.disabled_slider));
     return hit.has_value() && scene.widgets.slidable_owner_of(tree, *hit).has_value();
   };
-  const std::optional<dg::Color> disabled_fill = scene.widgets.at(target).fill_disabled;
+  const std::optional<dg::Color> disabled_fill = scene.widgets.disabled_palette().fill;
 
   const int clicks_before = scene.clicks;
   click(target);
