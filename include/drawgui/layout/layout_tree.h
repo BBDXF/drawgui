@@ -145,7 +145,11 @@ class LayoutTree {
   // zero and not the whole tree. Returns false, and changes nothing, under
   // the identical conditions RenderTree::remove_child() itself refuses
   // (the root, or an already invalid `id`).
-  bool remove_child(NodeId id);
+  //
+  // Passkey-guarded like RenderTree::remove_child() (the key is passed
+  // straight through to it): only dg::remove_subtree() (node_lifecycle.h),
+  // which also cleans every NodeId-keyed side table, can call this.
+  bool remove_child(NodeId id, RemovalKey key);
 
   // RenderTree::move_child() for both trees at once: the layout side follows
   // the same re-parenting, and the old and new parents are both marked dirty

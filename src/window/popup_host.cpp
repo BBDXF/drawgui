@@ -1,5 +1,7 @@
 #include "drawgui/window/popup_host.h"
 
+#include "drawgui/render/node_lifecycle.h"
+
 namespace dg {
 
 // The whole of the placement decision: prefer `preferred` vertically and
@@ -112,11 +114,24 @@ void PopupHost::close(PopupHandle& handle) {
   if (!handle.open || handle.tree == nullptr) {
     return;
   }
-  // Clip the container to nothing rather than deleting it - a choice, not a
-  // RenderTree limitation. See close()'s own header comment for why and for
-  // the accepted cost.
+  // Clip the container to nothing rather than deleting it - the cheap hide;
+  // destroy() is the freeing path. See close()'s own header comment.
   handle.tree->set_local_bounds(handle.content_root, PixelRect{});
   handle.open = false;
+}
+
+// A member (not static) for symmetry with close(), which has the same shape.
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+void PopupHost::destroy(PopupHandle& handle, const NodeSideTables& tables) {
+  if (handle.tree == nullptr) {
+    return;
+  }
+  // false only when content_root is already gone (nothing left to free) -
+  // the handle is reset either way.
+  (void)remove_subtree(*handle.tree, handle.content_root, tables);
+  handle.open = false;
+  handle.tree = nullptr;
+  handle.content_root = NodeId{};
 }
 
 bool PopupHost::handle_pointer(PopupHandle& handle, WindowId event_window,

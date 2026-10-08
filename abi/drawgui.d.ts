@@ -288,7 +288,7 @@ export declare namespace DrawguiAbi {
   // Removes `node`. A LIVE node is detached from its window's tree together with
   // its whole subtree: every node in the subtree has its
   // widget/theme/focus/animation/action/interaction state cleaned up
-  // (dg::on_node_removed), the vacated area is repainted and the former parent
+  // (dg::remove_subtree), the vacated area is repainted and the former parent
   // relaid out, and the handle of `node` AND of every descendant that has one
   // become invalid (DG_ERR_INVALID_HANDLE on every later call). Removing a
   // window's root node clears that window's root, so dg_window_set_root() may

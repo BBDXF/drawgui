@@ -328,8 +328,8 @@ NodeId LayoutTree::add_child(NodeId parent, const BoxStyle& box, const NodeStyle
   return id;
 }
 
-bool LayoutTree::remove_child(NodeId id) {
-  if (!impl_->render.remove_child(id)) {
+bool LayoutTree::remove_child(NodeId id, RemovalKey key) {
+  if (!impl_->render.remove_child(id, key)) {
     return false;
   }
 

@@ -175,7 +175,7 @@ bool RenderTree::is_valid(NodeId id) const {
          impl_->nodes[id.index].generation == id.generation;
 }
 
-bool RenderTree::remove_child(NodeId id) {
+bool RenderTree::remove_child(NodeId id, RemovalKey /*key*/) {
   // The root has no parent to detach from, and design.md's own append-only
   // root (index 0, never reassigned) is what every ancestor walk in this
   // codebase terminates on - removing it is a reported failure, not a

@@ -108,7 +108,7 @@ class Interaction {
   [[nodiscard]] PointerState state_of(NodeId id) const;
 
   // Clears `id` from both hover and holding if it names either one -
-  // node_lifecycle.h's on_node_removed() calls this so a drag or hover in
+  // node_lifecycle.h's remove_subtree() calls this so a drag or hover in
   // flight against a node that no longer exists cannot survive its
   // removal (a stale `holding_` would otherwise still resolve
   // released_on()'s "same widget" comparison against whatever node a later

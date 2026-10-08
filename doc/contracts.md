@@ -114,21 +114,27 @@ const FontId body_font = fonts.add("Noto Sans", /*bold=*/false).value();   // �
 
 ---
 
-## 8. 节点删除后必须跑 `dg::on_node_removed()`，否则六张侧表会留着悬空引用
+## 8. 删除节点只能用 `dg::remove_subtree()`，它同时清理六张侧表
 
-**做什么**：从 `LayoutTree`/`RenderTree` 上摘除一个节点（或其子树）之后，必须调用 `dg::on_node_removed()`，让 `WidgetSet`、`ThemeBindings`、`Focus`、`AnimationEngine`、`ActionScopes`、`Interaction` 这六张按 `NodeId` 索引的表一起清理。
+**做什么**：从 `LayoutTree`/`RenderTree` 上摘除一个节点（或其子树），唯一的方式是调用 `dg::remove_subtree()`（`include/drawgui/render/node_lifecycle.h`），它在摘除的同时让 `WidgetSet`、`ThemeBindings`、`Focus`、`AnimationEngine`、`ActionScopes`、`Interaction` 这六张按 `NodeId` 索引的表一起清理。
 
 **不做会怎样**：节点本身没了，但六张侧表里仍留着指向这个已删 id 的记录——焦点系统可能仍认为一个已经不存在的节点持有焦点（`blur_if_any_of` 没被调用），动画引擎可能仍在为它跑插值，`WidgetSet`/`ThemeBindings` 的查找可能命中一个悬空 id。
 
-**依据**：`src/render/node_lifecycle.cpp:23-47`，函数体逐一调用 `focus.blur_if_any_of(subtree)`、`widgets.forget()`、`theme_bindings.forget()`、`animation.cancel_all_for()`、`action_scopes.forget()`、`interaction.forget()`，正好六项。已核实与提交时一致。
+**为什么现在由编译器保证**：`RenderTree::remove_child()`/`LayoutTree::remove_child()` 都要求一个 `dg::RemovalKey` 参数（`include/drawgui/render/removal_key.h`），它的构造函数是私有的，只有两个 `remove_subtree()` 重载是友元——绕过侧表清理的裸删除**编译不过**（`tests/unit/test_node_removal.cpp` 用 static_assert 钉住了这一点）。六张表以 `dg::NodeSideTables` 的引用成员传入，花括号初始化时漏写任何一张也是编译错误。
+
+**依据**：`src/render/node_lifecycle.cpp` 的 `forget_everywhere()` 逐一调用 `focus.blur_if_any_of(subtree)`、`widgets.forget()`、`theme_bindings.forget()`、`animation.cancel_all_for()`、`action_scopes.forget()`、`interaction.forget()`，正好六项。已核实与提交时一致。
 
 **正确写法**：
 ```cpp
-dg::on_node_removed(layout_tree, node_id, widgets, theme_bindings, focus, animation, action_scopes, interaction);
+// 经 LayoutTree 添加的节点（常规情况）
+dg::remove_subtree(layout_tree, node_id,
+                   {widgets, theme_bindings, focus, animation, action_scopes, interaction});
+// 直接加在 RenderTree 上、没有 LayoutTree 条目的节点（如 PopupHost 的浮层容器）
+dg::remove_subtree(render_tree, node_id, {...同上...});
 ```
-不要单独调用 `RenderTree::remove_child()`/`LayoutTree::remove_child()` 而不跟进这一步。
+返回 `false` 时（根节点、或已失效的 id）什么都不改——要么全做，要么全不做。弹层请用 `PopupHost::destroy()`，它内部调用 RenderTree 重载。传入的必须是该节点所在窗口自己的侧表。
 
-**移动不算删除**：`LayoutTree::move_child()`/`RenderTree::move_child()` 把子树挪到新父节点或新位置时保留每个 `NodeId`，六张侧表里的记录仍然有效，**不要**为移动调用 `on_node_removed()`——那会把一个仍然活着的节点的控件状态、焦点等清掉。
+**移动不算删除**：`LayoutTree::move_child()`/`RenderTree::move_child()` 把子树挪到新父节点或新位置时保留每个 `NodeId`，六张侧表里的记录仍然有效，**不要**为移动调用 `remove_subtree()`——那会把一个仍然活着的节点的控件状态、焦点等清掉。
 
 ---
 

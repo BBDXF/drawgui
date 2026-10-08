@@ -162,25 +162,32 @@ PixelRect resolve_popup_placement(const PixelRect& anchor, PixelSize content,
 - 适配测试的对象是**父窗口的可绘制尺寸**，不是屏幕尺寸——这也是为什么
   native-OS 分支被删除时"逃出父窗口边界"这个能力没有被使用过（见上文）。
 
-## `close()` 不回收节点
+## `close()` 隐藏，`destroy()` 回收
 
 ```cpp
 void PopupHost::close(PopupHandle& handle);
+void PopupHost::destroy(PopupHandle& handle, const NodeSideTables& tables);
 ```
 
-关闭只是把弹层容器**裁成空矩形**（`Overflow::kClip` 在空盒子上），这会让
-它从绘制和命中测试里消失，但**不删除任何节点**。
+`close()` 只是把弹层容器**裁成空矩形**（`Overflow::kClip` 在空盒子上），
+让它从绘制和命中测试里消失，但**不删除任何节点**：`content_root` 和你持有
+的内容 node id 都仍然有效，适合想保留这些 id 的场景。代价是节点一直占着，
+反复开关会每次留下一小撮死节点。
 
-这是一个**选择，不是被迫的**：`RenderTree::remove_child()`
-（`include/drawgui/render/render_tree.h:582`）从 8-5 起就已经存在，是真正
-的节点移除。选它而不是裁空的原因是：真正移除会让 `content_root` 和调用方
-持有的每一个内容 node id 全部失效，还要求调用方在移除后手动跑
-`on_node_removed()` 涉及的六张侧表清理（`src/render/node_lifecycle.cpp`）。
-裁空是这个类型给出的默认值，不是每个调用方都需要处理这件事的复杂度。
+`destroy()` 真正回收：它调用 `dg::remove_subtree()` 的 RenderTree 重载
+（`include/drawgui/render/node_lifecycle.h`）删除 `content_root` 整棵子树，
+清理六张侧表（弹层里持有焦点的节点会被 blur，控件/主题/动画/交互状态全部
+清掉），并重绘它覆盖过的区域；随后把 handle 置为 `open = false`、
+`tree = nullptr`、`content_root = {}`。对已 `close()` 的 handle 同样有效，
+重复调用是空操作。
 
-**代价被明确记录**：反复开关同一个弹层会每次留下一小撮死节点，就像重复
-构建任何"从不删除"的 widget 一样。如果你的应用会高频开关同一类弹层
-（比如每次悬停都弹一个 tooltip），这是需要考虑的累积成本。
+注意：
+- `destroy()` 之后 `content_root` 和其下所有 id **全部失效**（槽位可能被
+  后续 `add_child()` 复用，旧 id 因 generation 不同不会被误认），要再显示
+  请重新 `show()` 拿新 id。
+- `tables` 必须是 `handle.tree` 所在窗口**自己的**侧表，传错窗口会清错表。
+- 每次打开都重建内容的弹层（下拉、右键菜单、tooltip）应在关闭时用
+  `destroy()`，节点数不再随开关次数增长。
 
 ## "打开期间不能 layout()"——这条禁令已被证伪并删除
 

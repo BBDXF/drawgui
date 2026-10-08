@@ -18,6 +18,7 @@
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/props/node_props.h"
+#include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/router.h"
@@ -26,7 +27,6 @@
 #include "drawgui/window/window_manager.h"
 
 #include "abi_types.h"
-#include "render/node_lifecycle.h"
 
 namespace dg::abi {
 namespace {
@@ -1308,7 +1308,7 @@ std::int32_t node_remove(dg_node_t* node_h) {
   }
   // A PENDING node was never attached to any window's tree at all
   // (attach_pending_node() is the only thing that ever calls
-  // LayoutTree::add_child()), so there is nothing for on_node_removed() to
+  // LayoutTree::add_child()), so there is nothing for remove_subtree() to
   // detach or any side table to have an entry for - tombstoning the ABI
   // handle below is the whole of what removing one requires.
   if (slot->state == NodeSlot::State::kLive) {
@@ -1318,9 +1318,9 @@ std::int32_t node_remove(dg_node_t* node_h) {
     // Collected BEFORE removal: afterwards the subtree's NodeIds are
     // tombstoned and may be reused by the next add_child().
     const std::vector<dg::NodeId> subtree = dg::subtree_of(window.tree.render(), slot->node_id);
-    if (!dg::on_node_removed(window.tree, slot->node_id, window.widgets, window.theme_bindings,
-                             window.focus, window.animation, window.action_scopes,
-                             window.interaction)) {
+    if (!dg::remove_subtree(window.tree, slot->node_id,
+                            {window.widgets, window.theme_bindings, window.focus,
+                             window.animation, window.action_scopes, window.interaction})) {
       // Unreachable: a LIVE slot never names the structural root
       // LayoutTree::root() (window.root is always a CHILD of it). Reported
       // rather than asserted.

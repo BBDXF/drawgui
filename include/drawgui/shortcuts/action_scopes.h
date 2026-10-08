@@ -21,7 +21,7 @@
 //
 // `forget(NodeId)` IS INCLUDED NOW, NOT DEFERRED, even though nothing calls
 // it yet: 8-5's plan entry (drawgui-p0.md) already commits to ONE
-// `on_node_removed()` taking EVERY side table as a required reference
+// `remove_subtree()` taking EVERY side table as a required reference
 // parameter - WidgetSet, ThemeBindings, Focus and this one - so a fourth
 // side table with no removal hook would be a known gap in a signature 8-5
 // is going to write regardless, not a speculative addition ahead of a
@@ -47,7 +47,7 @@ class ActionScopes {
 
   [[nodiscard]] bool consumes(NodeId node, dg_action_id action_id) const;
 
-  // 8-5's `on_node_removed()` will call this on every side table by name
+  // 8-5's `remove_subtree()` will call this on every side table by name
   // (drawgui-p0.md's own slice list) - clears whatever `node` scoped, so a
   // recycled/removed node's stale scoping cannot resurface against whatever
   // reoccupies its NodeId. A no-op for a node that never scoped anything.

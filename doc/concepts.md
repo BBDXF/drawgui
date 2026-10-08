@@ -30,10 +30,12 @@
 - `dg::AnimationEngine` —— 节点上正在跑的动画
 
 好处是节点本身保持精简；代价是删除一个节点时，要记得同时清理每一张表。
-`dg::on_node_removed()`（`src/render/node_lifecycle.cpp:23-48`）就是干这件
+`dg::remove_subtree()`（`include/drawgui/render/node_lifecycle.h`）就是干这件
 事的——先收集整棵子树（因为 `remove_child()` 会立即断开父子链接，之后再
-遍历就晚了），再挨个从六张表里 `forget()`/`cancel_all_for()`。自己手写节点
-删除逻辑时，这六张表都要覆盖到，漏一张就是悬空引用。
+遍历就晚了），再挨个从六张表里 `forget()`/`cancel_all_for()`。它是删除节点的
+**唯一**途径：`RenderTree::remove_child()`/`LayoutTree::remove_child()` 需要一个
+只有 `remove_subtree()` 能构造的 `RemovalKey`，手写的裸删除编译不过；六张表以
+`dg::NodeSideTables` 的引用成员传入，漏写一张同样编译不过。
 
 具体实现见 `src/render/node_lifecycle.cpp`。
 

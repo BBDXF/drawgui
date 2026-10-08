@@ -12,11 +12,11 @@
 
 **结论**：不要把 `wrap = true` 的文本节点放进高频重绘路径（跟手动画、逐帧更新的场景）。静态或低频更新的换行文本不受影响。
 
-### A2. overlay 关闭不删节点，只是裁成空矩形——反复开关有累积成本
+### A2. `close()` 只裁空不删节点；要释放请用 `destroy()`
 
-`PopupHost::close()` 把浮层容器裁剪为空矩形（`Overflow::kClip` 对空框），把它从绘制和命中测试里移除，但**不删除节点**。`include/drawgui/window/popup_host.h` 中 `close()` 声明前的注释说明这是一个选择，不是被迫的：`RenderTree::remove_child()` 从 8-5 起就存在且能用，之所以不用，是因为真删除会让 `content_root` 以及调用方持有的所有子节点 id 失效，还需要调用方自己跟进 `dg::on_node_removed()` 的六张侧表清理（见 `doc/contracts.md` 第 8 条）——这需要一个真实有动机的调用方去做这个决定，当前没有。
+`PopupHost::close()` 把浮层容器裁剪为空矩形（`Overflow::kClip` 对空框），把它从绘制和命中测试里移除，但**不删除节点**——这是廉价的"隐藏"，`content_root` 和调用方持有的子节点 id 都保持有效。裁空现在是**按需选择**的：`PopupHost::destroy(handle, tables)` 会经 `dg::remove_subtree()`（RenderTree 重载）真正删除整棵浮层子树并清理六张侧表（见 `doc/contracts.md` 第 8 条），之后这些 id 全部失效，需要重新 `show()` 拿新的。
 
-**结论**：反复开关同一个下拉菜单/右键菜单，会持续留下已死但未删除的节点，是稳定的内存/节点数增长，不是内存泄漏 bug，但长时间运行的应用需要知道这笔成本存在。
+**结论**：只用 `close()` 反复开关弹层，会持续留下已死但未删除的节点（稳定的节点数增长）；每次重新构建内容的弹层应在关闭时调用 `destroy()`，释放的槽位会被后续 `add_child()` 复用，节点数不再增长。`examples/22_dropdown_menu`、`23_menu_tooltip_dialog`、`25_showcase` 已改用 `destroy()`。
 
 ### A3. 隐式 transition 只覆盖 7 个属性
 

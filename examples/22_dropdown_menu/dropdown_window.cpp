@@ -8,9 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "drawgui/anim/animation_engine.h"
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
+#include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/token_ids.generated.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/window/popup_host.h"
@@ -144,6 +148,7 @@ class Runner {
   void refresh_ring();
   void resize_if_needed();
   std::optional<int> row_index_of(dg::NodeId id) const;
+  dg::NodeSideTables side_tables();
 
   Settings settings_;
   std::ostream* out_;
@@ -151,6 +156,13 @@ class Runner {
   dg::WindowId host_window_;
   dropdown_scene::Scene scene_;
   std::optional<dg::RasterSurface> host_surface_;
+
+  // Empty: this example binds no theme tokens, runs no animations and
+  // scopes no actions, but PopupHost::destroy() needs every NodeId-keyed
+  // table by reference (dg::NodeSideTables).
+  dg::ThemeBindings theme_bindings_;
+  dg::AnimationEngine animation_;
+  dg::ActionScopes action_scopes_;
 
   dg::PopupHost popup_host_;
   std::optional<dg::PopupHandle> popup_;
@@ -167,6 +179,11 @@ class Runner {
   // could not reach) in the now-deleted native-popup branch (48c9cd3).
   dg::FocusRing popup_ring_;
 };
+
+dg::NodeSideTables Runner::side_tables() {
+  return {scene_.widgets, theme_bindings_, scene_.focus,
+          animation_,     action_scopes_,  scene_.interaction};
+}
 
 std::optional<int> Runner::row_index_of(dg::NodeId id) const {
   for (std::size_t i = 0; i < rows_.size(); ++i) {
@@ -233,11 +250,11 @@ void Runner::open_dropdown() {
     return;
   }
   popup_ = shown.value();
-  // Reset rather than reuse: the previous popup_ring_ (if any) still has
-  // its four strip nodes under a NOW-CLOSED, permanently-empty
-  // content_root (PopupHost::close()'s own append-only cost). A fresh
-  // dg::FocusRing{} grows four new nodes under the fresh content_root
-  // this show() call just created.
+  // Reset rather than reuse: the previous popup_ring_ (if any) named four
+  // strip nodes under a content_root close_dropdown() has since destroyed
+  // (PopupHost::destroy()), so its ids are invalid. A fresh dg::FocusRing{}
+  // grows four new nodes under the fresh content_root this show() call
+  // just created.
   popup_ring_ = dg::FocusRing{};
   const std::optional<int> selected =
       scene_.widgets.dropdown_selected_index(scene_.handles.dropdown);
@@ -264,7 +281,9 @@ void Runner::close_dropdown(std::optional<int> select_index) {
                                    *select_index);
   }
   scene_.focus.exit_scope(scene_.tree.render());
-  popup_host_.close(*popup_);
+  // destroy(), not close(): every reopen builds fresh rows, so the old
+  // overlay is freed rather than left hidden. Nothing keeps its ids.
+  popup_host_.destroy(*popup_, side_tables());
   popup_.reset();
   rows_.clear();
   // Conventional dropdown behaviour: closing (by selection, Escape, or a

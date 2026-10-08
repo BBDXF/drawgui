@@ -9,15 +9,24 @@
 // this file is the exhaustive matrix that would be unwieldy to drive through
 // that heavier path.
 
+#include <cstddef>
 #include <cstdlib>
+#include <optional>
 #include <utility>
 
 #include <doctest/doctest.h>
 
+#include "drawgui/anim/animation_engine.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/layout/box.h"
 #include "drawgui/layout/layout_tree.h"
+#include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/theme/theme_bindings.h"
+#include "drawgui/widget/focus.h"
+#include "drawgui/widget/interaction.h"
+#include "drawgui/widget/widget_set.h"
 #include "drawgui/window/popup_host.h"
 #include "drawgui/window/window_manager.h"
 
@@ -394,6 +403,113 @@ TEST_CASE("a LayoutTree::add_child() hole after an overlay is open still doesn't
   layout.layout_full();
 
   CHECK(layout.render().absolute_bounds(handle.content_root) == before);
+}
+
+// --- PopupHost::destroy() ----------------------------------------------
+
+struct Tables {
+  dg::WidgetSet widgets;
+  dg::ThemeBindings theme_bindings;
+  dg::Focus focus;
+  dg::AnimationEngine animation;
+  dg::ActionScopes action_scopes;
+  dg::Interaction interaction;
+
+  [[nodiscard]] dg::NodeSideTables get() {
+    return {widgets, theme_bindings, focus, animation, action_scopes, interaction};
+  }
+};
+
+std::size_t live_nodes(const RenderTree& tree) {
+  return dg::subtree_of(tree, RenderTree::root()).size();
+}
+
+TEST_CASE("destroy: N show/destroy cycles return the node count to baseline") {
+  HostFixture fixture = HostFixture::make();
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  RenderTree tree{spec};
+  Tables tables;
+  PopupHost host{fixture.windows};
+  const PixelRect anchor{10, 10, 20, 20};
+  const PixelSize size{50, 30};
+
+  const std::size_t live_baseline = live_nodes(tree);
+  std::optional<std::size_t> slots_after_first;
+  for (int i = 0; i < 8; ++i) {
+    Expected<PopupHandle, WindowError> shown =
+        host.show(fixture.window, tree, anchor, size, PopupPlacement::kBelow, PopupFlags{});
+    REQUIRE(shown.has_value());
+    PopupHandle handle = shown.value();
+    tree.add_child(handle.content_root, PixelRect{0, 0, 50, 10}, NodeStyle{});
+    tree.add_child(handle.content_root, PixelRect{0, 10, 50, 10}, NodeStyle{});
+    host.destroy(handle, tables.get());
+    CHECK_FALSE(handle.open);
+    CHECK(handle.tree == nullptr);
+    CHECK(live_nodes(tree) == live_baseline);
+    if (!slots_after_first.has_value()) {
+      slots_after_first = tree.node_count();
+    }
+    // Freed slots are reused: the slot count stops growing.
+    CHECK(tree.node_count() == *slots_after_first);
+  }
+}
+
+TEST_CASE("destroy: double destroy is a no-op and a held child id is refused") {
+  HostFixture fixture = HostFixture::make();
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  RenderTree tree{spec};
+  Tables tables;
+  PopupHost host{fixture.windows};
+  Expected<PopupHandle, WindowError> shown = host.show(
+      fixture.window, tree, PixelRect{10, 10, 20, 20}, PixelSize{50, 30},
+      PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(shown.has_value());
+  PopupHandle handle = shown.value();
+  const NodeId held = tree.add_child(handle.content_root, PixelRect{0, 0, 50, 10}, NodeStyle{});
+  const NodeId root = handle.content_root;
+
+  // close() then destroy() also works: close is the cheap hide, destroy frees.
+  host.close(handle);
+  CHECK(tree.is_valid(held));
+  host.destroy(handle, tables.get());
+  CHECK_FALSE(tree.is_valid(held));
+  CHECK_FALSE(tree.is_valid(root));
+
+  const std::size_t before = live_nodes(tree);
+  host.destroy(handle, tables.get());
+  CHECK(live_nodes(tree) == before);
+  CHECK(handle.tree == nullptr);
+
+  // A reused slot does not make the held id valid again.
+  const NodeId fresh = tree.add_child(RenderTree::root(), PixelRect{0, 0, 5, 5}, NodeStyle{});
+  CHECK(tree.is_valid(fresh));
+  CHECK_FALSE(tree.is_valid(held));
+}
+
+TEST_CASE("destroy: focus inside the popup is blurred") {
+  HostFixture fixture = HostFixture::make();
+  TreeSpec spec;
+  spec.viewport = kHostViewport;
+  RenderTree tree{spec};
+  Tables tables;
+  PopupHost host{fixture.windows};
+  Expected<PopupHandle, WindowError> shown = host.show(
+      fixture.window, tree, PixelRect{10, 10, 20, 20}, PixelSize{50, 30},
+      PopupPlacement::kBelow, PopupFlags{});
+  REQUIRE(shown.has_value());
+  PopupHandle handle = shown.value();
+  const NodeId row = tree.add_child(handle.content_root, PixelRect{0, 0, 50, 10}, NodeStyle{});
+  dg::Widget widget;
+  widget.kind = dg::WidgetKind::kButton;
+  tables.widgets.attach(row, widget);
+  tables.focus.set(row);
+  REQUIRE(tables.focus.current() == row);
+
+  host.destroy(handle, tables.get());
+  CHECK_FALSE(tables.focus.current().has_value());
+  CHECK_FALSE(tables.widgets.has(row));
 }
 
 }  // namespace

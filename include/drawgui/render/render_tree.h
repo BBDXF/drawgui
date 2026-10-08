@@ -36,6 +36,7 @@
 #include "drawgui/render/damage.h"
 #include "drawgui/render/font_catalog.h"
 #include "drawgui/render/image_catalog.h"
+#include "drawgui/render/removal_key.h"
 
 namespace dg {
 
@@ -579,7 +580,12 @@ class RenderTree {
   // Damages the removed subtree's LAST absolute (visible) bounds - the
   // established "old bounds ∪ new bounds" rule with new bounds empty, the
   // same halfway shape set_local_bounds() already has for an ordinary move.
-  bool remove_child(NodeId id);
+  //
+  // Takes a RemovalKey (removal_key.h) that only dg::remove_subtree()
+  // (node_lifecycle.h) can construct: a raw detach that leaves the six
+  // NodeId-keyed side tables holding stale ids does not compile. Call
+  // remove_subtree() instead - see doc/contracts.md section 8.
+  bool remove_child(NodeId id, RemovalKey key);
 
   // Re-parents `id`'s whole subtree under `new_parent`, immediately before
   // `before` (appended when `before` is nullopt). Identity is kept: `id`

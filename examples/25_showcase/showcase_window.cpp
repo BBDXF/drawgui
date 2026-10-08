@@ -11,9 +11,12 @@
 #include <string>
 #include <vector>
 
+#include "drawgui/anim/animation_engine.h"
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
+#include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/theme/token_ids.generated.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/tooltip.h"
@@ -147,6 +150,7 @@ class Runner {
   void refresh_ring();
   void resize_host_if_needed();
   std::optional<int> row_index_of(dg::NodeId id) const;
+  dg::NodeSideTables side_tables();
 
   void open_dialog();
   void close_dialog();
@@ -165,6 +169,12 @@ class Runner {
   dg::WindowId host_window_;
   showcase_scene::Scene scene_;
   std::optional<dg::RasterSurface> host_surface_;
+
+  // Empty: this window runs no animations and scopes no actions, but
+  // PopupHost::destroy() needs every NodeId-keyed table by reference
+  // (dg::NodeSideTables).
+  dg::AnimationEngine animation_;
+  dg::ActionScopes action_scopes_;
 
   dg::PopupHost popup_host_;
   std::optional<dg::PopupHandle> popup_;
@@ -185,6 +195,11 @@ class Runner {
   // scene_.ring here would put the ring under the panel in paint order.
   dg::FocusRing dialog_ring_;
 };
+
+dg::NodeSideTables Runner::side_tables() {
+  return {scene_.widgets, scene_.bindings, scene_.focus,
+          animation_,     action_scopes_,  scene_.interaction};
+}
 
 std::optional<int> Runner::row_index_of(dg::NodeId id) const {
   for (std::size_t i = 0; i < popup_rows_.size(); ++i) {
@@ -224,9 +239,8 @@ void Runner::open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSi
   }
   popup_ = shown.value();
   popup_kind_ = kind;
-  // Reset rather than reuse: a previous popup_ring_ (if any) still has its
-  // four strip nodes under a NOW-CLOSED, permanently-empty content_root
-  // (PopupHost::close()'s own append-only cost).
+  // Reset rather than reuse: a previous popup_ring_ (if any) named strip
+  // nodes under a content_root close_popup() has since destroyed.
   popup_ring_ = dg::FocusRing{};
   const std::vector<std::string>& items =
       kind == PopupKind::kDropdown ? showcase_scene::kSortOptions : kContextMenuItems;
@@ -256,7 +270,7 @@ void Runner::close_popup(std::optional<int> select_index) {
           << "\" selected\n";
   }
   scene_.focus.exit_scope(scene_.tree.render());
-  popup_host_.close(*popup_);
+  popup_host_.destroy(*popup_, side_tables());
   popup_.reset();
   popup_rows_.clear();
   const PopupKind kind = popup_kind_;
@@ -303,7 +317,7 @@ void Runner::close_tooltip() {
   if (!tooltip_popup_.has_value()) {
     return;
   }
-  popup_host_.close(*tooltip_popup_);
+  popup_host_.destroy(*tooltip_popup_, side_tables());
   tooltip_popup_.reset();
 }
 

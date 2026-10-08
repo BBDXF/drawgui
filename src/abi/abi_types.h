@@ -138,8 +138,9 @@ class WindowImpl {
   dg::ActionScopes action_scopes;
 
   // 8-5: this window's own AnimationEngine, present for exactly one
-  // reason - dg_node_remove()'s on_node_removed() call requires one as a
-  // NON-optional reference parameter (src/render/node_lifecycle.h's own
+  // reason - dg_node_remove()'s remove_subtree() call requires one as a
+  // NON-optional reference member of NodeSideTables
+  // (include/drawgui/render/node_lifecycle.h's own
   // header comment explains why cleanup takes every side table this way).
   // There is still no animation ABI (dg_animate/dg_node_set_transition
   // declined by name, unchanged by this slice),

@@ -10,9 +10,13 @@
 #include <string>
 #include <vector>
 
+#include "drawgui/anim/animation_engine.h"
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/raster_surface.h"
+#include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/token_ids.generated.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/tooltip.h"
@@ -160,6 +164,7 @@ class Runner {
   dg::RenderTree& menu_active_tree();
   void refresh_menu_ring();
   std::optional<int> menu_row_index_of(dg::NodeId id) const;
+  dg::NodeSideTables side_tables();
 
   void update_tooltip();
   void open_tooltip();
@@ -176,6 +181,13 @@ class Runner {
   dg::WindowId host_window_;
   menu_scene::Scene scene_;
   std::optional<dg::RasterSurface> host_surface_;
+
+  // Empty: the host scene binds no theme tokens, runs no animations and
+  // scopes no actions, but PopupHost::destroy() needs every NodeId-keyed
+  // table by reference (dg::NodeSideTables).
+  dg::ThemeBindings theme_bindings_;
+  dg::AnimationEngine animation_;
+  dg::ActionScopes action_scopes_;
 
   dg::PopupHost popup_host_;
 
@@ -227,6 +239,11 @@ dg::Focus& Runner::menu_active_focus() { return scene_.focus; }
 
 dg::RenderTree& Runner::menu_active_tree() { return scene_.tree.render(); }
 
+dg::NodeSideTables Runner::side_tables() {
+  return {scene_.widgets, theme_bindings_, scene_.focus,
+          animation_,     action_scopes_,  scene_.interaction};
+}
+
 std::optional<int> Runner::menu_row_index_of(dg::NodeId id) const {
   for (std::size_t i = 0; i < menu_rows_.size(); ++i) {
     if (menu_rows_[i] == id) {
@@ -266,11 +283,10 @@ void Runner::open_context_menu(dg::PixelPoint at) {
     return;
   }
   menu_popup_ = shown.value();
-  // Reset rather than reuse: a previous menu_ring_ (if any) has its four
-  // strip nodes under a NOW-CLOSED, permanently-empty content_root
-  // (PopupHost::close()'s own append-only cost) - see popup_ring_'s reset
-  // comment in examples/22_dropdown_menu/dropdown_window.cpp for the
-  // identical reasoning.
+  // Reset rather than reuse: a previous menu_ring_ (if any) named strip
+  // nodes under a content_root close_context_menu() has since destroyed -
+  // see popup_ring_'s reset comment in
+  // examples/22_dropdown_menu/dropdown_window.cpp.
   menu_ring_ = dg::FocusRing{};
 
   menu_rows_ = menu_rows::build(scene_.tree.render(), scene_.widgets, menu_popup_->content_root,
@@ -289,7 +305,7 @@ void Runner::close_context_menu(std::optional<int> select_index) {
           << "\" selected\n";
   }
   scene_.focus.exit_scope(scene_.tree.render());
-  popup_host_.close(*menu_popup_);
+  popup_host_.destroy(*menu_popup_, side_tables());
   menu_popup_.reset();
   menu_rows_.clear();
 }
@@ -336,7 +352,7 @@ void Runner::close_tooltip() {
   if (!tooltip_popup_.has_value()) {
     return;
   }
-  popup_host_.close(*tooltip_popup_);
+  popup_host_.destroy(*tooltip_popup_, side_tables());
   tooltip_popup_.reset();
 }
 

@@ -72,6 +72,8 @@
 
 namespace dg {
 
+struct NodeSideTables;  // drawgui/render/node_lifecycle.h
+
 // Where the popup sits relative to `anchor_rect`. Two values, not the full
 // CSS placement vocabulary (design.md never specifies one for PopupHost):
 // this is the minimum the task can prove with a hand-derived pixel oracle -
@@ -142,8 +144,8 @@ struct PopupHandle {
 
   // The popup's resolved position and size, in the parent window's own
   // physical-pixel coordinates, after placement/flip. What close() clips
-  // back to empty to remove the popup without erasing the append-only nodes
-  // it added.
+  // back to empty to hide the popup without removing the nodes it added
+  // (destroy() removes them).
   PixelRect content_bounds;
 
   // The flags this popup was shown with, captured once here so callers do
@@ -174,27 +176,33 @@ class PopupHost {
       WindowId parent_window, RenderTree& parent_tree, const PixelRect& anchor_rect,
       PixelSize content_size, PopupPlacement preferred, PopupFlags flags);
 
-  // Tears down the overlay `handle` names and marks it closed. Idempotent:
-  // closing an already-closed handle does nothing.
+  // Hides the overlay `handle` names and marks it closed - the CHEAP path.
+  // Idempotent: closing an already-closed handle does nothing.
   //
   // Clips the container added by show() to an empty rectangle, which
   // removes it from painting (Overflow::kClip on an empty box) and from hit
-  // testing ("a clipping node with no area removes its
-  // whole subtree and is itself hittable nowhere") without deleting any
-  // node. This is a CHOICE, not something RenderTree forces: RenderTree has
-  // supported real node removal since slice 8-5 (RenderTree::remove_child(),
-  // render_tree.h) - this comment used to claim "RenderTree is
-  // append-only", which stopped being true then. Using remove_child()
-  // instead would invalidate content_root and every content node id the
-  // caller holds under it, and would require the caller to thread
-  // dg::on_node_removed()'s six side-table cleanups
-  // (src/render/node_lifecycle.cpp) through afterward - a real decision that
-  // needs an actual caller motivated to make it, not a default this type
-  // picks for them. So clip-to-empty stays the default, and the cost stays
-  // named: repeatedly opening and closing an overlay popup leaks a handful
-  // of dead nodes every time, exactly as repeatedly building any other
-  // never-removed widget would.
+  // testing ("a clipping node with no area removes its whole subtree and is
+  // itself hittable nowhere") without deleting any node, so content_root
+  // and every content node id the caller holds under it stay valid (and
+  // keep their widget/focus/theme state). The cost: the nodes stay
+  // allocated. A caller that repeatedly opens fresh popups should call
+  // destroy() instead (or after close()) to free them.
   void close(PopupHandle& handle);
+
+  // Really removes the overlay `handle` names: dg::remove_subtree()'s
+  // RenderTree overload (include/drawgui/render/node_lifecycle.h) on
+  // content_root, which detaches the whole subtree, cleans every
+  // NodeId-keyed side table (a focused node inside the popup is blurred)
+  // and damages the area it covered. Then open = false, tree = nullptr,
+  // content_root = {}. Works on an open or an already close()d handle;
+  // idempotent - destroying a destroyed handle does nothing.
+  //
+  // AFTER THIS, content_root and every node id under it are INVALID (a
+  // later add_child() may recycle their slots) - drop any you hold and
+  // show() again to get new ones. `tables` MUST be the side tables of the
+  // window `handle.tree` belongs to, or the wrong window's tables are
+  // cleaned and the right one keeps stale ids.
+  void destroy(PopupHandle& handle, const NodeSideTables& tables);
 
   // Routes one pump() pointer event for dismissal. Returns true when this
   // call closed `handle` (so the caller stops treating it as open and

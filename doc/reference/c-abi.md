@@ -116,7 +116,7 @@
 | `dg_node_get_checked(node)` | 查询 live `CHECKBOX` 的勾选状态：返回 1/0，负数为 `DG_ERR_*`（非 checkbox 为 `DG_ERR_UNSUPPORTED`）；"收到 CLICK 再查询"的形状 |
 | `dg_node_get_text(node, buf, cap, out_len)` | 读取 live `TEXT_FIELD` 的当前文字：两趟调用（先 `cap=0` 取 `out_len` 全长，再分配缓冲读取）；按字节截断 |
 | `dg_node_insert_before(parent, child, ref)` | 把 `child` 插到 live 的 `parent` 下、紧挨在 `ref` 之前（`ref` 为 NULL 时追加到末尾）。`ref` 必须是 `parent` 的直接子节点且不是 `child` 本身，否则 `DG_ERR_INVALID_ARGUMENT`。pending 的 `child` 变成 live；已在**同一窗口** live 的 `child` 被**移动**（身份、控件状态、句柄都保留）——keyed reconciler 靠它重排。把节点移到它自己或它的后代下面是环，返回 `DG_ERR_INVALID_ARGUMENT`；`child` 在另一个窗口里 live 时返回 `DG_ERR_ALREADY_ATTACHED` |
-| `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）。对 LIVE 节点，还会把整棵子树从树上摘除：子树里每个节点的控件/主题/焦点/动画/action/交互状态都被清理（`dg::on_node_removed`），腾出的区域重绘、原父节点重新布局，子树里**所有**有句柄的后代句柄也一并失效。删除窗口根节点会清空该窗口的根，之后可以再 `dg_window_set_root()`。pending 节点只失效句柄 |
+| `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）。对 LIVE 节点，还会把整棵子树从树上摘除：子树里每个节点的控件/主题/焦点/动画/action/交互状态都被清理（`dg::remove_subtree`），腾出的区域重绘、原父节点重新布局，子树里**所有**有句柄的后代句柄也一并失效。删除窗口根节点会清空该窗口的根，之后可以再 `dg_window_set_root()`。pending 节点只失效句柄 |
 
 ### 快捷键 / Action
 

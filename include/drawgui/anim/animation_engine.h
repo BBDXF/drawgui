@@ -224,7 +224,7 @@ class AnimationEngine {
   // apart: the first call did something.
   [[nodiscard]] AnimControlStatus cancel(AnimHandle handle);
 
-  // The per-node cancel node_lifecycle.h's on_node_removed() needs and
+  // The per-node cancel node_lifecycle.h's remove_subtree() needs and
   // this class did not have: every slot (explicit animate() or an
   // in-flight implicit transition) currently animating `node`, cancelled -
   // raising AnimEventKind::kCancelled for each exactly like cancel() does -
