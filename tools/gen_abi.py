@@ -141,6 +141,15 @@ C_PRIMITIVE_TYPES = frozenset(
         "uint16_t",
         "float",
         "const char*",
+        # P6 sub-step a2 (text field): dg_node_get_text()'s two-out-param
+        # shape - `char*` is a caller-owned buffer this ABI writes into
+        # (never retained past the call, unlike every `const char*` return
+        # above, which IS retained thread-locally), `uint32_t*` is a plain
+        # scalar out-param (the byte length dg_node_get_text() either wants
+        # or reports) - the same "arbitrary pointer, no lifetime rule of its
+        # own" shape dg_theme_err* already has, generalised to a primitive.
+        "char*",
+        "uint32_t*",
     }
 )
 
@@ -724,6 +733,8 @@ _C_TO_TS = {
     "uint16_t": "number",
     "float": "number",
     "const char*": "string | null",
+    "char*": "Uint8Array | null",
+    "uint32_t*": "Uint32Array | null",
 }
 
 

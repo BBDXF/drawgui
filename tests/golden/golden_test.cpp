@@ -23,6 +23,7 @@
 #if defined(DRAWGUI_GOLDEN_HAVE_ABI_SCENE)
 #include "abi_checkbox_scene.h"
 #include "abi_label_scene.h"
+#include "abi_text_field_scene.h"
 #endif
 
 namespace {
@@ -98,6 +99,12 @@ std::vector<std::uint8_t> scene_abi_checkbox_off() {
 std::vector<std::uint8_t> scene_abi_checkbox_on() {
   return produce_abi_checkbox_scene(true);
 }
+
+// P6 sub-step a2 (second half): a text field with "Hi" typed into it -
+// see abi_text_field_scene.h's own comment on the click+type sequence.
+std::vector<std::uint8_t> scene_abi_text_field() {
+  return produce_abi_text_field_scene(DRAWGUI_GOLDEN_ABI_FONT_DIR);
+}
 #endif
 
 constexpr Scene kScenes[] = {
@@ -109,6 +116,7 @@ constexpr Scene kScenes[] = {
     {"abi_label_text", 320, 120, nullptr, scene_abi_label},
     {"abi_checkbox_off", 64, 64, nullptr, scene_abi_checkbox_off},
     {"abi_checkbox_on", 64, 64, nullptr, scene_abi_checkbox_on},
+    {"abi_text_field", 280, 56, nullptr, scene_abi_text_field},
 #endif
 };
 

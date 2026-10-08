@@ -74,6 +74,7 @@ export const node_type = {
   BUTTON: 2,
   LABEL: 3,
   CHECKBOX: 4,
+  TEXT_FIELD: 5,
 } as const;
 
 // dg_value::type.
@@ -90,6 +91,7 @@ export const event_kind = {
   WINDOW_CLOSED: 1,
   CLICK: 2,
   ACTION: 3,
+  TEXT_CHANGED: 4,
 } as const;
 
 // Every dg_*() status-returning function's result.
@@ -253,6 +255,26 @@ export declare namespace DrawguiAbi {
   // DG_ERR_UNSUPPORTED for a live node whose type_id is not
   // DG_NODE_TYPE_CHECKBOX.
   function dg_node_get_checked(node: dg_node_t | null): number;
+  // P6 sub-step a2 (second half): dg::WidgetSet::text_field_text() at the ABI
+  // boundary, for a LIVE DG_NODE_TYPE_TEXT_FIELD node - the two-trip shape (ask
+  // the length, allocate, ask again) rather than a thread-local buffer
+  // (dg_last_error()/dg_shortcut_label()'s own shape): unlike those two, a caller
+  // may reasonably want to hold more than one field's text at once (a TodoMVC
+  // re-rendering every row's own input), which a single shared buffer cannot
+  // serve without one field's read stomping another's before the caller finishes
+  // copying it out. `out_len` (may be null if the caller does not want it) always
+  // receives the field's FULL byte length, regardless of `cap` - a caller passes
+  // cap=0 first to size its own allocation, then calls again with a real buffer.
+  // `buf` receives at most `cap` bytes (truncated at a byte boundary, NOT a
+  // grapheme boundary, if `cap` is smaller than the full text - a caller sizing
+  // its buffer from the first call's `out_len` never truncates) and is UNTOUCHED
+  // when cap==0. Returns DG_ERR_OK on success (0 IS this ABI's success code here
+  // - the data returned lives in `buf`/`out_len`, not in the return value itself,
+  // unlike dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a stale/unknown
+  // node, DG_ERR_NO_WINDOW for a still-pending one, DG_ERR_UNSUPPORTED for a live
+  // node whose type_id is not DG_NODE_TYPE_TEXT_FIELD, DG_ERR_INVALID_ARGUMENT if
+  // cap > 0 but buf is null.
+  function dg_node_get_text(node: dg_node_t | null, buf: Uint8Array | null, cap: number, out_len: Uint32Array | null): number;
   // Attaches pending `child` under live `parent`. `ref` must be null this slice
   // (append-only).
   function dg_node_insert_before(parent: dg_node_t | null, child: dg_node_t | null, ref: dg_node_t | null): number;
@@ -345,4 +367,31 @@ export declare namespace DrawguiAbi {
   // returned on this thread. 0 before the first call, or after one that returned
   // NULL.
   function dg_debug_capture_png_len(): number;
+  // TEST-ONLY. WindowManager::post_text_input() at the ABI boundary, driving a
+  // real SDL_EVENT_TEXT_INPUT through the real queue exactly as
+  // dg_debug_post_pointer_button()/dg_debug_post_key() do for a click/key press -
+  // see the file header. Exists ONLY because there is no other headless way to
+  // reach DG_NODE_TYPE_TEXT_FIELD's committed-text path (real IME/keyboard text
+  // composition needs an actual display): a caller-under-test still has to click
+  // the field first (a real dg_debug_post_pointer_button() press+release, which
+  // is what actually focuses it and calls WindowManager::start_text_input())
+  // before this has anywhere to deliver text TO - posting text_input at an
+  // unfocused window is a silent no-op, matching handle_text()'s own 'no focused
+  // node, nothing happens' rule.
+  function dg_debug_post_text_input(window: dg_window_t | null, utf8: string | null): number;
+  // TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL
+  // key event through the real queue for one of the six text-field editing keys
+  // process_key_event()'s own handle_text_field_key() dispatches directly
+  // (Left/Right/Home/End/Backspace/Delete - `key_name` is exactly one of these
+  // six bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other
+  // string). This is a SEPARATE debug hook from dg_debug_post_key() rather than a
+  // second parameter on it: dg_debug_post_key() parses `logical_key_name` with
+  // dg::parse_chord() against input/shortcuts.toml's own generated binding-name
+  // table, and none of these six keys is a shortcut binding name at all (see this
+  // file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for
+  // parse_chord() to parse. `shift` (nonzero extends a text field's selection,
+  // matching handle_text_field_key()'s own dg::Modifier::kShift check) is
+  // meaningless for Backspace/Delete, which ignore it exactly like
+  // dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do.
+  function dg_debug_post_text_field_key(window: dg_window_t | null, down: number, key_name: string | null, shift: number): number;
 }

@@ -170,6 +170,22 @@ extern "C" DG_EXPORT int32_t dg_node_get_checked(dg_node_t* node) {
   }
 }
 
+extern "C" DG_EXPORT int32_t dg_node_get_text(dg_node_t* node, char* buf, uint32_t cap,
+                                              uint32_t* out_len) {
+  try {
+    return dg::abi::node_get_text(node, buf, cap, out_len);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_get_text: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_get_text: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_get_text: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
 extern "C" DG_EXPORT int32_t dg_node_insert_before(dg_node_t* parent, dg_node_t* child,
                                                    dg_node_t* ref) {
   try {
@@ -459,5 +475,36 @@ extern "C" DG_EXPORT uint32_t dg_debug_capture_png_len(void) {
   } catch (...) {
     dg::abi::set_last_error("dg_debug_capture_png_len: unknown exception");
     return 0;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_debug_post_text_input(dg_window_t* window, const char* utf8) {
+  try {
+    return dg::abi::debug_post_text_input(window, utf8);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_debug_post_text_input: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_debug_post_text_input: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_debug_post_text_input: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_debug_post_text_field_key(dg_window_t* window, int32_t down,
+                                                          const char* key_name, int32_t shift) {
+  try {
+    return dg::abi::debug_post_text_field_key(window, down, key_name, shift);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_debug_post_text_field_key: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_debug_post_text_field_key: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_debug_post_text_field_key: unknown exception");
+    return DG_ERR_INTERNAL;
   }
 }

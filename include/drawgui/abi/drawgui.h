@@ -162,6 +162,33 @@ typedef struct dg_theme_err {
 /* NOT exported - see this file's own "WHAT IS DELIBERATELY NOT HERE" entry for */
 /* why. */
 #define DG_NODE_TYPE_CHECKBOX 4u
+/* P6 sub-step a2 (second half): a single-line editable text field */
+/* (WidgetKind::kTextField), examples/12_text_input's own recipe copied */
+/* unchanged. A click focuses it (this ABI's existing dg::Focus, driven by */
+/* process_pointer_event() exactly like every other focusable widget already is) */
+/* and starts real text input on its window (WindowManager::start_text_input()); */
+/* a committed SDL_EVENT_TEXT_INPUT then reaches it through */
+/* dg_wait_events()/dg_poll_events()'s internal pump, which now also drains */
+/* dg::PumpResult::text_input and calls dg::WidgetSet::text_field_insert(), */
+/* queuing one DG_EVENT_TEXT_CHANGED per commit. */
+/* Left/Right/Home/End/Backspace/Delete are dispatched directly by key, exactly */
+/* like examples/12_text_input/text_field_window.cpp's own Runner::handle_key() */
+/* - NOT through design.md section 5.5.2's four-level router: the router's */
+/* ActionScope::kTextField only ever carries the four clipboard actions */
+/* (copy/cut/paste/select_all, dg::clipboard_actions.h), never */
+/* text_field_move/backspace/delete_forward, so there is no ActionId to resolve */
+/* a caret move through and this ABI does not invent one. FOUR caller-invisible */
+/* children are composed at attach time exactly like DG_NODE_TYPE_CHECKBOX's */
+/* indicator (Widget::content/caret/selection_highlight/composition_underline) - */
+/* none has a dg_node_t handle. `composition_underline` is built but never */
+/* driven: this ABI exports no IME/composition surface at all (see this file's */
+/* own "明确不做" entry below) - a field can never enter `composing`, so the */
+/* underline stays zero-size forever, the same 'built but permanently dormant' */
+/* shape as an ungrouped checkbox's unused Widget::group field. Read the field's */
+/* current text with dg_node_get_text(); dg_node_set_text(DG_PROP_TEXT) sets its */
+/* initial/replacement content the same way it already does for */
+/* DG_NODE_TYPE_LABEL. */
+#define DG_NODE_TYPE_TEXT_FIELD 5u
 
 /* dg_value::type. */
 /* PropType::k_float. */
@@ -191,6 +218,15 @@ typedef struct dg_theme_err {
 /* dg_event::action_id names which one, dg_event::node its target (null for an */
 /* app-level action). */
 #define DG_EVENT_ACTION 3u
+/* P6 sub-step a2 (second half): a DG_NODE_TYPE_TEXT_FIELD's committed text */
+/* changed - a real SDL_EVENT_TEXT_INPUT reached it, or an edit key */
+/* (Backspace/Delete/arrow-with-selection-replace) mutated it. Carries only */
+/* `window`/`node`, the SAME 'CLICK then ask' shape */
+/* DG_EVENT_CLICK/dg_node_get_checked() already uses (design.md's own dg_event */
+/* stays a pure-value POD, per abi/drawgui_abi.lock - no string field could live */
+/* in it without breaking that): a caller reacting to this queries */
+/* dg_node_get_text() rather than reading the new text out of the event itself. */
+#define DG_EVENT_TEXT_CHANGED 4u
 
 /* Every dg_*() status-returning function's result. */
 /* Success. */
@@ -543,6 +579,27 @@ DG_EXPORT int32_t dg_node_set_text(dg_node_t* node, uint16_t prop_id, const char
 /* DG_NODE_TYPE_CHECKBOX. */
 DG_EXPORT int32_t dg_node_get_checked(dg_node_t* node);
 
+/* P6 sub-step a2 (second half): dg::WidgetSet::text_field_text() at the ABI */
+/* boundary, for a LIVE DG_NODE_TYPE_TEXT_FIELD node - the two-trip shape (ask */
+/* the length, allocate, ask again) rather than a thread-local buffer */
+/* (dg_last_error()/dg_shortcut_label()'s own shape): unlike those two, a caller */
+/* may reasonably want to hold more than one field's text at once (a TodoMVC */
+/* re-rendering every row's own input), which a single shared buffer cannot */
+/* serve without one field's read stomping another's before the caller finishes */
+/* copying it out. `out_len` (may be null if the caller does not want it) always */
+/* receives the field's FULL byte length, regardless of `cap` - a caller passes */
+/* cap=0 first to size its own allocation, then calls again with a real buffer. */
+/* `buf` receives at most `cap` bytes (truncated at a byte boundary, NOT a */
+/* grapheme boundary, if `cap` is smaller than the full text - a caller sizing */
+/* its buffer from the first call's `out_len` never truncates) and is UNTOUCHED */
+/* when cap==0. Returns DG_ERR_OK on success (0 IS this ABI's success code here */
+/* - the data returned lives in `buf`/`out_len`, not in the return value itself, */
+/* unlike dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a stale/unknown */
+/* node, DG_ERR_NO_WINDOW for a still-pending one, DG_ERR_UNSUPPORTED for a live */
+/* node whose type_id is not DG_NODE_TYPE_TEXT_FIELD, DG_ERR_INVALID_ARGUMENT if */
+/* cap > 0 but buf is null. */
+DG_EXPORT int32_t dg_node_get_text(dg_node_t* node, char* buf, uint32_t cap, uint32_t* out_len);
+
 /* Attaches pending `child` under live `parent`. `ref` must be null this slice */
 /* (append-only). */
 DG_EXPORT int32_t dg_node_insert_before(dg_node_t* parent, dg_node_t* child, dg_node_t* ref);
@@ -657,6 +714,36 @@ DG_EXPORT const char* dg_debug_capture_png(dg_window_t* window);
 /* returned on this thread. 0 before the first call, or after one that returned */
 /* NULL. */
 DG_EXPORT uint32_t dg_debug_capture_png_len(void);
+
+/* TEST-ONLY. WindowManager::post_text_input() at the ABI boundary, driving a */
+/* real SDL_EVENT_TEXT_INPUT through the real queue exactly as */
+/* dg_debug_post_pointer_button()/dg_debug_post_key() do for a click/key press - */
+/* see the file header. Exists ONLY because there is no other headless way to */
+/* reach DG_NODE_TYPE_TEXT_FIELD's committed-text path (real IME/keyboard text */
+/* composition needs an actual display): a caller-under-test still has to click */
+/* the field first (a real dg_debug_post_pointer_button() press+release, which */
+/* is what actually focuses it and calls WindowManager::start_text_input()) */
+/* before this has anywhere to deliver text TO - posting text_input at an */
+/* unfocused window is a silent no-op, matching handle_text()'s own 'no focused */
+/* node, nothing happens' rule. */
+DG_EXPORT int32_t dg_debug_post_text_input(dg_window_t* window, const char* utf8);
+
+/* TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL */
+/* key event through the real queue for one of the six text-field editing keys */
+/* process_key_event()'s own handle_text_field_key() dispatches directly */
+/* (Left/Right/Home/End/Backspace/Delete - `key_name` is exactly one of these */
+/* six bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other */
+/* string). This is a SEPARATE debug hook from dg_debug_post_key() rather than a */
+/* second parameter on it: dg_debug_post_key() parses `logical_key_name` with */
+/* dg::parse_chord() against input/shortcuts.toml's own generated binding-name */
+/* table, and none of these six keys is a shortcut binding name at all (see this */
+/* file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for */
+/* parse_chord() to parse. `shift` (nonzero extends a text field's selection, */
+/* matching handle_text_field_key()'s own dg::Modifier::kShift check) is */
+/* meaningless for Backspace/Delete, which ignore it exactly like */
+/* dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do. */
+DG_EXPORT int32_t dg_debug_post_text_field_key(dg_window_t* window, int32_t down,
+                                               const char* key_name, int32_t shift);
 
 #ifdef __cplusplus
 } /* extern "C" */

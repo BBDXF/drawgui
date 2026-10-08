@@ -52,6 +52,33 @@ constexpr std::uint32_t kCheckboxOnArgb = 0xFF2E86DE;
 constexpr dg::Color kCheckboxNormal = dg::Color::from_argb(kCheckboxNormalArgb);
 constexpr dg::Color kCheckboxBorder = dg::Color::from_argb(kCheckboxBorderArgb);
 
+// P6 sub-step a2 (second half): DG_NODE_TYPE_TEXT_FIELD's colours and
+// dimensions - lifted unchanged from examples/12_text_input/
+// text_field_scene.cpp's own palette (kFieldFill/kBorderUnfocused/
+// kBorderFocused/kTextColor/kCaretColor/kSelectionFill/
+// kCompositionUnderlineColor, kFieldWidth/kFieldHeight/kFontSize).
+constexpr std::uint32_t kTextFieldFillArgb = 0xFF161C24;
+constexpr std::uint32_t kTextFieldBorderUnfocusedArgb = 0xFF2C3644;
+constexpr std::uint32_t kTextFieldBorderFocusedArgb = 0xFF2E86DE;
+constexpr std::uint32_t kTextFieldTextColorArgb = 0xFFE8EDF4;
+constexpr std::uint32_t kTextFieldCaretColorArgb = 0xFF2E86DE;
+constexpr std::uint32_t kTextFieldSelectionFillArgb = 0x8A2E86DE;
+constexpr std::uint32_t kTextFieldCompositionUnderlineArgb = 0xFFE8B930;
+constexpr int kTextFieldWidth = 260;
+constexpr int kTextFieldHeight = 36;
+constexpr float kTextFieldFontSize = 16.0F;
+
+dg::NodeStyle text_field_box_style(bool focused) {
+  dg::NodeStyle style;
+  style.fill = dg::Color::from_argb(kTextFieldFillArgb);
+  style.border_color =
+      dg::Color::from_argb(focused ? kTextFieldBorderFocusedArgb : kTextFieldBorderUnfocusedArgb);
+  style.border_width = dg::BorderWidths::all(1.0F);
+  style.radii = dg::Radii::all(6.0F);
+  style.overflow = dg::Overflow::kClip;
+  return style;
+}
+
 // -- Global arenas ------------------------------------------------------
 //
 // dg_app_create() takes no app parameter, so the top-level arena has to
@@ -388,6 +415,12 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     style.border_color = kCheckboxBorder;
     style.border_width = dg::BorderWidths::all(1.0F);
     style.radii = dg::Radii::all(6.0F);
+  } else if (slot.type_id == DG_NODE_TYPE_TEXT_FIELD) {
+    // examples/12_text_input/text_field_scene.cpp's add_field() box, copied
+    // unchanged - starts unfocused (field_style(false)).
+    box.width = kTextFieldWidth;
+    box.height = kTextFieldHeight;
+    style = text_field_box_style(false);
   } else {
     style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
     if (slot.type_id == DG_NODE_TYPE_BUTTON) {
@@ -445,6 +478,53 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     window.widgets.attach(new_id, widget);
     window.widgets.attach(indicator, dg::Widget{});
     window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
+  } else if (slot.type_id == DG_NODE_TYPE_TEXT_FIELD) {
+    // examples/12_text_input/text_field_scene.cpp's add_field() recipe,
+    // copied unchanged: four caller-invisible children, in the SAME paint
+    // order (selection highlight, then composition underline, then text
+    // content, then caret - "background before foreground"), none reachable
+    // through this ABI (no dg_node_t names any of them), exactly the
+    // DG_NODE_TYPE_CHECKBOX indicator's own trade (see this file's own
+    // constant comment on DG_NODE_TYPE_TEXT_FIELD, abi/drawgui.def.toml).
+    dg::BoxStyle placeholder;
+    placeholder.kind = dg::LayoutKind::kLeaf;
+    placeholder.width = 1;
+    placeholder.height = 1;
+
+    dg::NodeStyle highlight_style;
+    highlight_style.fill = dg::Color::from_argb(kTextFieldSelectionFillArgb);
+    const dg::NodeId highlight = window.tree.add_child(new_id, placeholder, highlight_style);
+
+    // composition_underline: built so Widget::composition_underline names a
+    // real NodeId (WidgetSet's own text_field_refresh_display() positions it
+    // unconditionally), but never driven - this ABI exports no IME/
+    // composition surface (abi/drawgui.def.toml's own "明确不做" entry), so
+    // `composing` never becomes true and this child stays zero-size forever.
+    dg::NodeStyle underline_style;
+    underline_style.fill = dg::Color::from_argb(kTextFieldCompositionUnderlineArgb);
+    const dg::NodeId underline = window.tree.add_child(new_id, placeholder, underline_style);
+
+    dg::NodeStyle content_style;
+    content_style.text.font = impl.default_font;
+    content_style.text.size = kTextFieldFontSize;
+    content_style.text.color = dg::Color::from_argb(kTextFieldTextColorArgb);
+    content_style.text.align = dg::TextAlign::kLeft;
+    const dg::NodeId content = window.tree.add_child(new_id, placeholder, content_style);
+
+    dg::NodeStyle caret_style;
+    caret_style.fill = dg::Color::from_argb(kTextFieldCaretColorArgb);
+    const dg::NodeId caret = window.tree.add_child(new_id, placeholder, caret_style);
+
+    dg::Widget widget;
+    widget.kind = dg::WidgetKind::kTextField;
+    widget.content = content;
+    widget.caret = caret;
+    widget.selection_highlight = highlight;
+    widget.composition_underline = underline;
+    window.widgets.attach(new_id, widget);
+    if (impl.fonts.has_value()) {
+      window.widgets.text_field_set_focus(window.tree.render(), *impl.fonts, new_id, false);
+    }
   }
   return DG_ERR_OK;
 }
@@ -536,7 +616,33 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
       // level 4 (the app-wide table, no target node), never level 2.
       const bool hit_is_focusable = hit.has_value() && window.widgets.has(*hit) &&
                                     dg::is_focusable(window.widgets.at(*hit).kind);
-      window.focus.set(hit_is_focusable ? hit : std::nullopt);
+      const std::optional<dg::NodeId> new_focus = hit_is_focusable ? hit : std::nullopt;
+      const dg::FocusChange focus_change = window.focus.set(new_focus);
+      // P6 sub-step a2 (second half): the SAME border-recolour +
+      // text_field_set_focus() pair examples/12_text_input/text_field_
+      // scene.cpp's own set_focus() runs, generalised from one Scene's
+      // handful of fields to any DG_NODE_TYPE_TEXT_FIELD this ABI creates -
+      // WidgetSet::text_field_set_focus() re-derives the display projection
+      // (truncation/scroll/caret visibility), the style write is cosmetic
+      // feedback beside it, matching the checkbox indicator's own "state in
+      // WidgetSet, pixels beside it" split.
+      if (impl.fonts.has_value()) {
+        const dg::FontCatalog& fonts = *impl.fonts;
+        if (focus_change.blurred.has_value() && window.widgets.has(*focus_change.blurred) &&
+            window.widgets.at(*focus_change.blurred).kind == dg::WidgetKind::kTextField) {
+          window.widgets.text_field_set_focus(window.tree.render(), fonts,
+                                              *focus_change.blurred, false);
+          window.tree.render().set_style(*focus_change.blurred, text_field_box_style(false));
+        }
+        if (focus_change.focused.has_value() && window.widgets.has(*focus_change.focused) &&
+            window.widgets.at(*focus_change.focused).kind == dg::WidgetKind::kTextField) {
+          window.widgets.text_field_set_focus(window.tree.render(), fonts,
+                                              *focus_change.focused, true);
+          window.tree.render().set_style(*focus_change.focused, text_field_box_style(true));
+          window.widgets.text_field_click(window.tree.render(), fonts, *focus_change.focused,
+                                          event.x, /*extend_selection=*/false);
+        }
+      }
       break;
     }
     case dg::PointerAction::kUp:
@@ -577,6 +683,50 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
   }
 }
 
+// P6 sub-step a2 (second half): dispatches Left/Right/Home/End/Backspace/
+// Delete on a focused DG_NODE_TYPE_TEXT_FIELD DIRECTLY to WidgetSet's own
+// text_field_move()/backspace()/delete_forward() - the SAME switch
+// examples/12_text_input/text_field_window.cpp's own Runner::handle_key()
+// already runs, copied rather than routed through design.md section
+// 5.5.2's four-level router: ActionScope::kTextField only ever carries the
+// four clipboard actions (dg::clipboard_actions.h's own header comment -
+// copy/cut/paste/select_all), never a caret move or a delete, so there is
+// no ActionId for route_key_event() to resolve one of these keys to.
+// Returns whether `field`'s COMMITTED TEXT changed (Backspace/Delete only -
+// a plain move never touches Widget::text), which is what tells the caller
+// whether to queue a DG_EVENT_TEXT_CHANGED.
+bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::NodeId field,
+                           const dg::KeyEvent& event) {
+  dg::RenderTree& tree = window.tree.render();
+  const bool shift = dg::has(event.mods, dg::Modifier::kShift);
+  switch (event.key) {
+    case dg::Key::kLeft:
+      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft, shift);
+      return false;
+    case dg::Key::kRight:
+      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight, shift);
+      return false;
+    case dg::Key::kHome:
+      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart, shift);
+      return false;
+    case dg::Key::kEnd:
+      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd, shift);
+      return false;
+    case dg::Key::kBackspace:
+      return window.widgets.text_field_backspace(tree, fonts, field);
+    case dg::Key::kDelete:
+      return window.widgets.text_field_delete_forward(tree, fonts, field);
+    case dg::Key::kEscape:
+    case dg::Key::kTab:
+    case dg::Key::kUp:
+    case dg::Key::kDown:
+    case dg::Key::kEnter:
+    case dg::Key::kOther:
+      return false;
+  }
+  return false;
+}
+
 // 8-3d: design.md section 5.5.2's four-level router, driven by a REAL
 // dg::KeyEvent this ABI's own SDL pump produced (or, for
 // dg_debug_post_key()'s own test injection, a real SDL key event posted
@@ -590,6 +740,35 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
 void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& event) {
   if (event.action != dg::KeyAction::kDown) {
     return;
+  }
+  // P6 sub-step a2 (second half): a focused text field's own editing keys
+  // are consumed HERE, before the router runs at all - see
+  // handle_text_field_key()'s own header comment for why these six keys
+  // have no ActionId to route to in the first place. Consuming them first
+  // also sidesteps a real ambiguity the router alone cannot resolve: Home/
+  // End are ALSO the app-scope keyboard-scrolling chord (keyboard_scroll.h)
+  // - a text field's own caret move must win while it is focused, matching
+  // every desktop toolkit's "a focused text field owns Home/End, a
+  // scrollable region only gets them when nothing more specific does".
+  const std::optional<dg::NodeId> focused = window.focus.current();
+  if (focused.has_value() && window.widgets.has(*focused) &&
+      window.widgets.at(*focused).kind == dg::WidgetKind::kTextField && impl.fonts.has_value()) {
+    const bool text_changed = handle_text_field_key(window, *impl.fonts, *focused, event);
+    if (text_changed) {
+      dg_event out{};
+      out.size = sizeof(dg_event);
+      out.kind = DG_EVENT_TEXT_CHANGED;
+      out.window = window.self_handle;
+      out.node = find_node_handle(impl, window.self_index, *focused);
+      impl.pending_events.push_back(out);
+    }
+    if (event.key != dg::Key::kOther) {
+      // One of the six editing keys handle_text_field_key() switches on
+      // (kOther is everything else - a plain character key SDL also
+      // reports as a KeyEvent beside its own TextInputEvent, which must
+      // still reach the router for e.g. Mod+C).
+      return;
+    }
   }
   const dg::RoutingContext ctx{window.tree.render(), window.widgets, window.action_scopes,
                                dg::all_shortcut_bindings()};
@@ -653,6 +832,38 @@ void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
     WindowImpl* window = find_window_by_sdl_id(impl, event.window);
     if (window != nullptr) {
       process_key_event(impl, *window, event);
+    }
+  }
+
+  // P6 sub-step a2 (second half): a committed SDL_EVENT_TEXT_INPUT reaches
+  // whichever node THIS ABI's own dg::Focus currently names - never SDL's
+  // own IME capture state, matching window_create()'s own comment on why
+  // start_text_input() runs once, for a window's whole lifetime, rather
+  // than being toggled per focus change. A no-op if nothing is focused, or
+  // the focused node is not a DG_NODE_TYPE_TEXT_FIELD, or this app has no
+  // FontCatalog yet (text_field_insert() needs one to re-measure the
+  // display projection - the same precondition dg_node_set_text() already
+  // has for DG_NODE_TYPE_LABEL).
+  for (const dg::TextInputEvent& event : pumped.text_input) {
+    WindowImpl* window = find_window_by_sdl_id(impl, event.window);
+    if (window == nullptr || !impl.fonts.has_value()) {
+      continue;
+    }
+    const std::optional<dg::NodeId> focused = window->focus.current();
+    if (!focused.has_value() || !window->widgets.has(*focused) ||
+        window->widgets.at(*focused).kind != dg::WidgetKind::kTextField) {
+      continue;
+    }
+    const bool changed =
+        window->widgets.text_field_insert(window->tree.render(), *impl.fonts, *focused,
+                                          event.text);
+    if (changed) {
+      dg_event out{};
+      out.size = sizeof(dg_event);
+      out.kind = DG_EVENT_TEXT_CHANGED;
+      out.window = window->self_handle;
+      out.node = find_node_handle(impl, window->self_index, *focused);
+      impl.pending_events.push_back(out);
     }
   }
 
@@ -880,6 +1091,17 @@ dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
   auto window = std::make_unique<WindowImpl>(tree_spec);
   window->sdl_window = opened.value();
   window->self_index = impl->windows.size();
+  // P6 sub-step a2 (second half): enabled for the window's whole lifetime,
+  // never toggled per focus change - the identical choice
+  // examples/12_text_input/text_field_window.cpp's own Runner::
+  // resize_if_needed() makes and explains: SDL generates no
+  // SDL_EVENT_TEXT_INPUT at all until this has been called on the window
+  // (window_manager.h's own start_text_input() doc comment), but it is
+  // this ABI's OWN dg::Focus - not SDL's IME capture state - that decides
+  // which node (if any) a committed character actually reaches
+  // (process_pump()'s pumped.text_input loop below only ever delivers to
+  // window.focus.current(), and only when it names a DG_NODE_TYPE_TEXT_FIELD).
+  impl->wm.start_text_input(window->sdl_window, dg::PixelRect{0, 0, 1, 1});
   impl->windows.push_back(std::move(window));
 
   all_window_handles().emplace_back(
@@ -930,7 +1152,8 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
     return nullptr;
   }
   if (type_id != DG_NODE_TYPE_BOX && type_id != DG_NODE_TYPE_BUTTON &&
-      type_id != DG_NODE_TYPE_LABEL && type_id != DG_NODE_TYPE_CHECKBOX) {
+      type_id != DG_NODE_TYPE_LABEL && type_id != DG_NODE_TYPE_CHECKBOX &&
+      type_id != DG_NODE_TYPE_TEXT_FIELD) {
     set_last_error("dg_node_create: unknown type_id");
     return nullptr;
   }
@@ -1096,6 +1319,34 @@ std::int32_t node_get_checked(dg_node_t* node_h) {
   AppImpl* impl = resolve_app(node_h->app);
   WindowImpl& window = *impl->windows[slot->window_index];
   return window.widgets.is_checked(slot->node_id) ? 1 : 0;
+}
+
+std::int32_t node_get_text(dg_node_t* node_h, char* buf, std::uint32_t cap,
+                           std::uint32_t* out_len) {
+  NodeSlot* slot = resolve_node_slot(node_h);
+  if (slot == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (slot->state != NodeSlot::State::kLive) {
+    return DG_ERR_NO_WINDOW;
+  }
+  if (slot->type_id != DG_NODE_TYPE_TEXT_FIELD) {
+    return DG_ERR_UNSUPPORTED;
+  }
+  if (cap > 0 && buf == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  AppImpl* impl = resolve_app(node_h->app);
+  WindowImpl& window = *impl->windows[slot->window_index];
+  const std::string& text = window.widgets.text_field_text(slot->node_id);
+  if (out_len != nullptr) {
+    *out_len = static_cast<std::uint32_t>(text.size());
+  }
+  if (cap > 0) {
+    const std::size_t to_copy = std::min<std::size_t>(cap, text.size());
+    std::copy_n(text.data(), to_copy, buf);
+  }
+  return DG_ERR_OK;
 }
 
 std::int32_t node_scope_action(dg_node_t* node_h, std::uint16_t action_id) {
@@ -1407,6 +1658,53 @@ const char* debug_capture_png(dg_window_t* window_h) {
 
 std::uint32_t debug_capture_png_len() {
   return static_cast<std::uint32_t>(capture_png_storage().size());
+}
+
+std::int32_t debug_post_text_input(dg_window_t* window_h, const char* utf8) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (utf8 == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  AppImpl* impl = resolve_app(window_h->app);
+  impl->wm.post_text_input(window->sdl_window, std::string(utf8));
+  return DG_ERR_OK;
+}
+
+std::int32_t debug_post_text_field_key(dg_window_t* window_h, std::int32_t down,
+                                       const char* key_name, std::int32_t shift) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (key_name == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  // Not dg::parse_chord(): none of these six is a shortcut binding name
+  // (input/shortcuts.toml never binds one) - see this function's own
+  // def.toml summary for why dg_debug_post_key() cannot be reused here.
+  const std::string_view name(key_name);
+  dg::Key key;
+  if (name == "Left") {
+    key = dg::Key::kLeft;
+  } else if (name == "Right") {
+    key = dg::Key::kRight;
+  } else if (name == "Home") {
+    key = dg::Key::kHome;
+  } else if (name == "End") {
+    key = dg::Key::kEnd;
+  } else if (name == "Backspace") {
+    key = dg::Key::kBackspace;
+  } else if (name == "Delete") {
+    key = dg::Key::kDelete;
+  } else {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  AppImpl* impl = resolve_app(window_h->app);
+  impl->wm.post_key(window->sdl_window, down != 0, key, shift != 0);
+  return DG_ERR_OK;
 }
 
 }  // namespace dg::abi

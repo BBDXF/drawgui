@@ -135,6 +135,31 @@
 #                               extracted FROM, not written ahead of. See
 #                               design.md section 5.5.3 for the signature
 #                               this leaves unbuilt.
+#   IME composition surface   - P6 sub-step a2 (second half): no
+#                               dg_node_composition_*()/DG_EVENT_COMPOSITION_*
+#                               of any shape, and DG_NODE_TYPE_TEXT_FIELD's
+#                               composition_underline child is built but never
+#                               driven (see that constant's own entry above).
+#                               Reason: doc/limitations.md's own R6 records
+#                               that 7-3's preedit byte-offset conversion "has
+#                               never been verified against a real CJK/Japanese
+#                               IME composing a word" - every existing test is
+#                               a synthetic dg::TextEditingEvent this project
+#                               constructed itself, never a real ibus/fcitx/
+#                               Windows TSF session. Exporting a C surface for
+#                               that untested path, on TOP of the untested
+#                               path itself, is the wrong order: a caller
+#                               embedding this ABI has no way to tell
+#                               "committed text works" (this slice's own
+#                               dg_debug_post_text_input()/DG_EVENT_TEXT_CHANGED,
+#                               both real, both tested) from "composition
+#                               preview offsets are correct" (never real-IME
+#                               tested at any layer, C++ included) if both
+#                               ship under the same ABI stability promise.
+#                               PREREQUISITE: R6 resolved in the C++ layer
+#                               first - a real IME run, not a synthetic event -
+#                               at which point exporting it is this file's
+#                               job, not a design question.
 #
 # 8-3d ALSO fixes a summary that this landing makes false rather than
 # leaving it stale: dg_event::node used to read "DG_EVENT_CLICK only; null
@@ -262,6 +287,7 @@ values = [
   { name = "BUTTON", id = 2, summary = "A clickable leaf (WidgetKind::kButton): hover/press/click, three fills." },
   { name = "LABEL", id = 3, summary = "P6 sub-step a1: static text (WidgetKind::kLabel), not interactive - a click inside it belongs to whatever ancestor accepts it. Carries an engine-chosen default font (the app's dg_app_add_font() primary family) and size the instant it is created; dg_node_set_text(DG_PROP_TEXT) sets its string, dg_node_set_prop(DG_PROP_TEXT_COLOR) its colour." },
   { name = "CHECKBOX", id = 4, summary = "P6 sub-step a2: a clickable toggle (WidgetKind::kCheckbox) - unchecked by default, DG_EVENT_CLICK fires on a completed press+release exactly like DG_NODE_TYPE_BUTTON, and the click ALSO flips the checked bit (dg::WidgetSet::toggle()) before that event is queued, so a caller reacting to the click can immediately dg_node_get_checked() the new state. A caller-invisible INDICATOR CHILD is composed at attach time (examples/11_form_controls/form_scene.cpp's add_toggle() recipe, copied unchanged) to give the checked/unchecked fill somewhere to paint - it has no dg_node_t handle and cannot be reached, inserted into, or removed through this ABI; this is a deliberate trade, not an oversight, because a reactive framework built on this ABI (P6's own eventual c/d steps) cannot be made to hand-compose a child for every checkbox it creates. Widget::group (radio) is NOT exported - see this file's own \"WHAT IS DELIBERATELY NOT HERE\" entry for why." },
+  { name = "TEXT_FIELD", id = 5, summary = "P6 sub-step a2 (second half): a single-line editable text field (WidgetKind::kTextField), examples/12_text_input's own recipe copied unchanged. A click focuses it (this ABI's existing dg::Focus, driven by process_pointer_event() exactly like every other focusable widget already is) and starts real text input on its window (WindowManager::start_text_input()); a committed SDL_EVENT_TEXT_INPUT then reaches it through dg_wait_events()/dg_poll_events()'s internal pump, which now also drains dg::PumpResult::text_input and calls dg::WidgetSet::text_field_insert(), queuing one DG_EVENT_TEXT_CHANGED per commit. Left/Right/Home/End/Backspace/Delete are dispatched directly by key, exactly like examples/12_text_input/text_field_window.cpp's own Runner::handle_key() - NOT through design.md section 5.5.2's four-level router: the router's ActionScope::kTextField only ever carries the four clipboard actions (copy/cut/paste/select_all, dg::clipboard_actions.h), never text_field_move/backspace/delete_forward, so there is no ActionId to resolve a caret move through and this ABI does not invent one. FOUR caller-invisible children are composed at attach time exactly like DG_NODE_TYPE_CHECKBOX's indicator (Widget::content/caret/selection_highlight/composition_underline) - none has a dg_node_t handle. `composition_underline` is built but never driven: this ABI exports no IME/composition surface at all (see this file's own \"明确不做\" entry below) - a field can never enter `composing`, so the underline stays zero-size forever, the same 'built but permanently dormant' shape as an ungrouped checkbox's unused Widget::group field. Read the field's current text with dg_node_get_text(); dg_node_set_text(DG_PROP_TEXT) sets its initial/replacement content the same way it already does for DG_NODE_TYPE_LABEL." },
 ]
 
 [[constant_group]]
@@ -286,6 +312,7 @@ values = [
   { name = "WINDOW_CLOSED", id = 1, summary = "The window closed (user or dg_debug_ script); the dg_window_t handle is now stale." },
   { name = "CLICK", id = 2, summary = "A press and its release landed on the same node - dg::InteractionChange::clicked." },
   { name = "ACTION", id = 3, summary = "8-3d: a key resolved to a bound intent through design.md section 5.5.2's four-level router (dg::route_key_event()/resolve_action()) - dg_event::action_id names which one, dg_event::node its target (null for an app-level action)." },
+  { name = "TEXT_CHANGED", id = 4, summary = "P6 sub-step a2 (second half): a DG_NODE_TYPE_TEXT_FIELD's committed text changed - a real SDL_EVENT_TEXT_INPUT reached it, or an edit key (Backspace/Delete/arrow-with-selection-replace) mutated it. Carries only `window`/`node`, the SAME 'CLICK then ask' shape DG_EVENT_CLICK/dg_node_get_checked() already uses (design.md's own dg_event stays a pure-value POD, per abi/drawgui_abi.lock - no string field could live in it without breaking that): a caller reacting to this queries dg_node_get_text() rather than reading the new text out of the event itself." },
 ]
 
 [[constant_group]]
@@ -407,6 +434,13 @@ ret = "int32_t"
 impl = "node_get_checked"
 params = [{ name = "node", type = "dg_node_t*" }]
 summary = "P6 sub-step a2: dg::WidgetSet::is_checked() at the ABI boundary, for a LIVE DG_NODE_TYPE_CHECKBOX node - the query half of the same 'CLICK then ask' shape dg_node_scope_action()/DG_EVENT_ACTION already uses, chosen over a new DG_EVENT_TOGGLE because the checked bit's one true source is WidgetSet and an event field would only be a second, driftable copy of it. Returns 1 (checked) or 0 (unchecked) on success - both non-negative, matching dg_wait_events()/dg_poll_events()'s own 'non-negative is data, negative is DG_ERR_*' convention, since 0 is not this ABI's success code on an int32_t-returning function that reports data rather than only a status. DG_ERR_INVALID_HANDLE for a stale/unknown node, DG_ERR_NO_WINDOW for a still-pending one (matching dg_node_set_prop()'s own requirement), DG_ERR_UNSUPPORTED for a live node whose type_id is not DG_NODE_TYPE_CHECKBOX."
+
+[[function]]
+name = "dg_node_get_text"
+ret = "int32_t"
+impl = "node_get_text"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "buf", type = "char*" }, { name = "cap", type = "uint32_t" }, { name = "out_len", type = "uint32_t*" }]
+summary = "P6 sub-step a2 (second half): dg::WidgetSet::text_field_text() at the ABI boundary, for a LIVE DG_NODE_TYPE_TEXT_FIELD node - the two-trip shape (ask the length, allocate, ask again) rather than a thread-local buffer (dg_last_error()/dg_shortcut_label()'s own shape): unlike those two, a caller may reasonably want to hold more than one field's text at once (a TodoMVC re-rendering every row's own input), which a single shared buffer cannot serve without one field's read stomping another's before the caller finishes copying it out. `out_len` (may be null if the caller does not want it) always receives the field's FULL byte length, regardless of `cap` - a caller passes cap=0 first to size its own allocation, then calls again with a real buffer. `buf` receives at most `cap` bytes (truncated at a byte boundary, NOT a grapheme boundary, if `cap` is smaller than the full text - a caller sizing its buffer from the first call's `out_len` never truncates) and is UNTOUCHED when cap==0. Returns DG_ERR_OK on success (0 IS this ABI's success code here - the data returned lives in `buf`/`out_len`, not in the return value itself, unlike dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a stale/unknown node, DG_ERR_NO_WINDOW for a still-pending one, DG_ERR_UNSUPPORTED for a live node whose type_id is not DG_NODE_TYPE_TEXT_FIELD, DG_ERR_INVALID_ARGUMENT if cap > 0 but buf is null."
 
 [[function]]
 name = "dg_node_insert_before"
@@ -540,3 +574,19 @@ ret = "uint32_t"
 impl = "debug_capture_png_len"
 params = []
 summary = "TEST-ONLY. The byte length of the buffer dg_debug_capture_png() most recently returned on this thread. 0 before the first call, or after one that returned NULL."
+
+[[function]]
+name = "dg_debug_post_text_input"
+ret = "int32_t"
+impl = "debug_post_text_input"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "utf8", type = "const char*" }]
+summary = "TEST-ONLY. WindowManager::post_text_input() at the ABI boundary, driving a real SDL_EVENT_TEXT_INPUT through the real queue exactly as dg_debug_post_pointer_button()/dg_debug_post_key() do for a click/key press - see the file header. Exists ONLY because there is no other headless way to reach DG_NODE_TYPE_TEXT_FIELD's committed-text path (real IME/keyboard text composition needs an actual display): a caller-under-test still has to click the field first (a real dg_debug_post_pointer_button() press+release, which is what actually focuses it and calls WindowManager::start_text_input()) before this has anywhere to deliver text TO - posting text_input at an unfocused window is a silent no-op, matching handle_text()'s own 'no focused node, nothing happens' rule."
+
+[[function]]
+name = "dg_debug_post_text_field_key"
+ret = "int32_t"
+impl = "debug_post_text_field_key"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "down", type = "int32_t" }, { name = "key_name", type = "const char*" }, { name = "shift", type = "int32_t" }]
+summary = "TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL key event through the real queue for one of the six text-field editing keys process_key_event()'s own handle_text_field_key() dispatches directly (Left/Right/Home/End/Backspace/Delete - `key_name` is exactly one of these six bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string). This is a SEPARATE debug hook from dg_debug_post_key() rather than a second parameter on it: dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against input/shortcuts.toml's own generated binding-name table, and none of these six keys is a shortcut binding name at all (see this file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to parse. `shift` (nonzero extends a text field's selection, matching handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for Backspace/Delete, which ignore it exactly like dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do."
+
+

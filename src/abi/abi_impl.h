@@ -41,6 +41,8 @@ std::int32_t node_set_text(dg_node_t* node, std::uint16_t prop_id, const char* u
 std::int32_t node_insert_before(dg_node_t* parent, dg_node_t* child, dg_node_t* ref);
 std::int32_t node_remove(dg_node_t* node);
 std::int32_t node_get_checked(dg_node_t* node);
+std::int32_t node_get_text(dg_node_t* node, char* buf, std::uint32_t cap,
+                           std::uint32_t* out_len);
 std::int32_t node_scope_action(dg_node_t* node, std::uint16_t action_id);
 
 std::int32_t wait_events(dg_app_t* app, std::int32_t timeout_ms);
@@ -66,5 +68,8 @@ std::int32_t debug_trigger_exception(std::int32_t kind);
 
 const char* debug_capture_png(dg_window_t* window);
 std::uint32_t debug_capture_png_len();
+std::int32_t debug_post_text_input(dg_window_t* window, const char* utf8);
+std::int32_t debug_post_text_field_key(dg_window_t* window, std::int32_t down,
+                                       const char* key_name, std::int32_t shift);
 
 }  // namespace dg::abi

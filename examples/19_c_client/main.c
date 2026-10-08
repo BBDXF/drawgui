@@ -656,7 +656,114 @@ static int run_verify(void) {
           "dg_node_get_checked on a non-checkbox live node is unsupported");
   }
 
-  /* 13. Teardown safety: dg_app_destroy must not crash even though window_a/
+  /* 13. P6 sub-step a2 (second half): DG_NODE_TYPE_TEXT_FIELD - build one,
+   * click it (focusing it and starting real text input), type "abc" one
+   * committed character at a time through dg_debug_post_text_input(),
+   * confirm each commit fires its own DG_EVENT_TEXT_CHANGED, read the
+   * result back with dg_node_get_text()'s two-trip shape (cap=0 to ask the
+   * length, then a real buffer), then Backspace once and confirm the text
+   * shortens by exactly one character. */
+  {
+    dg_window_opts field_opts;
+    dg_window_t* window_e = NULL;
+    dg_node_t* field = NULL;
+    uint32_t out_len = 0;
+    char buf[16];
+    int text_changed_count;
+
+    memset(&field_opts, 0, sizeof(field_opts));
+    field_opts.size = sizeof(field_opts);
+    field_opts.title = "drawgui C client - text field";
+    field_opts.width = 280;
+    field_opts.height = 56;
+    field_opts.background_argb = 0xFF0E1218U;
+    window_e = dg_window_create(app, &field_opts);
+    check(window_e != NULL, "dg_window_create opens window E, for the text field");
+
+    field = dg_node_create(app, DG_NODE_TYPE_TEXT_FIELD);
+    check(field != NULL, "dg_node_create(DG_NODE_TYPE_TEXT_FIELD) builds a pending field node");
+
+    status = dg_window_set_root(window_e, field);
+    check(status == DG_ERR_OK, "dg_window_set_root attaches the text field");
+
+    status = dg_node_get_text(field, NULL, 0, &out_len);
+    check(status == DG_ERR_OK && out_len == 0,
+          "a freshly attached text field starts empty (cap=0 length probe)");
+
+    /* attach_pending_node()'s own DG_NODE_TYPE_TEXT_FIELD box is 260x36 at
+     * (0,0) - the field is this window's sole content root - so its centre
+     * is (130, 18) regardless of window_e's own 280x56 size. This click
+     * focuses it (process_pointer_event()'s dg::Focus::set()) and, because
+     * dg_window_create() already called WindowManager::start_text_input()
+     * once for this window's whole lifetime, is what gives the
+     * dg_debug_post_text_input() calls below somewhere real to land. */
+    status = dg_debug_warp_pointer(window_e, 130, 18);
+    check(status == DG_ERR_OK, "dg_debug_warp_pointer onto the text field succeeds");
+    status = dg_debug_post_pointer_button(window_e, 1, 130, 18);
+    check(status == DG_ERR_OK, "dg_debug_post_pointer_button(down) on the text field succeeds");
+    status = dg_debug_post_pointer_button(window_e, 0, 130, 18);
+    check(status == DG_ERR_OK, "dg_debug_post_pointer_button(up) on the text field succeeds");
+    dg_wait_events(app, 50);
+
+    text_changed_count = 0;
+    {
+      const char* chars[3] = {"a", "b", "c"};
+      int c;
+      for (c = 0; c < 3; ++c) {
+        status = dg_debug_post_text_input(window_e, chars[c]);
+        check(status == DG_ERR_OK, "dg_debug_post_text_input succeeds");
+        for (i = 0; i < 20; ++i) {
+          dg_event events[8];
+          int32_t pending = dg_wait_events(app, 50);
+          int32_t j = 0;
+          if (pending < 0) {
+            break;
+          }
+          pending = dg_poll_events(app, events, 8);
+          for (j = 0; j < pending; ++j) {
+            if (events[j].kind == DG_EVENT_TEXT_CHANGED && events[j].node == field) {
+              ++text_changed_count;
+            }
+          }
+          if (pending == 0) {
+            break;
+          }
+        }
+      }
+    }
+    check(text_changed_count == 3,
+          "typing \"abc\" one commit at a time fires exactly 3 DG_EVENT_TEXT_CHANGED");
+
+    out_len = 0;
+    status = dg_node_get_text(field, NULL, 0, &out_len);
+    check(status == DG_ERR_OK && out_len == 3,
+          "dg_node_get_text(cap=0) reports the field's real length (3) without touching buf");
+
+    memset(buf, 0, sizeof(buf));
+    status = dg_node_get_text(field, buf, (uint32_t)sizeof(buf), NULL);
+    check(status == DG_ERR_OK && strcmp(buf, "abc") == 0,
+          "dg_node_get_text(cap=sizeof(buf)) copies the committed text (\"abc\")");
+
+    status = dg_debug_post_text_field_key(window_e, 1, "Backspace", 0);
+    check(status == DG_ERR_OK, "dg_debug_post_text_field_key(down, Backspace) on the focused text field succeeds");
+    status = dg_debug_post_text_field_key(window_e, 0, "Backspace", 0);
+    check(status == DG_ERR_OK, "dg_debug_post_text_field_key(up, Backspace) succeeds");
+    dg_wait_events(app, 50);
+
+    memset(buf, 0, sizeof(buf));
+    out_len = 0;
+    status = dg_node_get_text(field, buf, (uint32_t)sizeof(buf), &out_len);
+    check(status == DG_ERR_OK && out_len == 2 && strcmp(buf, "ab") == 0,
+          "Backspace shortens the field's text from \"abc\" to \"ab\"");
+
+    status = dg_node_get_text(NULL, buf, (uint32_t)sizeof(buf), &out_len);
+    check(status == DG_ERR_INVALID_HANDLE, "dg_node_get_text(NULL) is invalid-handle");
+    status = dg_node_get_text(button_a, buf, (uint32_t)sizeof(buf), &out_len);
+    check(status == DG_ERR_UNSUPPORTED,
+          "dg_node_get_text on a non-text-field live node is unsupported");
+  }
+
+  /* 14. Teardown safety: dg_app_destroy must not crash even though window_a/
    * window_b/button_a/button_b/stray_child handles are all still held by
    * this function, and a handle used AFTER destroy must report
    * DG_ERR_INVALID_HANDLE exactly like an individually removed node does
