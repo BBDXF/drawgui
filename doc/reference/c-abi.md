@@ -66,8 +66,8 @@
 |---|---|
 | `dg_value` | 一个带类型标签的属性值——`type`（`DG_VALUE_*`）、`number`（浮点/长度）、`bits`（颜色 ARGB、枚举序号或布尔 0/1） |
 | `dg_app_opts` | 应用级选项，目前为空，只留 `size` 供未来扩展 |
-| `dg_window_opts` | 窗口初始状态：`title`（创建时拷贝，不持有）、`width`、`height`、`background_argb` |
-| `dg_event` | `dg_poll_events()` 的一条事件：`kind`、`window`、`node`、`x`/`y`、`action_id` |
+| `dg_window_opts` | 窗口初始状态：`title`（创建时拷贝，不持有）、`width`、`height`、`background_argb`；0.2 起追加 `resizable`、`min_width`/`min_height`、`max_width`/`max_height`（0 = 该轴不限制）——只有 `size` 覆盖到这些字段时才读取，0.1 编出来的短结构体照旧得到不可调整大小、无限制的窗口 |
+| `dg_event` | `dg_poll_events()` 的一条事件：`kind`、`window`、`node`、`x`/`y`、`action_id`。`x`/`y` 对 `CLICK` 是指针位置，对 `WINDOW_MOVED` 是新的左上角（逻辑屏幕坐标），对 `WINDOW_RESIZED` 是新的可绘制宽/高（设备像素） |
 | `dg_theme_err` | `dg_theme_load_dir`/`_memory` 失败时的机读原因（`DG_THEME_ERR_*`） |
 
 ## 4. 常量组
@@ -76,7 +76,9 @@
 |---|---|---|---|
 | `node_type` | `DG_NODE_TYPE_` | 5 | `BOX`(1)、`BUTTON`(2)、`LABEL`(3)、`CHECKBOX`(4)、`TEXT_FIELD`(5)——见第 1 节 |
 | `value_type` | `DG_VALUE_` | 6 | `FLOAT`/`LENGTH`/`COLOR`/`ENUM`/`TOKEN`/`BOOL`（`TOKEN` 是 7-6 加入的主题绑定值类型；`BOOL` 的 `bits` 只能是 0/1，否则 `DG_ERR_VALUE_OUT_OF_RANGE`，首个使用者是 `DG_PROP_DISABLED`） |
-| `event_kind` | `DG_EVENT_` | 4 | `WINDOW_CLOSED`/`CLICK`/`ACTION`/`TEXT_CHANGED`（`TEXT_FIELD` 文字变化，只带 `window`/`node`，新文字用 `dg_node_get_text()` 取） |
+| `event_kind` | `DG_EVENT_` | 13 | `WINDOW_CLOSED`/`CLICK`/`ACTION`/`TEXT_CHANGED`（`TEXT_FIELD` 文字变化，只带 `window`/`node`，新文字用 `dg_node_get_text()` 取）；0.2 起追加窗口状态事件 `WINDOW_RESIZED`(5)、`WINDOW_MOVED`(6)、`WINDOW_MINIMIZED`(7)、`WINDOW_MAXIMIZED`(8)、`WINDOW_RESTORED`(9)、`WINDOW_FOCUS_GAINED`(10)、`WINDOW_FOCUS_LOST`(11)、`WINDOW_FULLSCREEN_ENTERED`(12)、`WINDOW_FULLSCREEN_LEFT`(13)。`RESIZED` 只在尺寸真的变了时才报；多数平台（包括 dummy 驱动）在窗口创建后会先报一次 `FOCUS_GAINED` |
+| `pixel_format` | `DG_PIXEL_FORMAT_` | 2 | 0.2：`BGRA8888`(1)、`RGBA8888`(2)，`dg_window_set_icon()` 的像素字节序 |
+| `window_state` | `DG_WINDOW_STATE_` | 5 | 0.2：`dg_window_get_state()` 返回值的位：`MINIMIZED`(1)、`MAXIMIZED`(2)、`FULLSCREEN`(4)、`FOCUSED`(8)、`RESIZABLE`(16) |
 | `error` | `DG_ERR_` | 13 | 见下 |
 | `theme_err` | `DG_THEME_ERR_` | 9 | 主题包加载失败原因，一一对应 `dg::ThemeLoadStatus` |
 
@@ -86,7 +88,7 @@
 `VALUE_OUT_OF_RANGE`(-7)、`NOT_APPLICABLE`(-8)、`UNSUPPORTED`(-9)、
 `ALREADY_ATTACHED`(-10)、`NO_WINDOW`(-11)、`NO_ACTIVE_THEME`(-12)。
 
-## 5. 导出函数（共 32 个）
+## 5. 导出函数（共 47 个）
 
 按用途分组；每个函数一句话说明。
 
@@ -105,6 +107,17 @@
 |---|---|
 | `dg_window_create(app, opts)` | 立即开一个窗口，首帧绘制前用 `background_argb` 填充 |
 | `dg_window_set_root(window, node)` | 把（必须是 pending 的）`node` 挂到窗口树，作为唯一内容根 |
+| `dg_window_set_title(window, utf8)` / `dg_window_get_title(window, buf, cap, out_len)` | 0.2：改/读标题；读取是和 `dg_node_get_text()` 一样的两趟调用 |
+| `dg_window_set_size(window, w, h)` / `dg_window_get_size(window, &w, &h)` | 0.2：逻辑单位（与 `dg_window_opts::width/height` 相同）；受最小/最大尺寸约束；结果以 `DG_EVENT_WINDOW_RESIZED` 确认（事件里是设备像素） |
+| `dg_window_set_position(window, x, y)` / `dg_window_get_position(window, &x, &y)` | 0.2：左上角，逻辑屏幕坐标；Wayland 之类的窗口系统可能忽略设置、读回 0,0 |
+| `dg_window_minimize` / `_maximize` / `_restore(window)` | 0.2：请求最小化/最大化/还原，对应事件确认。**dummy 驱动不支持，返回 `DG_ERR_UNSUPPORTED`** |
+| `dg_window_set_fullscreen(window, on)` | 0.2：进入/退出全屏，`WINDOW_FULLSCREEN_ENTERED/LEFT`（通常还有 `RESIZED`）确认 |
+| `dg_window_set_resizable(window, on)` | 0.2：是否允许用户拖拽改变大小（dummy 驱动接受但从不报告为可调整） |
+| `dg_window_set_min_size` / `_max_size(window, w, h)` | 0.2：逻辑单位，0 = 该轴不限制；负数或最小值大于最大值（反之亦然）返回 `DG_ERR_UNSUPPORTED` |
+| `dg_window_set_icon(window, pixels, w, h, row_bytes, format)` | 0.2：32 位直通 alpha 像素，调用返回前已拷贝；`format` 为 `DG_PIXEL_FORMAT_*`。空指针、非正尺寸、`row_bytes < w*4`、未知格式返回 `DG_ERR_INVALID_ARGUMENT`。**dummy 驱动没有图标，合法图像也返回 `DG_ERR_UNSUPPORTED`** |
+| `dg_window_get_state(window)` | 0.2：非负返回值是 `DG_WINDOW_STATE_*` 位掩码，负数为 `DG_ERR_*` |
+
+窗口操作的错误约定：句柄为 NULL 或窗口已不存在返回 `DG_ERR_INVALID_HANDLE`；参数在调用平台前校验，不合法返回 `DG_ERR_INVALID_ARGUMENT`；平台拒绝请求返回 `DG_ERR_UNSUPPORTED`，`dg_last_error()` 里是平台给出的原因。真实显示服务器上最小化/最大化/全屏等是异步生效的：返回 `DG_ERR_OK` 只表示请求被接受，对应的 `DG_EVENT_WINDOW_*` 才表示真的发生了。
 
 ### 节点
 
@@ -196,7 +209,7 @@ try {
 - **结构体**：按 `(name, 有序字段列表)` 锁定，已锁定字段必须是当前字段列表
   的一个不变前缀——新字段只能追加在末尾。这就是为什么每个结构体第一个字段
   永远是 `size`。
-- **常量**（`node_type`/`value_type`/`event_kind`/`error`/`theme_err`）：
+- **常量**（`node_type`/`value_type`/`event_kind`/`error`/`theme_err`/`pixel_format`/`window_state`）：
   按 `(name, value)` 锁定，同 `props/prop_ids.lock`/`themes/token_ids.lock`
   的机制——只能新增，不能重新编号或复用。
 - **不透明类型**：仅按名字锁定——只能新增，不能删除或改名（改名在 ABI 层是
@@ -204,6 +217,17 @@ try {
 
 以上全部由 `tools/abi_lock.py` 针对 `abi/drawgui_abi.lock` 机制性校验，
 而非依赖人工自觉。
+
+### 版本历史
+
+`DG_ABI_VERSION_MAJOR`/`DG_ABI_VERSION_MINOR` 来自 `abi/drawgui.def.toml`
+的 `[meta]`，MINOR 每攒一批只追加的改动就加一次（同一份列表也写在 def.toml
+的 `[meta]` 注释里）：
+
+| 版本 | 内容 |
+|---|---|
+| 0.1 | 初始接口（94d53af），到 `dg_node_get_text()` 为止 |
+| 0.2 | `dg_node_insert_before()` 按位置插入/移动、`dg_node_remove()` 删除整棵子树（5f3917b）；`DG_PROP_DISABLED` + `DG_VALUE_BOOL`（e8bdea9）；禁用控件跟随主题切换（c488360）；窗口操作 `dg_window_set_title()` … `dg_window_get_state()`、`DG_EVENT_WINDOW_*` 状态事件、`DG_PIXEL_FORMAT_*`、`DG_WINDOW_STATE_*`、`dg_window_opts` 追加的 `resizable`/最小/最大尺寸字段 |
 
 ## 8. 相关文档
 

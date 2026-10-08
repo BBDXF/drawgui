@@ -14,7 +14,7 @@
 
 **不做会怎样**：窗口被拖拽缩放后，继续用创建窗口时的 `WindowSpec` 尺寸分配 surface，会导致新一帧按旧尺寸光栅化——要么画面被拉伸/裁切，要么在 `present()` 里因尺寸不匹配而越界写入。这正是 commit `8ff1f4e` 修复前 5 个 example 里实际发生过的问题。
 
-**依据**：`include/drawgui/window/window_manager.h:373-378`（`needs_repaint` 字段注释：“a resize is not reported separately … the only correct response … is to ask for the drawable size again”）；修复提交 `8ff1f4e`。
+**依据**：`include/drawgui/window/window_manager.h:430-435`（`needs_repaint` 字段注释：“the only correct response to either is the same: ask for the drawable size again”）；修复提交 `8ff1f4e`。
 
 **正确写法**：
 ```cpp
@@ -34,7 +34,7 @@ for (const WindowId id : frame.needs_repaint) {
 
 **不做会怎样**：resize 改变了每个控件的位置，如果先处理同一批里的指针事件，会拿旧布局做命中测试——点击位置和实际显示的控件对不上，通常是点偏或点空。
 
-**依据**：`include/drawgui/window/window_manager.h:384-386`。
+**依据**：`include/drawgui/window/window_manager.h:441-443`。
 
 **正确写法**：按 `WindowManager::pump()` 返回结构体里字段声明的顺序处理：`closed`/`close_requested` → `needs_repaint` → `pointer` → `key`/`text_input`/`text_editing`。
 

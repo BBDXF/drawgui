@@ -84,6 +84,12 @@ struct OwnedWindow {
   // behaviour before 7-5b) or surfaces through PumpResult::close_requested
   // instead, leaving the window open until close_now() is called.
   bool cancellable_close = false;
+
+  // The physical size last reported through WindowEventKind::kResized (or
+  // the size at open()). SDL reports a pixel-size change at creation and on
+  // every no-op resize request; comparing against this is what keeps
+  // kResized meaning "the size is now different".
+  PixelSize reported_size;
 };
 
 // SDL reports failure as false or nullptr and leaves the reason in
@@ -342,6 +348,83 @@ Uint8 from_pointer_button(PointerButton button) {
   return SDL_BUTTON_LEFT;
 }
 
+std::optional<SDL_EventType> to_sdl_window_event(WindowEventKind kind) {
+  switch (kind) {
+    case WindowEventKind::kMinimized:
+      return SDL_EVENT_WINDOW_MINIMIZED;
+    case WindowEventKind::kMaximized:
+      return SDL_EVENT_WINDOW_MAXIMIZED;
+    case WindowEventKind::kRestored:
+      return SDL_EVENT_WINDOW_RESTORED;
+    case WindowEventKind::kFocusGained:
+      return SDL_EVENT_WINDOW_FOCUS_GAINED;
+    case WindowEventKind::kFocusLost:
+      return SDL_EVENT_WINDOW_FOCUS_LOST;
+    case WindowEventKind::kEnteredFullscreen:
+      return SDL_EVENT_WINDOW_ENTER_FULLSCREEN;
+    case WindowEventKind::kLeftFullscreen:
+      return SDL_EVENT_WINDOW_LEAVE_FULLSCREEN;
+    case WindowEventKind::kResized:
+    case WindowEventKind::kMoved:
+      break;
+  }
+  return std::nullopt;
+}
+
+// The payload-free window events, by SDL type. kResized and kMoved carry
+// data and are handled where they are dispatched.
+std::optional<WindowEventKind> to_window_event_kind(Uint32 sdl_type) {
+  switch (sdl_type) {
+    case SDL_EVENT_WINDOW_MINIMIZED:
+      return WindowEventKind::kMinimized;
+    case SDL_EVENT_WINDOW_MAXIMIZED:
+      return WindowEventKind::kMaximized;
+    case SDL_EVENT_WINDOW_RESTORED:
+      return WindowEventKind::kRestored;
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+      return WindowEventKind::kFocusGained;
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+      return WindowEventKind::kFocusLost;
+    case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+      return WindowEventKind::kEnteredFullscreen;
+    case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+      return WindowEventKind::kLeftFullscreen;
+    default:
+      return std::nullopt;
+  }
+}
+
+// SDL_CreateWindow plus everything WindowSpec asks for beyond a title and a
+// size. Shared by open() and open_dialog(); a limit the platform rejects
+// fails the open rather than leaving a window without it.
+Expected<SDL_Window*, WindowError> create_sdl_window(const WindowSpec& spec) {
+  const SDL_WindowFlags flags = spec.resizable ? SDL_WINDOW_RESIZABLE : 0;
+  SDL_Window* window = SDL_CreateWindow(spec.title.c_str(), spec.width, spec.height, flags);
+  if (window == nullptr) {
+    return Unexpected{WindowError{sdl_failure("SDL_CreateWindow")}};
+  }
+  if ((spec.min_width != 0 || spec.min_height != 0) &&
+      !SDL_SetWindowMinimumSize(window, spec.min_width, spec.min_height)) {
+    WindowError error{sdl_failure("SDL_SetWindowMinimumSize")};
+    SDL_DestroyWindow(window);
+    return Unexpected{std::move(error)};
+  }
+  if ((spec.max_width != 0 || spec.max_height != 0) &&
+      !SDL_SetWindowMaximumSize(window, spec.max_width, spec.max_height)) {
+    WindowError error{sdl_failure("SDL_SetWindowMaximumSize")};
+    SDL_DestroyWindow(window);
+    return Unexpected{std::move(error)};
+  }
+  return window;
+}
+
+PixelSize pixel_size_of(SDL_Window* window) {
+  int width = 0;
+  int height = 0;
+  SDL_GetWindowSizeInPixels(window, &width, &height);
+  return PixelSize{width, height};
+}
+
 }  // namespace
 
 // The whole of the manager's state. Its destructor is the only place windows
@@ -477,21 +560,70 @@ struct WindowManager::Impl {
         // non-primary mouse button.
         break;
       case SDL_EVENT_WINDOW_EXPOSED:
-      case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
-        const SDL_WindowID sdl_id = event.window.windowID;
-        const auto entry = find(sdl_id);
-        if (entry != windows.end()) {
-          paint(*entry);
-          result.needs_repaint.push_back(WindowId{sdl_id});
-        }
+      case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        dispatch_repaint(event, result);
         break;
-      }
+      case SDL_EVENT_WINDOW_MOVED:
+      case SDL_EVENT_WINDOW_MINIMIZED:
+      case SDL_EVENT_WINDOW_MAXIMIZED:
+      case SDL_EVENT_WINDOW_RESTORED:
+      case SDL_EVENT_WINDOW_FOCUS_GAINED:
+      case SDL_EVENT_WINDOW_FOCUS_LOST:
+      case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+      case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+        dispatch_window_state(event, result);
+        break;
       default:
         // SDL_EVENT_QUIT lands here on purpose. SDL raises it when the last
         // window goes away, which the caller already knows from
         // open_window_count(); acting on it would be a second, redundant way
         // to end the same loop.
         break;
+    }
+  }
+
+  // An expose or a resize: either way the window needs a fresh frame. A
+  // resize is additionally reported as kResized, but only when the size
+  // really differs from the last one reported.
+  void dispatch_repaint(const SDL_Event& event, PumpResult& result) {
+    const auto entry = find(event.window.windowID);
+    if (entry == windows.end()) {
+      return;
+    }
+    paint(*entry);
+    result.needs_repaint.push_back(WindowId{entry->sdl_id});
+    if (event.type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+      return;
+    }
+    const PixelSize now{event.window.data1, event.window.data2};
+    if (now == entry->reported_size) {
+      return;
+    }
+    entry->reported_size = now;
+    WindowEvent resized{WindowId{entry->sdl_id}, WindowEventKind::kResized};
+    resized.width = now.width;
+    resized.height = now.height;
+    result.window_events.push_back(resized);
+  }
+
+  // Moves, minimize/maximize/restore, focus and fullscreen - split out of
+  // dispatch() for the same complexity budget as dispatch_keyboard().
+  void dispatch_window_state(const SDL_Event& event, PumpResult& result) {
+    const auto entry = find(event.window.windowID);
+    if (entry == windows.end()) {
+      return;
+    }
+    const WindowId id{entry->sdl_id};
+    if (event.type == SDL_EVENT_WINDOW_MOVED) {
+      WindowEvent moved{id, WindowEventKind::kMoved};
+      moved.x = event.window.data1;
+      moved.y = event.window.data2;
+      result.window_events.push_back(moved);
+      return;
+    }
+    const std::optional<WindowEventKind> kind = to_window_event_kind(event.type);
+    if (kind.has_value()) {
+      result.window_events.push_back(WindowEvent{id, *kind});
     }
   }
 
@@ -570,10 +702,11 @@ Expected<WindowId, WindowError> WindowManager::open(const WindowSpec& spec) {
   // SDL3's SDL_CreateWindow takes no x/y - placement belongs to the window
   // manager. Distinguishing one window from another is therefore the caller's
   // job, through the title and the fill colour it chooses.
-  SDL_Window* window = SDL_CreateWindow(spec.title.c_str(), spec.width, spec.height, 0);
-  if (window == nullptr) {
-    return Unexpected{WindowError{sdl_failure("SDL_CreateWindow")}};
+  Expected<SDL_Window*, WindowError> created = create_sdl_window(spec);
+  if (!created) {
+    return Unexpected{created.error()};
   }
+  SDL_Window* window = created.value();
 
   const SDL_WindowID sdl_id = SDL_GetWindowID(window);
   if (sdl_id == 0) {
@@ -584,7 +717,8 @@ Expected<WindowId, WindowError> WindowManager::open(const WindowSpec& spec) {
   impl_->windows.push_back(OwnedWindow{.sdl_id = sdl_id,
                                        .window = window,
                                        .fill = spec.fill,
-                                       .cancellable_close = spec.cancellable_close});
+                                       .cancellable_close = spec.cancellable_close,
+                                       .reported_size = pixel_size_of(window)});
   paint(impl_->windows.back());
   return WindowId{sdl_id};
 }
@@ -596,10 +730,11 @@ Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spe
     return Unexpected{WindowError{"open_dialog: no such owner window"}};
   }
 
-  SDL_Window* window = SDL_CreateWindow(spec.title.c_str(), spec.width, spec.height, 0);
-  if (window == nullptr) {
-    return Unexpected{WindowError{sdl_failure("SDL_CreateWindow")}};
+  Expected<SDL_Window*, WindowError> created = create_sdl_window(spec);
+  if (!created) {
+    return Unexpected{created.error()};
   }
+  SDL_Window* window = created.value();
 
   // Real OS ownership/modality, in that order - SDL_SetWindowModal()'s own
   // documented precondition ("the window must currently be the child of a
@@ -628,7 +763,8 @@ Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spe
   impl_->windows.push_back(OwnedWindow{.sdl_id = sdl_id,
                                        .window = window,
                                        .fill = spec.fill,
-                                       .cancellable_close = spec.cancellable_close});
+                                       .cancellable_close = spec.cancellable_close,
+                                       .reported_size = pixel_size_of(window)});
   paint(impl_->windows.back());
   return WindowId{sdl_id};
 }
@@ -908,6 +1044,209 @@ Expected<bool, WindowError> WindowManager::showing_fill(WindowId id) const {
   return entry->shows_fill;
 }
 
+namespace {
+
+// The common tail of every window operation: SDL's bool result turned into
+// this file's Expected, carrying SDL's own reason on failure.
+Expected<void, WindowError> sdl_result(bool ok, std::string_view call) {
+  if (!ok) {
+    return Unexpected{WindowError{sdl_failure(call)}};
+  }
+  return {};
+}
+
+}  // namespace
+
+Expected<void, WindowError> WindowManager::set_title(WindowId id, std::string_view title) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  const std::string owned{title};
+  return sdl_result(SDL_SetWindowTitle(entry->window, owned.c_str()), "SDL_SetWindowTitle");
+}
+
+Expected<std::string, WindowError> WindowManager::title(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  // SDL owns the returned string; it is never null for a valid window.
+  const char* title = SDL_GetWindowTitle(entry->window);
+  return std::string{title != nullptr ? title : ""};
+}
+
+Expected<void, WindowError> WindowManager::set_size(WindowId id, int width, int height) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  if (width <= 0 || height <= 0) {
+    return Unexpected{WindowError{"set_size: width and height must be positive"}};
+  }
+  return sdl_result(SDL_SetWindowSize(entry->window, width, height), "SDL_SetWindowSize");
+}
+
+Expected<PixelSize, WindowError> WindowManager::size(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  int width = 0;
+  int height = 0;
+  if (!SDL_GetWindowSize(entry->window, &width, &height)) {
+    return Unexpected{WindowError{sdl_failure("SDL_GetWindowSize")}};
+  }
+  return PixelSize{width, height};
+}
+
+Expected<void, WindowError> WindowManager::set_position(WindowId id, int x, int y) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return sdl_result(SDL_SetWindowPosition(entry->window, x, y), "SDL_SetWindowPosition");
+}
+
+Expected<PixelPoint, WindowError> WindowManager::position(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  int x = 0;
+  int y = 0;
+  if (!SDL_GetWindowPosition(entry->window, &x, &y)) {
+    return Unexpected{WindowError{sdl_failure("SDL_GetWindowPosition")}};
+  }
+  return PixelPoint{x, y};
+}
+
+Expected<void, WindowError> WindowManager::minimize(WindowId id) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return sdl_result(SDL_MinimizeWindow(entry->window), "SDL_MinimizeWindow");
+}
+
+Expected<void, WindowError> WindowManager::maximize(WindowId id) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return sdl_result(SDL_MaximizeWindow(entry->window), "SDL_MaximizeWindow");
+}
+
+Expected<void, WindowError> WindowManager::restore(WindowId id) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return sdl_result(SDL_RestoreWindow(entry->window), "SDL_RestoreWindow");
+}
+
+Expected<void, WindowError> WindowManager::set_fullscreen(WindowId id, bool fullscreen) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return sdl_result(SDL_SetWindowFullscreen(entry->window, fullscreen),
+                    "SDL_SetWindowFullscreen");
+}
+
+Expected<void, WindowError> WindowManager::set_resizable(WindowId id, bool resizable) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return sdl_result(SDL_SetWindowResizable(entry->window, resizable), "SDL_SetWindowResizable");
+}
+
+Expected<void, WindowError> WindowManager::set_min_size(WindowId id, int width, int height) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  // SDL itself rejects a negative size and a minimum above the maximum.
+  return sdl_result(SDL_SetWindowMinimumSize(entry->window, width, height),
+                    "SDL_SetWindowMinimumSize");
+}
+
+Expected<void, WindowError> WindowManager::set_max_size(WindowId id, int width, int height) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  return sdl_result(SDL_SetWindowMaximumSize(entry->window, width, height),
+                    "SDL_SetWindowMaximumSize");
+}
+
+Expected<void, WindowError> WindowManager::set_icon(WindowId id, const ImageView& icon) {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  if (icon.pixels == nullptr || icon.width <= 0 || icon.height <= 0) {
+    return Unexpected{WindowError{"set_icon: the image is empty"}};
+  }
+  const auto row_span = static_cast<std::size_t>(icon.width) * kBytesPerPixel;
+  if (icon.row_bytes < row_span) {
+    return Unexpected{WindowError{"set_icon: row_bytes is smaller than width * 4"}};
+  }
+
+  // Copied into a surface of SDL's own rather than wrapped around the
+  // caller's bytes, so nothing SDL keeps can point at memory the caller is
+  // about to free. ARGB8888 is the bytes B, G, R, A on a little-endian
+  // machine (asserted at the top of this file), so BGRA rows copy straight
+  // across and RGBA rows swap red and blue on the way.
+  SDL_Surface* surface = SDL_CreateSurface(icon.width, icon.height, SDL_PIXELFORMAT_ARGB8888);
+  if (surface == nullptr) {
+    return Unexpected{WindowError{sdl_failure("SDL_CreateSurface")}};
+  }
+  auto* destination = static_cast<std::uint8_t*>(surface->pixels);
+  const auto destination_pitch = static_cast<std::size_t>(surface->pitch);
+  for (int row = 0; row < icon.height; ++row) {
+    const std::uint8_t* source = icon.pixels + (static_cast<std::size_t>(row) * icon.row_bytes);
+    std::uint8_t* target = destination + (static_cast<std::size_t>(row) * destination_pitch);
+    std::memcpy(target, source, row_span);
+    if (icon.format == PixelFormat::kRgba8888) {
+      for (std::size_t px = 0; px < row_span; px += kBytesPerPixel) {
+        std::swap(target[px], target[px + 2]);
+      }
+    }
+  }
+  const bool ok = SDL_SetWindowIcon(entry->window, surface);
+  SDL_DestroySurface(surface);
+  return sdl_result(ok, "SDL_SetWindowIcon");
+}
+
+Expected<WindowState, WindowError> WindowManager::state(WindowId id) const {
+  const auto entry = impl_->find(id.value);
+  if (entry == impl_->windows.end()) {
+    return Unexpected{WindowError{"no such window"}};
+  }
+  const SDL_WindowFlags flags = SDL_GetWindowFlags(entry->window);
+  return WindowState{.minimized = (flags & SDL_WINDOW_MINIMIZED) != 0,
+                     .maximized = (flags & SDL_WINDOW_MAXIMIZED) != 0,
+                     .fullscreen = (flags & SDL_WINDOW_FULLSCREEN) != 0,
+                     .focused = (flags & SDL_WINDOW_INPUT_FOCUS) != 0,
+                     .resizable = (flags & SDL_WINDOW_RESIZABLE) != 0};
+}
+
+void WindowManager::post_window_event(WindowId id, WindowEventKind kind) {
+  if (impl_->find(id.value) == impl_->windows.end()) {
+    return;
+  }
+  const std::optional<SDL_EventType> type = to_sdl_window_event(kind);
+  if (!type.has_value()) {
+    return;
+  }
+  SDL_Event event{};
+  event.window.type = *type;
+  event.window.windowID = id.value;
+  SDL_PushEvent(&event);
+}
+
 Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView& image,
                                                    const PixelRect& dirty) {
   return present(id, image, std::span<const PixelRect>{&dirty, 1});
@@ -921,6 +1260,9 @@ Expected<void, WindowError> WindowManager::present(WindowId id, const ImageView&
   }
   if (image.pixels == nullptr) {
     return Unexpected{WindowError{"present() was given no pixels"}};
+  }
+  if (image.format != PixelFormat::kBgra8888) {
+    return Unexpected{WindowError{"present() copies BGRA only; convert the frame first"}};
   }
 
   SDL_Surface* surface = SDL_GetWindowSurface(entry->window);

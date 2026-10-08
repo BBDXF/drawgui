@@ -54,13 +54,16 @@ backend, with no platform-abstraction layer ahead of a second one.
   `WindowManager`.
 - **Theming**: 12 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI**: 32 exported functions (8 of them `dg_debug_*` test-only
-  hooks) - but a much smaller surface than the C++ engine. Today it can
-  open a window, create five node types
+- **C ABI** (version 0.2): 47 exported functions (8 of them `dg_debug_*`
+  test-only hooks) - but a much smaller surface than the C++ engine. Today
+  it can open a window and operate on it (title, size, position, min/max
+  size, minimize/maximize/restore, fullscreen, resizable, icon, state
+  query), create five node types
   (`BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`), set the 51 properties
   (text through the dedicated `dg_node_set_text()`), read back a
   checkbox's state and a text field's text, receive
-  close/click/action/text-changed events, and load a theme. Nodes can be
+  close/click/action/text-changed and window-state (resize/move/minimize/
+  maximize/restore/focus/fullscreen) events, and load a theme. Nodes can be
   inserted before a sibling, moved within a window and removed as whole
   subtrees, so a keyed reconciler can drive the tree. Text is
   minimal: one engine-default size, no `font_size`/`text_align`, and no

@@ -176,7 +176,7 @@ pump()
 → present(damage)
 ```
 
-依据：`include/drawgui/window/window_manager.h:385` 附近的注释——一次
+依据：`include/drawgui/window/window_manager.h:442` 附近的注释——一次
 `pump()` 里，resize 已经移动了所有 widget 的位置，如果先处理指针事件，
 命中测试会打在旧的布局上。`doc/contracts.md` 有更完整的论证，这里只记
 顺序本身。
@@ -201,6 +201,9 @@ int main(void) {
   opts.width = 320;
   opts.height = 200;
   opts.background_argb = 0xFF14171FU;
+  opts.resizable = 1;               /* 0.2 起：可拖拽改变大小，最小 240x160 */
+  opts.min_width = 240;
+  opts.min_height = 160;
 
   dg_window_t* window = dg_window_create(app, &opts);
   if (window == NULL) { dg_app_destroy(app); return 1; }
@@ -229,6 +232,8 @@ int main(void) {
     for (int32_t i = 0; i < pending; ++i) {
       if (events[i].kind == DG_EVENT_CLICK) {
         /* ... */
+      } else if (events[i].kind == DG_EVENT_WINDOW_RESIZED) {
+        /* x/y 是新的可绘制宽高；drawgui 已经按新尺寸重绘过了 */
       } else if (events[i].kind == DG_EVENT_WINDOW_CLOSED) {
         goto done;
       }
@@ -239,6 +244,12 @@ done:
   return 0;
 }
 ```
+
+窗口创建后还可以用 `dg_window_set_title()`、`dg_window_set_size()`、
+`dg_window_set_position()`、`dg_window_set_fullscreen()`、
+`dg_window_minimize()` 等操作它，用 `dg_window_get_state()` 查询状态——
+完整列表见 [`doc/reference/c-abi.md`](reference/c-abi.md) 第 5 节。C++ 侧对应的是
+`dg::WindowManager` 上同名的 `set_title()`/`set_size()`/…/`state()`。
 
 ## 7. 下一步
 

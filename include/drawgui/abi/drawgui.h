@@ -32,13 +32,13 @@
 extern "C" {
 #endif
 
-/* MAJOR<<16 | MINOR. Current build: 0.1
+/* MAJOR<<16 | MINOR. Current build: 0.2
  * (design.md section 5.8 decision 4). Compare dg_abi_version() against
  * this at link time if the two might disagree (a plugin scenario);
  * this project's own examples do not, because they always link the
  * library they were built against. */
 #define DG_ABI_VERSION_MAJOR 0u
-#define DG_ABI_VERSION_MINOR 1u
+#define DG_ABI_VERSION_MINOR 2u
 
 /* -- Opaque handle types --------------------------------------------------- */
 
@@ -90,6 +90,19 @@ typedef struct dg_window_opts {
   int32_t height;
   /* 0xAARRGGBB fill until the first frame paints. */
   uint32_t background_argb;
+  /* ABI 0.2: nonzero lets the user resize the window. Read only when `size` */
+  /* covers it; an older, shorter struct gets 0 (not resizable), what every window */
+  /* was before. */
+  int32_t resizable;
+  /* ABI 0.2: minimum width, logical units; 0 = no limit. Read only when `size` */
+  /* covers it. */
+  int32_t min_width;
+  /* ABI 0.2: minimum height; 0 = no limit. */
+  int32_t min_height;
+  /* ABI 0.2: maximum width; 0 = no limit. */
+  int32_t max_width;
+  /* ABI 0.2: maximum height; 0 = no limit. */
+  int32_t max_height;
 } dg_window_opts;
 
 /* One entry of dg_poll_events() - the C shape of dg::PumpResult, flattened to */
@@ -106,11 +119,15 @@ typedef struct dg_event {
   /* dg_node_scope_action() binding - or null for a level-4 app-wide action, which */
   /* names no node. Null for every other kind. */
   dg_node_t* node;
-  /* DG_EVENT_CLICK only: the pointer position, device pixels. 0 for every other */
-  /* kind, including DG_EVENT_ACTION, which carries no pointer position at all. */
+  /* DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: */
+  /* the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the */
+  /* new drawable WIDTH, device pixels. 0 for every other kind, including */
+  /* DG_EVENT_ACTION. */
   int32_t x;
-  /* DG_EVENT_CLICK only: the pointer position, device pixels. 0 for every other */
-  /* kind, including DG_EVENT_ACTION, which carries no pointer position at all. */
+  /* DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: */
+  /* the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the */
+  /* new drawable HEIGHT, device pixels. 0 for every other kind, including */
+  /* DG_EVENT_ACTION. */
   int32_t y;
   /* 8-3d: DG_EVENT_ACTION only - the resolved dg_action_id (input/shortcuts.toml, */
   /* design.md section 5.5.3). DG_ACTION_INVALID (0) for every other kind. */
@@ -230,6 +247,47 @@ typedef struct dg_theme_err {
 /* in it without breaking that): a caller reacting to this queries */
 /* dg_node_get_text() rather than reading the new text out of the event itself. */
 #define DG_EVENT_TEXT_CHANGED 4u
+/* ABI 0.2: the window's drawable size changed; x/y carry the new width/height */
+/* in device pixels. drawgui has already resized and repainted the window by the */
+/* time this is polled. Not reported for a request that left the size unchanged. */
+#define DG_EVENT_WINDOW_RESIZED 5u
+/* ABI 0.2: the window moved; x/y carry the new top-left corner in logical */
+/* screen coordinates (dg_window_get_position()'s units). */
+#define DG_EVENT_WINDOW_MOVED 6u
+/* ABI 0.2: the window was minimized. */
+#define DG_EVENT_WINDOW_MINIMIZED 7u
+/* ABI 0.2: the window was maximized. */
+#define DG_EVENT_WINDOW_MAXIMIZED 8u
+/* ABI 0.2: the window returned to normal from minimized or maximized. */
+#define DG_EVENT_WINDOW_RESTORED 9u
+/* ABI 0.2: the window gained keyboard focus. Platforms (including the headless */
+/* dummy driver) usually report this once right after dg_window_create(). */
+#define DG_EVENT_WINDOW_FOCUS_GAINED 10u
+/* ABI 0.2: the window lost keyboard focus. */
+#define DG_EVENT_WINDOW_FOCUS_LOST 11u
+/* ABI 0.2: the window became fullscreen. */
+#define DG_EVENT_WINDOW_FULLSCREEN_ENTERED 12u
+/* ABI 0.2: the window left fullscreen. */
+#define DG_EVENT_WINDOW_FULLSCREEN_LEFT 13u
+
+/* ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()). */
+/* Bytes blue, green, red, alpha - a drawgui-rasterized frame's own order. */
+#define DG_PIXEL_FORMAT_BGRA8888 1u
+/* Bytes red, green, blue, alpha - most image decoders' order. */
+#define DG_PIXEL_FORMAT_RGBA8888 2u
+
+/* ABI 0.2: bits of dg_window_get_state()'s non-negative result. */
+/* The window is minimized. */
+#define DG_WINDOW_STATE_MINIMIZED 1
+/* The window is maximized. */
+#define DG_WINDOW_STATE_MAXIMIZED 2
+/* The window is fullscreen. */
+#define DG_WINDOW_STATE_FULLSCREEN 4
+/* The window has keyboard focus. */
+#define DG_WINDOW_STATE_FOCUSED 8
+/* The platform reports the window as user-resizable (the dummy driver never */
+/* does, even after dg_window_set_resizable()). */
+#define DG_WINDOW_STATE_RESIZABLE 16
 
 /* Every dg_*() status-returning function's result. */
 /* Success. */
@@ -770,6 +828,108 @@ DG_EXPORT int32_t dg_debug_post_text_input(dg_window_t* window, const char* utf8
 /* dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do. */
 DG_EXPORT int32_t dg_debug_post_text_field_key(dg_window_t* window, int32_t down,
                                                const char* key_name, int32_t shift);
+
+/* ABI 0.2: replaces the window's title (UTF-8, copied). DG_ERR_INVALID_ARGUMENT */
+/* if `utf8` is null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A */
+/* request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's */
+/* reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_title(dg_window_t* window, const char* utf8);
+
+/* ABI 0.2: the window's current title, with dg_node_get_text()'s two-trip */
+/* shape: `out_len` (may be null) receives the full byte length, `buf` at most */
+/* `cap` bytes, no NUL terminator. DG_ERR_INVALID_ARGUMENT if cap > 0 but buf is */
+/* null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the */
+/* platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in */
+/* dg_last_error(). */
+DG_EXPORT int32_t dg_window_get_title(dg_window_t* window, char* buf, uint32_t cap,
+                                      uint32_t* out_len);
+
+/* ABI 0.2: requests a new size in logical units (dg_window_opts::width/height's */
+/* units), clamped by any min/max size. Both must be positive */
+/* (DG_ERR_INVALID_ARGUMENT). Asynchronous on some platforms: */
+/* DG_EVENT_WINDOW_RESIZED confirms the result. DG_ERR_INVALID_HANDLE for a */
+/* closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, */
+/* with the platform's reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_size(dg_window_t* window, int32_t width, int32_t height);
+
+/* ABI 0.2: the window's current size in logical units. Either out-param may be */
+/* null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the */
+/* platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in */
+/* dg_last_error(). */
+DG_EXPORT int32_t dg_window_get_size(dg_window_t* window, int32_t* width, int32_t* height);
+
+/* ABI 0.2: requests a new top-left corner, logical screen coordinates. Some */
+/* window systems (Wayland) ignore it. DG_EVENT_WINDOW_MOVED confirms the */
+/* result. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the */
+/* platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in */
+/* dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_position(dg_window_t* window, int32_t x, int32_t y);
+
+/* ABI 0.2: the window's top-left corner as the platform reports it (often 0,0 */
+/* where the window system hides it). Either out-param may be null. */
+/* DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform */
+/* refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_get_position(dg_window_t* window, int32_t* x, int32_t* y);
+
+/* ABI 0.2: requests minimizing; DG_EVENT_WINDOW_MINIMIZED confirms it. The */
+/* headless dummy driver refuses (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for */
+/* a closed/unknown window. A request the platform refuses is */
+/* DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_minimize(dg_window_t* window);
+
+/* ABI 0.2: requests maximizing; DG_EVENT_WINDOW_MAXIMIZED confirms it. The */
+/* headless dummy driver refuses (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for */
+/* a closed/unknown window. A request the platform refuses is */
+/* DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_maximize(dg_window_t* window);
+
+/* ABI 0.2: requests a return to normal from minimized/maximized; */
+/* DG_EVENT_WINDOW_RESTORED confirms it. The headless dummy driver refuses */
+/* (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A */
+/* request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's */
+/* reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_restore(dg_window_t* window);
+
+/* ABI 0.2: nonzero enters fullscreen, 0 leaves it; */
+/* DG_EVENT_WINDOW_FULLSCREEN_ENTERED/LEFT (and usually DG_EVENT_WINDOW_RESIZED) */
+/* confirm it. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the */
+/* platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in */
+/* dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_fullscreen(dg_window_t* window, int32_t fullscreen);
+
+/* ABI 0.2: nonzero lets the user resize the window. DG_ERR_INVALID_HANDLE for a */
+/* closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, */
+/* with the platform's reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_resizable(dg_window_t* window, int32_t resizable);
+
+/* ABI 0.2: minimum size in logical units; 0 on an axis removes that limit. */
+/* Negative values or a minimum above the current maximum are refused */
+/* (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A */
+/* request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's */
+/* reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_min_size(dg_window_t* window, int32_t width, int32_t height);
+
+/* ABI 0.2: maximum size in logical units; 0 on an axis removes that limit. */
+/* Negative values or a maximum below the current minimum are refused */
+/* (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A */
+/* request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's */
+/* reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_max_size(dg_window_t* window, int32_t width, int32_t height);
+
+/* ABI 0.2: sets the window icon from 32-bit pixels with straight alpha, copied */
+/* before returning. `format` is DG_PIXEL_FORMAT_*. DG_ERR_INVALID_ARGUMENT for */
+/* null pixels, a non-positive size, row_bytes < width*4 or an unknown format. */
+/* The headless dummy driver has no icons and refuses a valid image */
+/* (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A */
+/* request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's */
+/* reason in dg_last_error(). */
+DG_EXPORT int32_t dg_window_set_icon(dg_window_t* window, const void* pixels, int32_t width,
+                                     int32_t height, uint32_t row_bytes, uint32_t format);
+
+/* ABI 0.2: the window's state as a non-negative bitmask of DG_WINDOW_STATE_* */
+/* (the same 'non-negative is data, negative is DG_ERR_*' convention as */
+/* dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a closed/unknown window. */
+DG_EXPORT int32_t dg_window_get_state(dg_window_t* window);
 
 #ifdef __cplusplus
 } /* extern "C" */

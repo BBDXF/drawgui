@@ -40,11 +40,44 @@ constexpr int kPumpTimeoutMs = 16;
 // rectangles of different colours are harder to count in a screenshot than
 // three obviously different ones.
 std::vector<dg::WindowSpec> demo_windows() {
+  // The first window can be resized, within limits; the reports in
+  // log_window_events() show it happening.
+  dg::WindowSpec resizable{"drawgui 1 - crimson (resizable)", 480, 320,
+                           dg::Color::rgba(0xC0, 0x39, 0x2B)};
+  resizable.resizable = true;
+  resizable.min_width = 240;
+  resizable.min_height = 160;
+  resizable.max_width = 960;
+  resizable.max_height = 640;
   return {
-      dg::WindowSpec{"drawgui 1 - crimson", 480, 320, dg::Color::rgba(0xC0, 0x39, 0x2B)},
+      resizable,
       dg::WindowSpec{"drawgui 2 - emerald", 400, 260, dg::Color::rgba(0x27, 0xAE, 0x60)},
       dg::WindowSpec{"drawgui 3 - azure", 320, 200, dg::Color::rgba(0x2E, 0x86, 0xDE)},
   };
+}
+
+const char* event_name(dg::WindowEventKind kind) {
+  switch (kind) {
+    case dg::WindowEventKind::kResized:
+      return "resized";
+    case dg::WindowEventKind::kMoved:
+      return "moved";
+    case dg::WindowEventKind::kMinimized:
+      return "minimized";
+    case dg::WindowEventKind::kMaximized:
+      return "maximized";
+    case dg::WindowEventKind::kRestored:
+      return "restored";
+    case dg::WindowEventKind::kFocusGained:
+      return "focus gained";
+    case dg::WindowEventKind::kFocusLost:
+      return "focus lost";
+    case dg::WindowEventKind::kEnteredFullscreen:
+      return "entered fullscreen";
+    case dg::WindowEventKind::kLeftFullscreen:
+      return "left fullscreen";
+  }
+  return "?";
 }
 
 struct DemoWindow {
@@ -108,7 +141,17 @@ void run_until_all_closed(dg::WindowManager& manager, const std::vector<DemoWind
       }
     }
 
-    for (const dg::WindowId closed : manager.pump(kPumpTimeoutMs).closed) {
+    const dg::PumpResult pumped = manager.pump(kPumpTimeoutMs);
+    for (const dg::WindowEvent& event : pumped.window_events) {
+      std::cout << "\"" << title_of(windows, event.window) << "\" " << event_name(event.kind);
+      if (event.kind == dg::WindowEventKind::kResized) {
+        std::cout << " to " << event.width << "x" << event.height;
+      } else if (event.kind == dg::WindowEventKind::kMoved) {
+        std::cout << " to " << event.x << "," << event.y;
+      }
+      std::cout << "\n";
+    }
+    for (const dg::WindowId closed : pumped.closed) {
       std::cout << "closed \"" << title_of(windows, closed) << "\" (id " << closed.value
                 << "); " << manager.open_window_count() << " window(s) still open\n";
     }

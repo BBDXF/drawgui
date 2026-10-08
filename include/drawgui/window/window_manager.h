@@ -22,6 +22,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "drawgui/base/expected.h"
@@ -80,19 +81,34 @@ struct WindowSpec {
   // all, which is the whole of what "cancellable" has to mean: refusing to
   // act until told to.
   bool cancellable_close = false;
+
+  // Whether the user may resize the window by dragging its frame. False, the
+  // default, is what every window was before this field existed.
+  bool resizable = false;
+
+  // Size limits, in the same logical units as width/height. Zero on either
+  // axis means "no limit on that axis" - the default.
+  int min_width = 0;
+  int min_height = 0;
+  int max_width = 0;
+  int max_height = 0;
 };
 
 // How the bytes of one pixel are arranged in memory.
 //
-// One enumerator, because one is what has been measured. A window surface on
-// this platform is a 32-bit XRGB word, which on a little-endian machine is
-// the bytes blue, green, red, unused - the same order a CPU-rasterized
-// drawgui frame comes out in, so a frame reaches the screen by copying rather
-// than converting. surface_format() reports a failure rather than a second
-// enumerator when a window disagrees, because nothing can convert yet and
-// quietly presenting the wrong channels is worse than saying so.
+// A window surface on this platform is a 32-bit XRGB word, which on a
+// little-endian machine is the bytes blue, green, red, unused - the same
+// order a CPU-rasterized drawgui frame comes out in, so a frame reaches the
+// screen by copying rather than converting. surface_format() reports a
+// failure rather than a new enumerator when a window disagrees, because
+// nothing can convert yet and quietly presenting the wrong channels is worse
+// than saying so.
+//
+// kRgba8888 is accepted only by set_icon(), which converts; present() rejects
+// it rather than showing red and blue swapped.
 enum class PixelFormat : std::uint8_t {
   kBgra8888,
+  kRgba8888,
 };
 
 // Somebody else's pixels, borrowed for the duration of one call.
@@ -352,6 +368,47 @@ struct TextEditingEvent {
   int length = -1;
 };
 
+// A change in a window's geometry, visibility or focus, as reported by the
+// platform - including changes the caller asked for itself (set_size(),
+// minimize(), ...), because on most platforms those take effect
+// asynchronously and the event is the only confirmation that they happened.
+enum class WindowEventKind : std::uint8_t {
+  // The drawable size changed. `width`/`height` are the new size in PHYSICAL
+  // pixels - the same numbers drawable_size() reports - and the window is
+  // also in PumpResult::needs_repaint. Reported only when the size actually
+  // differs from the last one reported (or the size at open()).
+  kResized,
+  // The window moved. `x`/`y` are the new top-left position in the
+  // platform's logical screen coordinates, the same units position() uses.
+  kMoved,
+  kMinimized,
+  kMaximized,
+  // Back to normal from minimized or maximized.
+  kRestored,
+  kFocusGained,
+  kFocusLost,
+  kEnteredFullscreen,
+  kLeftFullscreen,
+};
+
+struct WindowEvent {
+  WindowId window;
+  WindowEventKind kind = WindowEventKind::kResized;
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+};
+
+// A window's current state, read from the platform at the time of the call.
+struct WindowState {
+  bool minimized = false;
+  bool maximized = false;
+  bool fullscreen = false;
+  bool focused = false;
+  bool resizable = false;
+};
+
 // Everything one pump() turned up, split by what the caller has to do about
 // it.
 struct PumpResult {
@@ -371,10 +428,10 @@ struct PumpResult {
   std::vector<WindowId> close_requested;
 
   // Windows whose contents are now stale - newly exposed, or resized. A
-  // resize is not reported separately because the only correct response to
-  // either is the same: ask for the drawable size again and draw a frame at
-  // it. Assuming the old size is still valid is how a resize turns into a
-  // torn frame or a heap overflow.
+  // resize also appears in window_events below with its new size, but the
+  // only correct response to either is the same: ask for the drawable size
+  // again and draw a frame at it. Assuming the old size is still valid is
+  // how a resize turns into a torn frame or a heap overflow.
   std::vector<WindowId> needs_repaint;
 
   // In the order they happened, which is the whole of what makes them usable:
@@ -400,6 +457,12 @@ struct PumpResult {
   // this vector is empty in every real run so far and is exercised by
   // WindowManager::post_text_editing()'s synthetic injection instead.
   std::vector<TextEditingEvent> text_editing;
+
+  // Geometry, minimize/maximize/fullscreen and focus changes, in the order
+  // they happened. A resize is reported here AND in needs_repaint above:
+  // the repaint is still the only correct response to it, this entry just
+  // says what the new size is.
+  std::vector<WindowEvent> window_events;
 };
 
 class WindowManager {
@@ -645,6 +708,62 @@ class WindowManager {
   // observation point was added to catch (see
   // tests/unit/test_first_frame_present.cpp).
   [[nodiscard]] Expected<bool, WindowError> showing_fill(WindowId id) const;
+
+  // -- Window operations ---------------------------------------------------
+  //
+  // Every one of these fails with "no such window" for an id that names no
+  // open window, like drawable_size(), and otherwise with the platform's own
+  // reason when it refuses. Several take effect asynchronously on a real
+  // display server: success means the request was accepted, and the
+  // matching WindowEvent from pump() is what confirms it happened.
+  //
+  // Under SDL's dummy video driver (the one the tests run under), title,
+  // size, position, min/max size and fullscreen all work and report
+  // themselves back; minimize(), maximize(), restore() and set_icon() are
+  // refused by the platform and fail; set_resizable() succeeds but the
+  // driver never reports the window as resizable.
+
+  [[nodiscard]] Expected<void, WindowError> set_title(WindowId id, std::string_view title);
+  [[nodiscard]] Expected<std::string, WindowError> title(WindowId id) const;
+
+  // Width and height in the platform's logical units - the units
+  // WindowSpec::width/height are in - not the physical pixels
+  // drawable_size() reports. Both must be positive.
+  [[nodiscard]] Expected<void, WindowError> set_size(WindowId id, int width, int height);
+  [[nodiscard]] Expected<PixelSize, WindowError> size(WindowId id) const;
+
+  // Top-left corner in logical screen coordinates. Some window managers
+  // (Wayland's in particular) never let a client choose or learn its own
+  // position; there position() reports what the platform says, often 0, 0.
+  [[nodiscard]] Expected<void, WindowError> set_position(WindowId id, int x, int y);
+  [[nodiscard]] Expected<PixelPoint, WindowError> position(WindowId id) const;
+
+  [[nodiscard]] Expected<void, WindowError> minimize(WindowId id);
+  [[nodiscard]] Expected<void, WindowError> maximize(WindowId id);
+  [[nodiscard]] Expected<void, WindowError> restore(WindowId id);
+  [[nodiscard]] Expected<void, WindowError> set_fullscreen(WindowId id, bool fullscreen);
+  [[nodiscard]] Expected<void, WindowError> set_resizable(WindowId id, bool resizable);
+
+  // Logical units; 0 on an axis removes that axis's limit. Negative values,
+  // or a minimum larger than an already-set maximum (or the reverse), fail.
+  [[nodiscard]] Expected<void, WindowError> set_min_size(WindowId id, int width, int height);
+  [[nodiscard]] Expected<void, WindowError> set_max_size(WindowId id, int width, int height);
+
+  // Copied before this returns. `icon.format` may be kBgra8888 or kRgba8888;
+  // unlike a presented frame the alpha channel is honoured. Fails without
+  // calling the platform when the image is empty, has no pixels, or a
+  // row_bytes smaller than width * 4.
+  [[nodiscard]] Expected<void, WindowError> set_icon(WindowId id, const ImageView& icon);
+
+  [[nodiscard]] Expected<WindowState, WindowError> state(WindowId id) const;
+
+  // Puts the platform's own event for `kind` on its event queue, by the
+  // same route post_expose() uses, so a test can drive the WindowEvent
+  // dispatch for changes the dummy driver never produces itself
+  // (minimize/maximize/restore/focus). `kResized` and `kMoved` carry no
+  // payload here and are ignored - set_size()/set_position() produce real
+  // ones.
+  void post_window_event(WindowId id, WindowEventKind kind);
 
   // Copies `dirty` out of `image` onto the window and puts it on screen.
   //

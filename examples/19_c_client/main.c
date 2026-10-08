@@ -772,7 +772,50 @@ static int run_verify(void) {
           "dg_node_get_text on a non-text-field live node is unsupported");
   }
 
-  /* 14. Teardown safety: dg_app_destroy must not crash even though window_a/
+  /* 14. ABI 0.2 window operations on window B: a title round-trip, a resize
+   * that comes back as DG_EVENT_WINDOW_RESIZED, and the state bitmask. */
+  {
+    char title[16];
+    uint32_t title_len = 0;
+    int32_t width = 0;
+    int32_t height = 0;
+    dg_event events[32];
+    int32_t count = 0;
+    int32_t saw_resize = 0;
+
+    status = dg_window_set_title(window_b, "renamed B");
+    check(status == DG_ERR_OK, "dg_window_set_title renames window B");
+    memset(title, 0, sizeof(title));
+    status = dg_window_get_title(window_b, title, (uint32_t)sizeof(title) - 1U, &title_len);
+    check(status == DG_ERR_OK && title_len == 9 && strcmp(title, "renamed B") == 0,
+          "dg_window_get_title reads the new title back");
+
+    status = dg_window_set_size(window_b, 300, 180);
+    check(status == DG_ERR_OK, "dg_window_set_size resizes window B");
+    status = dg_window_get_size(window_b, &width, &height);
+    check(status == DG_ERR_OK && width == 300 && height == 180,
+          "dg_window_get_size reports the new size");
+    dg_wait_events(app, 50);
+    count = dg_poll_events(app, events, 32);
+    for (i = 0; i < count; ++i) {
+      if (events[i].kind == DG_EVENT_WINDOW_RESIZED && events[i].window == window_b &&
+          events[i].x == 300 && events[i].y == 180) {
+        saw_resize = 1;
+      }
+    }
+    check(saw_resize, "the resize is reported as DG_EVENT_WINDOW_RESIZED with the new size");
+
+    status = dg_window_get_state(window_b);
+    check(status >= 0 && (status & DG_WINDOW_STATE_FULLSCREEN) == 0,
+          "dg_window_get_state returns a bitmask; window B is not fullscreen");
+    status = dg_window_set_min_size(window_b, 400, 10);
+    check(status == DG_ERR_OK, "dg_window_set_min_size accepts a limit");
+    status = dg_window_set_max_size(window_b, 200, 200);
+    check(status == DG_ERR_UNSUPPORTED,
+          "a maximum below the minimum is refused with DG_ERR_UNSUPPORTED");
+  }
+
+  /* 15. Teardown safety: dg_app_destroy must not crash even though window_a/
    * window_b/button_a/button_b/stray_child handles are all still held by
    * this function, and a handle used AFTER destroy must report
    * DG_ERR_INVALID_HANDLE exactly like an individually removed node does

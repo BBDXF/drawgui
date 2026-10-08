@@ -11,7 +11,7 @@
 
 ## 核心类型
 
-- `dg::PumpResult`（`include/drawgui/window/window_manager.h:358`）：一次
+- `dg::PumpResult`（`include/drawgui/window/window_manager.h:414`）：一次
   `pump()` 调用捞到的所有事件，按"调用方要怎么处理"分类。
 - `dg::Focus`（`include/drawgui/widget/focus.h:167`）：单例每窗口一份的
   焦点状态机，`current()`/`set()`/`focus_next()`/`focus_previous()`/
@@ -33,15 +33,22 @@ for (const dg::PointerEvent& event : pumped.pointer) { /* 再处理指针 */ }
 for (const dg::KeyEvent& event : pumped.key) { /* 键盘 */ }
 for (const dg::TextInputEvent& event : pumped.text_input) { /* 已提交文本 */ }
 for (const dg::TextEditingEvent& event : pumped.text_editing) { /* IME 预览态 */ }
+for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/焦点/全屏… */ }
 ```
 
-**`needs_repaint` 必须先于 `pointer` 处理**（`window_manager.h:379,385-387`）：
+**`needs_repaint` 必须先于 `pointer` 处理**（`window_manager.h:436,442-444`）：
 一个 resize 改变了每个 widget 的位置，如果同一次 `pump()` 里恰好也带来了
 指针事件，而调用方还没来得及按新尺寸重新布局，这个指针事件就会命中错误的
 坐标。这条顺序是硬性约束，详细理由见 `doc/contracts.md`。
 
+`PumpResult::window_events` 报告窗口自身的状态变化：`kResized`（新的物理像素尺寸，
+同一个窗口也一定在 `needs_repaint` 里，按 `needs_repaint` 处理就够了）、`kMoved`、
+`kMinimized`/`kMaximized`/`kRestored`、`kFocusGained`/`kFocusLost`、
+`kEnteredFullscreen`/`kLeftFullscreen`。调用方自己发起的 `set_size()`/`minimize()`/
+`set_fullscreen()` 等也会经由这里确认——在真实显示服务器上这些请求是异步生效的。
+
 `PumpResult::closed`/`close_requested` 处理窗口关闭；`text_editing` 是 IME
-组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h:397-403`
+组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h:454-460`
 的记录，这条路径主要靠合成注入测试）。
 
 ## 焦点：复用 `RenderTree` 自身的树，没有第三棵树

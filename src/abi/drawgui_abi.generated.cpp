@@ -508,3 +508,236 @@ extern "C" DG_EXPORT int32_t dg_debug_post_text_field_key(dg_window_t* window, i
     return DG_ERR_INTERNAL;
   }
 }
+
+extern "C" DG_EXPORT int32_t dg_window_set_title(dg_window_t* window, const char* utf8) {
+  try {
+    return dg::abi::window_set_title(window, utf8);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_title: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_title: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_title: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_get_title(dg_window_t* window, char* buf, uint32_t cap,
+                                                 uint32_t* out_len) {
+  try {
+    return dg::abi::window_get_title(window, buf, cap, out_len);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_get_title: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_get_title: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_get_title: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_set_size(dg_window_t* window, int32_t width,
+                                                int32_t height) {
+  try {
+    return dg::abi::window_set_size(window, width, height);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_size: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_size: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_size: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_get_size(dg_window_t* window, int32_t* width,
+                                                int32_t* height) {
+  try {
+    return dg::abi::window_get_size(window, width, height);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_get_size: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_get_size: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_get_size: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_set_position(dg_window_t* window, int32_t x, int32_t y) {
+  try {
+    return dg::abi::window_set_position(window, x, y);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_position: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_position: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_position: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_get_position(dg_window_t* window, int32_t* x,
+                                                    int32_t* y) {
+  try {
+    return dg::abi::window_get_position(window, x, y);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_get_position: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_get_position: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_get_position: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_minimize(dg_window_t* window) {
+  try {
+    return dg::abi::window_minimize(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_minimize: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_minimize: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_minimize: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_maximize(dg_window_t* window) {
+  try {
+    return dg::abi::window_maximize(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_maximize: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_maximize: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_maximize: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_restore(dg_window_t* window) {
+  try {
+    return dg::abi::window_restore(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_restore: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_restore: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_restore: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_set_fullscreen(dg_window_t* window, int32_t fullscreen) {
+  try {
+    return dg::abi::window_set_fullscreen(window, fullscreen);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_fullscreen: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_fullscreen: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_fullscreen: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_set_resizable(dg_window_t* window, int32_t resizable) {
+  try {
+    return dg::abi::window_set_resizable(window, resizable);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_resizable: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_resizable: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_resizable: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_set_min_size(dg_window_t* window, int32_t width,
+                                                    int32_t height) {
+  try {
+    return dg::abi::window_set_min_size(window, width, height);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_min_size: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_min_size: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_min_size: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_set_max_size(dg_window_t* window, int32_t width,
+                                                    int32_t height) {
+  try {
+    return dg::abi::window_set_max_size(window, width, height);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_max_size: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_max_size: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_max_size: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_set_icon(dg_window_t* window, const void* pixels,
+                                                int32_t width, int32_t height,
+                                                uint32_t row_bytes, uint32_t format) {
+  try {
+    return dg::abi::window_set_icon(window, pixels, width, height, row_bytes, format);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_icon: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_icon: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_icon: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_get_state(dg_window_t* window) {
+  try {
+    return dg::abi::window_get_state(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_get_state: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_get_state: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_get_state: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}

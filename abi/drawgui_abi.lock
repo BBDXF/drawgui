@@ -21,7 +21,7 @@ dg_theme_t
 [struct]
 dg_value: size:uint32_t,type:uint32_t,number:float,bits:uint32_t
 dg_app_opts: size:uint32_t
-dg_window_opts: size:uint32_t,title:const char*,width:int32_t,height:int32_t,background_argb:uint32_t
+dg_window_opts: size:uint32_t,title:const char*,width:int32_t,height:int32_t,background_argb:uint32_t,resizable:int32_t,min_width:int32_t,min_height:int32_t,max_width:int32_t,max_height:int32_t
 dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t,action_id:uint16_t
 dg_theme_err: size:uint32_t,status:uint32_t
 
@@ -41,6 +41,22 @@ event_kind.WINDOW_CLOSED=1
 event_kind.CLICK=2
 event_kind.ACTION=3
 event_kind.TEXT_CHANGED=4
+event_kind.WINDOW_RESIZED=5
+event_kind.WINDOW_MOVED=6
+event_kind.WINDOW_MINIMIZED=7
+event_kind.WINDOW_MAXIMIZED=8
+event_kind.WINDOW_RESTORED=9
+event_kind.WINDOW_FOCUS_GAINED=10
+event_kind.WINDOW_FOCUS_LOST=11
+event_kind.WINDOW_FULLSCREEN_ENTERED=12
+event_kind.WINDOW_FULLSCREEN_LEFT=13
+pixel_format.BGRA8888=1
+pixel_format.RGBA8888=2
+window_state.MINIMIZED=1
+window_state.MAXIMIZED=2
+window_state.FULLSCREEN=4
+window_state.FOCUSED=8
+window_state.RESIZABLE=16
 error.OK=0
 error.OOM=-1
 error.INTERNAL=-2
@@ -97,4 +113,19 @@ dg_debug_capture_png: const char*(dg_window_t*)
 dg_debug_capture_png_len: uint32_t()
 dg_debug_post_text_input: int32_t(dg_window_t*,const char*)
 dg_debug_post_text_field_key: int32_t(dg_window_t*,int32_t,const char*,int32_t)
+dg_window_set_title: int32_t(dg_window_t*,const char*)
+dg_window_get_title: int32_t(dg_window_t*,char*,uint32_t,uint32_t*)
+dg_window_set_size: int32_t(dg_window_t*,int32_t,int32_t)
+dg_window_get_size: int32_t(dg_window_t*,int32_t*,int32_t*)
+dg_window_set_position: int32_t(dg_window_t*,int32_t,int32_t)
+dg_window_get_position: int32_t(dg_window_t*,int32_t*,int32_t*)
+dg_window_minimize: int32_t(dg_window_t*)
+dg_window_maximize: int32_t(dg_window_t*)
+dg_window_restore: int32_t(dg_window_t*)
+dg_window_set_fullscreen: int32_t(dg_window_t*,int32_t)
+dg_window_set_resizable: int32_t(dg_window_t*,int32_t)
+dg_window_set_min_size: int32_t(dg_window_t*,int32_t,int32_t)
+dg_window_set_max_size: int32_t(dg_window_t*,int32_t,int32_t)
+dg_window_set_icon: int32_t(dg_window_t*,const void*,int32_t,int32_t,uint32_t,uint32_t)
+dg_window_get_state: int32_t(dg_window_t*)
 

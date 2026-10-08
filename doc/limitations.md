@@ -52,15 +52,15 @@ setter 存在、参数校验正确，但功能完全没有实现（`include/draw
 
 ### A8. `present()` 只接受 BGRA8888，格式不对是报错不是自动转换
 
-`include/drawgui/window/window_manager.h:93` 附近：“quietly presenting the wrong channels is worse than saying so”——传入其他像素格式不会被静默转换成 BGRA8888，会直接失败。
+`include/drawgui/window/window_manager.h:104` 附近：“quietly presenting the wrong channels is worse than saying so”——传入其他像素格式不会被静默转换成 BGRA8888，会直接失败——`PixelFormat::kRgba8888` 交给 `present()` 也是报错。唯一会做 RGBA→BGRA 转换的是 `set_icon()`（图标很小，每次调用拷贝一份）。
 
 ### A9. `WindowManager` 上的 `warp_pointer`/`post_*`/`showing_fill` 是测试专用接口，混在生产 API 里
 
-`warp_pointer`、`post_pointer_button`、`post_expose`、`post_wheel`、`post_key`、`post_logical_key`、`post_text_input`、`post_text_editing`、`showing_fill` 这些方法是给自动化测试注入合成事件用的（`include/drawgui/window/window_manager.h:474-647` 附近）。它们没有命名前缀做区分——对照 C ABI 侧至少给调试接口加了 `dg_debug_` 前缀，这批 C++ 接口没有。**不要在产品代码路径里调用它们**，它们会绕过真实的 SDL 事件源直接注入状态。
+`warp_pointer`、`post_pointer_button`、`post_expose`、`post_wheel`、`post_key`、`post_logical_key`、`post_text_input`、`post_text_editing`、`post_window_event`、`showing_fill` 这些方法是给自动化测试注入合成事件用的（`include/drawgui/window/window_manager.h:537-766` 附近）。它们没有命名前缀做区分——对照 C ABI 侧至少给调试接口加了 `dg_debug_` 前缀，这批 C++ 接口没有。**不要在产品代码路径里调用它们**，它们会绕过真实的 SDL 事件源直接注入状态。
 
 ### A10. IME 组字（preedit）的偏移换算未经真机验证
 
-`include/drawgui/window/window_manager.h:321-348`：`TextEditingEvent::start`/`length` 是 SDL3 自己文档里定义的“UTF-8 字符数”单位，转换成这个引擎内部使用的字节偏移的逻辑是按字面意思实现的，但注释自己承认——开发这个项目的机器上，真实 IME 从来不会发送 `SDL_EVENT_TEXT_EDITING` 事件（它们用自己的组字窗口），现有的 IME 相关测试全部靠合成事件覆盖。这条转换逻辑没有被一次真实的中文/日文输入法组字过程验证过。
+`include/drawgui/window/window_manager.h:337-364`：`TextEditingEvent::start`/`length` 是 SDL3 自己文档里定义的“UTF-8 字符数”单位，转换成这个引擎内部使用的字节偏移的逻辑是按字面意思实现的，但注释自己承认——开发这个项目的机器上，真实 IME 从来不会发送 `SDL_EVENT_TEXT_EDITING` 事件（它们用自己的组字窗口），现有的 IME 相关测试全部靠合成事件覆盖。这条转换逻辑没有被一次真实的中文/日文输入法组字过程验证过。
 
 ### A11. ABI 的节点移动不能跨窗口
 
@@ -94,7 +94,7 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` 节点、设置 52 个属性（含专用的 `dg_node_set_text()` 通道，以及 `DG_PROP_DISABLED` 禁用状态）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件、加载主题包。
+C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗并操作窗口（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询）、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` 节点、设置 52 个属性（含专用的 `dg_node_set_text()` 通道，以及 `DG_PROP_DISABLED` 禁用状态）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件以及 `DG_EVENT_WINDOW_*` 窗口状态事件（resize/移动/最小化/最大化/还原/焦点/全屏）、加载主题包。ABI 没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
 
 **P6 sub-step a1 起，能画文字了**——但只是最小可见的一行：`DG_NODE_TYPE_LABEL` 有引擎内置的默认字号（16px）和默认黑色，`font_size`/`text_align` 这两个属性**故意没做**（够用就不加，是这个仓库的纪律），所以想要更大字号、居左/居右对齐，ABI 现阶段做不到，只能直接用 C++ 层的 `TextStyle`。
 
@@ -128,6 +128,7 @@ C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`
 - 真实系统剪贴板与其他应用的互操作
 - `present()` 之后像素真正落到屏幕上这一步
 - 真实窗口 resize 的用户手感（大小、时序）
+- 窗口的最小化/最大化/还原和图标：测试跑在 SDL 的 dummy 视频驱动下，它直接拒绝这几个请求（`DG_ERR_UNSUPPORTED`），所以测试只能验证"拒绝会被如实报告"和参数校验，以及用 `WindowManager::post_window_event()` 注入的事件能正确分发；真实窗口管理器上是否真的最小化、图标是否显示、`set_resizable()` 是否生效（dummy 驱动接受但从不报告可调整）都没有自动化覆盖。标题、尺寸、位置、最小/最大尺寸、全屏在 dummy 驱动下是真实生效、可测的
 
 以上这些，测试套件只能覆盖到“合成事件驱动下代码路径没有崩溃/结果符合预期结构”，不能覆盖到“真实设备上确实是这个效果”。
 

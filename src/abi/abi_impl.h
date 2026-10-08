@@ -33,6 +33,24 @@ std::int32_t app_add_font(dg_app_t* app, const char* directory, const char* fami
 
 dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts);
 std::int32_t window_set_root(dg_window_t* window, dg_node_t* node);
+std::int32_t window_set_title(dg_window_t* window, const char* utf8);
+std::int32_t window_get_title(dg_window_t* window, char* buf, std::uint32_t cap,
+                              std::uint32_t* out_len);
+std::int32_t window_set_size(dg_window_t* window, std::int32_t width, std::int32_t height);
+std::int32_t window_get_size(dg_window_t* window, std::int32_t* width, std::int32_t* height);
+std::int32_t window_set_position(dg_window_t* window, std::int32_t x, std::int32_t y);
+std::int32_t window_get_position(dg_window_t* window, std::int32_t* x, std::int32_t* y);
+std::int32_t window_minimize(dg_window_t* window);
+std::int32_t window_maximize(dg_window_t* window);
+std::int32_t window_restore(dg_window_t* window);
+std::int32_t window_set_fullscreen(dg_window_t* window, std::int32_t fullscreen);
+std::int32_t window_set_resizable(dg_window_t* window, std::int32_t resizable);
+std::int32_t window_set_min_size(dg_window_t* window, std::int32_t width, std::int32_t height);
+std::int32_t window_set_max_size(dg_window_t* window, std::int32_t width, std::int32_t height);
+std::int32_t window_set_icon(dg_window_t* window, const void* pixels, std::int32_t width,
+                             std::int32_t height, std::uint32_t row_bytes,
+                             std::uint32_t format);
+std::int32_t window_get_state(dg_window_t* window);
 
 dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id);
 std::int32_t node_set_prop(dg_node_t* node, std::uint16_t prop_id, const dg_value* value);

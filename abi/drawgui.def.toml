@@ -178,9 +178,20 @@
 
 schema_version = 1
 
+# VERSION HISTORY. MINOR is bumped once per batch of append-only additions
+# (design.md section 5.8 decision 4); doc/reference/c-abi.md section 7 keeps
+# the same list for readers of the header rather than of this file.
+#
+#   0.1  the initial surface (94d53af) through dg_node_get_text().
+#   0.2  dg_node_insert_before() positions/moves and dg_node_remove() removes
+#        whole subtrees (5f3917b); DG_PROP_DISABLED + DG_VALUE_BOOL (e8bdea9);
+#        disabled widgets follow theme switches (c488360); window operations
+#        (dg_window_set_title() .. dg_window_get_state()), DG_EVENT_WINDOW_*
+#        state events, DG_PIXEL_FORMAT_*, DG_WINDOW_STATE_*, and
+#        dg_window_opts' resizable/min/max fields.
 [meta]
 abi_major = 0
-abi_minor = 1
+abi_minor = 2
 
 # --- Opaque handle types -----------------------------------------------------
 #
@@ -243,6 +254,11 @@ fields = [
   { name = "width", type = "int32_t", summary = "initial width in device pixels." },
   { name = "height", type = "int32_t", summary = "initial height in device pixels." },
   { name = "background_argb", type = "uint32_t", summary = "0xAARRGGBB fill until the first frame paints." },
+  { name = "resizable", type = "int32_t", summary = "ABI 0.2: nonzero lets the user resize the window. Read only when `size` covers it; an older, shorter struct gets 0 (not resizable), what every window was before." },
+  { name = "min_width", type = "int32_t", summary = "ABI 0.2: minimum width, logical units; 0 = no limit. Read only when `size` covers it." },
+  { name = "min_height", type = "int32_t", summary = "ABI 0.2: minimum height; 0 = no limit." },
+  { name = "max_width", type = "int32_t", summary = "ABI 0.2: maximum width; 0 = no limit." },
+  { name = "max_height", type = "int32_t", summary = "ABI 0.2: maximum height; 0 = no limit." },
 ]
 
 [[struct]]
@@ -253,8 +269,8 @@ fields = [
   { name = "kind", type = "uint32_t", summary = "DG_EVENT_*." },
   { name = "window", type = "dg_window_t*", summary = "which window this event is about." },
   { name = "node", type = "dg_node_t*", summary = "DG_EVENT_CLICK: the clicked node. DG_EVENT_ACTION: the resolved action's target node - design.md section 5.5.2 level 2, a focused node's own dg_node_scope_action() binding - or null for a level-4 app-wide action, which names no node. Null for every other kind." },
-  { name = "x", type = "int32_t", summary = "DG_EVENT_CLICK only: the pointer position, device pixels. 0 for every other kind, including DG_EVENT_ACTION, which carries no pointer position at all." },
-  { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK only: the pointer position, device pixels. 0 for every other kind, including DG_EVENT_ACTION, which carries no pointer position at all." },
+  { name = "x", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable WIDTH, device pixels. 0 for every other kind, including DG_EVENT_ACTION." },
+  { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable HEIGHT, device pixels. 0 for every other kind, including DG_EVENT_ACTION." },
   { name = "action_id", type = "uint16_t", summary = "8-3d: DG_EVENT_ACTION only - the resolved dg_action_id (input/shortcuts.toml, design.md section 5.5.3). DG_ACTION_INVALID (0) for every other kind. Appended at the end of the struct, after `y` - dg_event's own `size` field (design.md section 5.8 decision 4) is exactly the mechanism that makes this an allowed MINOR addition rather than a break; see abi/drawgui_abi.lock's own append-only rule." },
 ]
 
@@ -314,6 +330,38 @@ values = [
   { name = "CLICK", id = 2, summary = "A press and its release landed on the same node - dg::InteractionChange::clicked." },
   { name = "ACTION", id = 3, summary = "8-3d: a key resolved to a bound intent through design.md section 5.5.2's four-level router (dg::route_key_event()/resolve_action()) - dg_event::action_id names which one, dg_event::node its target (null for an app-level action)." },
   { name = "TEXT_CHANGED", id = 4, summary = "P6 sub-step a2 (second half): a DG_NODE_TYPE_TEXT_FIELD's committed text changed - a real SDL_EVENT_TEXT_INPUT reached it, or an edit key (Backspace/Delete/arrow-with-selection-replace) mutated it. Carries only `window`/`node`, the SAME 'CLICK then ask' shape DG_EVENT_CLICK/dg_node_get_checked() already uses (design.md's own dg_event stays a pure-value POD, per abi/drawgui_abi.lock - no string field could live in it without breaking that): a caller reacting to this queries dg_node_get_text() rather than reading the new text out of the event itself." },
+  { name = "WINDOW_RESIZED", id = 5, summary = "ABI 0.2: the window's drawable size changed; x/y carry the new width/height in device pixels. drawgui has already resized and repainted the window by the time this is polled. Not reported for a request that left the size unchanged." },
+  { name = "WINDOW_MOVED", id = 6, summary = "ABI 0.2: the window moved; x/y carry the new top-left corner in logical screen coordinates (dg_window_get_position()'s units)." },
+  { name = "WINDOW_MINIMIZED", id = 7, summary = "ABI 0.2: the window was minimized." },
+  { name = "WINDOW_MAXIMIZED", id = 8, summary = "ABI 0.2: the window was maximized." },
+  { name = "WINDOW_RESTORED", id = 9, summary = "ABI 0.2: the window returned to normal from minimized or maximized." },
+  { name = "WINDOW_FOCUS_GAINED", id = 10, summary = "ABI 0.2: the window gained keyboard focus. Platforms (including the headless dummy driver) usually report this once right after dg_window_create()." },
+  { name = "WINDOW_FOCUS_LOST", id = 11, summary = "ABI 0.2: the window lost keyboard focus." },
+  { name = "WINDOW_FULLSCREEN_ENTERED", id = 12, summary = "ABI 0.2: the window became fullscreen." },
+  { name = "WINDOW_FULLSCREEN_LEFT", id = 13, summary = "ABI 0.2: the window left fullscreen." },
+]
+
+[[constant_group]]
+name = "pixel_format"
+prefix = "DG_PIXEL_FORMAT_"
+c_type = "uint32_t"
+summary = "ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon())."
+values = [
+  { name = "BGRA8888", id = 1, summary = "Bytes blue, green, red, alpha - a drawgui-rasterized frame's own order." },
+  { name = "RGBA8888", id = 2, summary = "Bytes red, green, blue, alpha - most image decoders' order." },
+]
+
+[[constant_group]]
+name = "window_state"
+prefix = "DG_WINDOW_STATE_"
+c_type = "int32_t"
+summary = "ABI 0.2: bits of dg_window_get_state()'s non-negative result."
+values = [
+  { name = "MINIMIZED", id = 1, summary = "The window is minimized." },
+  { name = "MAXIMIZED", id = 2, summary = "The window is maximized." },
+  { name = "FULLSCREEN", id = 4, summary = "The window is fullscreen." },
+  { name = "FOCUSED", id = 8, summary = "The window has keyboard focus." },
+  { name = "RESIZABLE", id = 16, summary = "The platform reports the window as user-resizable (the dummy driver never does, even after dg_window_set_resizable())." },
 ]
 
 [[constant_group]]
@@ -590,4 +638,107 @@ impl = "debug_post_text_field_key"
 params = [{ name = "window", type = "dg_window_t*" }, { name = "down", type = "int32_t" }, { name = "key_name", type = "const char*" }, { name = "shift", type = "int32_t" }]
 summary = "TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL key event through the real queue for one of the six text-field editing keys process_key_event()'s own handle_text_field_key() dispatches directly (Left/Right/Home/End/Backspace/Delete - `key_name` is exactly one of these six bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string). This is a SEPARATE debug hook from dg_debug_post_key() rather than a second parameter on it: dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against input/shortcuts.toml's own generated binding-name table, and none of these six keys is a shortcut binding name at all (see this file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to parse. `shift` (nonzero extends a text field's selection, matching handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for Backspace/Delete, which ignore it exactly like dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do."
 
+[[function]]
+name = "dg_window_set_title"
+ret = "int32_t"
+impl = "window_set_title"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "utf8", type = "const char*" }]
+summary = "ABI 0.2: replaces the window's title (UTF-8, copied). DG_ERR_INVALID_ARGUMENT if `utf8` is null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
 
+[[function]]
+name = "dg_window_get_title"
+ret = "int32_t"
+impl = "window_get_title"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "buf", type = "char*" }, { name = "cap", type = "uint32_t" }, { name = "out_len", type = "uint32_t*" }]
+summary = "ABI 0.2: the window's current title, with dg_node_get_text()'s two-trip shape: `out_len` (may be null) receives the full byte length, `buf` at most `cap` bytes, no NUL terminator. DG_ERR_INVALID_ARGUMENT if cap > 0 but buf is null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_set_size"
+ret = "int32_t"
+impl = "window_set_size"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "width", type = "int32_t" }, { name = "height", type = "int32_t" }]
+summary = "ABI 0.2: requests a new size in logical units (dg_window_opts::width/height's units), clamped by any min/max size. Both must be positive (DG_ERR_INVALID_ARGUMENT). Asynchronous on some platforms: DG_EVENT_WINDOW_RESIZED confirms the result. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_get_size"
+ret = "int32_t"
+impl = "window_get_size"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "width", type = "int32_t*" }, { name = "height", type = "int32_t*" }]
+summary = "ABI 0.2: the window's current size in logical units. Either out-param may be null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_set_position"
+ret = "int32_t"
+impl = "window_set_position"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }]
+summary = "ABI 0.2: requests a new top-left corner, logical screen coordinates. Some window systems (Wayland) ignore it. DG_EVENT_WINDOW_MOVED confirms the result. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_get_position"
+ret = "int32_t"
+impl = "window_get_position"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "x", type = "int32_t*" }, { name = "y", type = "int32_t*" }]
+summary = "ABI 0.2: the window's top-left corner as the platform reports it (often 0,0 where the window system hides it). Either out-param may be null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_minimize"
+ret = "int32_t"
+impl = "window_minimize"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2: requests minimizing; DG_EVENT_WINDOW_MINIMIZED confirms it. The headless dummy driver refuses (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_maximize"
+ret = "int32_t"
+impl = "window_maximize"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2: requests maximizing; DG_EVENT_WINDOW_MAXIMIZED confirms it. The headless dummy driver refuses (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_restore"
+ret = "int32_t"
+impl = "window_restore"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2: requests a return to normal from minimized/maximized; DG_EVENT_WINDOW_RESTORED confirms it. The headless dummy driver refuses (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_set_fullscreen"
+ret = "int32_t"
+impl = "window_set_fullscreen"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "fullscreen", type = "int32_t" }]
+summary = "ABI 0.2: nonzero enters fullscreen, 0 leaves it; DG_EVENT_WINDOW_FULLSCREEN_ENTERED/LEFT (and usually DG_EVENT_WINDOW_RESIZED) confirm it. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_set_resizable"
+ret = "int32_t"
+impl = "window_set_resizable"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "resizable", type = "int32_t" }]
+summary = "ABI 0.2: nonzero lets the user resize the window. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_set_min_size"
+ret = "int32_t"
+impl = "window_set_min_size"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "width", type = "int32_t" }, { name = "height", type = "int32_t" }]
+summary = "ABI 0.2: minimum size in logical units; 0 on an axis removes that limit. Negative values or a minimum above the current maximum are refused (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_set_max_size"
+ret = "int32_t"
+impl = "window_set_max_size"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "width", type = "int32_t" }, { name = "height", type = "int32_t" }]
+summary = "ABI 0.2: maximum size in logical units; 0 on an axis removes that limit. Negative values or a maximum below the current minimum are refused (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_set_icon"
+ret = "int32_t"
+impl = "window_set_icon"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "pixels", type = "const void*" }, { name = "width", type = "int32_t" }, { name = "height", type = "int32_t" }, { name = "row_bytes", type = "uint32_t" }, { name = "format", type = "uint32_t" }]
+summary = "ABI 0.2: sets the window icon from 32-bit pixels with straight alpha, copied before returning. `format` is DG_PIXEL_FORMAT_*. DG_ERR_INVALID_ARGUMENT for null pixels, a non-positive size, row_bytes < width*4 or an unknown format. The headless dummy driver has no icons and refuses a valid image (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error()."
+
+[[function]]
+name = "dg_window_get_state"
+ret = "int32_t"
+impl = "window_get_state"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2: the window's state as a non-negative bitmask of DG_WINDOW_STATE_* (the same 'non-negative is data, negative is DG_ERR_*' convention as dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a closed/unknown window."

@@ -150,6 +150,11 @@ C_PRIMITIVE_TYPES = frozenset(
         # own" shape dg_theme_err* already has, generalised to a primitive.
         "char*",
         "uint32_t*",
+        # ABI 0.2's window operations: `int32_t*` is dg_window_get_size()/
+        # get_position()'s scalar out-param, `const void*` the borrowed,
+        # untyped pixel buffer dg_window_set_icon() copies before returning.
+        "int32_t*",
+        "const void*",
     }
 )
 
@@ -735,6 +740,8 @@ _C_TO_TS = {
     "const char*": "string | null",
     "char*": "Uint8Array | null",
     "uint32_t*": "Uint32Array | null",
+    "int32_t*": "Int32Array | null",
+    "const void*": "ArrayBufferView | null",
 }
 
 

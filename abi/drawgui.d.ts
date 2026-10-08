@@ -43,6 +43,11 @@ export interface dg_window_opts {
   width: number;
   height: number;
   background_argb: number;
+  resizable: number;
+  min_width: number;
+  min_height: number;
+  max_width: number;
+  max_height: number;
 }
 
 // One entry of dg_poll_events() - the C shape of dg::PumpResult, flattened to
@@ -93,6 +98,30 @@ export const event_kind = {
   CLICK: 2,
   ACTION: 3,
   TEXT_CHANGED: 4,
+  WINDOW_RESIZED: 5,
+  WINDOW_MOVED: 6,
+  WINDOW_MINIMIZED: 7,
+  WINDOW_MAXIMIZED: 8,
+  WINDOW_RESTORED: 9,
+  WINDOW_FOCUS_GAINED: 10,
+  WINDOW_FOCUS_LOST: 11,
+  WINDOW_FULLSCREEN_ENTERED: 12,
+  WINDOW_FULLSCREEN_LEFT: 13,
+} as const;
+
+// ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()).
+export const pixel_format = {
+  BGRA8888: 1,
+  RGBA8888: 2,
+} as const;
+
+// ABI 0.2: bits of dg_window_get_state()'s non-negative result.
+export const window_state = {
+  MINIMIZED: 1,
+  MAXIMIZED: 2,
+  FULLSCREEN: 4,
+  FOCUSED: 8,
+  RESIZABLE: 16,
 } as const;
 
 // Every dg_*() status-returning function's result.
@@ -411,4 +440,89 @@ export declare namespace DrawguiAbi {
   // meaningless for Backspace/Delete, which ignore it exactly like
   // dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do.
   function dg_debug_post_text_field_key(window: dg_window_t | null, down: number, key_name: string | null, shift: number): number;
+  // ABI 0.2: replaces the window's title (UTF-8, copied). DG_ERR_INVALID_ARGUMENT
+  // if `utf8` is null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A
+  // request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's
+  // reason in dg_last_error().
+  function dg_window_set_title(window: dg_window_t | null, utf8: string | null): number;
+  // ABI 0.2: the window's current title, with dg_node_get_text()'s two-trip
+  // shape: `out_len` (may be null) receives the full byte length, `buf` at most
+  // `cap` bytes, no NUL terminator. DG_ERR_INVALID_ARGUMENT if cap > 0 but buf is
+  // null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the
+  // platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in
+  // dg_last_error().
+  function dg_window_get_title(window: dg_window_t | null, buf: Uint8Array | null, cap: number, out_len: Uint32Array | null): number;
+  // ABI 0.2: requests a new size in logical units (dg_window_opts::width/height's
+  // units), clamped by any min/max size. Both must be positive
+  // (DG_ERR_INVALID_ARGUMENT). Asynchronous on some platforms:
+  // DG_EVENT_WINDOW_RESIZED confirms the result. DG_ERR_INVALID_HANDLE for a
+  // closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED,
+  // with the platform's reason in dg_last_error().
+  function dg_window_set_size(window: dg_window_t | null, width: number, height: number): number;
+  // ABI 0.2: the window's current size in logical units. Either out-param may be
+  // null. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the
+  // platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in
+  // dg_last_error().
+  function dg_window_get_size(window: dg_window_t | null, width: Int32Array | null, height: Int32Array | null): number;
+  // ABI 0.2: requests a new top-left corner, logical screen coordinates. Some
+  // window systems (Wayland) ignore it. DG_EVENT_WINDOW_MOVED confirms the
+  // result. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the
+  // platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in
+  // dg_last_error().
+  function dg_window_set_position(window: dg_window_t | null, x: number, y: number): number;
+  // ABI 0.2: the window's top-left corner as the platform reports it (often 0,0
+  // where the window system hides it). Either out-param may be null.
+  // DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the platform
+  // refuses is DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error().
+  function dg_window_get_position(window: dg_window_t | null, x: Int32Array | null, y: Int32Array | null): number;
+  // ABI 0.2: requests minimizing; DG_EVENT_WINDOW_MINIMIZED confirms it. The
+  // headless dummy driver refuses (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for
+  // a closed/unknown window. A request the platform refuses is
+  // DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error().
+  function dg_window_minimize(window: dg_window_t | null): number;
+  // ABI 0.2: requests maximizing; DG_EVENT_WINDOW_MAXIMIZED confirms it. The
+  // headless dummy driver refuses (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for
+  // a closed/unknown window. A request the platform refuses is
+  // DG_ERR_UNSUPPORTED, with the platform's reason in dg_last_error().
+  function dg_window_maximize(window: dg_window_t | null): number;
+  // ABI 0.2: requests a return to normal from minimized/maximized;
+  // DG_EVENT_WINDOW_RESTORED confirms it. The headless dummy driver refuses
+  // (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A
+  // request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's
+  // reason in dg_last_error().
+  function dg_window_restore(window: dg_window_t | null): number;
+  // ABI 0.2: nonzero enters fullscreen, 0 leaves it;
+  // DG_EVENT_WINDOW_FULLSCREEN_ENTERED/LEFT (and usually DG_EVENT_WINDOW_RESIZED)
+  // confirm it. DG_ERR_INVALID_HANDLE for a closed/unknown window. A request the
+  // platform refuses is DG_ERR_UNSUPPORTED, with the platform's reason in
+  // dg_last_error().
+  function dg_window_set_fullscreen(window: dg_window_t | null, fullscreen: number): number;
+  // ABI 0.2: nonzero lets the user resize the window. DG_ERR_INVALID_HANDLE for a
+  // closed/unknown window. A request the platform refuses is DG_ERR_UNSUPPORTED,
+  // with the platform's reason in dg_last_error().
+  function dg_window_set_resizable(window: dg_window_t | null, resizable: number): number;
+  // ABI 0.2: minimum size in logical units; 0 on an axis removes that limit.
+  // Negative values or a minimum above the current maximum are refused
+  // (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A
+  // request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's
+  // reason in dg_last_error().
+  function dg_window_set_min_size(window: dg_window_t | null, width: number, height: number): number;
+  // ABI 0.2: maximum size in logical units; 0 on an axis removes that limit.
+  // Negative values or a maximum below the current minimum are refused
+  // (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A
+  // request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's
+  // reason in dg_last_error().
+  function dg_window_set_max_size(window: dg_window_t | null, width: number, height: number): number;
+  // ABI 0.2: sets the window icon from 32-bit pixels with straight alpha, copied
+  // before returning. `format` is DG_PIXEL_FORMAT_*. DG_ERR_INVALID_ARGUMENT for
+  // null pixels, a non-positive size, row_bytes < width*4 or an unknown format.
+  // The headless dummy driver has no icons and refuses a valid image
+  // (DG_ERR_UNSUPPORTED). DG_ERR_INVALID_HANDLE for a closed/unknown window. A
+  // request the platform refuses is DG_ERR_UNSUPPORTED, with the platform's
+  // reason in dg_last_error().
+  function dg_window_set_icon(window: dg_window_t | null, pixels: ArrayBufferView | null, width: number, height: number, row_bytes: number, format: number): number;
+  // ABI 0.2: the window's state as a non-negative bitmask of DG_WINDOW_STATE_*
+  // (the same 'non-negative is data, negative is DG_ERR_*' convention as
+  // dg_node_get_checked()). DG_ERR_INVALID_HANDLE for a closed/unknown window.
+  function dg_window_get_state(window: dg_window_t | null): number;
 }

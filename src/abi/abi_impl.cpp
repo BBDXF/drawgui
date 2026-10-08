@@ -5,6 +5,8 @@
 #include "abi_impl.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <stdexcept>
@@ -859,6 +861,58 @@ void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& ev
   impl.pending_events.push_back(out);
 }
 
+dg_event to_window_dg_event(const WindowImpl& window, const dg::WindowEvent& event) {
+  dg_event out{};
+  out.size = sizeof(dg_event);
+  out.window = window.self_handle;
+  switch (event.kind) {
+    case dg::WindowEventKind::kResized:
+      out.kind = DG_EVENT_WINDOW_RESIZED;
+      out.x = event.width;
+      out.y = event.height;
+      break;
+    case dg::WindowEventKind::kMoved:
+      out.kind = DG_EVENT_WINDOW_MOVED;
+      out.x = event.x;
+      out.y = event.y;
+      break;
+    case dg::WindowEventKind::kMinimized:
+      out.kind = DG_EVENT_WINDOW_MINIMIZED;
+      break;
+    case dg::WindowEventKind::kMaximized:
+      out.kind = DG_EVENT_WINDOW_MAXIMIZED;
+      break;
+    case dg::WindowEventKind::kRestored:
+      out.kind = DG_EVENT_WINDOW_RESTORED;
+      break;
+    case dg::WindowEventKind::kFocusGained:
+      out.kind = DG_EVENT_WINDOW_FOCUS_GAINED;
+      break;
+    case dg::WindowEventKind::kFocusLost:
+      out.kind = DG_EVENT_WINDOW_FOCUS_LOST;
+      break;
+    case dg::WindowEventKind::kEnteredFullscreen:
+      out.kind = DG_EVENT_WINDOW_FULLSCREEN_ENTERED;
+      break;
+    case dg::WindowEventKind::kLeftFullscreen:
+      out.kind = DG_EVENT_WINDOW_FULLSCREEN_LEFT;
+      break;
+  }
+  return out;
+}
+
+// ABI 0.2. A resize needs nothing here beyond the event itself: process_pump()'s
+// ensure_surface_current() pass has already rebuilt the surface at the new
+// drawable size, the same path every resize always took.
+void queue_window_events(AppImpl& impl, const std::vector<dg::WindowEvent>& events) {
+  for (const dg::WindowEvent& event : events) {
+    const WindowImpl* window = find_window_by_sdl_id(impl, event.window);
+    if (window != nullptr) {
+      impl.pending_events.push_back(to_window_dg_event(*window, event));
+    }
+  }
+}
+
 void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
   const dg::PumpResult pumped = impl.wm.pump(timeout_ms);
 
@@ -890,6 +944,8 @@ void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
     out.window = window->self_handle;
     impl.pending_events.push_back(out);
   }
+
+  queue_window_events(impl, pumped.window_events);
 
   for (const dg::PointerEvent& event : pumped.pointer) {
     WindowImpl* window = find_window_by_sdl_id(impl, event.window);
@@ -1140,6 +1196,16 @@ dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
   spec.width = opts->width;
   spec.height = opts->height;
   spec.fill = dg::Color::from_argb(opts->background_argb);
+  // ABI 0.2's appended fields, read only from a caller whose struct is long
+  // enough to carry them - an ABI 0.1 build passes the shorter size and
+  // gets 0.1's behaviour.
+  if (opts->size >= offsetof(dg_window_opts, max_height) + sizeof(opts->max_height)) {
+    spec.resizable = opts->resizable != 0;
+    spec.min_width = opts->min_width;
+    spec.min_height = opts->min_height;
+    spec.max_width = opts->max_width;
+    spec.max_height = opts->max_height;
+  }
 
   dg::Expected<dg::WindowId, dg::WindowError> opened = impl->wm.open(spec);
   if (!opened) {
@@ -1682,6 +1748,252 @@ std::int32_t app_set_theme(dg_app_t* app, dg_theme_t* theme_h) {
   impl->active_theme = theme;
   reapply_theme_if_active(*impl, *theme);
   return DG_ERR_OK;
+}
+
+// -- Window operations (ABI 0.2) ------------------------------------------
+//
+// A WindowError from dg::WindowManager means the platform refused the
+// request - argument and handle problems are caught before it is called -
+// so every one maps to DG_ERR_UNSUPPORTED, with the platform's reason kept
+// in dg_last_error().
+
+namespace {
+
+std::int32_t to_status(const char* function,
+                       const dg::Expected<void, dg::WindowError>& result) {
+  if (!result) {
+    set_last_error(std::string(function) + ": " + result.error().message);
+    return DG_ERR_UNSUPPORTED;
+  }
+  return DG_ERR_OK;
+}
+
+// resolve_window() plus the app that owns it, or nullptr with the error
+// recorded under `function`'s name.
+dg::WindowManager* resolve_window_manager(const char* function, dg_window_t* window_h,
+                                          dg::WindowId& id) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    set_last_error(std::string(function) + ": invalid window handle");
+    return nullptr;
+  }
+  id = window->sdl_window;
+  return &resolve_app(window_h->app)->wm;
+}
+
+}  // namespace
+
+std::int32_t window_set_title(dg_window_t* window_h, const char* utf8) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_title", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (utf8 == nullptr) {
+    set_last_error("dg_window_set_title: utf8 must not be null");
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return to_status("dg_window_set_title", wm->set_title(id, utf8));
+}
+
+std::int32_t window_get_title(dg_window_t* window_h, char* buf, std::uint32_t cap,
+                              std::uint32_t* out_len) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_get_title", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (cap > 0 && buf == nullptr) {
+    set_last_error("dg_window_get_title: buf must not be null when cap > 0");
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  const dg::Expected<std::string, dg::WindowError> title = wm->title(id);
+  if (!title) {
+    set_last_error("dg_window_get_title: " + title.error().message);
+    return DG_ERR_UNSUPPORTED;
+  }
+  const std::string& text = title.value();
+  if (out_len != nullptr) {
+    *out_len = static_cast<std::uint32_t>(text.size());
+  }
+  if (cap > 0) {
+    std::copy_n(text.data(), std::min<std::size_t>(cap, text.size()), buf);
+  }
+  return DG_ERR_OK;
+}
+
+std::int32_t window_set_size(dg_window_t* window_h, std::int32_t width, std::int32_t height) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_size", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (width <= 0 || height <= 0) {
+    set_last_error("dg_window_set_size: width and height must be positive");
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return to_status("dg_window_set_size", wm->set_size(id, width, height));
+}
+
+std::int32_t window_get_size(dg_window_t* window_h, std::int32_t* width, std::int32_t* height) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_get_size", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  const dg::Expected<dg::PixelSize, dg::WindowError> size = wm->size(id);
+  if (!size) {
+    set_last_error("dg_window_get_size: " + size.error().message);
+    return DG_ERR_UNSUPPORTED;
+  }
+  if (width != nullptr) {
+    *width = size.value().width;
+  }
+  if (height != nullptr) {
+    *height = size.value().height;
+  }
+  return DG_ERR_OK;
+}
+
+std::int32_t window_set_position(dg_window_t* window_h, std::int32_t x, std::int32_t y) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_position", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_set_position", wm->set_position(id, x, y));
+}
+
+std::int32_t window_get_position(dg_window_t* window_h, std::int32_t* x, std::int32_t* y) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_get_position", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  const dg::Expected<dg::PixelPoint, dg::WindowError> position = wm->position(id);
+  if (!position) {
+    set_last_error("dg_window_get_position: " + position.error().message);
+    return DG_ERR_UNSUPPORTED;
+  }
+  if (x != nullptr) {
+    *x = position.value().x;
+  }
+  if (y != nullptr) {
+    *y = position.value().y;
+  }
+  return DG_ERR_OK;
+}
+
+std::int32_t window_minimize(dg_window_t* window_h) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_minimize", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_minimize", wm->minimize(id));
+}
+
+std::int32_t window_maximize(dg_window_t* window_h) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_maximize", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_maximize", wm->maximize(id));
+}
+
+std::int32_t window_restore(dg_window_t* window_h) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_restore", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_restore", wm->restore(id));
+}
+
+std::int32_t window_set_fullscreen(dg_window_t* window_h, std::int32_t fullscreen) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_fullscreen", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_set_fullscreen", wm->set_fullscreen(id, fullscreen != 0));
+}
+
+std::int32_t window_set_resizable(dg_window_t* window_h, std::int32_t resizable) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_resizable", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_set_resizable", wm->set_resizable(id, resizable != 0));
+}
+
+std::int32_t window_set_min_size(dg_window_t* window_h, std::int32_t width,
+                                 std::int32_t height) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_min_size", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_set_min_size", wm->set_min_size(id, width, height));
+}
+
+std::int32_t window_set_max_size(dg_window_t* window_h, std::int32_t width,
+                                 std::int32_t height) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_max_size", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return to_status("dg_window_set_max_size", wm->set_max_size(id, width, height));
+}
+
+std::int32_t window_set_icon(dg_window_t* window_h, const void* pixels, std::int32_t width,
+                             std::int32_t height, std::uint32_t row_bytes,
+                             std::uint32_t format) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_set_icon", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (pixels == nullptr || width <= 0 || height <= 0 ||
+      row_bytes < static_cast<std::uint64_t>(width) * 4U) {
+    set_last_error(
+        "dg_window_set_icon: pixels must be non-null, the size positive and "
+        "row_bytes >= width * 4");
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  dg::PixelFormat pixel_format = dg::PixelFormat::kBgra8888;
+  if (format == DG_PIXEL_FORMAT_RGBA8888) {
+    pixel_format = dg::PixelFormat::kRgba8888;
+  } else if (format != DG_PIXEL_FORMAT_BGRA8888) {
+    set_last_error("dg_window_set_icon: format must be a DG_PIXEL_FORMAT_* value");
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  const dg::ImageView icon{static_cast<const std::uint8_t*>(pixels), width, height, row_bytes,
+                           pixel_format};
+  return to_status("dg_window_set_icon", wm->set_icon(id, icon));
+}
+
+std::int32_t window_get_state(dg_window_t* window_h) {
+  dg::WindowId id;
+  dg::WindowManager* wm = resolve_window_manager("dg_window_get_state", window_h, id);
+  if (wm == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  const dg::Expected<dg::WindowState, dg::WindowError> state = wm->state(id);
+  if (!state) {
+    set_last_error("dg_window_get_state: " + state.error().message);
+    return DG_ERR_UNSUPPORTED;
+  }
+  std::int32_t bits = 0;
+  bits |= state.value().minimized ? DG_WINDOW_STATE_MINIMIZED : 0;
+  bits |= state.value().maximized ? DG_WINDOW_STATE_MAXIMIZED : 0;
+  bits |= state.value().fullscreen ? DG_WINDOW_STATE_FULLSCREEN : 0;
+  bits |= state.value().focused ? DG_WINDOW_STATE_FOCUSED : 0;
+  bits |= state.value().resizable ? DG_WINDOW_STATE_RESIZABLE : 0;
+  return bits;
 }
 
 std::int32_t debug_warp_pointer(dg_window_t* window_h, std::int32_t x, std::int32_t y) {

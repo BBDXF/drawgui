@@ -112,7 +112,9 @@ if(DRAWGUI_HAVE_SDL3)
   target_sources(drawgui_unit_test PRIVATE unit/test_clipboard.cpp
     unit/test_first_frame_present.cpp
     unit/test_expose_repaint.cpp
-    unit/test_abi_tree_ops.cpp)
+    unit/test_abi_tree_ops.cpp
+    unit/test_window_ops.cpp
+    unit/test_abi_window_ops.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE
