@@ -275,11 +275,24 @@ export declare namespace DrawguiAbi {
   // node whose type_id is not DG_NODE_TYPE_TEXT_FIELD, DG_ERR_INVALID_ARGUMENT if
   // cap > 0 but buf is null.
   function dg_node_get_text(node: dg_node_t | null, buf: Uint8Array | null, cap: number, out_len: Uint32Array | null): number;
-  // Attaches pending `child` under live `parent`. `ref` must be null this slice
-  // (append-only).
+  // Inserts `child` under live `parent`, immediately before `ref` (appended when
+  // `ref` is null). `ref`, when given, must be a live DIRECT child of `parent`
+  // and not `child` itself, else DG_ERR_INVALID_ARGUMENT (DG_ERR_INVALID_HANDLE
+  // if `ref` is stale). A PENDING `child` becomes live. A child already LIVE in
+  // the same window is MOVED (detached and reinserted at the new position,
+  // keeping its identity, widget state and handle) - this is how a keyed
+  // reconciler reorders. Moving a node under itself or its own descendant is a
+  // cycle and DG_ERR_INVALID_ARGUMENT; a child live in a DIFFERENT window is
+  // DG_ERR_ALREADY_ATTACHED.
   function dg_node_insert_before(parent: dg_node_t | null, child: dg_node_t | null, ref: dg_node_t | null): number;
-  // Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not
-  // detach a live node's tree structure.
+  // Removes `node`. A LIVE node is detached from its window's tree together with
+  // its whole subtree: every node in the subtree has its
+  // widget/theme/focus/animation/action/interaction state cleaned up
+  // (dg::on_node_removed), the vacated area is repainted and the former parent
+  // relaid out, and the handle of `node` AND of every descendant that has one
+  // become invalid (DG_ERR_INVALID_HANDLE on every later call). Removing a
+  // window's root node clears that window's root, so dg_window_set_root() may
+  // attach a new one. A PENDING node only has its handle invalidated.
   function dg_node_remove(node: dg_node_t | null): number;
   // 8-3d: declares that `node` consumes `action_id` (design.md section 5.5.3) -
   // wraps dg::ActionScopes::scope() unchanged. `node` must be LIVE

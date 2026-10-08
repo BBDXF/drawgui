@@ -62,6 +62,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -145,6 +146,12 @@ class LayoutTree {
   // the identical conditions RenderTree::remove_child() itself refuses
   // (the root, or an already invalid `id`).
   bool remove_child(NodeId id);
+
+  // RenderTree::move_child() for both trees at once: the layout side follows
+  // the same re-parenting, and the old and new parents are both marked dirty
+  // so the next layout() re-measures each exactly once. Fails under the
+  // identical conditions RenderTree::move_child() refuses.
+  bool move_child(NodeId id, NodeId new_parent, std::optional<NodeId> before);
 
   [[nodiscard]] std::size_t node_count() const;
   [[nodiscard]] const BoxStyle& box(NodeId id) const;

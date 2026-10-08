@@ -1232,16 +1232,10 @@ std::int32_t node_set_text(dg_node_t* node_h, std::uint16_t prop_id, const char*
 }
 
 std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node_t* ref_h) {
-  if (ref_h != nullptr) {
-    // Append-only this slice: neither RenderTree::
-    // add_child() nor LayoutTree::add_child() can insert anywhere but the
-    // end of a parent's child list, so a real `ref` cannot be honoured.
-    return DG_ERR_UNSUPPORTED;
-  }
   if (parent_h == nullptr || child_h == nullptr) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  if (parent_h->app != child_h->app) {
+  if (parent_h->app != child_h->app || (ref_h != nullptr && ref_h->app != parent_h->app)) {
     return DG_ERR_INVALID_ARGUMENT;
   }
   NodeSlot* parent_slot = resolve_node_slot(parent_h);
@@ -1255,16 +1249,56 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
   if (child_slot == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  if (child_slot->state != NodeSlot::State::kPending) {
-    return DG_ERR_ALREADY_ATTACHED;
-  }
-
   AppImpl* impl = resolve_app(parent_h->app);
   if (impl == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return attach_pending_node(*impl, parent_slot->window_index, parent_slot->node_id,
-                             child_h->index);
+  WindowImpl& window = *impl->windows[parent_slot->window_index];
+
+  // `ref` must be a live DIRECT child of `parent` in the same window, and
+  // never the node being inserted - anything else names no position.
+  std::optional<dg::NodeId> before;
+  if (ref_h != nullptr) {
+    NodeSlot* ref_slot = resolve_node_slot(ref_h);
+    if (ref_slot == nullptr) {
+      return DG_ERR_INVALID_HANDLE;
+    }
+    if (ref_h == child_h || ref_slot->state != NodeSlot::State::kLive ||
+        ref_slot->window_index != parent_slot->window_index ||
+        window.tree.render().parent(ref_slot->node_id) != parent_slot->node_id) {
+      return DG_ERR_INVALID_ARGUMENT;
+    }
+    before = ref_slot->node_id;
+  }
+
+  if (child_slot->state == NodeSlot::State::kPending) {
+    const std::int32_t status = attach_pending_node(*impl, parent_slot->window_index,
+                                                    parent_slot->node_id, child_h->index);
+    if (status != DG_ERR_OK || !before.has_value()) {
+      return status;
+    }
+    // attach_pending_node() always appends; a fresh last child moved before
+    // a sibling of the same parent cannot fail.
+    window.tree.move_child(child_slot->node_id, parent_slot->node_id, before);
+    return DG_ERR_OK;
+  }
+
+  // A live child is a MOVE, and only within its own window: its NodeId,
+  // widget state and handle all survive, so no side table is touched.
+  if (child_slot->window_index != parent_slot->window_index) {
+    return DG_ERR_ALREADY_ATTACHED;
+  }
+  // Refused by LayoutTree::move_child() when `parent` lies inside `child`'s
+  // own subtree (including parent == child) - a cycle.
+  if (!window.tree.move_child(child_slot->node_id, parent_slot->node_id, before)) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  if (window.root == child_slot->node_id) {
+    // Unreachable in practice - a window root moved under any live node is
+    // always a cycle - but kept honest rather than leaving a stale root.
+    window.root.reset();
+  }
+  return DG_ERR_OK;
 }
 
 std::int32_t node_remove(dg_node_t* node_h) {
@@ -1279,28 +1313,34 @@ std::int32_t node_remove(dg_node_t* node_h) {
   // handle below is the whole of what removing one requires.
   if (slot->state == NodeSlot::State::kLive) {
     AppImpl* impl = resolve_app(node_h->app);
-    WindowImpl& window = *impl->windows[slot->window_index];
+    const std::size_t window_index = slot->window_index;
+    WindowImpl& window = *impl->windows[window_index];
+    // Collected BEFORE removal: afterwards the subtree's NodeIds are
+    // tombstoned and may be reused by the next add_child().
+    const std::vector<dg::NodeId> subtree = dg::subtree_of(window.tree.render(), slot->node_id);
     if (!dg::on_node_removed(window.tree, slot->node_id, window.widgets, window.theme_bindings,
                              window.focus, window.animation, window.action_scopes,
                              window.interaction)) {
-      // The only way a LIVE slot's own node_id fails on_node_removed() is
-      // naming the window's structural root - LayoutTree::root(), which
-      // dg_window_set_root() never hands out as `window.root` (that field
-      // always names a CHILD of it, attach_pending_node()'s own parent_id
-      // argument) - so this is unreachable through today's ABI surface,
-      // but reported rather than asserted: a future caller path that
-      // somehow reached it gets an honest error instead of a silently
-      // un-detached node.
+      // Unreachable: a LIVE slot never names the structural root
+      // LayoutTree::root() (window.root is always a CHILD of it). Reported
+      // rather than asserted.
       return DG_ERR_UNSUPPORTED;
     }
-    if (window.root == slot->node_id) {
+    // Removing the window's root node clears the root: the window shows its
+    // bare background and dg_window_set_root() may attach a new one.
+    if (window.root.has_value() &&
+        std::find(subtree.begin(), subtree.end(), *window.root) != subtree.end()) {
       window.root.reset();
     }
+    // Every DESCENDANT that has a handle is gone too - its handle must not
+    // keep resolving to a NodeId a later add_child() may reuse.
+    for (NodeSlot& other : impl->nodes) {
+      if (other.state == NodeSlot::State::kLive && other.window_index == window_index &&
+          std::find(subtree.begin(), subtree.end(), other.node_id) != subtree.end()) {
+        other.state = NodeSlot::State::kRemoved;
+      }
+    }
   }
-  // Invalidates the HANDLE too (every later call on it is
-  // DG_ERR_INVALID_HANDLE), on top of the real detachment above - Gap 3
-  // is closed: this node is now actually gone from
-  // its window's tree, not merely unreachable through this one handle.
   slot->state = NodeSlot::State::kRemoved;
   return DG_ERR_OK;
 }

@@ -254,11 +254,12 @@ typedef struct dg_theme_err {
 /* dg::PropStatus::kNotApplicable (design.md section 5.8 decision 7's parentData */
 /* case included). */
 #define DG_ERR_NOT_APPLICABLE (-8)
-/* dg::PropStatus::kUnsupported, or an ABI operation this slice never */
-/* implemented (a non-null dg_node_insert_before ref). */
+/* dg::PropStatus::kUnsupported, or an operation the node's type does not offer */
+/* (e.g. dg_node_get_checked on a non-checkbox). */
 #define DG_ERR_UNSUPPORTED (-9)
-/* dg_node_insert_before()/dg_window_set_root() on a node that is already live */
-/* in a tree. */
+/* dg_window_set_root() on a node that is already live, or on a window that */
+/* already has a root; dg_node_insert_before() of a node live in a DIFFERENT */
+/* window. */
 #define DG_ERR_ALREADY_ATTACHED (-10)
 /* An operation needs a node to be live under a window, and it is still pending. */
 #define DG_ERR_NO_WINDOW (-11)
@@ -600,12 +601,25 @@ DG_EXPORT int32_t dg_node_get_checked(dg_node_t* node);
 /* cap > 0 but buf is null. */
 DG_EXPORT int32_t dg_node_get_text(dg_node_t* node, char* buf, uint32_t cap, uint32_t* out_len);
 
-/* Attaches pending `child` under live `parent`. `ref` must be null this slice */
-/* (append-only). */
+/* Inserts `child` under live `parent`, immediately before `ref` (appended when */
+/* `ref` is null). `ref`, when given, must be a live DIRECT child of `parent` */
+/* and not `child` itself, else DG_ERR_INVALID_ARGUMENT (DG_ERR_INVALID_HANDLE */
+/* if `ref` is stale). A PENDING `child` becomes live. A child already LIVE in */
+/* the same window is MOVED (detached and reinserted at the new position, */
+/* keeping its identity, widget state and handle) - this is how a keyed */
+/* reconciler reorders. Moving a node under itself or its own descendant is a */
+/* cycle and DG_ERR_INVALID_ARGUMENT; a child live in a DIFFERENT window is */
+/* DG_ERR_ALREADY_ATTACHED. */
 DG_EXPORT int32_t dg_node_insert_before(dg_node_t* parent, dg_node_t* child, dg_node_t* ref);
 
-/* Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not */
-/* detach a live node's tree structure. */
+/* Removes `node`. A LIVE node is detached from its window's tree together with */
+/* its whole subtree: every node in the subtree has its */
+/* widget/theme/focus/animation/action/interaction state cleaned up */
+/* (dg::on_node_removed), the vacated area is repainted and the former parent */
+/* relaid out, and the handle of `node` AND of every descendant that has one */
+/* become invalid (DG_ERR_INVALID_HANDLE on every later call). Removing a */
+/* window's root node clears that window's root, so dg_window_set_root() may */
+/* attach a new one. A PENDING node only has its handle invalidated. */
 DG_EXPORT int32_t dg_node_remove(dg_node_t* node);
 
 /* 8-3d: declares that `node` consumes `action_id` (design.md section 5.5.3) - */

@@ -92,6 +92,7 @@ add_executable(drawgui_unit_test
   unit/test_shortcuts.cpp
   unit/test_shortcut_routing.cpp
   unit/test_node_removal.cpp
+  unit/test_node_move.cpp
   unit/test_popup.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
@@ -109,7 +110,8 @@ add_executable(drawgui_unit_test
 if(DRAWGUI_HAVE_SDL3)
   target_sources(drawgui_unit_test PRIVATE unit/test_clipboard.cpp
     unit/test_first_frame_present.cpp
-    unit/test_expose_repaint.cpp)
+    unit/test_expose_repaint.cpp
+    unit/test_abi_tree_ops.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

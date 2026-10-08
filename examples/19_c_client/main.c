@@ -244,9 +244,9 @@ static int run_verify(void) {
   check(status == DG_ERR_TYPE_MISMATCH,
         "a colour sent to a length property is DG_ERR_TYPE_MISMATCH");
 
-  /* 4. insert_before is append-only this slice: a real `ref` is refused by
-   * name (DG_ERR_UNSUPPORTED) rather than silently reordering the wrong
-   * way - see abi/drawgui.def.toml's own header comment. */
+  /* 4. insert_before: append, positional insert before a live sibling,
+   * a move of an already-live node, and the refusals (cycle, ref that is
+   * not a child of parent). */
   stray = dg_node_create(app, DG_NODE_TYPE_BOX);
   stray_child = dg_node_create(app, DG_NODE_TYPE_BOX);
   check(stray != NULL && stray_child != NULL,
@@ -254,11 +254,15 @@ static int run_verify(void) {
   status = dg_node_insert_before(button_a, stray, NULL);
   check(status == DG_ERR_OK, "dg_node_insert_before(parent=live, ref=NULL) appends");
   status = dg_node_insert_before(button_a, stray_child, stray);
-  check(status == DG_ERR_UNSUPPORTED, "a non-null ref is DG_ERR_UNSUPPORTED (append-only)");
-  /* stray_child is still pending; attach it so the arena has no dangling
-   * pending node left over (not required for correctness, just tidy). */
-  status = dg_node_insert_before(button_a, stray_child, NULL);
-  check(status == DG_ERR_OK, "the same child attaches fine once ref is NULL");
+  check(status == DG_ERR_OK, "a non-null ref inserts the pending child before it");
+  status = dg_node_insert_before(button_a, stray, stray_child);
+  check(status == DG_ERR_OK, "a live child is moved before its sibling (reorder)");
+  status = dg_node_insert_before(stray, button_a, NULL);
+  check(status == DG_ERR_INVALID_ARGUMENT, "moving a node under its own descendant is refused");
+  status = dg_node_insert_before(button_a, stray_child, button_a);
+  check(status == DG_ERR_INVALID_ARGUMENT, "a ref that is not a child of parent is refused");
+  status = dg_node_insert_before(button_a, button_b, NULL);
+  check(status == DG_ERR_ALREADY_ATTACHED, "a node live in another window cannot be moved");
 
   /* 5. dg_dump_layout_tree, on a live node - if it landed, this is where
    * the JSON shape is exercised at all. */
@@ -303,8 +307,13 @@ static int run_verify(void) {
    * later call on it is DG_ERR_INVALID_HANDLE - not a crash, and (run under
    * -DDG_SANITIZE=ON) not a use-after-free, because the wrapper this
    * pointer names is never freed - see src/abi/abi_types.h's own comment. */
+  status = dg_node_insert_before(stray, stray_child, NULL);
+  check(status == DG_ERR_OK, "stray_child moved under stray before removal");
   status = dg_node_remove(stray);
   check(status == DG_ERR_OK, "dg_node_remove succeeds the first time");
+  status = dg_node_set_prop(stray_child, DG_PROP_WIDTH, &value);
+  check(status == DG_ERR_INVALID_HANDLE,
+        "dg_node_remove also invalidates every descendant's handle");
   status = dg_node_remove(stray);
   check(status == DG_ERR_INVALID_HANDLE,
         "dg_node_remove on an already-removed node is invalid-handle");

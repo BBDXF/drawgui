@@ -128,6 +128,8 @@ dg::on_node_removed(layout_tree, node_id, widgets, theme_bindings, focus, animat
 ```
 不要单独调用 `RenderTree::remove_child()`/`LayoutTree::remove_child()` 而不跟进这一步。
 
+**移动不算删除**：`LayoutTree::move_child()`/`RenderTree::move_child()` 把子树挪到新父节点或新位置时保留每个 `NodeId`，六张侧表里的记录仍然有效，**不要**为移动调用 `on_node_removed()`——那会把一个仍然活着的节点的控件状态、焦点等清掉。
+
 ---
 
 ## 给「改动者」而非「调用方」的一条约束

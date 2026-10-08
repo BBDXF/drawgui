@@ -53,6 +53,8 @@ ctest --test-dir build --output-on-failure
     `DG_NODE_TYPE_TEXT_FIELD`（5）——见 `include/drawgui/abi/drawgui.h`
   - 设置属性，51 个 `dg_prop_id` 里的任意一个（`dg_node_set_prop`；
     `DG_PROP_TEXT` 这种字符串属性走 `dg_node_set_text`）
+  - 按位置插入、在同一窗口内移动、整棵子树删除节点（`dg_node_insert_before`
+    / `dg_node_remove`），足够让 keyed reconciler 驱动这棵树
   - 读复选框状态（`dg_node_get_checked`）和文本框内容（`dg_node_get_text`）
   - 收 `close` / `click` / `action` / `text_changed` 一类事件
   - 注册字体目录（`dg_app_add_font`）、加载主题

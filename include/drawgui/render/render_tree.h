@@ -581,6 +581,15 @@ class RenderTree {
   // same halfway shape set_local_bounds() already has for an ordinary move.
   bool remove_child(NodeId id);
 
+  // Re-parents `id`'s whole subtree under `new_parent`, immediately before
+  // `before` (appended when `before` is nullopt). Identity is kept: `id`
+  // and every descendant keep their NodeId, so no side table needs to hear
+  // about it. Damages the subtree's old and new visible bounds. Returns
+  // false, and changes nothing, for the root, any invalid id, a `before`
+  // that is `id` itself or not a direct child of `new_parent`, or a
+  // `new_parent` inside `id`'s own subtree (a cycle).
+  bool move_child(NodeId id, NodeId new_parent, std::optional<NodeId> before);
+
   [[nodiscard]] std::size_t node_count() const;
   [[nodiscard]] PixelSize viewport() const;
 

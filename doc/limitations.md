@@ -62,9 +62,9 @@ setter 存在、参数校验正确，但功能完全没有实现（`include/draw
 
 `include/drawgui/window/window_manager.h:321-348`：`TextEditingEvent::start`/`length` 是 SDL3 自己文档里定义的“UTF-8 字符数”单位，转换成这个引擎内部使用的字节偏移的逻辑是按字面意思实现的，但注释自己承认——开发这个项目的机器上，真实 IME 从来不会发送 `SDL_EVENT_TEXT_EDITING` 事件（它们用自己的组字窗口），现有的 IME 相关测试全部靠合成事件覆盖。这条转换逻辑没有被一次真实的中文/日文输入法组字过程验证过。
 
-### A11. ABI 的 `dg_node_insert_before` 只支持在末尾追加
+### A11. ABI 的节点移动不能跨窗口
 
-C ABI 的 `dg_node_insert_before(parent, child, ref)` 目前只接受 `ref == NULL`（等价于 append），传非空 `ref` 返回 `DG_ERR_UNSUPPORTED`（`abi/drawgui.def.toml` 中 `error` 常量组的 `UNSUPPORTED` 条目）。C++ 层的插入能力比这个更完整，但没有对应导出。
+C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位插入、以及把同一窗口里已挂上的节点移动到新位置（保留身份、控件状态和句柄），`dg_node_remove` 会摘除整棵子树并让子树里所有句柄失效——足够让 JS 侧的 keyed reconciler 驱动这棵树。剩下的限制：一个节点不能从一个窗口移动到另一个窗口（返回 `DG_ERR_ALREADY_ATTACHED`，需要在目标窗口重建）；`ref` 只能是有句柄的子节点，checkbox 指示块、文本框内部子节点这类没有句柄的内部子节点不能当 `ref`，新子节点因此总是排在它们之后。
 
 ### A12. 未覆盖字体族的字符画成 `.notdef` 方框（tofu），不是空白
 

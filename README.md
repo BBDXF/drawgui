@@ -60,7 +60,9 @@ backend, with no platform-abstraction layer ahead of a second one.
   (`BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`), set the 51 properties
   (text through the dedicated `dg_node_set_text()`), read back a
   checkbox's state and a text field's text, receive
-  close/click/action/text-changed events, and load a theme. Text is
+  close/click/action/text-changed events, and load a theme. Nodes can be
+  inserted before a sibling, moved within a window and removed as whole
+  subtrees, so a keyed reconciler can drive the tree. Text is
   minimal: one engine-default size, no `font_size`/`text_align`, and no
   IME composition surface. `examples/19_c_client` is a pure C program
   built entirely on the ABI.

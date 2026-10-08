@@ -222,6 +222,45 @@ bool RenderTree::remove_child(NodeId id) {
   return true;
 }
 
+bool RenderTree::move_child(NodeId id, NodeId new_parent, std::optional<NodeId> before) {
+  if (id == root() || !is_valid(id) || !is_valid(new_parent)) {
+    return false;
+  }
+  if (before.has_value() && (!is_valid(*before) || *before == id || *before == root() ||
+                             impl_->nodes[before->index].parent != new_parent.index)) {
+    return false;
+  }
+  // Walking up from new_parent must never meet `id`, or the subtree would
+  // become its own ancestor.
+  for (std::uint32_t index = new_parent.index;; index = impl_->nodes[index].parent) {
+    if (index == id.index) {
+      return false;
+    }
+    if (index == 0) {
+      break;
+    }
+  }
+
+  impl_->invalidate(id.index);
+
+  const std::uint32_t old_parent = impl_->nodes[id.index].parent;
+  std::vector<std::uint32_t>& old_siblings = impl_->nodes[old_parent].children;
+  old_siblings.erase(std::remove(old_siblings.begin(), old_siblings.end(), id.index),
+                     old_siblings.end());
+
+  std::vector<std::uint32_t>& siblings = impl_->nodes[new_parent.index].children;
+  auto position = siblings.end();
+  if (before.has_value()) {
+    position = std::find(siblings.begin(), siblings.end(), before->index);
+  }
+  siblings.insert(position, id.index);
+  impl_->nodes[id.index].parent = new_parent.index;
+
+  impl_->reposition(id.index);
+  impl_->invalidate(id.index);
+  return true;
+}
+
 std::size_t RenderTree::node_count() const {
   return impl_->nodes.size();
 }
@@ -259,7 +298,7 @@ std::vector<NodeId> RenderTree::children(NodeId id) const {
   std::vector<NodeId> result;
   result.reserve(raw.size());
   for (const std::uint32_t index : raw) {
-    result.push_back(NodeId{index});
+    result.push_back(NodeId{index, impl_->nodes[index].generation});
   }
   return result;
 }
@@ -269,7 +308,7 @@ std::optional<NodeId> RenderTree::hit_test(PixelPoint point) const {
   if (index >= impl_->nodes.size()) {
     return std::nullopt;
   }
-  return NodeId{index};
+  return NodeId{index, impl_->nodes[index].generation};
 }
 
 PixelRect RenderTree::local_bounds(NodeId id) const {

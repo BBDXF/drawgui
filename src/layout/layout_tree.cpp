@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -368,6 +369,47 @@ bool LayoutTree::remove_child(NodeId id) {
   // and whatever boundary it bubbles up to - without the child that is now
   // gone.
   impl_->mark_needs_layout(parent_index, false);
+  return true;
+}
+
+bool LayoutTree::move_child(NodeId id, NodeId new_parent, std::optional<NodeId> before) {
+  if (!impl_->render.is_valid(id)) {
+    return false;
+  }
+  const std::uint32_t old_parent = impl_->nodes[id.index].parent;
+  if (!impl_->render.move_child(id, new_parent, before)) {
+    return false;
+  }
+
+  // Mirror the render side's re-parenting; layout node i IS render node i.
+  std::vector<std::uint32_t>& old_siblings = impl_->nodes[old_parent].children;
+  old_siblings.erase(std::remove(old_siblings.begin(), old_siblings.end(), id.index),
+                     old_siblings.end());
+  std::vector<std::uint32_t>& siblings = impl_->nodes[new_parent.index].children;
+  auto position = siblings.end();
+  if (before.has_value()) {
+    position = std::find(siblings.begin(), siblings.end(), before->index);
+  }
+  siblings.insert(position, id.index);
+  impl_->nodes[id.index].parent = new_parent.index;
+
+  // Depth orders the dirty list, so the whole moved subtree must follow its
+  // new position.
+  std::vector<std::uint32_t> subtree{id.index};
+  for (std::size_t i = 0; i < subtree.size(); ++i) {
+    LayoutNode& node = impl_->nodes[subtree[i]];
+    node.depth = impl_->nodes[node.parent].depth + 1;
+    for (const std::uint32_t child : node.children) {
+      subtree.push_back(child);
+    }
+  }
+
+  // The moved node's cache describes its old parent's constraints; drop it
+  // so the new parent's pass measures it afresh.
+  impl_->nodes[id.index].has_cached = false;
+  impl_->nodes[id.index].needs_layout = true;
+  impl_->mark_needs_layout(old_parent, false);
+  impl_->mark_needs_layout(new_parent.index, false);
   return true;
 }
 

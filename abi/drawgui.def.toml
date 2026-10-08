@@ -330,8 +330,8 @@ values = [
   { name = "TYPE_MISMATCH", id = -6, summary = "dg_value::type disagrees with the property's declared type - dg::PropStatus::kTypeMismatch." },
   { name = "VALUE_OUT_OF_RANGE", id = -7, summary = "dg::PropStatus::kValueOutOfRange." },
   { name = "NOT_APPLICABLE", id = -8, summary = "dg::PropStatus::kNotApplicable (design.md section 5.8 decision 7's parentData case included)." },
-  { name = "UNSUPPORTED", id = -9, summary = "dg::PropStatus::kUnsupported, or an ABI operation this slice never implemented (a non-null dg_node_insert_before ref)." },
-  { name = "ALREADY_ATTACHED", id = -10, summary = "dg_node_insert_before()/dg_window_set_root() on a node that is already live in a tree." },
+  { name = "UNSUPPORTED", id = -9, summary = "dg::PropStatus::kUnsupported, or an operation the node's type does not offer (e.g. dg_node_get_checked on a non-checkbox)." },
+  { name = "ALREADY_ATTACHED", id = -10, summary = "dg_window_set_root() on a node that is already live, or on a window that already has a root; dg_node_insert_before() of a node live in a DIFFERENT window." },
   { name = "NO_WINDOW", id = -11, summary = "An operation needs a node to be live under a window, and it is still pending." },
   { name = "NO_ACTIVE_THEME", id = -12, summary = "7-6: dg_node_set_prop() with a DG_VALUE_TOKEN value, but dg_app_set_theme() was never called for this node's app - there is no theme to resolve the token against yet." },
 ]
@@ -447,14 +447,14 @@ name = "dg_node_insert_before"
 ret = "int32_t"
 impl = "node_insert_before"
 params = [{ name = "parent", type = "dg_node_t*" }, { name = "child", type = "dg_node_t*" }, { name = "ref", type = "dg_node_t*" }]
-summary = "Attaches pending `child` under live `parent`. `ref` must be null this slice (append-only)."
+summary = "Inserts `child` under live `parent`, immediately before `ref` (appended when `ref` is null). `ref`, when given, must be a live DIRECT child of `parent` and not `child` itself, else DG_ERR_INVALID_ARGUMENT (DG_ERR_INVALID_HANDLE if `ref` is stale). A PENDING `child` becomes live. A child already LIVE in the same window is MOVED (detached and reinserted at the new position, keeping its identity, widget state and handle) - this is how a keyed reconciler reorders. Moving a node under itself or its own descendant is a cycle and DG_ERR_INVALID_ARGUMENT; a child live in a DIFFERENT window is DG_ERR_ALREADY_ATTACHED."
 
 [[function]]
 name = "dg_node_remove"
 ret = "int32_t"
 impl = "node_remove"
 params = [{ name = "node", type = "dg_node_t*" }]
-summary = "Invalidates the handle (DG_ERR_INVALID_HANDLE on every later call). Does not detach a live node's tree structure."
+summary = "Removes `node`. A LIVE node is detached from its window's tree together with its whole subtree: every node in the subtree has its widget/theme/focus/animation/action/interaction state cleaned up (dg::on_node_removed), the vacated area is repainted and the former parent relaid out, and the handle of `node` AND of every descendant that has one become invalid (DG_ERR_INVALID_HANDLE on every later call). Removing a window's root node clears that window's root, so dg_window_set_root() may attach a new one. A PENDING node only has its handle invalidated."
 
 [[function]]
 name = "dg_node_scope_action"

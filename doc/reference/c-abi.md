@@ -21,9 +21,9 @@
 - **文字只有最小能力**：`dg_node_set_text(DG_PROP_TEXT)` 设字符串、
   `DG_PROP_TEXT_COLOR` 设颜色；字体族取 `dg_app_add_font()` 注册的首个字族、
   字号为引擎默认值，没有 `font_size`/`text_align` 属性。
-- **`dg_node_insert_before` 的 `ref` 参数必须为 NULL**：这个 ABI 只支持
-  在父节点末尾追加子节点（append-only）；传非 NULL 的 `ref` 返回
-  `DG_ERR_UNSUPPORTED`。
+- **节点移动只能在同一窗口内**：`dg_node_insert_before` 可以按 `ref`
+  定位插入、也可以移动已挂上的节点，但跨窗口移动返回
+  `DG_ERR_ALREADY_ATTACHED`。
 - **四个复杂属性 setter（`set_gradient`/`set_shadow`/`set_image`/
   `set_transform`）完全没有导出到 ABI**——`abi/drawgui.def.toml` 里没有
   `dg_node_set_gradient`/`_shadow`/`_image`/`_transform` 这样的
@@ -115,8 +115,8 @@
 | `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效（pending 返回 `DG_ERR_NO_WINDOW`） |
 | `dg_node_get_checked(node)` | 查询 live `CHECKBOX` 的勾选状态：返回 1/0，负数为 `DG_ERR_*`（非 checkbox 为 `DG_ERR_UNSUPPORTED`）；"收到 CLICK 再查询"的形状 |
 | `dg_node_get_text(node, buf, cap, out_len)` | 读取 live `TEXT_FIELD` 的当前文字：两趟调用（先 `cap=0` 取 `out_len` 全长，再分配缓冲读取）；按字节截断 |
-| `dg_node_insert_before(parent, child, ref)` | 把 pending 的 `child` 挂到 live 的 `parent` 下；**`ref` 必须为 NULL**，否则 `DG_ERR_UNSUPPORTED` |
-| `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）；对一个 LIVE 节点，**也**会把它的整棵子树从父节点的子节点列表中摘除（`RenderTree::remove_child()`——"Detaches `id`'s whole subtree from its parent's children"），不只是让这一个句柄失效 |
+| `dg_node_insert_before(parent, child, ref)` | 把 `child` 插到 live 的 `parent` 下、紧挨在 `ref` 之前（`ref` 为 NULL 时追加到末尾）。`ref` 必须是 `parent` 的直接子节点且不是 `child` 本身，否则 `DG_ERR_INVALID_ARGUMENT`。pending 的 `child` 变成 live；已在**同一窗口** live 的 `child` 被**移动**（身份、控件状态、句柄都保留）——keyed reconciler 靠它重排。把节点移到它自己或它的后代下面是环，返回 `DG_ERR_INVALID_ARGUMENT`；`child` 在另一个窗口里 live 时返回 `DG_ERR_ALREADY_ATTACHED` |
+| `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）。对 LIVE 节点，还会把整棵子树从树上摘除：子树里每个节点的控件/主题/焦点/动画/action/交互状态都被清理（`dg::on_node_removed`），腾出的区域重绘、原父节点重新布局，子树里**所有**有句柄的后代句柄也一并失效。删除窗口根节点会清空该窗口的根，之后可以再 `dg_window_set_root()`。pending 节点只失效句柄 |
 
 ### 快捷键 / Action
 
