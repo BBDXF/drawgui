@@ -11,13 +11,16 @@
 在细看每个函数之前，必须先知道这个 ABI **不能**做什么——这些不是遗漏，是
 `abi/drawgui.def.toml` 文件头注释里点名拒绝的：
 
-- **只能创建两种节点**：`DG_NODE_TYPE_BOX`（=1，对应 `WidgetKind::kPanel`）、
-  `DG_NODE_TYPE_BUTTON`（=2，对应 `WidgetKind::kButton`）。C++ 侧
-  `WidgetKind` 实际有 9 种（`kPanel`/`kLabel`/`kButton`/`kCheckbox`/
-  `kScrollView`/`kSlider`/`kTextField`/`kList`/`kDropdown`），ABI 只暴露了
-  前两种——没有 checkbox、slider、文本框、list、dropdown。
-- **画不了文字**：49 个属性里没有 text 类属性，头文件里也没有
-  `dg_node_set_text` 这样的函数。`kLabel` 节点类型本身都没有导出。
+- **只能创建五种节点**：`DG_NODE_TYPE_BOX`（=1，`WidgetKind::kPanel`）、
+  `BUTTON`（=2，`kButton`）、`LABEL`（=3，`kLabel`）、`CHECKBOX`（=4，
+  `kCheckbox`）、`TEXT_FIELD`（=5，`kTextField`）。C++ 侧 `WidgetKind`
+  实际有 9 种（另有 `kScrollView`/`kSlider`/`kList`/`kDropdown`），这四种
+  没有导出。checkbox 不导出 `Widget::group`（做不成 radio）；text field
+  不导出任何 IME 组字（composition）接口——两者都在
+  `abi/drawgui.def.toml` 文件头"WHAT IS DELIBERATELY NOT HERE"里具名拒绝。
+- **文字只有最小能力**：`dg_node_set_text(DG_PROP_TEXT)` 设字符串、
+  `DG_PROP_TEXT_COLOR` 设颜色；字体族取 `dg_app_add_font()` 注册的首个字族、
+  字号为引擎默认值，没有 `font_size`/`text_align` 属性。
 - **`dg_node_insert_before` 的 `ref` 参数必须为 NULL**：这个 ABI 只支持
   在父节点末尾追加子节点（append-only）；传非 NULL 的 `ref` 返回
   `DG_ERR_UNSUPPORTED`。
@@ -25,7 +28,7 @@
   `set_transform`）完全没有导出到 ABI**——`abi/drawgui.def.toml` 里没有
   `dg_node_set_gradient`/`_shadow`/`_image`/`_transform` 这样的
   `[[function]]` 条目。C ABI 调用方目前只能写标量属性
-  （`dg_node_set_prop` + `dg_value`），拿不到渐变/阴影/图片/变换。
+  （`dg_node_set_prop` + `dg_value`）和文字（`dg_node_set_text`），拿不到渐变/阴影/图片/变换。
 - **没有焦点 API、没有弹层（popup/menu/tooltip/dialog）API、没有动画 API、
   没有自定义绘制、没有回调模式**——这几项在 `abi/drawgui.def.toml`
   文件头注释里被具名拒绝（`dg_set_event_callback`、
@@ -33,8 +36,7 @@
   理由是各自"没有真实调用方可供提炼接口"，而不是技术上做不到。
 - **`abi/drawgui.d.ts` 生成了，但本仓库里没有任何消费者**——没有 JS/TS
   框架层读它。这是"一个已敲定的目标形状，而非已被证明的形状"（"a settled
-  TARGET shape, not a proven one"，见 `include/drawgui/abi/drawgui.h:548`
-  附近的生成器注释）。
+  TARGET shape, not a proven one"，见 `abi/drawgui.d.ts` 文件头的生成器注释）。
 
 ## 2. 四个不透明句柄
 
@@ -72,9 +74,9 @@
 
 | 组 | 前缀 | 数量 | 说明 |
 |---|---|---|---|
-| `node_type` | `DG_NODE_TYPE_` | 2 | 只有 `BOX`(1)、`BUTTON`(2)——见第 1 节 |
+| `node_type` | `DG_NODE_TYPE_` | 5 | `BOX`(1)、`BUTTON`(2)、`LABEL`(3)、`CHECKBOX`(4)、`TEXT_FIELD`(5)——见第 1 节 |
 | `value_type` | `DG_VALUE_` | 5 | `FLOAT`/`LENGTH`/`COLOR`/`ENUM`/`TOKEN`（`TOKEN` 是 7-6 加入的主题绑定值类型） |
-| `event_kind` | `DG_EVENT_` | 3 | `WINDOW_CLOSED`/`CLICK`/`ACTION` |
+| `event_kind` | `DG_EVENT_` | 4 | `WINDOW_CLOSED`/`CLICK`/`ACTION`/`TEXT_CHANGED`（`TEXT_FIELD` 文字变化，只带 `window`/`node`，新文字用 `dg_node_get_text()` 取） |
 | `error` | `DG_ERR_` | 13 | 见下 |
 | `theme_err` | `DG_THEME_ERR_` | 9 | 主题包加载失败原因，一一对应 `dg::ThemeLoadStatus` |
 
@@ -84,7 +86,7 @@
 `VALUE_OUT_OF_RANGE`(-7)、`NOT_APPLICABLE`(-8)、`UNSUPPORTED`(-9)、
 `ALREADY_ATTACHED`(-10)、`NO_WINDOW`(-11)、`NO_ACTIVE_THEME`(-12)。
 
-## 5. 导出函数（共 24 个）
+## 5. 导出函数（共 32 个）
 
 按用途分组；每个函数一句话说明。
 
@@ -108,9 +110,11 @@
 
 | 函数 | 用途 |
 |---|---|
-| `dg_node_create(app, type_id)` | 分配一个 pending 节点；`type_id` 只能是 `DG_NODE_TYPE_BOX`/`BUTTON`/`LABEL` |
+| `dg_node_create(app, type_id)` | 分配一个 pending 节点；`type_id` 只能是 `DG_NODE_TYPE_BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` |
 | `dg_node_set_prop(node, prop_id, value)` | 标量属性写入，`dg::set_prop()` 的 ABI 映射；对 pending 或 live 节点都有效 |
-| `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效 |
+| `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效（pending 返回 `DG_ERR_NO_WINDOW`） |
+| `dg_node_get_checked(node)` | 查询 live `CHECKBOX` 的勾选状态：返回 1/0，负数为 `DG_ERR_*`（非 checkbox 为 `DG_ERR_UNSUPPORTED`）；"收到 CLICK 再查询"的形状 |
+| `dg_node_get_text(node, buf, cap, out_len)` | 读取 live `TEXT_FIELD` 的当前文字：两趟调用（先 `cap=0` 取 `out_len` 全长，再分配缓冲读取）；按字节截断 |
 | `dg_node_insert_before(parent, child, ref)` | 把 pending 的 `child` 挂到 live 的 `parent` 下；**`ref` 必须为 NULL**，否则 `DG_ERR_UNSUPPORTED` |
 | `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）；对一个 LIVE 节点，**也**会把它的整棵子树从父节点的子节点列表中摘除（`RenderTree::remove_child()`——"Detaches `id`'s whole subtree from its parent's children"），不只是让这一个句柄失效 |
 
@@ -133,7 +137,7 @@
 | 函数 | 用途 |
 |---|---|
 | `dg_last_error()` | 本线程最近一次失败调用的消息；有效期到本线程下一次 drawgui 调用为止 |
-| `dg_dump_layout_tree(node)` | 把该节点子树导出为 JSON（type/bounds/parentData），细节见 `include/drawgui/abi/drawgui.h:514` 附近的注释 |
+| `dg_dump_layout_tree(node)` | 把该节点子树导出为 JSON（type/bounds/parentData），见 `include/drawgui/abi/drawgui.h` 中该函数声明处的注释 |
 
 ### 主题
 
@@ -145,10 +149,11 @@
 | `dg_theme_override(theme, token_id, value)` | 就地覆盖某个 token 的值（作用于当前激活的 variant） |
 | `dg_app_set_theme(app, theme)` | 把 `theme` 设为该 app 的激活主题，立即对所有窗口重新应用绑定——这是热重载的第二步（第一步是重新 `load_dir`/`load_memory`） |
 
-### 仅测试用（`dg_debug_*`，四个，**非稳定面**）
+### 仅测试用（`dg_debug_*`，八个，**非稳定面**）
 
-这四个函数只是为了让 `examples/19_c_client` 的 CTest 用例能在无显示环境下
-通过真实的 SDL 事件队列驱动一次真实点击/按键；**不是**给真实宿主使用的
+这些函数只是为了让 `examples/19_c_client` 的 CTest 用例与 `tests/golden/`
+的 ABI 场景能在无显示环境下通过真实的 SDL 事件队列驱动点击/按键/文字输入、
+并截取帧像素；**不是**给真实宿主使用的
 生产接口，`abi/drawgui.def.toml` 文件头注释本身也这样声明。
 
 | 函数 | 用途 |
@@ -157,6 +162,10 @@
 | `dg_debug_post_pointer_button(window, down, x, y)` | 注入一次指针按下/抬起 |
 | `dg_debug_post_key(window, down, logical_key_name)` | 注入一次按键；`logical_key_name` 必须是不带修饰键的裸键名（如 `"PageUp"`），带修饰键的名字（如 `"Mod+C"`）返回 `DG_ERR_INVALID_ARGUMENT` |
 | `dg_debug_trigger_exception(kind)` | 无条件抛异常（1=bad_alloc，2=runtime_error，其它=int），用于测试异常边界本身 |
+| `dg_debug_capture_png(window)` | 把窗口当前帧编码为 PNG 放进线程局部缓冲并返回首字节指针（二进制，可能含 NUL）；golden 测试的取像入口 |
+| `dg_debug_capture_png_len()` | 上一次 `dg_debug_capture_png()` 返回缓冲的字节数 |
+| `dg_debug_post_text_input(window, utf8)` | 注入一次提交文字（`SDL_EVENT_TEXT_INPUT`）；须先点击聚焦 `TEXT_FIELD` |
+| `dg_debug_post_text_field_key(window, down, key_name, shift)` | 注入文本框编辑键，`key_name` 只能是 `Left`/`Right`/`Home`/`End`/`Backspace`/`Delete` |
 
 ## 6. try/catch trampoline
 

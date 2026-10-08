@@ -30,7 +30,7 @@
 - `dg::AnimationEngine` —— 节点上正在跑的动画
 
 好处是节点本身保持精简；代价是删除一个节点时，要记得同时清理每一张表。
-`dg::on_node_removed()`（`src/render/node_lifecycle.cpp:22-46`）就是干这件
+`dg::on_node_removed()`（`src/render/node_lifecycle.cpp:23-48`）就是干这件
 事的——先收集整棵子树（因为 `remove_child()` 会立即断开父子链接，之后再
 遍历就晚了），再挨个从六张表里 `forget()`/`cancel_all_for()`。自己手写节点
 删除逻辑时，这六张表都要覆盖到，漏一张就是悬空引用。
@@ -40,9 +40,9 @@
 ## 3. 属性是数字，不是字段
 
 节点的视觉/布局属性不是 C++ 结构体字段，而是通过一个 `uint16_t`
-（`dg_prop_id`）寻址的通道：`set_prop(node, id, PropValue)`。目前有 49 个
-属性，从 `DG_PROP_WIDTH`(1) 到 `DG_PROP_IMAGE_PLACEHOLDER_COLOR`(49)
-（`include/drawgui/abi/drawgui.h:267-363`）。
+（`dg_prop_id`）寻址的通道：`set_prop(node, id, PropValue)`。目前有 51 个
+属性，从 `DG_PROP_WIDTH`(1) 到 `DG_PROP_TEXT_COLOR`(51)
+（`include/drawgui/abi/drawgui.h` 里的 `DG_PROP_*` 宏）。
 
 这么做是为了 ABI 稳定：id 从 `props/drawgui.props.toml` 生成，被
 `props/prop_ids.lock` 钉死——**一个 id 一旦发布就不能挪作他用**，哪怕它
@@ -60,7 +60,7 @@
 矩形覆盖的区域，不是整帧重画。
 
 `DamageRegion` 对矩形数量有上限（`TreeSpec::max_damage_rects`，默认 8，
-`include/drawgui/render/damage.h:39`、`render_tree.h:540`）。超过这个数量
+`include/drawgui/render/damage.h:39`、`render_tree.h:538`）。超过这个数量
 时，多块脏矩形会被合并成更大的一块——这会导致「明明只改了一个像素，
 观察到的却是半屏重绘」。**这是设计好的行为，不是 bug**：合并成一块矩形
 比维护任意多块矩形要便宜，超过阈值时"过度重绘一点"换"damage 追踪本身
@@ -126,5 +126,5 @@ token，如果是，这是预期行为。
   [`doc/guide/`](guide/)
 - 属性 id、token id、action id、C ABI 函数的完整清单：
   [`doc/reference/`](reference/)
-- 已知的能力边界（比如 `transform` 属性、C ABI 的两种节点类型限制）：
+- 已知的能力边界（比如 `transform` 属性、C ABI 只有五种节点类型的限制）：
   [`doc/limitations.md`](limitations.md)

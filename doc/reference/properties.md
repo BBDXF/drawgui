@@ -8,7 +8,7 @@
 ## 1. 基本模型
 
 一个属性通过 `dg::set_prop(tree, node, prop_id, PropValue)` 写入（C ABI 对应
-`dg_node_set_prop`）。四种复杂类型（gradient/shadow/transform/image）不走这条
+`dg_node_set_prop`）。五种复杂类型（gradient/shadow/transform/image/text）不走这条
 标量入口，见第 4 节。
 
 `prop_id` 永远是裸 `uint16_t`，从不被转换成枚举——校验本身就是分发过程，未知
@@ -24,7 +24,7 @@ id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 
 |---|---|
 | `kApplied` | 写入成功并生效 |
 | `kUnknownId` | id 是 0（`DG_PROP_INVALID`）或超出已定义范围 |
-| `kTypeMismatch` | id 合法，但值的类型与该属性声明的类型不符（例如把颜色发给 `width`）；也用于**已实现但要求走专用 setter** 的属性（`background_gradient`/`shadow`/`image_source`）——通过标量入口写它们，得到的正是这个状态，而不是 `kUnsupported` |
+| `kTypeMismatch` | id 合法，但值的类型与该属性声明的类型不符（例如把颜色发给 `width`）；也用于**已实现但要求走专用 setter** 的属性（`background_gradient`/`shadow`/`image_source`/`text`）——通过标量入口写它们，得到的正是这个状态，而不是 `kUnsupported` |
 | `kValueOutOfRange` | 类型对但值不可用：非有限浮点数、负长度、超出 `values` 范围的枚举序号、`grow`/`shrink` 收到非整数权重等 |
 | `kNotApplicable` | 属性合法、值合法，但对**这个**节点不适用（叶子节点上的 `gap`，父节点不是 flex/wrap 容器时子节点上的 `grow`）。判定依据是 toml 的 `applies_to`/`consumed_by` |
 | `kUnsupported` | 引擎目前未实现该能力（与调用方无关，是 drawgui 自身的缺口）；同一次写入在能力补齐后会变成 `kApplied` |
@@ -43,13 +43,13 @@ id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 
 | `PropValue::color(Color)` | `k_color` | 0xAARRGGBB，边界处非预乘 |
 | `PropValue::option(uint32_t ordinal)` | `k_enum` | 属性 `values` 列表的下标；顺序本身是 ABI 契约（生成的 `DG_<PROP>_<VALUE>` 常量就是这个序号） |
 
-没有能构造 `k_gradient`/`k_shadow`/`k_transform`/`k_image` 的工厂——因此任何
-针对这四个属性的标量写入天然走错入口。
+没有能构造 `k_gradient`/`k_shadow`/`k_transform`/`k_image`/`k_text` 的工厂——因此任何
+针对这五个属性的标量写入天然走错入口。
 
 ## 4. 为什么复杂类型走专用 setter
 
-`gradient`/`shadow`/`transform`/`image` 四种类型的数据没有共同大小
-（渐变的 stop 列表、阴影的四个标量……），塞进一个带堆分配 variant 的
+`gradient`/`shadow`/`transform`/`image`/`text` 五种类型的数据没有共同大小
+（渐变的 stop 列表、阴影的四个标量、变长 UTF-8 字符串……），塞进一个带堆分配 variant 的
 `dg_value` 会破坏这个联合体从不堆分配的约定。因此它们各自有独立入口：
 
 ```
@@ -57,9 +57,10 @@ dg::set_gradient(tree, node, prop_id, const LinearGradientStyle&)
 dg::set_shadow  (tree, node, prop_id, const ShadowStyle&)
 dg::set_image   (tree, node, prop_id, const ImageStyle&)
 dg::set_transform(tree, node, prop_id, const TransformDesc&)  // 见下
+dg::set_text     (tree, node, prop_id, std::string_view)  // C ABI: dg_node_set_text
 ```
 
-四个函数仍然使用与标量路径**相同**的 `dg_prop_id`、相同的
+五个函数仍然使用与标量路径**相同**的 `dg_prop_id`、相同的
 `props/drawgui.props.toml` 条目、相同的 `prop_type()` 校验——不是第二套编号
 体系。发错 id（例如把 `DG_PROP_BACKGROUND_GRADIENT` 发给 `set_shadow`）会被
 拒绝，机制与标量路径把 `DG_PROP_WIDTH` 当颜色发送时一样。
@@ -71,11 +72,11 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 这是三个子系统需要同时改变的事，不是拆开做的事。这是**主动声明的搁置**，
 不是半成品。
 
-`background_gradient`（渐变）、`shadow`（阴影）、`image_source`（图片源）三个
+`background_gradient`（渐变）、`shadow`（阴影）、`image_source`（图片源）、`text`（文字）四个
 属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
 `kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
 
-## 5. 属性表（49 项）
+## 5. 属性表（51 项）
 
 列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
 常量与文档、setter 里出现的那个词汇）；**内部字段**是
@@ -87,7 +88,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数据分别写
 的是 `"justify"`/`"align"`，但这只是文档性字段——`apply_justify()`/
 `apply_align()` 实际写入的是 `BoxStyle::main_align`/`BoxStyle::cross_align`
-（`src/props/node_props.cpp:542-591`）。也就是说：
+（`src/props/node_props.cpp:535-591`）。也就是说：
 
 - **外部（属性 id、ABI、你调用 `set_prop` 时用的名字）**：`justify`、`align`
 - **内部（C++ 结构体成员，仅在阅读引擎源码时会遇到）**：`main_align`、`cross_align`
@@ -114,7 +115,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 加到位置上，deflate（缩小约束）却没有对称处理负值。这是记录在案的功能缺口，
 不是隐藏 bug（`src/props/node_props.cpp:355-357` 注释原文）。
 
-### 5.3 visual（id 16-30, 47-49）
+### 5.3 visual（id 16-30, 47-51）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -130,6 +131,8 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 47 | `image_source` | image | 完整 | 选择哪个已解码的 `ImageCatalog` 条目；**专用 setter**（`set_image`） |
 | 48 | `image_fit` | enum(`fill`/`contain`/`cover`/`none`) | 完整 | 走普通标量路径（不是专用 setter） |
 | 49 | `image_placeholder_color` | color | 完整 | 图片未解码完成前的占位色，绝不是"洞" |
+| 50 | `text` | text | 完整 | label/button 等绘制的 UTF-8 字符串；**专用 setter**（`set_text`，C ABI 为 `dg_node_set_text`），标量入口返回 `kTypeMismatch`；字体/字号/对齐不是属性，取引擎默认值 |
+| 51 | `text_color` | color | 完整 | `TextStyle::color`，走普通标量路径；默认全透明，只设 `text` 不设它则看不见文字 |
 
 ### 5.4 container（id 31-37, 46）
 
@@ -161,8 +164,8 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 
 ## 6. 状态汇总（自查结果）
 
-- 38 项完整、10 项部分实现、1 项未实现（`transform`），共 49 项，与已核实的
-  盘点一致。
+- 40 项完整、10 项部分实现、1 项未实现（`transform`），共 51 项（含 P6 a1
+  新增的 `text`/`text_color`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
   （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。
@@ -170,5 +173,5 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 ## 7. 相关文档
 
 - ABI 侧如何暴露属性写入：`doc/reference/c-abi.md`
-- 复杂属性（渐变/阴影/图片/变换）为何走专用 setter 而非标量通道：`include/drawgui/render/render_tree.h:439` 附近的注释
+- 复杂属性（渐变/阴影/图片/变换）为何走专用 setter 而非标量通道：`include/drawgui/props/node_props.h` 中 `set_gradient()`…`set_text()` 声明附近的注释
 - 阴影模糊半径预算的实测数据：该测量记录在被移除的开发切片文档中，见 git 历史

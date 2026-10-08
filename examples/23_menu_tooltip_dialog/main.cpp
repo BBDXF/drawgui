@@ -1,7 +1,8 @@
 // The menu/tooltip/dialog demo, on screen and headless.
 //
 //   (no arguments)              the demo window
-//   --branch native|overlay     which branch context menu/tooltip/dialog use (default native)
+//   --branch native|overlay     which branch the Dialog uses (default native); the context
+//                               menu and tooltip are overlay-only regardless
 //   --run-ms N                  close after N milliseconds
 //   --font-dir DIR              scan a different font directory
 //   --tooltip-delay-ms N        hover delay before a tooltip shows (default 400)

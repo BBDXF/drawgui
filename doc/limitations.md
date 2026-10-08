@@ -14,13 +14,13 @@
 
 ### A2. overlay 关闭不删节点，只是裁成空矩形——反复开关有累积成本
 
-`PopupHost::close()` 把浮层容器裁剪为空矩形（`Overflow::kClip` 对空框），把它从绘制和命中测试里移除，但**不删除节点**。`include/drawgui/window/popup_host.h:171-192` 的注释说明这是一个选择，不是被迫的：`RenderTree::remove_child()` 从 8-5 起就存在且能用，之所以不用，是因为真删除会让 `content_root` 以及调用方持有的所有子节点 id 失效，还需要调用方自己跟进 `dg::on_node_removed()` 的六张侧表清理（见 `doc/contracts.md` 第 8 条）——这需要一个真实有动机的调用方去做这个决定，当前没有。
+`PopupHost::close()` 把浮层容器裁剪为空矩形（`Overflow::kClip` 对空框），把它从绘制和命中测试里移除，但**不删除节点**。`include/drawgui/window/popup_host.h` 中 `close()` 声明前的注释说明这是一个选择，不是被迫的：`RenderTree::remove_child()` 从 8-5 起就存在且能用，之所以不用，是因为真删除会让 `content_root` 以及调用方持有的所有子节点 id 失效，还需要调用方自己跟进 `dg::on_node_removed()` 的六张侧表清理（见 `doc/contracts.md` 第 8 条）——这需要一个真实有动机的调用方去做这个决定，当前没有。
 
 **结论**：反复开关同一个下拉菜单/右键菜单，会持续留下已死但未删除的节点，是稳定的内存/节点数增长，不是内存泄漏 bug，但长时间运行的应用需要知道这笔成本存在。
 
 ### A3. 隐式 transition 只覆盖 7 个属性
 
-`AnimationEngine::read_current()`（`src/anim/animation_engine.cpp:103-141`）的 switch 只处理这些属性，其余属性设置隐式 transition 会静默跳变，不报错：
+`AnimationEngine::read_current()`（`src/anim/animation_engine.cpp:104-144`）的 switch 只处理这些属性，其余属性设置隐式 transition 会静默跳变，不报错：
 
 - `DG_PROP_BACKGROUND_COLOR`
 - `DG_PROP_BORDER_COLOR`
@@ -38,17 +38,17 @@
 
 ### A5. Focus ring 在小于 `2*(gap+thickness)`（默认阈值 8px）的控件上会填满整个控件
 
-`src/widget/focus.cpp:60-66` 与 :263-267 的 `fill_ring()`：当控件的宽或高小于 `2*(gap+thickness)` 时，不再画环形轮廓，而是把整个控件区域涂满焦点色。这是刻意的降级（“可见但不是环形”好过“完全不可见”），不是 bug。
+`src/widget/focus.cpp:49-66` 与 :263-267 的 `fill_ring()`：当控件的宽或高小于 `2*(gap+thickness)` 时，不再画环形轮廓，而是把整个控件区域涂满焦点色。这是刻意的降级（“可见但不是环形”好过“完全不可见”），不是 bug。
 
 **结论**：小于约 8×8 像素（默认 `gap`+`thickness` 参数下）的可聚焦控件，聚焦时会整体变色而不是显示细边框。控件设计时避免做得比这个阈值更小。
 
 ### A6. `kScrollView`/`kList` 不能用 Tab 聚焦
 
-`include/drawgui/widget/focus.h:94-109`：焦点遍历不会落到滚动容器本身上。键盘滚动（PageUp/PageDown、方向键滚动列表）需要应用层自己实现为 action，不能指望 Tab 把焦点带到滚动区域再用方向键滚动。
+`include/drawgui/widget/focus.h:99-108`：焦点遍历不会落到滚动容器本身上。键盘滚动（PageUp/PageDown、方向键滚动列表）需要应用层自己实现为 action，不能指望 Tab 把焦点带到滚动区域再用方向键滚动。
 
 ### A7. `transform` 属性设置永远返回 `kUnsupported`
 
-setter 存在、参数校验正确，但功能完全没有实现（`src/render/prop_dispatch.generated.inc:133` 走的赋值路径，实际绘制侧没有消费）。这不是即将修的小 bug，是被三个未决问题卡住的功能：非轴对齐的 damage 矩形怎么算、逆变换命中测试怎么做、是否要影响父节点的布局尺寸。三个问题都没有结论前，`transform` 不会真正生效。
+setter 存在、参数校验正确，但功能完全没有实现（`include/drawgui/props/node_props.h` 中 `set_transform()` 的注释："EXISTS AS A FOURTH ENTRY POINT BUT ALWAYS REFUSES"；`src/render/prop_dispatch.generated.inc` 的 `DG_PROP_TRANSFORM` 分支只做赋值，绘制侧没有消费）。这不是即将修的小 bug，是被三个未决问题卡住的功能：非轴对齐的 damage 矩形怎么算、逆变换命中测试怎么做、是否要影响父节点的布局尺寸。三个问题都没有结论前，`transform` 不会真正生效。
 
 ### A8. `present()` 只接受 BGRA8888，格式不对是报错不是自动转换
 
@@ -56,17 +56,17 @@ setter 存在、参数校验正确，但功能完全没有实现（`src/render/p
 
 ### A9. `WindowManager` 上的 `warp_pointer`/`post_*`/`showing_fill` 是测试专用接口，混在生产 API 里
 
-`warp_pointer`、`post_pointer_button`、`post_expose`、`post_wheel`、`post_key`、`post_logical_key`、`post_text_input`、`post_text_editing`、`showing_fill` 这些方法是给自动化测试注入合成事件用的（`include/drawgui/window/window_manager.h:471-649` 附近）。它们没有命名前缀做区分——对照 C ABI 侧至少给调试接口加了 `dg_debug_` 前缀，这批 C++ 接口没有。**不要在产品代码路径里调用它们**，它们会绕过真实的 SDL 事件源直接注入状态。
+`warp_pointer`、`post_pointer_button`、`post_expose`、`post_wheel`、`post_key`、`post_logical_key`、`post_text_input`、`post_text_editing`、`showing_fill` 这些方法是给自动化测试注入合成事件用的（`include/drawgui/window/window_manager.h:474-647` 附近）。它们没有命名前缀做区分——对照 C ABI 侧至少给调试接口加了 `dg_debug_` 前缀，这批 C++ 接口没有。**不要在产品代码路径里调用它们**，它们会绕过真实的 SDL 事件源直接注入状态。
 
 ### A10. IME 组字（preedit）的偏移换算未经真机验证
 
-`include/drawgui/window/window_manager.h:340-348`：`TextEditingEvent::start`/`length` 是 SDL3 自己文档里定义的“UTF-8 字符数”单位，转换成这个引擎内部使用的字节偏移的逻辑是按字面意思实现的，但注释自己承认——开发这个项目的机器上，真实 IME 从来不会发送 `SDL_EVENT_TEXT_EDITING` 事件（它们用自己的组字窗口），现有的 IME 相关测试全部靠合成事件覆盖。这条转换逻辑没有被一次真实的中文/日文输入法组字过程验证过。
+`include/drawgui/window/window_manager.h:321-348`：`TextEditingEvent::start`/`length` 是 SDL3 自己文档里定义的“UTF-8 字符数”单位，转换成这个引擎内部使用的字节偏移的逻辑是按字面意思实现的，但注释自己承认——开发这个项目的机器上，真实 IME 从来不会发送 `SDL_EVENT_TEXT_EDITING` 事件（它们用自己的组字窗口），现有的 IME 相关测试全部靠合成事件覆盖。这条转换逻辑没有被一次真实的中文/日文输入法组字过程验证过。
 
 ### A11. ABI 的 `dg_node_insert_before` 只支持在末尾追加
 
-C ABI 的 `dg_node_insert_before(parent, child, ref)` 目前只接受 `ref == NULL`（等价于 append），传非空 `ref` 返回 `DG_ERROR_UNSUPPORTED`（`abi/drawgui.def.toml:280`）。C++ 层的插入能力比这个更完整，但没有对应导出。
+C ABI 的 `dg_node_insert_before(parent, child, ref)` 目前只接受 `ref == NULL`（等价于 append），传非空 `ref` 返回 `DG_ERR_UNSUPPORTED`（`abi/drawgui.def.toml` 中 `error` 常量组的 `UNSUPPORTED` 条目）。C++ 层的插入能力比这个更完整，但没有对应导出。
 
-### A12. 未覆盖字体族的字符会静默画不出来（tofu 都没有）
+### A12. 未覆盖字体族的字符画成 `.notdef` 方框（tofu），不是空白
 
 字体 fallback 链（`src/render/font_fallback.cpp`）是这个项目自己实现的显式规则表，绕开了 `matchFamilyStyleCharacter()` 在这台开发机上七次测试七次返回 null 的事实（`src/render/font_fallback.cpp:3-7` 附近的注释）。这个自建链条覆盖了常见语言组合，但对完全没被任何规则覆盖的字符——`src/render/skia_paint.cpp:209-213`：每个未覆盖的 codepoint 会画出一个 `.notdef` 方框（tofu），而不是空白；这是有意的决定，为的是让"这台机器没有对应字体"和"这段文字本来就是空的"两种情况可以被肉眼区分。排查这类问题时应该找方块字，而不是空白。
 
@@ -76,7 +76,7 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 目前只接受 `ref == NU
 
 `dropdown`、`context menu`、`tooltip`、`dialog` 这几个名字，**在 `src/` 里没有对应的控件实现**：
 
-- `kDropdown` 这个节点种类只持有 anchor 位置、options 列表、当前选中项索引（`include/drawgui/widget/widget_set.h:117-132`）。点开之后那一整块弹出的选项列表，是**应用层自己拿 `PopupHost` + 一堆 `kButton` 现搭出来的**，不是库内建的渲染/交互逻辑，见 `examples/22_dropdown_menu/dropdown_options.cpp`。
+- `kDropdown` 这个节点种类只持有 anchor 位置、options 列表、当前选中项索引（`include/drawgui/widget/widget_set.h:114-128`）。点开之后那一整块弹出的选项列表，是**应用层自己拿 `PopupHost` + 一堆 `kButton` 现搭出来的**，不是库内建的渲染/交互逻辑，见 `examples/22_dropdown_menu/dropdown_options.cpp`。
 - `src/widget/tooltip.cpp` 只提供一个 hover 计时器（多久悬停后触发“该显示了”的信号），气泡本身的形状、定位、内容全部在 `examples/23_menu_tooltip_dialog/tooltip_content.cpp` 里手写。
 - 右键菜单、模态对话框同理，都是 `examples/23_menu_tooltip_dialog/` 里用 `PopupHost` + 焦点 API + 若干普通控件手工拼出来的应用层代码。
 
@@ -86,7 +86,7 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 目前只接受 `ref == NU
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`BUTTON`/`LABEL` 节点、设置 51 个属性（含专用的 `dg_node_set_text()` 通道）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action` 三类事件、加载主题包。
+C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` 节点、设置 51 个属性（含专用的 `dg_node_set_text()` 通道）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件、加载主题包。
 
 **P6 sub-step a1 起，能画文字了**——但只是最小可见的一行：`DG_NODE_TYPE_LABEL` 有引擎内置的默认字号（16px）和默认黑色，`font_size`/`text_align` 这两个属性**故意没做**（够用就不加，是这个仓库的纪律），所以想要更大字号、居左/居右对齐，ABI 现阶段做不到，只能直接用 C++ 层的 `TextStyle`。
 
@@ -97,19 +97,21 @@ C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`
 - **无动画 API**（`dg_animate`/`dg_node_set_transition`）——C++ 侧 `AnimationEngine` 已存在，只是没有调用方需要它被导出
 - 无焦点 API、无弹层 API——同样：ABI 现有的验收标准不需要它们
 
+此外 `Widget::group`（radio）与 IME 组字接口也在同一处注释里具名不导出：前者因为分组切换不重绘兄弟节点、且无调用方需要；后者因为组字偏移换算从未经真机 IME 验证（见 A10）。
+
 想要动画、焦点管理、弹层、可配置字号/对齐这些能力，目前只能直接用 C++ 层，ABI 现阶段不是这些能力的入口。
 
 ---
 
 ## D. 测试覆盖的真实形状
 
-### golden 测试有 5 张 baseline，第 5 张走 ABI 路径
+### golden 测试有 8 张 baseline，后 4 张走 ABI 路径
 
 `tests/golden/golden_test.cpp` 的前 4 个场景（原有，未改动）：纯色清屏、一个圆角矩形填充、两个描边形状（矩形+圆角矩形，含非对称圆角）、两个半透明填充的叠加混合——全是裸 `Canvas` 原语，**没有一张涉及文字、节点树、布局、主题、widget、图片、阴影、渐变**。
 
-第 5 个场景 `abi_label_text`（P6 sub-step a1 新增，`tests/golden/abi_label_scene.cpp`）**通过 `include/drawgui/abi/drawgui.h` 建一个真实 `dg_window_t`**：`dg_app_add_font()` 装配 `tests/fonts/gen_test_fonts.py` 生成的确定性测试字体、`dg_node_create(DG_NODE_TYPE_LABEL)`、`dg_node_set_text()`、一次真实 paint pass，再用 TEST-ONLY 的 `dg_debug_capture_png()` 取出这一帧的 PNG 字节——这是第一张、也是目前唯一一张证明"ABI 建的节点树真的画出了像素"的 golden。
+第 5 个场景 `abi_label_text`（P6 sub-step a1 新增，`tests/golden/abi_label_scene.cpp`）**通过 `include/drawgui/abi/drawgui.h` 建一个真实 `dg_window_t`**：`dg_app_add_font()` 装配 `tests/fonts/gen_test_fonts.py` 生成的确定性测试字体、`dg_node_create(DG_NODE_TYPE_LABEL)`、`dg_node_set_text()`、一次真实 paint pass，再用 TEST-ONLY 的 `dg_debug_capture_png()` 取出这一帧的 PNG 字节——这是第一张证明"ABI 建的节点树真的画出了像素"的 golden。之后又加了三张 ABI 场景：`abi_checkbox_off`/`abi_checkbox_on`（`tests/golden/abi_checkbox_scene.cpp`，checkbox 未勾选/点击勾选后的外观）与 `abi_text_field`（`tests/golden/abi_text_field_scene.cpp`，点击聚焦后注入文字的文本框）。
 
-前 4 张图证明的是："Skia 的圆角矩形四角顺序转换、alpha 混合数学没有退化"；第 5 张多证明了一件事："ABI 装配的字体+LABEL 节点+`dg_node_set_text()` 这条完整路径能画出可见的字形，且在这台机器和任何一台机器上逐字节一致"。**它们仍然不证明** 控件外观、主题应用、复杂布局结果没有退化——这些路径依然没有像素级回归测试。
+前 4 张图证明的是："Skia 的圆角矩形四角顺序转换、alpha 混合数学没有退化"；`abi_label_text` 多证明了一件事："ABI 装配的字体+LABEL 节点+`dg_node_set_text()` 这条完整路径能画出可见的字形，且在这台机器和任何一台机器上逐字节一致"。**它们仍然不证明** 其余控件的外观、主题应用、复杂布局结果没有退化——这些路径依然没有像素级回归测试。
 
 ### 结构上不可自动测试的部分
 
@@ -141,7 +143,7 @@ C ABI（`include/drawgui/abi/drawgui.h`）目前能做到：开窗、建 `BOX`/`
 - **无公开的富文本编辑 API，无 TextArea**：现有的多行文本能力是"能显示多行"，不是"能编辑多行"（无跨行选择、无双击选词、无三击选段）
 - **无 RTL 界面镜像**：BiDi 文本渲染本身是支持的，但整体界面镜像（flex 主轴反转、padding 左右互换、图标翻转）没有做
 - **无竖排文本**
-- **字体 fallback 链对完全未覆盖的字符没有任何兜底**，见 A12——这不是"处理不好"，是链条设计本身：只覆盖显式列出的语言/字符集组合
+- **字体 fallback 链对完全未覆盖的字符只画 `.notdef` 方框（tofu）**，见 A12——这不是"处理不好"，是链条设计本身：只覆盖显式列出的语言/字符集组合
 
 ### 明确不做（scope boundary，不是遗漏）
 

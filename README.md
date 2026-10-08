@@ -28,7 +28,7 @@ backend, with no platform-abstraction layer ahead of a second one.
   typing, list recycling, theme colour switches and focus changes alike.
   `RenderTree` still has no node-kind enum, and the six-value `LayoutKind`
   set has not grown since the first layout slice.
-- **Properties**: 49 CSS-like properties addressable by numeric id.
+- **Properties**: 51 CSS-like properties addressable by numeric id.
 - **Widgets**: 9 `WidgetKind` values - panel, label, button, checkbox
   (radio is a `group` field on it), slider, scroll view, text field,
   virtualized list, dropdown. Context menu, tooltip and modal dialog are
@@ -54,12 +54,16 @@ backend, with no platform-abstraction layer ahead of a second one.
   `WindowManager`.
 - **Theming**: 12 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI**: 24 exported functions - but a much smaller surface than the
-  C++ engine. Today it can open a window, create only two node types
-  (`BOX`/`BUTTON`), set the 49 properties, receive close/click/action
-  events, and load a theme. **It cannot draw text** - there is no ABI path
-  to a label or a text field. `examples/19_c_client` is a pure C program
-  built entirely on `BOX`/`BUTTON`.
+- **C ABI**: 32 exported functions (8 of them `dg_debug_*` test-only
+  hooks) - but a much smaller surface than the C++ engine. Today it can
+  open a window, create five node types
+  (`BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`), set the 51 properties
+  (text through the dedicated `dg_node_set_text()`), read back a
+  checkbox's state and a text field's text, receive
+  close/click/action/text-changed events, and load a theme. Text is
+  minimal: one engine-default size, no `font_size`/`text_align`, and no
+  IME composition surface. `examples/19_c_client` is a pure C program
+  built entirely on the ABI.
 
 See `doc/limitations.md` for the full list of known gaps, costly corners
 and things that are deliberately out of scope.
@@ -126,7 +130,7 @@ project's cross-feature regression bed.
 | 16 | `complex_properties` | Gradient, hard-edged shadow, id-based image attach through the dedicated-setter channel | `--verify-complex-properties` |
 | 17 | `animation` | Explicit animation, implicit hover transition, chained caret blink; `--idle-probe-ms` measures idle CPU | `--verify-animation` |
 | 18 | `theme` | Every visual token-bound; click to switch light/dark with zero relayout | `--verify-theme` |
-| 19 | `c_client` | Pure C program, two windows, cross-window click-to-recolour through the ABI (BOX/BUTTON only) | `--verify-c-client` |
+| 19 | `c_client` | Pure C program, two windows, cross-window click-to-recolour through the ABI (BOX/BUTTON, plus LABEL/CHECKBOX/TEXT_FIELD checks in the verify run) | `--verify-c-client` |
 | 20 | `multiline_text` | Word wrap, unspaced CJK wrap, mixed-script/emoji, BiDi Arabic-in-Latin, ellipsis | `--verify-multiline-text` |
 | 21 | `focus` | Tab/Shift-Tab order, `tab_index` override, popup focus confinement | `--verify-focus` |
 | 22 | `dropdown_menu` | Keyboard/mouse dropdown selection between two real siblings | `--verify-dropdown` |
@@ -151,11 +155,14 @@ truth). Run it directly for per-case output:
 
 ## Golden-image tests
 
-`tests/golden/baseline/` holds 4 committed PNGs, compared pixel-by-pixel at
-**zero tolerance**. All 4 exercise bare `Canvas` primitives only - a clear,
+`tests/golden/baseline/` holds 8 committed PNGs, compared pixel-by-pixel at
+**zero tolerance**. Four exercise bare `Canvas` primitives only - a clear,
 a rounded rect, two strokes, and alpha blending - not text, not a node
-tree, not layout, not a theme, not a widget; they are the raster floor, not
-a scene-level regression test. `ctest` never regenerates them on its own:
+tree, not layout, not a theme, not a widget; they are the raster floor.
+The other four are built entirely through the C ABI and captured with
+`dg_debug_capture_png()`: a label (`abi_label_text`), a checkbox off/on
+(`abi_checkbox_off`/`abi_checkbox_on`), and a typed-into text field
+(`abi_text_field`). `ctest` never regenerates them on its own:
 
 ```sh
 cmake --build build --target golden_update

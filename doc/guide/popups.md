@@ -57,7 +57,7 @@ class PopupHost {
 };
 ```
 
-（`include/drawgui/window/popup_host.h:73-231`）
+（`include/drawgui/window/popup_host.h:89-229`）
 
 **`handle_pointer()`/`handle_key()` 不再接受 `PopupFlags` 参数**——flags
 在 `show()` 时就被捕获进 `handle.flags` 了，调用方不需要在每次事件处理时
@@ -172,7 +172,7 @@ void PopupHost::close(PopupHandle& handle);
 它从绘制和命中测试里消失，但**不删除任何节点**。
 
 这是一个**选择，不是被迫的**：`RenderTree::remove_child()`
-（`include/drawgui/render/render_tree.h:585`）从 8-5 起就已经存在，是真正
+（`include/drawgui/render/render_tree.h:582`）从 8-5 起就已经存在，是真正
 的节点移除。选它而不是裁空的原因是：真正移除会让 `content_root` 和调用方
 持有的每一个内容 node id 全部失效，还要求调用方在移除后手动跑
 `on_node_removed()` 涉及的六张侧表清理（`src/render/node_lifecycle.cpp`）。

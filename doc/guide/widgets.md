@@ -164,7 +164,7 @@ tree.add_child(parent, box, style);
 
 ### ★ dropdown / 右键菜单 / tooltip / 对话框 —— 这些是「配方」，不是「控件」
 
-这是本文档最重要的一条边界。`kDropdown` 这个 `WidgetKind` 本身极其单薄——`widget_set.h:117-132` 附近能看到，它只持有一个锚点（本节点）、一份 `options` 字符串列表和一个 `selected_index`。**弹出的那个选项列表，是应用层自己用 `PopupHost` 现搭出来的一组普通 `kButton`**，不是 `kDropdown` 内部管理的东西——参见 `examples/22_dropdown_menu/dropdown_options.cpp`：每一行都是手写的 `NodeId row = tree.add_child(...)` 加 `widgets.attach(row, Widget{.kind = WidgetKind::kButton, ...})`，和普通按钮没有任何区别。
+这是本文档最重要的一条边界。`kDropdown` 这个 `WidgetKind` 本身极其单薄——`widget_set.h` 里 `Widget` 结构体末尾的 kDropdown 字段能看到，它只持有一个锚点（本节点）、一个显示当前选项的 `label` 子节点、一份 `options` 字符串列表和一个 `selected_index`。**弹出的那个选项列表，是应用层自己用 `PopupHost` 现搭出来的一组普通 `kButton`**，不是 `kDropdown` 内部管理的东西——参见 `examples/22_dropdown_menu/dropdown_options.cpp`：每一行都是手写的 `NodeId row = tree.add_child(...)` 加 `widgets.attach(row, Widget{.kind = WidgetKind::kButton, ...})`，和普通按钮没有任何区别。
 
 `src/widget/tooltip.cpp` 更加极简——整个「tooltip」能力**只有一个 hover 计时器**（`HoverTimer`/`update_hover_timer()`/`hover_ready()`），负责回答「鼠标在这个节点上停留够久了吗」。真正把提示框画出来、定位、加个背景色，这些全部在 `examples/23_menu_tooltip_dialog/tooltip_content.cpp` 里手写。
 
@@ -174,7 +174,7 @@ tree.add_child(parent, box, style);
 
 ### kScrollView/kList 不能获得焦点
 
-`focus.h:109-123` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList` 不行。后两者被排除是**故意的**而非疏漏——这个内核目前没有任何键盘滚动的代码，把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。
+`focus.h:109-123` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList` 不行。后两者被排除是**故意的**而非疏漏——把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。键盘滚动（PageUp/PageDown/Home/End）现在由 `apply_keyboard_scroll()` 实现，但它是从当前焦点向上找最近的可滚动祖先，而不是让 ScrollView/List 自身可聚焦（见 `doc/guide/input.md`）。
 
 ## 边界与坑
 

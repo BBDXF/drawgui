@@ -48,21 +48,21 @@ ctest --test-dir build --output-on-failure
   `doc/guide/` 都是针对这条路径写的。
 - **C ABI 路径**：今天只能做这些事：
   - 开窗（`dg_window_create`）
-  - 建节点，但只有两种类型：`DG_NODE_TYPE_BOX`（1）和
-    `DG_NODE_TYPE_BUTTON`（2）——`include/drawgui/abi/drawgui.h:141,143`
-  - 设置属性，49 个 `dg_prop_id` 里的任意一个（`dg_node_set_prop`）
-  - 收 `close` / `click` / `action` 一类事件
-  - 加载主题
+  - 建节点，只有五种类型：`DG_NODE_TYPE_BOX`（1）、`DG_NODE_TYPE_BUTTON`（2）、
+    `DG_NODE_TYPE_LABEL`（3）、`DG_NODE_TYPE_CHECKBOX`（4）、
+    `DG_NODE_TYPE_TEXT_FIELD`（5）——见 `include/drawgui/abi/drawgui.h`
+  - 设置属性，51 个 `dg_prop_id` 里的任意一个（`dg_node_set_prop`；
+    `DG_PROP_TEXT` 这种字符串属性走 `dg_node_set_text`）
+  - 读复选框状态（`dg_node_get_checked`）和文本框内容（`dg_node_get_text`）
+  - 收 `close` / `click` / `action` / `text_changed` 一类事件
+  - 注册字体目录（`dg_app_add_font`）、加载主题
 
-  **画不了文字。** 49 个属性里没有 `text`，也没有
-  `dg_node_set_text` 这样的函数——`props/drawgui.props.toml` 生成的
-  `include/drawgui/abi/drawgui.h` 里从头到尾没有文本属性。
-  `examples/19_c_client/main.c`（528 行）里能看到的全部是纯色矩形和按钮，
-  没有一个字。
+  `examples/19_c_client/main.c` 演示了上面这些：矩形、按钮、标签文字、
+  复选框。
 
-  如果你的嵌入场景需要显示文字、下拉框、滑块、列表——这些今天只存在于
-  C++ 路径。C ABI 路径适合"我只需要几个矩形和按钮做一个原生外壳"这类
-  场景，其余先别指望。
+  如果你的嵌入场景需要下拉框、滑块、列表、滚动视图——这些今天只存在于
+  C++ 路径。C ABI 路径适合"几个矩形、按钮、标签和复选框做一个原生外壳"
+  这类场景，其余先别指望。
 
 ## 3. 最小 C++ 程序：离屏光栅
 
@@ -153,7 +153,10 @@ for (;;) {
 
   tree.layout();
   const dg::RepaintStats stats = tree.render().repaint(*surface);
-  manager.present(window, surface->image(), tree.render().painted().rects());
+  const dg::PixelView view = surface->peek_pixels();
+  const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
+                            dg::PixelFormat::kBgra8888};
+  manager.present(window, image, tree.render().painted().rects());
 }
 ```
 

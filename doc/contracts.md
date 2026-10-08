@@ -14,7 +14,7 @@
 
 **不做会怎样**：窗口被拖拽缩放后，继续用创建窗口时的 `WindowSpec` 尺寸分配 surface，会导致新一帧按旧尺寸光栅化——要么画面被拉伸/裁切，要么在 `present()` 里因尺寸不匹配而越界写入。这正是 commit `8ff1f4e` 修复前 5 个 example 里实际发生过的问题。
 
-**依据**：`include/drawgui/window/window_manager.h:376-379`（`needs_repaint` 字段注释：“a resize is not reported separately … the only correct response … is to ask for the drawable size again”）；修复提交 `8ff1f4e`。
+**依据**：`include/drawgui/window/window_manager.h:373-378`（`needs_repaint` 字段注释：“a resize is not reported separately … the only correct response … is to ask for the drawable size again”）；修复提交 `8ff1f4e`。
 
 **正确写法**：
 ```cpp
@@ -34,9 +34,9 @@ for (const WindowId id : frame.needs_repaint) {
 
 **不做会怎样**：resize 改变了每个控件的位置，如果先处理同一批里的指针事件，会拿旧布局做命中测试——点击位置和实际显示的控件对不上，通常是点偏或点空。
 
-**依据**：`include/drawgui/window/window_manager.h:385-387`。
+**依据**：`include/drawgui/window/window_manager.h:384-386`。
 
-**正确写法**：按 `WindowManager::pump()` 返回结构体里字段声明的顺序处理：`close_requested` → `needs_repaint` → `pointer` → `key`/`text_input`。
+**正确写法**：按 `WindowManager::pump()` 返回结构体里字段声明的顺序处理：`closed`/`close_requested` → `needs_repaint` → `pointer` → `key`/`text_input`/`text_editing`。
 
 ---
 
@@ -69,8 +69,8 @@ windows.present(id, image, full_rect);   // 无条件 present，不要查 damage
 **正确写法**：
 ```cpp
 auto paragraph = dg::Paragraph::build(fonts, text_style, max_width);
-const PixelSize measured = paragraph->size();   // 先测量
-tree.set_local_bounds(node, {x, y, measured.width, measured.height});  // 再定尺寸
+const dg::ParagraphMetrics measured = paragraph.value().metrics();   // 先测量
+tree.set_local_bounds(node, {x, y, max_width, measured.height});      // 再定尺寸
 ```
 
 ---
@@ -81,7 +81,7 @@ tree.set_local_bounds(node, {x, y, measured.width, measured.height});  // 再定
 
 **不做会怎样**：`dg::focus_order()` 只遍历一棵 `RenderTree` 对应的一个 `WidgetSet`。浮层里的行如果进了另一个 `WidgetSet`，Tab/上下键的焦点遍历根本看不到它们——键盘完全按不进浮层，只能用鼠标点。
 
-**依据**：`examples/22_dropdown_menu/dropdown_options.h:23-27`（“the overlay appends into the HOST's own RenderTree, and dg::focus_order() walks that tree against ONE WidgetSet, so rows must land in the host's own table or Tab/Up/Down would never see them”）。
+**依据**：`examples/22_dropdown_menu/dropdown_options.h:22-26`（“the overlay appends into the HOST's own RenderTree, and dg::focus_order() walks that tree against ONE WidgetSet, so rows must land in the host's own table or Tab/Up/Down would never see them”）。
 
 **正确写法**：`build()` 一类的浮层构造函数把宿主的 `WidgetSet&` 作为显式参数传入，不要在浮层内部 `WidgetSet{}`。
 
@@ -103,12 +103,12 @@ tree.set_local_bounds(node, {x, y, measured.width, measured.height});  // 再定
 
 **不做会怎样**：**完全静默**——`FontCatalog::holds(FontId)` 返回 false 时，`build_paragraph()`/`paragraph_runs` 直接返回空，不抛异常、不打日志，画面上该有文字的地方什么都没有。这是最难排查的一类问题，因为没有任何报错信号。
 
-**依据**：`include/drawgui/render/render_tree.h:102-104`；`src/render/paragraph_build.cpp:45`（`if (text.text.empty() || !fonts.holds(text.font) || text.size <= 0.0F) return nullptr;`）；`src/render/paragraph_runs.cpp:9`。
+**依据**：`include/drawgui/render/render_tree.h:101-103`；`src/render/paragraph_build.cpp:45`（`if (text.text.empty() || !fonts.holds(text.font) || text.size <= 0.0F) return nullptr;`）；`src/render/paragraph_runs.cpp:9`。
 
 **正确写法**：在事件循环、任何节点构造之前完成：
 ```cpp
-FontCatalog fonts;
-const FontId body_font = fonts.load(...);   // 先注册
+FontCatalog fonts = FontCatalog::scan("/usr/share/fonts").value();
+const FontId body_font = fonts.add("Noto Sans", /*bold=*/false).value();   // 先注册
 // 之后才能构造带 TextStyle 的节点
 ```
 
@@ -142,6 +142,6 @@ dg::on_node_removed(layout_tree, node_id, widgets, theme_bindings, focus, animat
 
 以下两条曾经是真实约束，最近的提交已经把它们从代码里去掉了，不要再遵守：
 
-- ~~一个 `PopupHost` 同时只能开一个 handle~~ —— `PopupHandle` 现在自带 `tree`/`window`/`flags`（`include/drawgui/window/popup_host.h:149-153`），`PopupHost::show()` 的注释明确写着“may have any number of handles open at once, each entirely self-contained”（同文件约 :171）。
+- ~~一个 `PopupHost` 同时只能开一个 handle~~ —— `PopupHandle` 现在自带 `tree`/`window`/`flags`（`include/drawgui/window/popup_host.h` 的 `struct PopupHandle`），`PopupHost::show()` 的注释明确写着“may have any number of handles open at once, each entirely self-contained”（同文件约 :171）。
 - ~~overlay 打开期间不能调用 `layout()`~~ —— 已被证伪，见上一节的解释。
-- 也不再需要在多处调用重复传同一个 `PopupFlags` 值——`show()` 现在把 flags 捕获进 `handle.flags`，后续 `handle_pointer()`/`handle_key()` 不再接受这个参数（`popup_host.h:149-153`）。
+- 也不再需要在多处调用重复传同一个 `PopupFlags` 值——`show()` 现在把 flags 捕获进 `handle.flags`，后续 `handle_pointer()`/`handle_key()` 不再接受这个参数（`popup_host.h` 的 `PopupHandle::flags`）。

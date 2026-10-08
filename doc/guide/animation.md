@@ -71,7 +71,7 @@ slide_handle_ = engine_.animate(scene.tree, scene.handles.slide_chip, DG_PROP_LE
                                 anim_scene::kSlideDurationMs, dg::kCurveEaseInOut);
 ```
 
-（`examples/17_animation/anim_window.cpp:143-149`）
+（`examples/17_animation/anim_window.cpp:145-147`）
 
 覆盖所有 `PropType::k_float`/`k_length`/`k_color` 属性——`PropValue` 里
 "有明确的中间值"的三种标量类型。`k_enum`/`k_gradient`/`k_shadow`/
@@ -110,7 +110,7 @@ engine_.set_value(scene.tree, scene.handles.hover_panel, DG_PROP_BACKGROUND_COLO
 `set_value()` 第一次触发某个 (node, prop_id) 的隐式过渡时，需要知道
 "当前值"才能算出插值的起点（`from`）。这个"读回当前值"的能力由
 `AnimationEngine::read_current()` 提供，它的 switch 是**有限列表**，核实
-`src/anim/animation_engine.cpp:103-144` 后确认恰好是这 7 个：
+`src/anim/animation_engine.cpp:104-147` 后确认恰好是这 7 个：
 
 | prop_id | 读回的位置 |
 |---|---|

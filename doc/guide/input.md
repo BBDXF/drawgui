@@ -16,7 +16,7 @@
 - `dg::Focus`（`include/drawgui/widget/focus.h:167`）：单例每窗口一份的
   焦点状态机，`current()`/`set()`/`focus_next()`/`focus_previous()`/
   `enter_scope()`/`exit_scope()`。
-- `dg::FocusRing`（`focus.h:363`）：焦点可视化，四条描边的位置数据。
+- `dg::FocusRing`（`focus.h:362`）：焦点可视化，四条描边的位置数据。
 - `dg::Chord`/`dg::ShortcutBinding`（`include/drawgui/shortcuts/chord.h`）：
   一个解析好的按键组合、以及它绑定到的 action。
 - `dg::route_key_event()`（`include/drawgui/shortcuts/router.h:160`）：
@@ -123,7 +123,7 @@ surface 外面。内缩不依赖这个假设。
 **降级行为**：目标任一轴的尺寸小于 `2*(gap+thickness)`（默认 gap=2,
 thickness=2，即 8px）时，`fill_ring()` 直接把整个目标涂成环颜色，而不是
 画出一个反转/重叠的怪异描边（`src/widget/focus.cpp` 约 :60-66,:263-267；
-签名见 `focus.h:376-390`）。
+签名见 `focus.h` 的 `update_focus_ring()` 声明）。
 
 ## 快捷键：8 个 action，四级路由
 

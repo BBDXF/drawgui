@@ -125,7 +125,8 @@ sudo apt-get install -y libfontconfig1-dev
    python3 tools/check_consistency.py
    ```
 
-   这就是 CI 跑的那道关卡；如果 schema 里的某个 token 没有在内建主题里
+   这道检查在 `ctest` 里注册为 `theme.consistency`，CI 通过 `build` job
+   的 `ctest` 跑它；如果 schema 里的某个 token 没有在内建主题里
    给出对应的值，这一步会失败。
 5. 把 schema TOML、三个生成文件、锁文件、更新后的 `theme.json`，以及
    第 2 步同一次 `python3 tools/gen_theme.py` 调用顺带重新生成的内建主题
@@ -206,9 +207,10 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-`ctest` 会把属性/主题/ABI 的相关检查和 golden-image 测试一起跑掉。CI 在
-`generated` job 里直接跑同样这两条命令，所以一个过期或破坏契约的提交在
-到达构建矩阵之前就会失败。
+`ctest` 会把属性/主题/ABI 的相关检查（`props.*`、`theme.*`、`abi.*`）和
+golden-image 测试一起跑掉。CI 的 `build` job 跑的就是这三条命令；另有一个
+不需要构建的 `generated` job 直接跑属性和快捷键的 `--check`/selftest 脚本，
+所以属性或快捷键方面过期或破坏契约的提交不必等构建就会失败。
 
 ## 跑 clang-tidy（仅本地——已不是 CI 关卡）
 
@@ -252,7 +254,7 @@ ctest --test-dir build-san --output-on-failure
 
 `DG_SANITIZE` 默认关闭。插桩后的二进制不是最终发布的产物,运行速度也会
 慢上好几倍,所以这是一次刻意的额外运行,而不是日常那次。CI 有一个专门的
-`sanitize` job,在 gcc 和 clang 下各跑一遍上面这套流程。
+`sanitize` job,用 gcc 跑一遍上面这套流程。
 
 推荐用 Debug 构建类型。UBSan 的检查是在优化之前插入的,优化器可能会删掉
 它能证明不可达的那部分,所以 `-O0` 能看到的最多。一个经过 sanitize 的
