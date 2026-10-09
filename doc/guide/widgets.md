@@ -344,7 +344,7 @@ tree.add_child(parent, box, style);
 ```cpp
 Widget area;
 area.kind = WidgetKind::kTextArea;
-area.text_inset = 6;                       // 文字与边框的内边距（四边）
+area.text_inset = 10;                      // 文字与边框的内边距（四边）
 area.selection_layer = layer;              // 画在 content 下面的普通子节点
 for (int i = 0; i < 32; ++i) {             // 每个可见的选中行一个
   area.highlight_pool.push_back(tree.add_child(layer, placeholder, highlight_style));

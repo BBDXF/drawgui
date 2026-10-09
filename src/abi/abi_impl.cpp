@@ -80,7 +80,7 @@ constexpr float kTextFieldFontSize = 16.0F;
 // box holds, with room for a host that enlarges it.
 constexpr int kTextAreaWidth = 320;
 constexpr int kTextAreaHeight = 160;
-constexpr int kTextAreaInset = 6;
+constexpr int kTextAreaInset = 10;
 constexpr int kTextAreaHighlightPool = 64;
 constexpr int kTextAreaUnderlinePool = 4;
 
