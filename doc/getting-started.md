@@ -42,8 +42,8 @@ ctest --test-dir build --output-on-failure
 ——它用公开的 `dg::App` / `dg::Window` 运行时搭成一个窗口，按页签展示全部功能
 （基础控件、文本、布局、数据、弹层、图片、窗口），右上角可实时切换浅色 / 深色，
 底部状态栏显示最近一个事件；`--tab N --theme dark --dump-png out.png` 可直接截图。
-其余 example 各演示一个切面。`examples/` 目录下每个子目录都有对应可执行文件，用 `--help`
-看参数。
+其余 example 各演示一个切面。`examples/` 下每个子目录对应 `build/examples/` 里一个
+`drawgui_*` 可执行文件；没有 `--help`，参数列在各自 `main` 源文件开头的注释里。
 
 ## 2. 最小 C++ 程序：`dg::App`
 
@@ -88,8 +88,8 @@ int main() {
 - 列表、下拉框、页签、树、表格、进度条通过 `window->list(node)` 等拿到
   类型化引用来填数据；用户操作以 `dg::Event` 报告。
 - 完整 API、逃生舱约定：[`doc/guide/app.md`](guide/app.md)。
-- 示例：`examples/15_list`、`12_text_input`、`22_dropdown_menu`、
-  `23_menu_tooltip_dialog`、`27_data_widgets` 都建在 `dg::App` 上，
+- 示例：`examples/25_showcase`、`11_form_controls`、`12_text_input`、`15_list`、
+  `22_dropdown_menu`、`23_menu_tooltip_dialog`、`27_data_widgets` 都建在 `dg::App` 上，
   它们的 `--verify` 模式演示了如何在无显示器环境下注入输入并检查结果
   （`examples/common/example_app.h`）。
 
@@ -98,10 +98,10 @@ int main() {
 C ABI（`drawgui.h`）是 `dg::App` 之上的薄壳，节点种类、属性、事件一一对应：
 
 - 开窗并操作窗口（`dg_window_create`、`dg_window_set_size` 等）
-- 十四种节点：`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、
-  `SCROLL_VIEW`、`LIST`、`IMAGE`，以及组件 `DROPDOWN`/`PROGRESS`/`TABS`/
+- 十六种节点：`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`RADIO`、`SLIDER`、`TEXT_FIELD`、
+  `TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`，以及组件 `DROPDOWN`/`PROGRESS`/`TABS`/
   `TREE`/`TABLE`；另有菜单、对话框、tooltip 函数（`examples/28_c_components`）
-- 61 个 `dg_prop_id`（`dg_node_set_prop` / `dg_node_set_text`）
+- 68 个 `dg_prop_id`（`dg_node_set_prop` / `dg_node_set_text`）
 - 节点插入、移动、删除；焦点、定时器、跨线程唤醒；点击、右键、焦点、
   列表选择、文字变化、action、窗口状态等事件
 - 字体目录、主题
@@ -109,8 +109,8 @@ C ABI（`drawgui.h`）是 `dg::App` 之上的薄壳，节点种类、属性、�
 `examples/19_c_client/main.c` 演示了其中大部分；`examples/26_text_area`
 演示了行容器 + 多行编辑框。
 
-只有直接使用 C++ 底层才有的：单选组、滑块、动画 API、原生弹出窗口等
-（见 `doc/limitations.md` C 节）。
+只有直接使用 C++ 底层才有的：动画 API、渐变/阴影的专用 setter、自定义绘制、
+原生对话框窗口（`WindowManager::open_dialog()`）等（见 `doc/limitations.md` C 节）。
 
 ## 4. 离屏光栅
 
@@ -149,8 +149,8 @@ int main() {
 
 ## 5. 直接使用底层
 
-`dg::App` 内部做的事，也可以自己做——`examples/10_scrolling`、`11_form_controls`、
-`14_popup`、`21_focus` 就是这样写的教学示例。这时一个交互式窗口至少要持有：
+`dg::App` 内部做的事，也可以自己做——`examples/10_scrolling`、`14_popup`、
+`21_focus` 就是这样写的教学示例。这时一个交互式窗口至少要持有：
 
 ```
 dg::WindowManager        事件源，负责 pump() / present()

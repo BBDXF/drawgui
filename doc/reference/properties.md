@@ -40,7 +40,7 @@ id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 
 |---|---|---|
 | `PropValue::number(float)` | `k_float` | 普通浮点数 |
 | `PropValue::length(float)` | `k_length` | 绝对长度（逻辑像素，四舍五入到整数设备像素） |
-| `PropValue::percent(float)` | `k_length` | 百分比（50 = 50%，范围 0..1000），仅 `width`/`height`/`min_*`/`max_*` 接受。单位放在标量联合体的整数半边：`bits == 0` 像素、`bits == 1` 百分比、`bits == 2` auto，其他值返回 `kValueOutOfRange`。参照物是父节点该轴的可用内容盒，参照无界时按未设置处理（见 `doc/guide/layout.md`）。C ABI 对应形状：`DG_VALUE_LENGTH` + `bits` 作单位（ABI 侧映射由后续工作接入） |
+| `PropValue::percent(float)` | `k_length` | 百分比（50 = 50%，范围 0..1000），仅 `width`/`height`/`min_*`/`max_*` 接受。单位放在标量联合体的整数半边：`bits == 0` 像素、`bits == 1` 百分比、`bits == 2` auto，其他值返回 `kValueOutOfRange`。参照物是父节点该轴的可用内容盒，参照无界时按未设置处理（见 `doc/guide/layout.md`）。C ABI 为 `DG_VALUE_LENGTH` + `bits = DG_LENGTH_UNIT_PERCENT` |
 | `PropValue::auto_length()` | `k_length` | auto（`bits == 2`，数值忽略），同样只有六个尺寸属性接受：把该字段恢复为未设置——`width`/`height` 回到按内容尺寸（或由父容器 stretch/grow），`min_*` 变 0，`max_*` 变无上限，同时清掉百分比。用来去掉运行时节点创建时的默认尺寸（如 `kBox` 的 240×120）。`dg::prop::width_auto()`/`height_auto()`；C ABI 为 `DG_LENGTH_UNIT_AUTO` |
 | `PropValue::color(Color)` | `k_color` | 0xAARRGGBB，边界处非预乘 |
 | `PropValue::option(uint32_t ordinal)` | `k_enum` | 属性 `values` 列表的下标；顺序本身是 ABI 契约（生成的 `DG_<PROP>_<VALUE>` 常量就是这个序号） |
@@ -91,7 +91,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数据分别写
 的是 `"justify"`/`"align"`，但这只是文档性字段——`apply_justify()`/
 `apply_align()` 实际写入的是 `BoxStyle::main_align`/`BoxStyle::cross_align`
-（`src/props/node_props.cpp:535-591`）。也就是说：
+（`src/props/node_props.cpp` 的 `apply_justify()`/`apply_align()`）。也就是说：
 
 - **外部（属性 id、ABI、你调用 `set_prop` 时用的名字）**：`justify`、`align`
 - **内部（C++ 结构体成员，仅在阅读引擎源码时会遇到）**：`main_align`、`cross_align`
@@ -116,7 +116,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 `margin_*`（parentData，`parent_data_scope="base"`）：仅支持非负值。负值会
 "移动子节点但不归还空间"——`place_flex_children` 直接把 margin
 加到位置上，deflate（缩小约束）却没有对称处理负值。这是记录在案的功能缺口，
-不是隐藏 bug（`src/props/node_props.cpp:355-357` 注释原文）。
+不是隐藏 bug（见 `src/props/node_props.cpp` 中 `apply_margin_l()` 上方的注释）。
 
 ### 5.3 visual（id 16-30, 47-51, 55-56, 66-68）
 
@@ -128,7 +128,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 22 | `border_color` | color | 完整 | 四条边共用颜色 |
 | 23-26 | `border_radius_tl/tr/br/bl` | float | 完整 | 裁剪所有装饰层 |
 | 27 | `opacity` | float | 完整 | 0..1，非该范围内的值（含非有限数）被拒绝而非裁剪；是**子树整体透明度**，不是逐对象 alpha |
-| 28 | `shadow` | shadow | 完整 | 外阴影；**专用 setter**（`set_shadow`）；`blur_radius` 有硬性上限（实测占单帧光栅时间 52%，该测量记录在被移除的开发切片文档中，见 git 历史），是预算控制而非单纯范围检查 |
+| 28 | `shadow` | shadow | 完整 | 外阴影；**专用 setter**（`set_shadow`）；`blur_radius` 有硬性上限 48（模糊曾实测占密集场景光栅时间的 52%，见 `src/props/node_props.cpp` 的 `kMaxShadowBlur` 注释），是预算控制而非单纯范围检查 |
 | 29 | `overflow` | enum(`visible`/`clip`) | 完整 | 是否裁剪超出边框盒的内容 |
 | 30 | `transform` | transform | **未实现** | setter（`set_transform`）存在、id 校验正确，**永远返回 `kUnsupported`**：引擎所有矩形都是轴对齐整数设备像素，通用 2D 变换需要 damage/hit-test/clip 三个子系统同时改变 |
 | 47 | `image_source` | image | 完整 | 选择哪个已解码的 `ImageCatalog` 条目；**专用 setter**（`set_image`） |
@@ -178,11 +178,10 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 |---|---|---|---|---|
 | 52 | `disabled` | bool | 完整 | `NodeStyle::disabled`。禁用本节点**及其整棵子树**的 hover/press/click/拖动/文本编辑与焦点（`dg::is_disabled()` 沿父链判断）；写入只产生重绘，不重排。C++ 调用方写完需调用 `cancel_disabled()`/`blur_if_disabled()`/`refresh_subtree()`，C ABI 的 `dg_node_set_prop()` 已自动完成。行为细节见 `doc/guide/widgets.md`「禁用状态」 |
 | 53 | `cursor` | enum | 完整 | `NodeStyle::cursor`，鼠标指针形状。取值（序号即 `DG_CURSOR_*`）：`auto`(0，默认)、`default`(1)、`pointer`(2，手形)、`text`(3，I 形)、`crosshair`(4)、`move`(5)、`not_allowed`(6)、`wait`(7)、`progress`(8)、`resize_ew`(9)、`resize_ns`(10)、`resize_nwse`(11)、`resize_nesw`(12)，一一对应 SDL 的系统光标。`auto` 表示继承：从指针下的节点沿父链找第一个非 `auto` 的值，途中遇到有自己默认值的控件（目前只有文本框 → `text`）就用它。不是绘制输入，写入不重排。解析规则见 `doc/guide/input.md`「鼠标指针形状」 |
-| 57 | `tab_index` | float(整数) | **仅 C ABI** | `Widget::tab_index`：正数按升序先走，0 按树序，负数退出 Tab 序列。是控件状态不是节点样式，`dg::set_prop()` 返回 `kUnsupported`（C++ 直接写 `Widget::tab_index`），C ABI 的 `dg_node_set_prop()` 自己处理 |
-| 58 | `max_length` | float(整数) | **仅 C ABI** | 编辑框最多多少个字素簇，0 = 不限；同上，C++ 用 `WidgetSet::editor_set_max_length()` |
-| 60 | `value` | float | **仅 C ABI** | `DG_NODE_TYPE_PROGRESS` 的进度 0..1（0.2 phase B）；组件状态，C++ 用 `dg::ProgressBar::set_value()` |
-| 61 | `indeterminate` | bool | **仅 C ABI** | `DG_NODE_TYPE_PROGRESS` 显示不确定动画；C++ 用 `dg::ProgressBar::set_indeterminate()` |
-| 60 | `value`（滑块） | float | **运行时/C ABI** | 0.2：也是 `DG_NODE_TYPE_SLIDER` 的值，夹进范围并对齐 step |
+| 57 | `tab_index` | float(整数) | **运行时/C ABI** | `Widget::tab_index`：正数按升序先走，0 按树序，负数退出 Tab 序列。是控件状态不是节点样式，`dg::set_prop()` 返回 `kUnsupported`（底层 C++ 直接写 `Widget::tab_index`）；`dg::Window::set_prop()` 与 C ABI 的 `dg_node_set_prop()` 自己处理 |
+| 58 | `max_length` | float(整数) | **运行时/C ABI** | 编辑框最多多少个字素簇，0 = 不限；同上，底层 C++ 用 `WidgetSet::editor_set_max_length()` |
+| 60 | `value` | float | **运行时/C ABI** | 0.2：`PROGRESS` 的进度 0..1，或 `SLIDER` 的值（夹进范围并对齐 step）；组件状态，`dg::set_prop()` 返回 `kUnsupported`，底层 C++ 用 `dg::ProgressBar::set_value()` |
+| 61 | `indeterminate` | bool | **运行时/C ABI** | `PROGRESS` 显示不确定动画；底层 C++ 用 `dg::ProgressBar::set_indeterminate()` |
 | 62 | `min_value` | float | **运行时/C ABI** | 0.2：`SLIDER` 最小值（默认 0），须小于 `max_value`；C++ `dg::set_prop()` 返回 `kUnsupported`，用 `Window::set_prop()`/`SliderRef::set_range()` |
 | 63 | `max_value` | float | **运行时/C ABI** | 0.2：`SLIDER` 最大值（默认 100），须大于 `min_value` |
 | 64 | `step` | float | **运行时/C ABI** | 0.2：`SLIDER` 步长，≥0，0 = 连续 |
@@ -190,15 +189,10 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 
 ## 6. 状态汇总（自查结果）
 
-- 48 项完整、10 项部分实现、9 项只在 C ABI / 运行时生效（`tab_index`/`max_length`/
-  `value`/`indeterminate`/`min_value`/`max_value`/`step`/`radio_group`/`placeholder`）、1 项未实现（`transform`），共 68 项（含 P6 a1 新增的 `text`/`text_color`，
-  以及 `disabled`、`cursor`、`scrollbar`、`font_size`、`text_align`、`wrap`，0.2 的 `placeholder`/`wrap_text`/`image_tint`）。
-- 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
-  `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
-  （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。
+- 49 项完整、9 项部分实现（`margin_*` 四项、`direction`、`align`、`grow`、`shrink`、`align_self`）、9 项只在 `dg::Window` 运行时 / C ABI 生效（`tab_index`/`max_length`/
+  `value`/`indeterminate`/`min_value`/`max_value`/`step`/`radio_group`/`placeholder`）、1 项未实现（`transform`），共 68 项。C ABI 把全部 68 项导出为 `DG_PROP_*` 常量。
 
 ## 7. 相关文档
 
 - ABI 侧如何暴露属性写入：`doc/reference/c-abi.md`
 - 复杂属性（渐变/阴影/图片/变换）为何走专用 setter 而非标量通道：`include/drawgui/props/node_props.h` 中 `set_gradient()`…`set_text()` 声明附近的注释
-- 阴影模糊半径预算的实测数据：该测量记录在被移除的开发切片文档中，见 git 历史
