@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 #include <variant>
 
 #include "drawgui/render/node_id.h"
@@ -152,5 +153,33 @@ using Event = std::variant<events::ClickEvent, events::ContextClickEvent, events
                            events::MenuEvent, events::DialogResultEvent, events::TabSelectEvent,
                            events::TreeEvent, events::TableEvent, events::WindowStateEvent,
                            events::WindowClosedEvent, events::TimerEvent, events::UserEvent>;
+
+// std::visit(Overloaded{[](const events::ClickEvent& e) {...}, [](const auto&) {}}, event)
+template <class... F>
+struct Overloaded : F... {
+  using F::operator()...;
+};
+template <class... F>
+Overloaded(F...) -> Overloaded<F...>;
+
+// The window an event names; none for TimerEvent/UserEvent.
+[[nodiscard]] inline std::optional<WindowId> window_of(const Event& event) {
+  return std::visit(
+      [](const auto& e) -> std::optional<WindowId> {
+        if constexpr (std::is_same_v<std::decay_t<decltype(e)>, events::TimerEvent> ||
+                      std::is_same_v<std::decay_t<decltype(e)>, events::UserEvent>) {
+          return std::nullopt;
+        } else {
+          return e.window;
+        }
+      },
+      event);
+}
+
+// The event as `E`, or null: `if (auto* click = event_as<events::ClickEvent>(e))`.
+template <class E>
+[[nodiscard]] const E* event_as(const Event& event) {
+  return std::get_if<E>(&event);
+}
 
 }  // namespace dg

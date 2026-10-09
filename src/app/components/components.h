@@ -15,9 +15,13 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <utility>
+#include <variant>
 #include <vector>
 
+#include "app/internal.h"
 #include "app/state.h"
+#include "drawgui/app/limits.h"
 #include "drawgui/layout/box.h"
 #include "drawgui/props/node_props.h"
 #include "drawgui/render/node_lifecycle.h"
@@ -70,6 +74,46 @@ std::optional<dg::Status> set_text(WinState& window, NodeRecord& record, std::st
 // The nearest ancestor-or-self of the node under the pointer that has a
 // tooltip.
 [[nodiscard]] std::optional<dg::NodeId> tooltip_target(WinState& window);
+
+// The record and component state of a live create() node whose state is
+// `S`: status kInvalidNode when there is no such node, kUnsupported when it
+// is another kind (each component kind owns exactly one state type).
+template <class R, class S>
+struct Found {
+  R* record = nullptr;
+  S* state = nullptr;
+  dg::Status status = dg::Status::kOk;
+};
+
+template <class S>
+Found<NodeRecord, S> component_of(WinState& window, dg::NodeId id) {
+  Found<NodeRecord, S> out;
+  out.record = record_of(window, id);
+  if (out.record == nullptr) {
+    out.status = dg::Status::kInvalidNode;
+    return out;
+  }
+  out.state = std::get_if<S>(&out.record->state);
+  if (out.state == nullptr) {
+    out.status = dg::Status::kUnsupported;
+  }
+  return out;
+}
+
+template <class S>
+Found<const NodeRecord, const S> component_of(const WinState& window, dg::NodeId id) {
+  Found<const NodeRecord, const S> out;
+  out.record = record_of(window, id);
+  if (out.record == nullptr) {
+    out.status = dg::Status::kInvalidNode;
+    return out;
+  }
+  out.state = std::get_if<S>(&out.record->state);
+  if (out.state == nullptr) {
+    out.status = dg::Status::kUnsupported;
+  }
+  return out;
+}
 
 inline int wrapper_height(const WinState& window, const NodeRecord& record, int fallback) {
   return window.tree.box(record.id).height.value_or(fallback);

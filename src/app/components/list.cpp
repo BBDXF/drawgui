@@ -50,17 +50,6 @@ ListPalette list_palette_for(const AppState& app) {
   return palette;
 }
 
-dg::Status list_of(WinState& window, dg::NodeId id, NodeRecord*& out) {
-  out = record_of(window, id);
-  if (out == nullptr) {
-    return dg::Status::kInvalidNode;
-  }
-  if (out->kind != NodeKind::kList) {
-    return dg::Status::kUnsupported;
-  }
-  return dg::Status::kOk;
-}
-
 }  // namespace
 
 // Paints recycled list rows with the items they now show.
@@ -211,65 +200,61 @@ void compose_list(WinState& window, NodeRecord& record) {
 namespace dg {
 
 using app_detail::ListState;
-using app_detail::NodeRecord;
+using app_detail::components::component_of;
 
-Status Window::list_set_items(NodeId list, std::vector<std::string> items, int item_height) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::list_of(window, list, record); status != Status::kOk) {
-    return status;
+Status ListRef::set_items(std::vector<std::string> items, int item_height) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<ListState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  if (item_height < 0) {
+  if (item_height < 0 || items.size() > limits::kListMaxItems) {
     return Status::kInvalidArgument;
   }
-  ListState& state = std::get<ListState>(record->state);
+  ListState& state = *found.state;
+  const app_detail::NodeRecord& record = *found.record;
   state.items = std::move(items);
   state.selected = -1;
-  dg::RenderTree& tree = window.tree.render();
-  dg::Widget updated = window.widgets.at(record->id);
+  dg::RenderTree& tree = win.tree.render();
+  dg::Widget updated = win.widgets.at(record.id);
   if (item_height > 0 && item_height != updated.list_item_extent) {
     updated.list_item_extent = item_height;
     for (const dg::NodeId row : updated.list_pool) {
-      dg::BoxStyle box = window.tree.box(row);
+      dg::BoxStyle box = win.tree.box(row);
       box.height = item_height;
-      window.tree.set_box(row, box);
+      win.tree.set_box(row, box);
     }
   }
   updated.list_item_count = static_cast<int>(state.items.size());
-  window.widgets.attach(record->id, updated);
-  const int extent = app_detail::viewport_extent(window, record->id);
+  win.widgets.attach(record.id, updated);
+  const int extent = app_detail::viewport_extent(win, record.id);
   app_detail::paint_list_rows(
-      window, *record,
-      window.widgets.list_reset(tree, record->id, static_cast<int>(state.items.size()),
-                                extent));
-  window.widgets.sync_scrollbar(tree, record->id, extent);
-  window.relaid = true;
+      win, record,
+      win.widgets.list_reset(tree, record.id, static_cast<int>(state.items.size()), extent));
+  win.widgets.sync_scrollbar(tree, record.id, extent);
+  win.relaid = true;
   return Status::kOk;
 }
 
-Expected<int, Status> Window::list_selected(NodeId list) const {
-  const NodeRecord* record = app_detail::record_of(*state_, list);
-  if (record == nullptr) {
-    return Unexpected(Status::kInvalidNode);
+Expected<int, Status> ListRef::selected() const {
+  const auto found = component_of<ListState>(std::as_const(window()), node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
   }
-  if (record->kind != NodeKind::kList) {
-    return Unexpected(Status::kUnsupported);
-  }
-  return std::get<ListState>(record->state).selected;
+  return found.state->selected;
 }
 
-Status Window::list_select(NodeId list, int index) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::list_of(window, list, record); status != Status::kOk) {
-    return status;
+Status ListRef::select(int index) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<ListState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  ListState& state = std::get<ListState>(record->state);
-  if (index < -1 || index >= static_cast<int>(state.items.size())) {
+  if (index < -1 || index >= static_cast<int>(found.state->items.size())) {
     return Status::kValueOutOfRange;
   }
-  state.selected = index;
-  app_detail::repaint_list(window, *record);
+  found.state->selected = index;
+  app_detail::repaint_list(win, *found.record);
   return Status::kOk;
 }
 

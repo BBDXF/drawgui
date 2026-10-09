@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "app/runtime_debug.h"
+#include "drawgui/app/limits.h"
 #include "drawgui/app/node_kind.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/graphics/raster_surface.h"
@@ -61,7 +62,7 @@ static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTable) == DG_NODE_TYPE_T
 static_assert(dg::kNodeKindMin == DG_NODE_TYPE_BOX && dg::kNodeKindMax == DG_NODE_TYPE_TABLE);
 
 // The longest dg_list_set_items() a caller can pass.
-constexpr int kListMaxItems = 1 << 24;
+constexpr auto kListMaxItems = dg::limits::kListMaxItems;
 
 // -- Global arenas ------------------------------------------------------
 //
@@ -1788,7 +1789,7 @@ std::int32_t list_set_items(dg_node_t* node_h, const char* const* items, std::ui
     copied.emplace_back(items[i] == nullptr ? "" : items[i]);
   }
   return to_error_code(
-      live.window->list_set_items(live.slot->node_id, std::move(copied), item_height));
+      live.window->list(live.slot->node_id).value().set_items(std::move(copied), item_height));
 }
 
 std::int32_t list_get_selected(dg_node_t* node_h) {
@@ -1796,7 +1797,7 @@ std::int32_t list_get_selected(dg_node_t* node_h) {
   if (live.status != DG_ERR_OK) {
     return live.status;
   }
-  const dg::Expected<int, dg::Status> selected = live.window->list_selected(live.slot->node_id);
+  const dg::Expected<int, dg::Status> selected = live.window->list(live.slot->node_id).value().selected();
   return selected ? selected.value() : to_error_code(selected.error());
 }
 
@@ -1805,7 +1806,7 @@ std::int32_t list_set_selected(dg_node_t* node_h, std::int32_t index) {
   if (live.status != DG_ERR_OK) {
     return live.status;
   }
-  return to_error_code(live.window->list_select(live.slot->node_id, index));
+  return to_error_code(live.window->list(live.slot->node_id).value().select(index));
 }
 
 std::int32_t node_set_image_data(dg_node_t* node_h, const void* bytes, std::uint32_t len,

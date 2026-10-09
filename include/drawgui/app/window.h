@@ -19,7 +19,9 @@
 #include <string_view>
 #include <vector>
 
+#include "drawgui/app/items.h"
 #include "drawgui/app/node_kind.h"
+#include "drawgui/app/refs.h"
 #include "drawgui/app/status.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/base/pixel_geometry.h"
@@ -38,9 +40,6 @@ class LayoutTree;
 class PopupHost;
 class ThemeBindings;
 class WidgetSet;
-struct MenuItem;
-struct TableColumn;
-struct TreeItem;
 
 namespace app_detail {
 struct WinState;
@@ -78,7 +77,8 @@ class Window {
   // content node; `node` itself otherwise).
   [[nodiscard]] NodeId child_container(NodeId node) const;
   [[nodiscard]] std::optional<NodeKind> kind_of(NodeId node) const;
-  // Marks `node`'s subtree for repaint.
+  // Marks `node`'s subtree for repaint and its composed children for
+  // re-sync on the next pump(). See "Escape hatches" below.
   void invalidate(NodeId node);
 
   // -- Properties --------------------------------------------------------
@@ -92,6 +92,8 @@ class Window {
   // An editor's committed text.
   [[nodiscard]] Expected<std::string, Status> text(NodeId node) const;
   [[nodiscard]] Expected<bool, Status> checked(NodeId node) const;
+  // DG_PROP_DISABLED: a disabled node and its subtree take no pointer or
+  // key input (a press in progress produces no ClickEvent) and lose focus.
   Status set_disabled(NodeId node, bool disabled);
   Status set_tooltip(NodeId node, std::string text);
   Status set_image(NodeId node, ImageId image);
@@ -103,48 +105,29 @@ class Window {
   void clear_focus();
   [[nodiscard]] std::optional<NodeId> focused() const;
 
-  // -- Lists, dropdowns, tabs, trees, tables -----------------------------
-  Status list_set_items(NodeId list, std::vector<std::string> items, int item_height);
-  [[nodiscard]] Expected<int, Status> list_selected(NodeId list) const;
-  Status list_select(NodeId list, int index);
-
-  Status dropdown_set_items(NodeId dropdown, std::vector<std::string> items);
-  [[nodiscard]] Expected<int, Status> dropdown_selected(NodeId dropdown) const;
-  Status dropdown_select(NodeId dropdown, int index);
-
-  // Adds a tab and returns its (created, initially empty) panel node.
-  [[nodiscard]] Expected<NodeId, Status> tabs_add(NodeId tabs, std::string label,
-                                                  bool disabled);
-  [[nodiscard]] Expected<int, Status> tabs_selected(NodeId tabs) const;
-  Status tabs_select(NodeId tabs, int index);
-
-  Status tree_set_items(NodeId tree, std::vector<TreeItem> items);
-  [[nodiscard]] Expected<int, Status> tree_selected(NodeId tree) const;
-  // -1 deselects.
-  Status tree_select(NodeId tree, int index);
-  Status tree_set_expanded(NodeId tree, int index, bool expanded);
-
-  Status table_set_columns(NodeId table, std::vector<TableColumn> columns);
-  [[nodiscard]] Expected<int, Status> table_column_count(NodeId table) const;
-  // Row-major, one string per column per row.
-  Status table_set_rows(NodeId table, std::vector<std::vector<std::string>> rows);
-  [[nodiscard]] Expected<int, Status> table_selected(NodeId table) const;
-  // -1 deselects.
-  Status table_select(NodeId table, int row);
-  Status table_set_sort_indicator(NodeId table, std::optional<int> column, bool ascending);
+  // -- Components ----------------------------------------------------------
+  // The typed ref of a component node: kInvalidNode when `node` is not a
+  // live create() node of this window, kUnsupported when it is another kind.
+  [[nodiscard]] Expected<ListRef, Status> list(NodeId node);
+  [[nodiscard]] Expected<DropdownRef, Status> dropdown(NodeId node);
+  [[nodiscard]] Expected<TabsRef, Status> tabs(NodeId node);
+  [[nodiscard]] Expected<TreeRef, Status> tree(NodeId node);
+  [[nodiscard]] Expected<TableRef, Status> table(NodeId node);
+  [[nodiscard]] Expected<ProgressRef, Status> progress(NodeId node);
 
   // -- Popups ------------------------------------------------------------
   // Opens a menu below `anchor`'s bounds (or at `at`); returns its id, which
   // its MenuEvent repeats. A menu already open is dismissed first.
+  // kInvalidArgument for no entries, more than limits::kMaxMenuItems, or
+  // none that can be chosen; kUnsupported while a dialog is open.
   [[nodiscard]] Expected<std::int32_t, Status> open_menu(std::optional<NodeId> anchor,
                                                          PixelPoint at,
-                                                         const std::vector<MenuItem>& items);
+                                                         const std::vector<MenuEntry>& items);
   void close_menu();
   [[nodiscard]] bool has_dialog() const;
-  [[nodiscard]] Expected<std::int32_t, Status> open_dialog(std::string title, std::string body,
-                                                           std::vector<std::string> buttons,
-                                                           std::optional<int> default_button,
-                                                           std::optional<int> cancel_button);
+  // Modal: at most one per window (kUnsupported while one is open). Its
+  // DialogResultEvent repeats the returned id.
+  [[nodiscard]] Expected<std::int32_t, Status> open_dialog(DialogOptions options);
   void close_dialog();
 
   // -- The OS window -----------------------------------------------------
@@ -165,6 +148,17 @@ class Window {
   [[nodiscard]] Expected<WindowState, WindowError> state() const;
 
   // -- Escape hatches ----------------------------------------------------
+  // The objects the runtime drives. The contract:
+  //  * Reading them is always safe between pump() calls.
+  //  * Writing them is allowed for nodes the runtime does not compose
+  //    (nodes you create through layout() under a kBox, styles of create()
+  //    nodes); call invalidate(node) afterwards so the next pump() relays
+  //    out and repaints that subtree.
+  //  * Never remove or re-parent a create() node or a composed child
+  //    through them (use remove()/move()), and never keep a reference
+  //    across App::destroy_window(): the runtime's records would dangle.
+  //  * The runtime re-derives composed children and theme-bound properties
+  //    on restyle/resize, overwriting direct writes to them.
   [[nodiscard]] LayoutTree& layout();
   [[nodiscard]] const LayoutTree& layout() const;
   [[nodiscard]] WidgetSet& widgets();

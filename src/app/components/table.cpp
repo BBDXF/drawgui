@@ -19,17 +19,6 @@ namespace {
 constexpr int kTableHeight = 240;
 constexpr int kFrame = 1;  // control_visuals' tree/table outer border
 
-dg::Status table_of(WinState& window, dg::NodeId id, NodeRecord*& out) {
-  out = record_of(window, id);
-  if (out == nullptr) {
-    return dg::Status::kInvalidNode;
-  }
-  if (out->kind != NodeKind::kTable) {
-    return dg::Status::kUnsupported;
-  }
-  return dg::Status::kOk;
-}
-
 // `clicks` = the pointer press's click count for a selection, 0 from keys.
 void table_result(WinState& window, const NodeRecord& record, const dg::TableResult& r,
                   int clicks) {
@@ -111,72 +100,77 @@ dg::NodeId focus_target_state(const NodeRecord& /*record*/, const TableState& st
 
 namespace dg {
 
-using app_detail::NodeRecord;
 using app_detail::TableState;
+using app_detail::components::component_of;
 
-Status Window::table_set_columns(NodeId table, std::vector<TableColumn> columns) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::table_of(window, table, record);
-      status != Status::kOk) {
-    return status;
+Status TableRef::set_columns(std::vector<TableColumnSpec> columns) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TableState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  TableState& c = std::get<TableState>(record->state);
-  c.columns = std::move(columns);
+  if (columns.empty() || columns.size() > limits::kMaxTableColumns) {
+    return Status::kInvalidArgument;
+  }
+  TableState& c = *found.state;
+  c.columns.clear();
+  for (TableColumnSpec& spec : columns) {
+    dg::TableColumn column;
+    column.title = std::move(spec.title);
+    column.width_px = spec.width_px;
+    column.width_percent = spec.width_percent;
+    column.sortable = spec.sortable;
+    c.columns.push_back(std::move(column));
+  }
   c.rows.clear();
   c.sort_column.reset();
-  app_detail::components::build_table(window, *record);
+  app_detail::components::build_table(win, *found.record);
   return Status::kOk;
 }
 
-Expected<int, Status> Window::table_column_count(NodeId table) const {
-  const NodeRecord* record = app_detail::record_of(*state_, table);
-  if (record == nullptr) {
-    return Unexpected(Status::kInvalidNode);
+Expected<int, Status> TableRef::column_count() const {
+  const auto found = component_of<TableState>(std::as_const(window()), node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
   }
-  if (record->kind != NodeKind::kTable) {
-    return Unexpected(Status::kUnsupported);
-  }
-  return static_cast<int>(std::get<TableState>(record->state).columns.size());
+  return static_cast<int>(found.state->columns.size());
 }
 
-Status Window::table_set_rows(NodeId table, std::vector<std::vector<std::string>> rows) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::table_of(window, table, record);
-      status != Status::kOk) {
-    return status;
+Status TableRef::set_rows(std::vector<std::vector<std::string>> rows) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TableState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  TableState& c = std::get<TableState>(record->state);
+  TableState& c = *found.state;
+  if (rows.size() * std::max<std::size_t>(c.columns.size(), 1) > limits::kMaxDataItems) {
+    return Status::kInvalidArgument;
+  }
   c.rows = rows;
-  dg::ControlContext ctx = app_detail::components::controls(window);
+  dg::ControlContext ctx = app_detail::components::controls(win);
   c.table.set_rows(ctx, std::move(rows));
   return Status::kOk;
 }
 
-Expected<int, Status> Window::table_selected(NodeId table) const {
-  const NodeRecord* record = app_detail::record_of(*state_, table);
-  if (record == nullptr) {
-    return Unexpected(Status::kInvalidNode);
+Expected<int, Status> TableRef::selected() const {
+  const auto found = component_of<TableState>(std::as_const(window()), node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
   }
-  if (record->kind != NodeKind::kTable) {
-    return Unexpected(Status::kUnsupported);
-  }
-  return std::get<TableState>(record->state).table.selected().value_or(-1);
+  return found.state->table.selected().value_or(-1);
 }
 
-Status Window::table_select(NodeId table, int row) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::table_of(window, table, record);
-      status != Status::kOk) {
-    return status;
+Status TableRef::select(int row) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TableState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  TableState& c = std::get<TableState>(record->state);
+  TableState& c = *found.state;
   if (row < -1 || row >= c.table.row_count()) {
     return Status::kValueOutOfRange;
   }
-  dg::ControlContext ctx = app_detail::components::controls(window);
+  dg::ControlContext ctx = app_detail::components::controls(win);
   if (row == -1) {
     c.table.set_rows(ctx, c.rows);  // clears the selection
   } else {
@@ -185,21 +179,19 @@ Status Window::table_select(NodeId table, int row) {
   return Status::kOk;
 }
 
-Status Window::table_set_sort_indicator(NodeId table, std::optional<int> column,
-                                        bool ascending) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::table_of(window, table, record);
-      status != Status::kOk) {
-    return status;
+Status TableRef::set_sort_indicator(std::optional<int> column, bool ascending) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TableState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  TableState& c = std::get<TableState>(record->state);
+  TableState& c = *found.state;
   if (column.has_value() && (*column < 0 || *column >= static_cast<int>(c.columns.size()))) {
     return Status::kValueOutOfRange;
   }
   c.sort_column = column;
   c.sort_ascending = ascending;
-  dg::ControlContext ctx = app_detail::components::controls(window);
+  dg::ControlContext ctx = app_detail::components::controls(win);
   c.table.set_sort_indicator(ctx, c.sort_column, c.sort_ascending);
   return Status::kOk;
 }

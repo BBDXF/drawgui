@@ -311,8 +311,14 @@ bool Window::has_dialog() const {
 }
 
 Expected<std::int32_t, Status> Window::open_menu(std::optional<NodeId> anchor, PixelPoint at,
-                                                 const std::vector<MenuItem>& items) {
+                                                 const std::vector<MenuEntry>& items) {
   WinState& window = *state_;
+  const bool any_selectable = std::any_of(items.begin(), items.end(), [](const MenuEntry& e) {
+    return !e.separator && !e.disabled;
+  });
+  if (items.size() > limits::kMaxMenuItems || !any_selectable) {
+    return Unexpected(Status::kInvalidArgument);
+  }
   if (window.dialog.is_open()) {
     return Unexpected(Status::kUnsupported);
   }
@@ -324,7 +330,15 @@ Expected<std::int32_t, Status> Window::open_menu(std::optional<NodeId> anchor, P
     anchor_rect = window.tree.render().absolute_bounds(*anchor);
   }
   dg::MenuSpec spec;
-  spec.items = items;
+  spec.items.reserve(items.size());
+  for (const MenuEntry& entry : items) {
+    dg::MenuItem item;
+    item.text = entry.text;
+    item.separator = entry.separator;
+    item.disabled = entry.disabled;
+    item.checked = entry.checked;
+    spec.items.push_back(std::move(item));
+  }
   dg::UiContext ctx = app_detail::components::ui(window);
   window.tooltip.hide(ctx);
   if (window.menu.is_open()) {
@@ -351,19 +365,21 @@ void Window::close_menu() {
   app_detail::report_focus_drift(window);
 }
 
-Expected<std::int32_t, Status> Window::open_dialog(std::string title, std::string body,
-                                                   std::vector<std::string> buttons,
-                                                   std::optional<int> default_button,
-                                                   std::optional<int> cancel_button) {
+Expected<std::int32_t, Status> Window::open_dialog(DialogOptions options) {
   WinState& window = *state_;
+  if (options.buttons.size() > limits::kMaxDialogButtons) {
+    return Unexpected(Status::kInvalidArgument);
+  }
   if (window.dialog.is_open()) {
     return Unexpected(Status::kUnsupported);
   }
+  const std::optional<int> default_button = options.default_button;
+  const std::optional<int> cancel_button = options.cancel_button;
   dg::DialogSpec spec;
-  spec.title = std::move(title);
-  spec.body = std::move(body);
-  if (!buttons.empty()) {
-    spec.buttons = std::move(buttons);
+  spec.title = std::move(options.title);
+  spec.body = std::move(options.body);
+  if (!options.buttons.empty()) {
+    spec.buttons = std::move(options.buttons);
   }
   const auto total = static_cast<int>(spec.buttons.size());
   const auto in_range = [total](std::optional<int> button) {

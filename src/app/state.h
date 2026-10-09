@@ -204,6 +204,8 @@ struct AppState {
   dg::ThemeVariant variant = dg::ThemeVariant::kLight;
 
   std::vector<dg::Event> pending_events;
+  // App::quit() during App::run().
+  bool quit_requested = false;
 
   // P6 sub-step a1: this app's ONE shared FontCatalog (design.md's
   // dg::FontCatalog is copyable and a copy names the same fonts - a

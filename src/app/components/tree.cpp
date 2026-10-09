@@ -18,17 +18,6 @@ namespace {
 constexpr int kTreeHeight = 240;
 constexpr int kFrame = 1;  // control_visuals' tree/table outer border
 
-dg::Status tree_of(WinState& window, dg::NodeId id, NodeRecord*& out) {
-  out = record_of(window, id);
-  if (out == nullptr) {
-    return dg::Status::kInvalidNode;
-  }
-  if (out->kind != NodeKind::kTree) {
-    return dg::Status::kUnsupported;
-  }
-  return dg::Status::kOk;
-}
-
 void tree_result(WinState& window, const NodeRecord& record, const dg::TreeResult& r) {
   using Kind = dg::events::TreeEvent::Kind;
   if (r.event == dg::TreeEvent::kSelected) {
@@ -114,63 +103,77 @@ dg::NodeId focus_target_state(const NodeRecord& /*record*/, const TreeState& sta
 
 namespace dg {
 
-using app_detail::NodeRecord;
 using app_detail::TreeState;
+using app_detail::components::component_of;
 
-Status Window::tree_set_items(NodeId tree, std::vector<TreeItem> items) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::tree_of(window, tree, record); status != Status::kOk) {
-    return status;
+Status TreeRef::set_items(std::vector<TreeEntry> items) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TreeState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  std::get<TreeState>(record->state).items = std::move(items);
-  app_detail::components::build_tree(window, *record);
+  if (items.size() > limits::kMaxDataItems) {
+    return Status::kInvalidArgument;
+  }
+  std::vector<dg::TreeItem> converted;
+  converted.reserve(items.size());
+  int previous = -1;
+  for (TreeEntry& entry : items) {
+    if (entry.depth < 0 || entry.depth > previous + 1) {
+      return Status::kInvalidArgument;
+    }
+    previous = entry.depth;
+    dg::TreeItem item;
+    item.label = std::move(entry.label);
+    item.depth = entry.depth;
+    item.expanded = entry.expanded;
+    converted.push_back(std::move(item));
+  }
+  found.state->items = std::move(converted);
+  app_detail::components::build_tree(win, *found.record);
   return Status::kOk;
 }
 
-Expected<int, Status> Window::tree_selected(NodeId tree) const {
-  const NodeRecord* record = app_detail::record_of(*state_, tree);
-  if (record == nullptr) {
-    return Unexpected(Status::kInvalidNode);
+Expected<int, Status> TreeRef::selected() const {
+  const auto found = component_of<TreeState>(std::as_const(window()), node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
   }
-  if (record->kind != NodeKind::kTree) {
-    return Unexpected(Status::kUnsupported);
-  }
-  return std::get<TreeState>(record->state).tree.selected().value_or(-1);
+  return found.state->tree.selected().value_or(-1);
 }
 
-Status Window::tree_select(NodeId tree, int index) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::tree_of(window, tree, record); status != Status::kOk) {
-    return status;
+Status TreeRef::select(int index) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TreeState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  TreeState& c = std::get<TreeState>(record->state);
+  TreeState& c = *found.state;
   if (index < -1 || index >= static_cast<int>(c.items.size())) {
     return Status::kValueOutOfRange;
   }
   if (index == -1) {
     // TreeView cannot deselect; a rebuild keeps expansion and drops it.
     app_detail::components::capture_tree(c);
-    app_detail::components::build_tree(window, *record);
+    app_detail::components::build_tree(win, *found.record);
     return Status::kOk;
   }
-  dg::ControlContext ctx = app_detail::components::controls(window);
+  dg::ControlContext ctx = app_detail::components::controls(win);
   (void)c.tree.select(ctx, index);
   return Status::kOk;
 }
 
-Status Window::tree_set_expanded(NodeId tree, int index, bool expanded) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::tree_of(window, tree, record); status != Status::kOk) {
-    return status;
+Status TreeRef::set_expanded(int index, bool expanded) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TreeState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  TreeState& c = std::get<TreeState>(record->state);
+  TreeState& c = *found.state;
   if (index < 0 || index >= static_cast<int>(c.items.size())) {
     return Status::kValueOutOfRange;
   }
-  dg::ControlContext ctx = app_detail::components::controls(window);
+  dg::ControlContext ctx = app_detail::components::controls(win);
   (void)c.tree.set_expanded(ctx, index, expanded);
   return Status::kOk;
 }

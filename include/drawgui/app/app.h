@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -72,7 +73,12 @@ class App {
 
   // -- Windows -----------------------------------------------------------
   [[nodiscard]] Expected<Window*, AppError> create_window(const WindowOptions& options);
-  // Closes the OS window and frees the Window; `window` dangles afterwards.
+  // Closes the OS window (if the user has not already) and frees the
+  // Window: `window`, every ref into it and every escape-hatch reference
+  // dangle afterwards. Events already queued keep naming its WindowId, which
+  // find() no longer resolves. Safe on a window the user closed; a pointer
+  // this App does not own is ignored. Never call it from inside a callback
+  // the runtime is running on that window's behalf.
   void destroy_window(Window* window);
   // Every window ever created and not destroyed, in creation order -
   // including ones the user closed (Window::closed()).
@@ -88,6 +94,14 @@ class App {
   // The events queued since the last pump()/poll() - by calls such as
   // Window::focus() - without pumping.
   [[nodiscard]] std::vector<Event> poll();
+  // pump(-1) in a loop, handing every event to `on_event`, until every
+  // window is closed (or destroyed) or quit() is called. Returns at once
+  // when there is no open window. `on_event` may create, destroy and edit
+  // windows; a window the user closes stays in windows() (closed()) until
+  // destroy_window().
+  void run(const std::function<void(const Event&)>& on_event);
+  // Makes run() return after the event it is delivering.
+  void quit();
 
   // -- Shared resources --------------------------------------------------
   // The first call scans `directory`; every call adds `family`. The first

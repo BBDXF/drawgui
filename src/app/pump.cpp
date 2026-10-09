@@ -6,6 +6,10 @@
 // a host never gets a canvas, it gets App::pump(), and drawgui paints and
 // presents every frame internally.
 
+#include <algorithm>
+#include <cstddef>
+#include <functional>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -256,6 +260,35 @@ std::vector<Event> App::pump(int timeout_ms) {
 
 std::vector<Event> App::poll() {
   return std::exchange(state_->pending_events, {});
+}
+
+void App::run(const std::function<void(const Event&)>& on_event) {
+  app_detail::AppState& app = *state_;
+  app.quit_requested = false;
+  const auto any_open = [&app] {
+    return std::any_of(app.windows.begin(), app.windows.end(),
+                       [](const std::unique_ptr<Window>& window) { return !window->closed(); });
+  };
+  while (!app.quit_requested && any_open()) {
+    std::vector<Event> events = pump(-1);
+    for (std::size_t i = 0; i < events.size(); ++i) {
+      if (on_event) {
+        on_event(events[i]);
+      }
+      if (app.quit_requested) {
+        // The rest stay queued for the next pump()/poll().
+        app.pending_events.insert(app.pending_events.begin(),
+                                  std::make_move_iterator(events.begin() + static_cast<std::ptrdiff_t>(i) + 1),
+                                  std::make_move_iterator(events.end()));
+        break;
+      }
+    }
+  }
+  app.quit_requested = false;
+}
+
+void App::quit() {
+  state_->quit_requested = true;
 }
 
 }  // namespace dg

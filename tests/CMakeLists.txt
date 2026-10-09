@@ -108,6 +108,9 @@ add_executable(drawgui_unit_test
   headers/app_events.cpp
   headers/app_app.cpp
   headers/app_window.cpp
+  headers/app_items.cpp
+  headers/app_refs.cpp
+  headers/app_limits.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
@@ -136,7 +139,10 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_scrollbar_abi.cpp
     unit/test_ui_components.cpp
     unit/test_data_controls.cpp
-    unit/test_app_events.cpp)
+    unit/test_app_events.cpp
+    unit/test_runtime_input.cpp
+    unit/test_runtime_components.cpp
+    unit/test_runtime_loop.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

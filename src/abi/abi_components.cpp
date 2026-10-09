@@ -15,18 +15,16 @@
 
 #include "abi_impl.h"
 #include "abi_internal.h"
+#include "drawgui/app/limits.h"
 #include "drawgui/render/node_lifecycle.h"
-#include "drawgui/ui/menu.h"
-#include "drawgui/ui/table.h"
-#include "drawgui/ui/tree_view.h"
 
 namespace dg::abi {
 namespace {
 
-constexpr std::uint32_t kMaxMenuItems = 4096;
-constexpr std::uint32_t kMaxDialogButtons = 8;
-constexpr std::uint32_t kMaxColumns = 64;
-constexpr std::uint32_t kMaxItems = 1U << 24U;
+constexpr std::uint32_t kMaxMenuItems = dg::limits::kMaxMenuItems;
+constexpr std::uint32_t kMaxDialogButtons = dg::limits::kMaxDialogButtons;
+constexpr std::uint32_t kMaxColumns = dg::limits::kMaxTableColumns;
+constexpr std::uint32_t kMaxItems = dg::limits::kMaxDataItems;
 
 // A live slot of `type_id`, or the DG_ERR_* saying why not.
 struct Resolved {
@@ -95,11 +93,11 @@ std::int32_t menu_open(dg_window_t* window_h, dg_node_t* anchor, std::int32_t x,
     }
     anchor_id = slot->node_id;
   }
-  std::vector<dg::MenuItem> items;
+  std::vector<dg::MenuEntry> items;
   bool any_selectable = false;
   for (std::uint32_t i = 0; i < count; ++i) {
     const std::uint32_t bits = flags == nullptr ? 0U : flags[i];
-    dg::MenuItem item;
+    dg::MenuEntry item;
     item.text = text_or_empty(labels[i]);
     item.separator = (bits & DG_MENU_ITEM_SEPARATOR) != 0U;
     item.disabled = (bits & DG_MENU_ITEM_DISABLED) != 0U;
@@ -145,7 +143,7 @@ std::int32_t dropdown_set_items(dg_node_t* node_h, const char* const* items,
   for (std::uint32_t i = 0; i < count; ++i) {
     options.push_back(text_or_empty(items[i]));
   }
-  return to_error_code(r.window->dropdown_set_items(r.slot->node_id, std::move(options)));
+  return to_error_code(r.window->dropdown(r.slot->node_id).value().set_items(std::move(options)));
 }
 
 std::int32_t dropdown_get_selected(dg_node_t* node_h) {
@@ -153,7 +151,7 @@ std::int32_t dropdown_get_selected(dg_node_t* node_h) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return value_or_error(r.window->dropdown_selected(r.slot->node_id));
+  return value_or_error(r.window->dropdown(r.slot->node_id).value().selected());
 }
 
 std::int32_t dropdown_set_selected(dg_node_t* node_h, std::int32_t index) {
@@ -161,7 +159,7 @@ std::int32_t dropdown_set_selected(dg_node_t* node_h, std::int32_t index) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return to_error_code(r.window->dropdown_select(r.slot->node_id, index));
+  return to_error_code(r.window->dropdown(r.slot->node_id).value().select(index));
 }
 
 std::int32_t node_set_tooltip(dg_node_t* node_h, const char* utf8) {
@@ -210,9 +208,14 @@ std::int32_t dialog_open(dg_window_t* window_h, const char* title, const char* b
   const auto button = [](std::int32_t index) {
     return index >= 0 ? std::optional<int>(index) : std::nullopt;
   };
+  dg::DialogOptions options;
+  options.title = title;
+  options.body = text_or_empty(body);
+  options.buttons = std::move(labels);
+  options.default_button = button(default_button);
+  options.cancel_button = button(cancel_button);
   const dg::Expected<std::int32_t, dg::Status> opened =
-      window->window->open_dialog(title, text_or_empty(body), std::move(labels),
-                                  button(default_button), button(cancel_button));
+      window->window->open_dialog(std::move(options));
   if (!opened) {
     if (opened.error() == dg::Status::kUnsupported) {
       set_last_error("dg_dialog_open: the popup could not be shown");
@@ -239,7 +242,7 @@ dg_node_t* tabs_add(dg_node_t* node_h, const char* label, std::int32_t disabled)
   }
   const std::size_t window_index = r.slot->window_index;
   const dg::Expected<dg::NodeId, dg::Status> panel =
-      r.window->tabs_add(r.slot->node_id, text_or_empty(label), disabled != 0);
+      r.window->tabs(r.slot->node_id).value().add(text_or_empty(label), disabled != 0);
   if (!panel) {
     set_last_error(panel.error() == dg::Status::kValueOutOfRange
                        ? "dg_tabs_add: at most 64 tabs"
@@ -254,7 +257,7 @@ std::int32_t tabs_get_selected(dg_node_t* node_h) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return value_or_error(r.window->tabs_selected(r.slot->node_id));
+  return value_or_error(r.window->tabs(r.slot->node_id).value().selected());
 }
 
 std::int32_t tabs_set_selected(dg_node_t* node_h, std::int32_t index) {
@@ -262,7 +265,7 @@ std::int32_t tabs_set_selected(dg_node_t* node_h, std::int32_t index) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return to_error_code(r.window->tabs_select(r.slot->node_id, index));
+  return to_error_code(r.window->tabs(r.slot->node_id).value().select(index));
 }
 
 std::int32_t tree_set_items(dg_node_t* node_h, const char* const* labels,
@@ -275,7 +278,7 @@ std::int32_t tree_set_items(dg_node_t* node_h, const char* const* labels,
   if ((count > 0 && (labels == nullptr || depths == nullptr)) || count > kMaxItems) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  std::vector<dg::TreeItem> items;
+  std::vector<dg::TreeEntry> items;
   items.reserve(count);
   int previous = -1;
   for (std::uint32_t i = 0; i < count; ++i) {
@@ -286,13 +289,13 @@ std::int32_t tree_set_items(dg_node_t* node_h, const char* const* labels,
       return DG_ERR_INVALID_ARGUMENT;
     }
     previous = depth;
-    dg::TreeItem item;
+    dg::TreeEntry item;
     item.label = text_or_empty(labels[i]);
     item.depth = depth;
     item.expanded = flags != nullptr && (flags[i] & DG_TREE_ITEM_EXPANDED) != 0U;
     items.push_back(std::move(item));
   }
-  return to_error_code(r.window->tree_set_items(r.slot->node_id, std::move(items)));
+  return to_error_code(r.window->tree(r.slot->node_id).value().set_items(std::move(items)));
 }
 
 std::int32_t tree_get_selected(dg_node_t* node_h) {
@@ -300,7 +303,7 @@ std::int32_t tree_get_selected(dg_node_t* node_h) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return value_or_error(r.window->tree_selected(r.slot->node_id));
+  return value_or_error(r.window->tree(r.slot->node_id).value().selected());
 }
 
 std::int32_t tree_set_selected(dg_node_t* node_h, std::int32_t index) {
@@ -308,7 +311,7 @@ std::int32_t tree_set_selected(dg_node_t* node_h, std::int32_t index) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return to_error_code(r.window->tree_select(r.slot->node_id, index));
+  return to_error_code(r.window->tree(r.slot->node_id).value().select(index));
 }
 
 std::int32_t tree_set_expanded(dg_node_t* node_h, std::int32_t index, std::int32_t expanded) {
@@ -316,7 +319,7 @@ std::int32_t tree_set_expanded(dg_node_t* node_h, std::int32_t index, std::int32
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return to_error_code(r.window->tree_set_expanded(r.slot->node_id, index, expanded != 0));
+  return to_error_code(r.window->tree(r.slot->node_id).value().set_expanded(index, expanded != 0));
 }
 
 std::int32_t table_set_columns(dg_node_t* node_h, const char* const* titles,
@@ -329,9 +332,9 @@ std::int32_t table_set_columns(dg_node_t* node_h, const char* const* titles,
   if (titles == nullptr || count == 0 || count > kMaxColumns) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  std::vector<dg::TableColumn> columns;
+  std::vector<dg::TableColumnSpec> columns;
   for (std::uint32_t i = 0; i < count; ++i) {
-    dg::TableColumn column;
+    dg::TableColumnSpec column;
     column.title = text_or_empty(titles[i]);
     column.sortable = flags != nullptr && (flags[i] & DG_TABLE_COLUMN_SORTABLE) != 0U;
     const float width = widths == nullptr ? 0.0F : widths[i];
@@ -348,7 +351,7 @@ std::int32_t table_set_columns(dg_node_t* node_h, const char* const* titles,
     }
     columns.push_back(std::move(column));
   }
-  return to_error_code(r.window->table_set_columns(r.slot->node_id, std::move(columns)));
+  return to_error_code(r.window->table(r.slot->node_id).value().set_columns(std::move(columns)));
 }
 
 std::int32_t table_set_cells(dg_node_t* node_h, const char* const* cells, std::uint32_t rows) {
@@ -357,7 +360,7 @@ std::int32_t table_set_cells(dg_node_t* node_h, const char* const* cells, std::u
     return r.status;
   }
   const dg::Expected<int, dg::Status> column_count =
-      r.window->table_column_count(r.slot->node_id);
+      r.window->table(r.slot->node_id).value().column_count();
   if (!column_count) {
     return to_error_code(column_count.error());
   }
@@ -373,7 +376,7 @@ std::int32_t table_set_cells(dg_node_t* node_h, const char* const* cells, std::u
       data[row].push_back(text_or_empty(cells[(row * columns) + col]));
     }
   }
-  return to_error_code(r.window->table_set_rows(r.slot->node_id, std::move(data)));
+  return to_error_code(r.window->table(r.slot->node_id).value().set_rows(std::move(data)));
 }
 
 std::int32_t table_get_selected(dg_node_t* node_h) {
@@ -381,7 +384,7 @@ std::int32_t table_get_selected(dg_node_t* node_h) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return value_or_error(r.window->table_selected(r.slot->node_id));
+  return value_or_error(r.window->table(r.slot->node_id).value().selected());
 }
 
 std::int32_t table_set_selected(dg_node_t* node_h, std::int32_t row) {
@@ -389,7 +392,7 @@ std::int32_t table_set_selected(dg_node_t* node_h, std::int32_t row) {
   if (r.status != DG_ERR_OK) {
     return r.status;
   }
-  return to_error_code(r.window->table_select(r.slot->node_id, row));
+  return to_error_code(r.window->table(r.slot->node_id).value().select(row));
 }
 
 std::int32_t table_set_sort_indicator(dg_node_t* node_h, std::int32_t column,
@@ -401,9 +404,10 @@ std::int32_t table_set_sort_indicator(dg_node_t* node_h, std::int32_t column,
   if (column < -1) {
     return DG_ERR_VALUE_OUT_OF_RANGE;
   }
-  return to_error_code(r.window->table_set_sort_indicator(
-      r.slot->node_id, column >= 0 ? std::optional<int>(column) : std::nullopt,
-      ascending != 0));
+  return to_error_code(r.window->table(r.slot->node_id).value()
+                           .set_sort_indicator(
+                               column >= 0 ? std::optional<int>(column) : std::nullopt,
+                               ascending != 0));
 }
 
 std::int32_t debug_node_count(dg_window_t* window_h) {

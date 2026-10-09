@@ -2,6 +2,7 @@
 // indeterminate (animated by tick()).
 
 #include <cmath>
+#include <utility>
 #include <optional>
 #include <variant>
 
@@ -88,3 +89,49 @@ void after_prop_state(WinState& window, NodeRecord& record, ProgressState& /*sta
 }
 
 }  // namespace dg::app_detail::components
+
+namespace dg {
+
+using app_detail::ProgressState;
+using app_detail::components::component_of;
+
+Status ProgressRef::set_value(float value) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<ProgressState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
+  }
+  return app_detail::components::set_prop_state(win, *found.record, *found.state,
+                                                 DG_PROP_VALUE, PropValue::number(value))
+      .value_or(Status::kUnsupported);
+}
+
+Expected<float, Status> ProgressRef::value() const {
+  const auto found = component_of<ProgressState>(std::as_const(window()), node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
+  }
+  return found.state->progress.value();
+}
+
+Status ProgressRef::set_indeterminate(bool indeterminate) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<ProgressState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
+  }
+  return app_detail::components::set_prop_state(win, *found.record, *found.state,
+                                                 DG_PROP_INDETERMINATE,
+                                                 PropValue::boolean(indeterminate))
+      .value_or(Status::kUnsupported);
+}
+
+Expected<bool, Status> ProgressRef::indeterminate() const {
+  const auto found = component_of<ProgressState>(std::as_const(window()), node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
+  }
+  return found.state->progress.indeterminate();
+}
+
+}  // namespace dg

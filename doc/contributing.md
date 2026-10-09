@@ -145,6 +145,10 @@ sudo apt-get install -y libfontconfig1-dev
 `src/app` 不得包含 `drawgui.h`，也不得出现 `dg_event`/`dg_*_t` 句柄——
 `ctest` 里的 `app.no_c_abi` 会检查这一点。
 
+C++ API 的参考见 `doc/guide/app.md`；运行时自身的测试
+（`tests/unit/test_runtime_*.cpp`）直接驱动 `dg::App`/`dg::Window`，
+不经过 C ABI。
+
 ## 为什么 id 永不复用
 
 一个 `prop_id` 是跨越 C ABI 边界的 `uint16_t`。消费方会把它编译进自己的

@@ -389,7 +389,65 @@ void Window::invalidate(NodeId node) {
   RenderTree& tree = state_->tree.render();
   if (tree.is_valid(node)) {
     tree.damage_rect(tree.absolute_bounds(node));
+    state_->relaid = true;
   }
+}
+
+namespace {
+
+template <class S>
+Status kind_status(app_detail::WinState& window, NodeId node) {
+  return app_detail::components::component_of<S>(window, node).status;
+}
+
+}  // namespace
+
+Expected<ListRef, Status> Window::list(NodeId node) {
+  if (const Status status = kind_status<app_detail::ListState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return ListRef(state_.get(), node);
+}
+
+Expected<DropdownRef, Status> Window::dropdown(NodeId node) {
+  if (const Status status = kind_status<app_detail::DropdownState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return DropdownRef(state_.get(), node);
+}
+
+Expected<TabsRef, Status> Window::tabs(NodeId node) {
+  if (const Status status = kind_status<app_detail::TabsState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return TabsRef(state_.get(), node);
+}
+
+Expected<TreeRef, Status> Window::tree(NodeId node) {
+  if (const Status status = kind_status<app_detail::TreeState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return TreeRef(state_.get(), node);
+}
+
+Expected<TableRef, Status> Window::table(NodeId node) {
+  if (const Status status = kind_status<app_detail::TableState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return TableRef(state_.get(), node);
+}
+
+Expected<ProgressRef, Status> Window::progress(NodeId node) {
+  if (const Status status = kind_status<app_detail::ProgressState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return ProgressRef(state_.get(), node);
 }
 
 Status Window::set_prop(NodeId node, std::uint16_t prop_id, const PropValue& value) {

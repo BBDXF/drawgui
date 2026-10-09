@@ -18,17 +18,6 @@ constexpr int kDropdownWidth = 200;
 constexpr int kDropdownHeight = 32;
 constexpr int kDropdownInset = 10;
 
-dg::Status dropdown_of(WinState& window, dg::NodeId id, NodeRecord*& out) {
-  out = record_of(window, id);
-  if (out == nullptr) {
-    return dg::Status::kInvalidNode;
-  }
-  if (out->kind != NodeKind::kDropdown) {
-    return dg::Status::kUnsupported;
-  }
-  return dg::Status::kOk;
-}
-
 }  // namespace
 
 namespace components {
@@ -99,65 +88,63 @@ std::optional<dg::Status> set_text_state(WinState& window, NodeRecord& record,
 namespace dg {
 
 using app_detail::DropdownState;
-using app_detail::NodeRecord;
+using app_detail::components::component_of;
 
-Status Window::dropdown_set_items(NodeId dropdown, std::vector<std::string> items) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::dropdown_of(window, dropdown, record);
-      status != Status::kOk) {
-    return status;
+Status DropdownRef::set_items(std::vector<std::string> items) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<DropdownState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  dg::UiContext ctx = app_detail::components::ui(window);
-  DropdownState& state = std::get<DropdownState>(record->state);
-  if (state.dropdown.has_value()) {
-    state.dropdown->close(ctx);
+  if (items.size() > limits::kMaxMenuItems) {
+    return Status::kInvalidArgument;
   }
-  dg::Widget widget = window.widgets.at(record->id);
+  app_detail::NodeRecord& record = *found.record;
+  dg::UiContext ctx = app_detail::components::ui(win);
+  if (found.state->dropdown.has_value()) {
+    found.state->dropdown->close(ctx);
+  }
+  dg::Widget widget = win.widgets.at(record.id);
   widget.options = items;
   widget.selected_index.reset();
-  window.widgets.attach(record->id, widget);
-  if (const dg::FontCatalog* fonts = app_detail::components::fonts_of(window.app)) {
-    window.widgets.dropdown_set_options(window.tree.render(), *fonts, record->id,
-                                        std::move(items));
+  win.widgets.attach(record.id, widget);
+  if (const dg::FontCatalog* fonts = app_detail::components::fonts_of(win.app)) {
+    win.widgets.dropdown_set_options(win.tree.render(), *fonts, record.id, std::move(items));
   }
-  app_detail::components::paint_dropdown(window, *record);
-  app_detail::report_focus_drift(window);
+  app_detail::components::paint_dropdown(win, record);
+  app_detail::report_focus_drift(win);
   return Status::kOk;
 }
 
-Expected<int, Status> Window::dropdown_selected(NodeId dropdown) const {
-  const NodeRecord* record = app_detail::record_of(*state_, dropdown);
-  if (record == nullptr) {
-    return Unexpected(Status::kInvalidNode);
+Expected<int, Status> DropdownRef::selected() const {
+  const app_detail::WinState& win = window();
+  const auto found = component_of<DropdownState>(win, node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
   }
-  if (record->kind != NodeKind::kDropdown) {
-    return Unexpected(Status::kUnsupported);
-  }
-  return state_->widgets.dropdown_selected_index(record->id).value_or(-1);
+  return win.widgets.dropdown_selected_index(found.record->id).value_or(-1);
 }
 
-Status Window::dropdown_select(NodeId dropdown, int index) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::dropdown_of(window, dropdown, record);
-      status != Status::kOk) {
-    return status;
+Status DropdownRef::select(int index) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<DropdownState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  const dg::NodeId id = record->id;
-  const auto count = static_cast<int>(window.widgets.dropdown_options(id).size());
+  const dg::NodeId id = found.record->id;
+  const auto count = static_cast<int>(win.widgets.dropdown_options(id).size());
   if (index < -1 || index >= count) {
     return Status::kValueOutOfRange;
   }
-  const dg::FontCatalog* fonts = app_detail::components::fonts_of(window.app);
+  const dg::FontCatalog* fonts = app_detail::components::fonts_of(win.app);
   if (index >= 0 && fonts != nullptr) {
-    (void)window.widgets.dropdown_select(window.tree.render(), *fonts, id, index);
+    (void)win.widgets.dropdown_select(win.tree.render(), *fonts, id, index);
     return Status::kOk;
   }
-  dg::Widget widget = window.widgets.at(id);
+  dg::Widget widget = win.widgets.at(id);
   widget.selected_index = index >= 0 ? std::optional<int>(index) : std::nullopt;
-  window.widgets.attach(id, widget);
-  app_detail::components::paint_dropdown(window, *record);
+  win.widgets.attach(id, widget);
+  app_detail::components::paint_dropdown(win, *found.record);
   return Status::kOk;
 }
 

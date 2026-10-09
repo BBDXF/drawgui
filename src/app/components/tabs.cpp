@@ -15,19 +15,6 @@
 namespace dg::app_detail {
 namespace {
 
-constexpr std::size_t kMaxTabs = 64;
-
-dg::Status tabs_of(WinState& window, dg::NodeId id, NodeRecord*& out) {
-  out = record_of(window, id);
-  if (out == nullptr) {
-    return dg::Status::kInvalidNode;
-  }
-  if (out->kind != NodeKind::kTabs) {
-    return dg::Status::kUnsupported;
-  }
-  return dg::Status::kOk;
-}
-
 void tabs_result(WinState& window, const NodeRecord& record, const dg::TabsResult& r) {
   if (r.event == dg::TabsEvent::kSelected) {
     emit(window.app, dg::events::TabSelectEvent{window.sdl_window, record.id, r.index});
@@ -114,17 +101,17 @@ dg::NodeId focus_target_state(const NodeRecord& record, const TabsState& state) 
 
 namespace dg {
 
-using app_detail::NodeRecord;
 using app_detail::TabsState;
+using app_detail::components::component_of;
 
-Expected<NodeId, Status> Window::tabs_add(NodeId tabs, std::string label, bool disabled) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::tabs_of(window, tabs, record); status != Status::kOk) {
-    return Unexpected(status);
+Expected<NodeId, Status> TabsRef::add(std::string label, bool disabled) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TabsState>(win, node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
   }
-  TabsState& c = std::get<TabsState>(record->state);
-  if (c.items.size() >= app_detail::kMaxTabs) {
+  TabsState& c = *found.state;
+  if (c.items.size() >= limits::kMaxTabs) {
     return Unexpected(Status::kValueOutOfRange);
   }
   dg::TabItem item;
@@ -132,45 +119,42 @@ Expected<NodeId, Status> Window::tabs_add(NodeId tabs, std::string label, bool d
   item.disabled = disabled;
   c.items.push_back(std::move(item));
   c.panels.push_back(dg::NodeId{});
-  app_detail::components::build_tabs(window, *record);
+  app_detail::components::build_tabs(win, *found.record);
   const dg::NodeId area = c.tabs.panel(static_cast<int>(c.panels.size() - 1));
-  const dg::NodeId panel_id = app_detail::attach_new(window, NodeKind::kBox, area);
+  const dg::NodeId panel_id = app_detail::attach_new(win, NodeKind::kBox, area);
   c.panels.back() = panel_id;
   dg::BoxStyle box;
   box.kind = dg::LayoutKind::kColumn;
   box.grow = 1;
-  window.tree.set_box(panel_id, box);
-  window.tree.render().set_style(panel_id, dg::NodeStyle{});
+  win.tree.set_box(panel_id, box);
+  win.tree.render().set_style(panel_id, dg::NodeStyle{});
   // The panel inherits its tab panel's hidden (disabled) state.
-  window.widgets.refresh_subtree(window.tree.render(), panel_id, window.interaction);
+  win.widgets.refresh_subtree(win.tree.render(), panel_id, win.interaction);
   return panel_id;
 }
 
-Expected<int, Status> Window::tabs_selected(NodeId tabs) const {
-  const NodeRecord* record = app_detail::record_of(*state_, tabs);
-  if (record == nullptr) {
-    return Unexpected(Status::kInvalidNode);
+Expected<int, Status> TabsRef::selected() const {
+  const auto found = component_of<TabsState>(std::as_const(window()), node());
+  if (found.status != Status::kOk) {
+    return Unexpected(found.status);
   }
-  if (record->kind != NodeKind::kTabs) {
-    return Unexpected(Status::kUnsupported);
-  }
-  return std::get<TabsState>(record->state).tabs.selected().value_or(-1);
+  return found.state->tabs.selected().value_or(-1);
 }
 
-Status Window::tabs_select(NodeId tabs, int index) {
-  app_detail::WinState& window = *state_;
-  NodeRecord* record = nullptr;
-  if (const Status status = app_detail::tabs_of(window, tabs, record); status != Status::kOk) {
-    return status;
+Status TabsRef::select(int index) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TabsState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
   }
-  TabsState& c = std::get<TabsState>(record->state);
+  TabsState& c = *found.state;
   if (index < 0 || static_cast<std::size_t>(index) >= c.items.size() ||
       c.items[static_cast<std::size_t>(index)].disabled) {
     return Status::kValueOutOfRange;
   }
-  dg::ControlContext ctx = app_detail::components::controls(window);
+  dg::ControlContext ctx = app_detail::components::controls(win);
   (void)c.tabs.select(ctx, index);
-  app_detail::report_focus_drift(window);
+  app_detail::report_focus_drift(win);
   return Status::kOk;
 }
 
