@@ -34,32 +34,13 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <string>
 #include <vector>
 
 #include "drawgui/abi/drawgui.h"
-#include "drawgui/anim/animation_engine.h"
-#include "drawgui/layout/layout_tree.h"
-#include "drawgui/render/font_catalog.h"
-#include "drawgui/render/image_catalog.h"
-#include "drawgui/render/render_tree.h"
-#include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/app/app.h"
+#include "drawgui/app/window.h"
 #include "drawgui/theme/theme.h"
-#include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/theme_package.h"
-#include "drawgui/ui/dialog.h"
-#include "drawgui/ui/dropdown.h"
-#include "drawgui/ui/menu.h"
-#include "drawgui/ui/progress_bar.h"
-#include "drawgui/ui/table.h"
-#include "drawgui/ui/tabs.h"
-#include "drawgui/ui/tooltip_popup.h"
-#include "drawgui/ui/tree_view.h"
-#include "drawgui/widget/focus.h"
-#include "drawgui/widget/interaction.h"
-#include "drawgui/widget/widget_set.h"
-#include "drawgui/window/popup_host.h"
-#include "drawgui/window/window_manager.h"
 
 // The wrapper structs the opaque `typedef struct dg_xxx_s dg_xxx_t;` forward
 // declarations in drawgui.h name. Deliberately trivial and deliberately
@@ -89,36 +70,11 @@ struct dg_theme_s {
 
 namespace dg::abi {
 
-// ABI 0.2 phase B: the src/ui component behind a DG_NODE_TYPE_DROPDOWN/
-// PROGRESS/TABS/TREE/TABLE node, plus the data needed to rebuild it (a theme
-// switch or a size change rebuilds the composed nodes from this). Dropped -
-// never destroy()ed, its nodes are already gone - when the node is removed.
-struct Component {
-  std::optional<dg::Dropdown> dropdown;
-  std::string placeholder;
-
-  dg::ProgressBar progress;
-
-  dg::Tabs tabs;
-  std::vector<dg::TabItem> tab_items;
-  std::vector<dg_node_t*> tab_panels;  // the caller-visible panel BOX of each tab
-
-  dg::TreeView tree;
-  std::vector<dg::TreeItem> tree_items;
-
-  dg::Table table;
-  std::vector<dg::TableColumn> columns;
-  std::vector<std::vector<std::string>> rows;
-  std::optional<int> sort_column;
-  bool sort_ascending = true;
-};
-
 // One dg_node_t's real state. PENDING until attached (dg_window_set_root()
 // or dg_node_insert_before() as a child), LIVE afterwards, REMOVED once
-// dg_node_remove() is called - see node_props.h's PropWrite/set_prop() for
-// why a LIVE node is required before dg_node_set_prop() can do anything: a
-// property write needs a real LayoutTree& and NodeId, and a pending node has
-// neither yet.
+// dg_node_remove() is called. A pending node is only a type: every write
+// needs a live node (DG_ERR_NO_WINDOW otherwise), so there is nothing to
+// stage - attaching it is one dg::Window::create().
 struct NodeSlot {
   enum class State : std::uint8_t { kPending, kLive, kRemoved };
 
@@ -134,122 +90,36 @@ struct NodeSlot {
   // equal in content but not in address, and a host is entitled to compare
   // handles by pointer identity.
   dg_node_t* self_handle = nullptr;
-
-  // DG_NODE_TYPE_SCROLL_VIEW: the composed content node every child the
-  // caller inserts actually goes into (the widget's scroll_content).
-  dg::NodeId content{};
-
-  // DG_NODE_TYPE_LIST: the rows dg_list_set_items() copied, and the
-  // selected row - the data the recycled pool rows are painted from.
-  std::vector<std::string> list_items;
-  int list_selected = -1;
-
-  // ABI 0.2 phase B: the component of a component-typed node (shared so a
-  // NodeSlot stays copyable), and the text dg_node_set_tooltip() bound.
-  std::shared_ptr<Component> component;
-  std::string tooltip;
 };
 
-// One open window: the SDL-backed id window_manager.h already owns, and the
-// layout/render/widget/interaction state this slice's ABI drives through it
-// - the same four objects examples/11_form_controls's own Runner and Scene
-// hold, generalised from "one example, one window" to "one app, N windows".
-class WindowImpl {
- public:
-  explicit WindowImpl(const dg::TreeSpec& spec) : tree(spec) {}
-
-  dg::WindowId sdl_window;
-  dg::LayoutTree tree;
-  dg::WidgetSet widgets;
-  dg::Interaction interaction;
-  std::optional<dg::RasterSurface> surface;
-  bool closed = false;
-
-  // A layout pass re-placed nodes since the composed children of scroll
-  // views/lists/text areas were last re-derived (resync_widgets()).
-  bool relaid = true;
-
-  // The click count of the latest primary press (PointerEvent::clicks),
-  // reported by the DG_EVENT_CLICK its release completes.
-  int last_press_clicks = 1;
-  // A key press since the last primary press restarts the multi-click
-  // count: click_offset is subtracted from PointerEvent::clicks.
-  bool key_since_press = false;
-  int click_offset = 0;
-
-  // Set once by dg_window_set_root(); a second call is DG_ERR_ALREADY_ATTACHED.
-  std::optional<dg::NodeId> root;
-
-  // 7-6: this window's own $token binding side table (ThemeBindings,
-  // unchanged) - one per window, mirroring the fact that a
-  // NodeId numbering space is per-window (dg::ThemeBindings is keyed by
-  // NodeId), not per-app.
-  dg::ThemeBindings theme_bindings;
-
-  // 8-3d: which node currently has keyboard focus, and which nodes scope
-  // which action_ids - the SAME per-window placement as theme_bindings
-  // immediately above, for the identical reason (design.md section 5.5.2's
-  // NodeId-keyed router state has no meaning outside the NodeId numbering
-  // space of one window's own RenderTree). `focus` is driven the same way
-  // examples/21_focus's own Scene drives it (focus_scene.cpp's
-  // dispatch_pointer(): a pointer press on a focusable widget focuses it,
-  // one anywhere else blurs) - process_pointer_event() below is this ABI's
-  // one caller of that rule. `action_scopes` backs dg_node_scope_action().
-  dg::Focus focus;
-  dg::ActionScopes action_scopes;
-
-  // 8-5: this window's own AnimationEngine, present for exactly one
-  // reason - dg_node_remove()'s remove_subtree() call requires one as a
-  // NON-optional reference member of NodeSideTables
-  // (include/drawgui/render/node_lifecycle.h's own
-  // header comment explains why cleanup takes every side table this way).
-  // There is still no animation ABI (dg_animate/dg_node_set_transition
-  // declined by name, unchanged by this slice),
-  // so nothing else in this file ever calls animate()/set_transition() on
-  // this instance - it only ever receives cancel_all_for() calls, which
-  // are no-ops against an engine with no slots.
-  dg::AnimationEngine animation;
-
-  // ABI 0.2 phase B: the overlay popups (menus, dropdown menus, the
-  // dialog, tooltips) all share this host; at most one dg_menu_open() menu
-  // and one dialog are open at a time.
-  std::optional<dg::PopupHost> popups;
-  dg::Menu menu;
-  std::int32_t menu_id = 0;
-  dg_node_t* menu_anchor = nullptr;
-  dg::Dialog dialog;
-  std::int32_t dialog_id = 0;
-  dg::Tooltip tooltip;
-  // The last pointer position inside the window (tooltip hover), and the
-  // focus last reported through DG_EVENT_FOCUS_CHANGED - components move
-  // focus themselves, the pump reports the difference.
-  std::optional<dg::PixelPoint> pointer;
-  std::optional<dg::NodeId> reported_focus;
-
+// One dg_window_t: the runtime window (owned by the app's dg::App) and the
+// handle every dg_event naming it carries.
+struct WindowImpl {
+  dg::Window* window = nullptr;
   dg_window_t* self_handle = nullptr;
   std::size_t self_index = 0;
 };
 
 // 7-6: one loaded theme, and (if it came from dg_theme_load_dir(), or from
 // dg_theme_load_memory() with a non-null base_dir) the untrusted package
-// directory it can still read resources from.
+// directory it can still read resources from. Shared with the runtime while
+// active; dg_theme_set_variant()/dg_theme_override() on the active theme
+// hand it to dg::App::set_theme() again, which re-applies it.
 struct ThemeImpl {
-  dg::Theme theme;
+  std::shared_ptr<dg::Theme> theme;
   dg::ThemeVariant variant = dg::ThemeVariant::kLight;
   std::optional<dg::ThemePackage> package;
 
   dg_theme_t* self_handle = nullptr;
 };
 
-// One dg_app_t: the window manager every one of its windows shares (SDL3's
-// own multi-window design already supports this - examples/01_sdl3_multi_window
-// is the precedent), and the two append-only arenas this ABI's handles index
-// into.
+// One dg_app_t: the runtime dg::App, and the append-only arenas this ABI's
+// handles index into.
 class AppImpl {
  public:
-  explicit AppImpl(dg::WindowManager manager) : wm(std::move(manager)) {}
+  explicit AppImpl(dg::App runtime) : app(std::move(runtime)) {}
 
-  dg::WindowManager wm;
+  dg::App app;
   std::vector<std::unique_ptr<WindowImpl>> windows;
   std::vector<NodeSlot> nodes;
 
@@ -262,37 +132,11 @@ class AppImpl {
   ThemeImpl* active_theme = nullptr;
 
   // dg_poll_events()'s queue - design.md section 5.8 decision 2's mandatory
-  // dequeue mode. Filled by wait_events()'s internal pump, drained by
-  // poll_events(); never delivered any other way (dg_set_event_callback is
-  // this slice's own declined item - see abi/drawgui.def.toml's own header).
+  // dequeue mode: every dg::Event the runtime queued, converted to a
+  // dg_event (drain_events()), drained by poll_events(); never delivered
+  // any other way (dg_set_event_callback is this ABI's own declined item -
+  // see abi/drawgui.def.toml's own header).
   std::vector<dg_event> pending_events;
-
-  // P6 sub-step a1: this app's ONE shared FontCatalog (design.md's
-  // dg::FontCatalog is copyable and a copy names the same fonts - a
-  // reference-counted table, per its own header comment - so every window
-  // this app opens gets a cheap copy in its dg::TreeSpec rather than a
-  // second scan). Absent until the host's first successful
-  // dg_app_add_font() call; a window opened before that has no fonts and
-  // therefore draws no text (render_tree.h's own "absent means no node in
-  // this tree draws text").
-  std::optional<dg::FontCatalog> fonts;
-
-  // The family dg_app_add_font() added FIRST, successfully - DG_NODE_TYPE_
-  // LABEL's engine-chosen default font (font_size/font_family are
-  // deliberately not properties this slice; see props/drawgui.props.toml's
-  // own comment on `text`). Default-constructed FontId::is_valid() is
-  // false, matching "no font added yet" without a second field to
-  // disagree with it.
-  dg::FontId default_font;
-
-  // ABI 0.2: every image dg_node_set_image_data()/_file() decoded, shared by
-  // all of this app's windows (each TreeSpec gets a copy of this handle).
-  dg::ImageCatalog images;
-
-  // ABI 0.2 phase B: dg_app_set_tooltip_delay(), and the ids handed out by
-  // dg_menu_open()/dg_dialog_open().
-  int tooltip_delay_ms = 500;
-  std::int32_t next_popup_id = 1;
 };
 
 }  // namespace dg::abi

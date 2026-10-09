@@ -32,6 +32,7 @@
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/graphics/types.h"
 #include "drawgui/shortcuts/chord.h"
+#include "drawgui/window/window_id.h"
 
 namespace dg {
 
@@ -45,17 +46,6 @@ namespace dg {
 // caller needs to act differently on one.
 struct WindowError {
   std::string message;
-};
-
-// Identifies one open window.
-//
-// A struct rather than a bare integer so that it cannot be passed where a
-// count, an index or a size was meant. The value is only meaningful to the
-// WindowManager that issued it, and only while that window is open.
-struct WindowId {
-  std::uint32_t value = 0;
-
-  friend bool operator==(WindowId, WindowId) = default;
 };
 
 // What a window should be when it appears.
@@ -409,14 +399,6 @@ enum class WindowEventKind : std::uint8_t {
   kFocusLost,
   kEnteredFullscreen,
   kLeftFullscreen,
-};
-
-// A timer created by WindowManager::add_timer(). Never 0 for a live timer,
-// never reused within one WindowManager.
-struct TimerId {
-  std::uint64_t value = 0;
-
-  friend bool operator==(TimerId, TimerId) = default;
 };
 
 struct WindowEvent {

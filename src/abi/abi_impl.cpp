@@ -1,11 +1,16 @@
 // See abi_impl.h's own header comment: everything here is hand-written,
 // throws freely, and is called only from the generated trampolines in
 // src/abi/drawgui_abi.generated.cpp.
+//
+// A thin shell over the C++ runtime (dg::App / dg::Window, src/app): this
+// file owns the handle arenas and their validation, converts dg_value and
+// dg::Event to and from their C shapes, and maps dg::Status to DG_ERR_*.
+// Everything a window does - layout, painting, focus, editing, routing - is
+// the runtime's.
 
 #include "abi_impl.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -14,9 +19,11 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
-#include "drawgui/anim/clock.h"
+#include "app/runtime_debug.h"
+#include "drawgui/app/node_kind.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/graphics/types.h"
@@ -26,14 +33,7 @@
 #include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/chord.h"
-#include "drawgui/shortcuts/clipboard_actions.h"
-#include "drawgui/shortcuts/keyboard_scroll.h"
-#include "drawgui/shortcuts/router.h"
 #include "drawgui/theme/theme_loader.h"
-#include "drawgui/widget/cursor.h"
-#include "drawgui/widget/focus.h"
-#include "drawgui/widget/interaction.h"
-#include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
 
 #include "abi_internal.h"
@@ -42,136 +42,26 @@
 namespace dg::abi {
 namespace {
 
-// DG_NODE_TYPE_LABEL's engine-chosen default text size (props/drawgui.props
-// .toml's own comment on `text`: font_size is not a property this slice).
-// Not measured against anything - only large enough to be legible at this
-// ABI's own default window sizes, and small enough to fit a one-line label
-// inside the 32px-tall default box attach_pending_node() gives it.
-constexpr float kDefaultLabelTextSize = 16.0F;
+// A dg_node_t's type_id IS a dg::NodeKind.
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kBox) == DG_NODE_TYPE_BOX);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kButton) == DG_NODE_TYPE_BUTTON);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kLabel) == DG_NODE_TYPE_LABEL);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kCheckbox) == DG_NODE_TYPE_CHECKBOX);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTextField) == DG_NODE_TYPE_TEXT_FIELD);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTextArea) == DG_NODE_TYPE_TEXT_AREA);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kScrollView) ==
+              DG_NODE_TYPE_SCROLL_VIEW);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kList) == DG_NODE_TYPE_LIST);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kImage) == DG_NODE_TYPE_IMAGE);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kDropdown) == DG_NODE_TYPE_DROPDOWN);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kProgress) == DG_NODE_TYPE_PROGRESS);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTabs) == DG_NODE_TYPE_TABS);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTree) == DG_NODE_TYPE_TREE);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTable) == DG_NODE_TYPE_TABLE);
+static_assert(dg::kNodeKindMin == DG_NODE_TYPE_BOX && dg::kNodeKindMax == DG_NODE_TYPE_TABLE);
 
-// P6 sub-step a2: DG_NODE_TYPE_CHECKBOX's colours - lifted unchanged from
-// examples/11_form_controls/form_scene.cpp's own add_toggle() palette
-// (kToggleNormal/kToggleHover/kTogglePressed/kBorder/kOff/kAccent), the
-// recipe this ABI branch copies rather than invents.
-constexpr std::uint32_t kCheckboxNormalArgb = 0xFF2C3644;
-constexpr std::uint32_t kCheckboxHoverArgb = 0xFF3B4A5E;
-constexpr std::uint32_t kCheckboxPressedArgb = 0xFF1F2731;
-constexpr std::uint32_t kCheckboxBorderArgb = 0xFF141A22;
-constexpr std::uint32_t kCheckboxOffArgb = 0xFF10151C;
-constexpr std::uint32_t kCheckboxOnArgb = 0xFF2E86DE;
-
-constexpr dg::Color kCheckboxNormal = dg::Color::from_argb(kCheckboxNormalArgb);
-constexpr dg::Color kCheckboxBorder = dg::Color::from_argb(kCheckboxBorderArgb);
-
-// DG_NODE_TYPE_TEXT_FIELD / DG_NODE_TYPE_TEXT_AREA colours come from the
-// theme (editor_palette_for() below), so both editors follow light/dark and
-// dg_theme_override(). These are only the fallbacks for a theme lacking a
-// token - the editors' original dark palette.
-constexpr std::uint32_t kTextFieldFillArgb = 0xFF161C24;
-constexpr std::uint32_t kTextFieldBorderUnfocusedArgb = 0xFF2C3644;
-constexpr std::uint32_t kTextFieldBorderFocusedArgb = 0xFF2E86DE;
-constexpr std::uint32_t kTextFieldTextColorArgb = 0xFFE8EDF4;
-// Selection = the accent at this opacity, so text stays readable on top.
-constexpr std::uint32_t kTextFieldSelectionAlpha = 0x8A;
-constexpr int kTextFieldWidth = 260;
-constexpr int kTextFieldHeight = 36;
-constexpr float kTextFieldFontSize = 16.0F;
-
-// DG_NODE_TYPE_TEXT_AREA: the text field's palette and font size above,
-// reused verbatim so the two editors look like one family; only the box is
-// larger. `kTextAreaHighlightPool` bounds how many selected lines can show
-// at once (WidgetSet's pool contract) - comfortably more than the default
-// box holds, with room for a host that enlarges it.
-constexpr int kTextAreaWidth = 320;
-constexpr int kTextAreaHeight = 160;
-constexpr int kTextAreaInset = 10;
-constexpr int kTextAreaHighlightPool = 64;
-constexpr int kTextAreaUnderlinePool = 4;
-
-// DG_NODE_TYPE_BUTTON's default text: the label's size, white on the
-// button's own blue fills.
-constexpr std::uint32_t kButtonTextArgb = 0xFFFFFFFF;
-
-// DG_NODE_TYPE_SCROLL_VIEW / DG_NODE_TYPE_LIST / DG_NODE_TYPE_IMAGE default
-// boxes. A list recycles kListPool rows, so at most kListPool - 2 rows can be
-// visible at once (list_sync() needs one spare row at each edge).
-constexpr int kScrollViewWidth = 240;
-constexpr int kScrollViewHeight = 160;
-constexpr int kListWidth = 240;
-constexpr int kListHeight = 200;
-constexpr int kListPool = 32;
-constexpr int kListItemHeight = 28;
-constexpr int kListRowInset = 8;
+// The longest dg_list_set_items() a caller can pass.
 constexpr int kListMaxItems = 1 << 24;
-constexpr std::uint32_t kListSelectionAlpha = 0x66;
-constexpr int kImageSize = 64;
-// One wheel notch, in device pixels, for every wheel-scrolled node type.
-constexpr float kWheelStepPx = 40.0F;
-
-// Both editors' colours, resolved from the active (else builtin dark) theme:
-// box = color.surface, border = color.border, focused border / caret =
-// color.primary, text and IME underline = color.on-surface, selection =
-// color.primary made translucent.
-struct EditorPalette {
-  dg::Color fill = dg::Color::from_argb(kTextFieldFillArgb);
-  dg::Color border = dg::Color::from_argb(kTextFieldBorderUnfocusedArgb);
-  dg::Color border_focused = dg::Color::from_argb(kTextFieldBorderFocusedArgb);
-  dg::Color text = dg::Color::from_argb(kTextFieldTextColorArgb);
-  dg::Color caret = dg::Color::from_argb(kTextFieldBorderFocusedArgb);
-  dg::Color selection = dg::Color::from_argb((kTextFieldSelectionAlpha << 24U) |
-                                             (kTextFieldBorderFocusedArgb & 0xFFFFFFU));
-  dg::Color underline = dg::Color::from_argb(kTextFieldTextColorArgb);
-};
-EditorPalette editor_palette_for(const AppImpl& impl);
-
-dg::NodeStyle text_field_box_style(const EditorPalette& palette, bool focused) {
-  dg::NodeStyle style;
-  style.fill = palette.fill;
-  style.border_color = focused ? palette.border_focused : palette.border;
-  style.border_width = dg::BorderWidths::all(1.0F);
-  style.radii = dg::Radii::all(6.0F);
-  style.overflow = dg::Overflow::kClip;
-  return style;
-}
-
-bool is_text_editor(const WindowImpl& window, dg::NodeId id) {
-  return window.widgets.has(id) && dg::is_editable_text(window.widgets.at(id).kind);
-}
-
-bool is_text_area(const WindowImpl& window, dg::NodeId id) {
-  return window.widgets.has(id) && window.widgets.at(id).kind == dg::WidgetKind::kTextArea;
-}
-
-// Re-applies text_field_box_style() without clobbering DG_PROP_DISABLED,
-// which lives in the same NodeStyle this replaces wholesale.
-void set_text_field_box_style(const EditorPalette& palette, dg::RenderTree& tree, dg::NodeId id,
-                              bool focused) {
-  dg::NodeStyle style = text_field_box_style(palette, focused);
-  style.disabled = tree.style(id).disabled;
-  tree.set_style(id, style);
-}
-
-// Points the platform IME's candidate window at a focused text area's caret
-// (WindowManager::start_text_input() is SDL_SetTextInputArea + start).
-void follow_caret(AppImpl& impl, WindowImpl& window, dg::NodeId area);
-
-// Focus/blur side effects for either text editor: the display mode, the
-// border colour, and (text area) the IME's caret rectangle.
-void set_editor_focus(AppImpl& impl, WindowImpl& window, dg::NodeId id, bool focused) {
-  if (!impl.fonts.has_value() || !is_text_editor(window, id)) {
-    return;
-  }
-  dg::RenderTree& tree = window.tree.render();
-  if (is_text_area(window, id)) {
-    window.widgets.text_area_set_focus(tree, *impl.fonts, id, focused);
-    if (focused) {
-      follow_caret(impl, window, id);
-    }
-  } else {
-    window.widgets.text_field_set_focus(tree, *impl.fonts, id, focused);
-  }
-  set_text_field_box_style(editor_palette_for(impl), tree, id, focused);
-}
 
 // -- Global arenas ------------------------------------------------------
 //
@@ -307,7 +197,7 @@ WindowImpl* resolve_window(dg_window_t* handle) {
     return nullptr;
   }
   WindowImpl* window = impl->windows[handle->index].get();
-  if (window == nullptr || window->closed) {
+  if (window == nullptr || window->window->closed()) {
     return nullptr;
   }
   return window;
@@ -339,20 +229,22 @@ ThemeImpl* resolve_theme(dg_theme_t* handle) {
   return impl->themes[handle->index].get();
 }
 
-WindowImpl* find_window_by_sdl_id(AppImpl& impl, dg::WindowId id) {
-  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
-    if (!window->closed && window->sdl_window == id) {
-      return window.get();
-    }
-  }
-  return nullptr;
-}
-
 dg_node_t* find_node_handle(AppImpl& impl, std::size_t window_index, dg::NodeId node_id) {
   for (NodeSlot& slot : impl.nodes) {
     if (slot.state == NodeSlot::State::kLive && slot.window_index == window_index &&
         slot.node_id == node_id) {
       return slot.self_handle;
+    }
+  }
+  return nullptr;
+}
+
+// The window an event names (closed ones included: DG_EVENT_WINDOW_CLOSED
+// names a window that just closed).
+const WindowImpl* window_named(const AppImpl& impl, dg::WindowId id) {
+  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
+    if (window->window->id() == id) {
+      return window.get();
     }
   }
   return nullptr;
@@ -381,24 +273,6 @@ std::optional<dg::PropValue> to_prop_value(const dg_value& value) {
     default:
       return std::nullopt;
   }
-}
-
-std::int32_t to_error_code(dg::PropStatus status) {
-  switch (status) {
-    case dg::PropStatus::kApplied:
-      return DG_ERR_OK;
-    case dg::PropStatus::kUnknownId:
-      return DG_ERR_UNKNOWN_ID;
-    case dg::PropStatus::kTypeMismatch:
-      return DG_ERR_TYPE_MISMATCH;
-    case dg::PropStatus::kValueOutOfRange:
-      return DG_ERR_VALUE_OUT_OF_RANGE;
-    case dg::PropStatus::kNotApplicable:
-      return DG_ERR_NOT_APPLICABLE;
-    case dg::PropStatus::kUnsupported:
-      return DG_ERR_UNSUPPORTED;
-  }
-  return DG_ERR_INTERNAL;
 }
 
 // -- 7-6: theme handling ----------------------------------------------------
@@ -447,1494 +321,6 @@ std::optional<dg::ThemeVariant> parse_variant(const char* variant) {
     return dg::ThemeVariant::kDark;
   }
   return std::nullopt;
-}
-
-// DG_PROP_DISABLED's appearance, from the theme tokens color.disabled/
-// color.on-disabled: the app's active theme when it has one, else the
-// builtin theme (dark variant, matching this file's own dark default
-// palette). Held once per window (WidgetSet::set_disabled_palette()), so a
-// theme change re-resolves it below instead of leaving stale colours on
-// widgets attached earlier.
-// The app's active theme and variant, else the builtin theme (dark).
-std::pair<const dg::Theme*, dg::ThemeVariant> theme_for(const AppImpl& impl) {
-  if (impl.active_theme != nullptr) {
-    return {&impl.active_theme->theme, impl.active_theme->variant};
-  }
-  static const dg::Expected<dg::Theme, dg::ThemeLoadError> builtin = dg::load_builtin_theme();
-  return {builtin.has_value() ? &builtin.value() : nullptr, dg::ThemeVariant::kDark};
-}
-
-dg::DisabledPalette disabled_palette_for(const AppImpl& impl) {
-  const dg::Theme* theme = nullptr;
-  dg::ThemeVariant variant = dg::ThemeVariant::kDark;
-  if (impl.active_theme != nullptr) {
-    theme = &impl.active_theme->theme;
-    variant = impl.active_theme->variant;
-  } else {
-    static const dg::Expected<dg::Theme, dg::ThemeLoadError> builtin = dg::load_builtin_theme();
-    if (builtin.has_value()) {
-      theme = &builtin.value();
-    }
-  }
-  if (theme == nullptr) {
-    return {};
-  }
-  return dg::DisabledPalette{theme->color_value(DG_TOKEN_COLOR_DISABLED, variant),
-                             theme->color_value(DG_TOKEN_COLOR_ON_DISABLED, variant)};
-}
-
-// The scrollbar look (DG_NODE_TYPE_TEXT_AREA's bar) from the theme tokens
-// color.scrollbar-* and size.scrollbar, resolved like the disabled palette.
-dg::ScrollbarStyle scrollbar_style_for(const AppImpl& impl) {
-  const auto [theme, variant] = theme_for(impl);
-  dg::ScrollbarStyle style;
-  if (theme == nullptr) {
-    return style;
-  }
-  style.track = theme->color_value(DG_TOKEN_COLOR_SCROLLBAR_TRACK, variant);
-  style.thumb = theme->color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB, variant);
-  style.thumb_hover = theme->color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER, variant);
-  style.thumb_pressed = theme->color_value(DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED, variant);
-  style.size = theme->int_value(DG_TOKEN_SIZE_SCROLLBAR).value_or(style.size);
-  return style;
-}
-
-EditorPalette editor_palette_for(const AppImpl& impl) {
-  const auto [theme, variant] = theme_for(impl);
-  EditorPalette palette;
-  if (theme == nullptr) {
-    return palette;
-  }
-  const auto pick = [&](dg_token_id id, dg::Color& out) {
-    if (const std::optional<dg::Color> c = theme->color_value(id, variant)) {
-      out = *c;
-    }
-  };
-  pick(DG_TOKEN_COLOR_SURFACE, palette.fill);
-  pick(DG_TOKEN_COLOR_BORDER, palette.border);
-  pick(DG_TOKEN_COLOR_PRIMARY, palette.border_focused);
-  pick(DG_TOKEN_COLOR_PRIMARY, palette.caret);
-  pick(DG_TOKEN_COLOR_ON_SURFACE, palette.text);
-  pick(DG_TOKEN_COLOR_ON_SURFACE, palette.underline);
-  palette.selection = dg::Color::from_argb((kTextFieldSelectionAlpha << 24U) |
-                                           (palette.caret.argb() & 0xFFFFFFU));
-  return palette;
-}
-
-// Re-colours every live text field / text area in `window` with `palette`.
-// Writes enabled colours only; refresh_subtree() afterwards re-dims the
-// disabled ones (it notices the overwrite and remembers the new colour).
-void restyle_editors(AppImpl& impl, std::size_t window_index, WindowImpl& window,
-                     const EditorPalette& palette) {
-  dg::RenderTree& tree = window.tree.render();
-  for (const NodeSlot& slot : impl.nodes) {
-    if (slot.state != NodeSlot::State::kLive || slot.window_index != window_index ||
-        (slot.type_id != DG_NODE_TYPE_TEXT_FIELD && slot.type_id != DG_NODE_TYPE_TEXT_AREA) ||
-        !window.widgets.has(slot.node_id)) {
-      continue;
-    }
-    const dg::NodeId id = slot.node_id;
-    set_text_field_box_style(palette, tree, id, window.focus.current() == id);
-    // attach() replaces the stored Widget by value; a copy with only the
-    // three box fills changed keeps the editing state intact.
-    dg::Widget updated = window.widgets.at(id);
-    updated.fill_normal = palette.fill;
-    updated.fill_hover = palette.fill;
-    updated.fill_pressed = palette.fill;
-    window.widgets.attach(id, updated);
-    const dg::Widget* widget = &window.widgets.at(id);
-    dg::TextStyle text = tree.style(widget->content).text;
-    text.color = palette.text;
-    tree.set_text(widget->content, text);
-    tree.set_fill(widget->caret, palette.caret);
-    if (widget->kind == dg::WidgetKind::kTextArea) {
-      for (const dg::NodeId n : widget->highlight_pool) {
-        tree.set_fill(n, palette.selection);
-      }
-      for (const dg::NodeId n : widget->underline_pool) {
-        tree.set_fill(n, palette.underline);
-      }
-    } else {
-      tree.set_fill(widget->selection_highlight, palette.selection);
-      tree.set_fill(widget->composition_underline, palette.underline);
-    }
-  }
-}
-
-// DG_NODE_TYPE_LIST's rows: text in color.on-surface, the selected row
-// filled with color.primary made translucent (the editors' selection rule).
-struct ListPalette {
-  dg::Color text = dg::Color::from_argb(kTextFieldTextColorArgb);
-  dg::Color selection = dg::Color::from_argb((kListSelectionAlpha << 24U) |
-                                             (kTextFieldBorderFocusedArgb & 0xFFFFFFU));
-};
-
-ListPalette list_palette_for(const AppImpl& impl) {
-  const auto [theme, variant] = theme_for(impl);
-  ListPalette palette;
-  if (theme == nullptr) {
-    return palette;
-  }
-  if (const std::optional<dg::Color> c =
-          theme->color_value(DG_TOKEN_COLOR_ON_SURFACE, variant)) {
-    palette.text = *c;
-  }
-  if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_PRIMARY, variant)) {
-    palette.selection =
-        dg::Color::from_argb((kListSelectionAlpha << 24U) | (c->argb() & 0xFFFFFFU));
-  }
-  return palette;
-}
-
-void repaint_list(AppImpl& impl, WindowImpl& window, const NodeSlot& slot);
-dg_node_t* nearest_handle(AppImpl& impl, WindowImpl& window, dg::NodeId id);
-
-// Every focus change ends here: the editors' focus/blur side effects, then
-// one DG_EVENT_FOCUS_CHANGED naming the newly focused node (null = none).
-void apply_focus_change(AppImpl& impl, WindowImpl& window, const dg::FocusChange& change) {
-  if (change.blurred.has_value()) {
-    set_editor_focus(impl, window, *change.blurred, false);
-  }
-  if (change.focused.has_value()) {
-    set_editor_focus(impl, window, *change.focused, true);
-  }
-  if (!change.any()) {
-    return;
-  }
-  window.reported_focus = window.focus.current();
-  dg_event out{};
-  out.size = sizeof(dg_event);
-  out.kind = DG_EVENT_FOCUS_CHANGED;
-  out.window = window.self_handle;
-  // A component's composed node (a tab, a tree) reports the component.
-  out.node =
-      change.focused.has_value() ? nearest_handle(impl, window, *change.focused) : nullptr;
-  impl.pending_events.push_back(out);
-}
-
-// dg_app_set_theme()/dg_theme_set_variant()/dg_theme_override() all end
-// here: whichever one changed the theme's DATA, the same re-apply against
-// every open window's own dg::ThemeBindings is what makes the change live -
-// design.md section 5.7.6's hot reload, at the ABI boundary, reusing 6-2's
-// ThemeBindings::apply() unchanged rather than inventing per-caller
-// invalidation logic three times over. The disabled palette is re-resolved
-// AFTER the bindings, so a disabled node whose colour is token-bound keeps
-// its disabled look and remembers the new enabled colour for later.
-void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
-  if (impl.active_theme != &theme) {
-    return;
-  }
-  const dg::DisabledPalette palette = disabled_palette_for(impl);
-  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
-    if (!window->closed) {
-      window->theme_bindings.apply(window->tree, theme.theme, theme.variant);
-      window->widgets.set_disabled_palette(palette);
-      window->widgets.set_scrollbar_style(scrollbar_style_for(impl));
-      restyle_editors(impl, window->self_index, *window, editor_palette_for(impl));
-      for (const NodeSlot& slot : impl.nodes) {
-        if (slot.state == NodeSlot::State::kLive && slot.type_id == DG_NODE_TYPE_LIST &&
-            slot.window_index == window->self_index) {
-          repaint_list(impl, *window, slot);
-        }
-      }
-      components::restyle(impl, *window);
-      window->widgets.refresh_subtree(window->tree.render(), dg::LayoutTree::root(),
-                                      window->interaction);
-    }
-  }
-}
-
-// -- Node attachment --------------------------------------------------------
-//
-// After a DG_PROP_DISABLED write on `node`: cancel a press/hover the write
-// just disabled (no click fires), blur a focus it just disabled, and repaint
-// every widget in the subtree, since the bit inherits.
-void sync_disabled(AppImpl& impl, WindowImpl& window, dg::NodeId node) {
-  dg::RenderTree& tree = window.tree.render();
-  const dg::InteractionChange change = window.interaction.cancel_disabled(tree);
-  apply_focus_change(impl, window, window.focus.blur_if_disabled(tree));
-  const std::optional<dg::NodeId> touched[] = {change.left, change.released};
-  for (const std::optional<dg::NodeId>& id : touched) {
-    if (id.has_value()) {
-      window.widgets.refresh(tree, *id, window.interaction.state_of(*id));
-    }
-  }
-  window.widgets.refresh_subtree(tree, node, window.interaction);
-}
-
-bool is_scroller_or_image(std::uint16_t type_id) {
-  return type_id == DG_NODE_TYPE_SCROLL_VIEW || type_id == DG_NODE_TYPE_LIST ||
-         type_id == DG_NODE_TYPE_IMAGE;
-}
-
-// DG_NODE_TYPE_SCROLL_VIEW / LIST / IMAGE default boxes.
-void scroller_or_image_defaults(const WindowImpl& window, std::uint16_t type_id,
-                                dg::BoxStyle& box, dg::NodeStyle& style) {
-  if (type_id == DG_NODE_TYPE_IMAGE) {
-    box.width = kImageSize;
-    box.height = kImageSize;
-    style.image.fit = dg::ImageFit::kContain;
-    return;
-  }
-  // A clipping kLeaf viewport with the scrollbar's gutter reserved on its
-  // trailing edge (examples/10_scrolling's / 15_list's recipe). No fill.
-  const bool list = type_id == DG_NODE_TYPE_LIST;
-  box.kind = dg::LayoutKind::kLeaf;
-  box.width = list ? kListWidth : kScrollViewWidth;
-  box.height = list ? kListHeight : kScrollViewHeight;
-  box.scroll_axis = list ? dg::ScrollAxis::kNone : dg::ScrollAxis::kVertical;
-  box.padding.right = window.widgets.scrollbar_style().size;
-  style.overflow = dg::Overflow::kClip;
-}
-
-// Scroll views, lists, images and the phase B components choose their own
-// default box.
-bool has_composed_defaults(std::uint16_t type_id) {
-  return is_scroller_or_image(type_id) || components::is_component_type(type_id);
-}
-
-void composed_defaults(const AppImpl& impl, const WindowImpl& window, std::uint16_t type_id,
-                       dg::BoxStyle& box, dg::NodeStyle& style) {
-  if (components::is_component_type(type_id)) {
-    components::defaults(impl, type_id, box, style);
-  } else {
-    scroller_or_image_defaults(window, type_id, box, style);
-  }
-}
-
-void compose_scroll_view(WindowImpl& window, NodeSlot& slot, dg::NodeId new_id) {
-  // The content node every caller child goes into (dg_node_insert_before()),
-  // then the scrollbar track + thumb, added last so they paint on top.
-  dg::BoxStyle content_box;
-  content_box.kind = dg::LayoutKind::kColumn;
-  slot.content = window.tree.add_child(new_id, content_box, dg::NodeStyle{});
-  dg::Widget widget;
-  widget.kind = dg::WidgetKind::kScrollView;
-  widget.scroll_axis = dg::ScrollAxis::kVertical;
-  widget.scroll_content = slot.content;
-  window.widgets.attach(new_id, widget);
-  const dg::NodeId track = window.tree.add_child(new_id, dg::BoxStyle{}, dg::NodeStyle{});
-  const dg::NodeId thumb = window.tree.add_child(track, dg::BoxStyle{}, dg::NodeStyle{});
-  window.widgets.attach_scrollbar(window.tree.render(), new_id, track, thumb);
-  window.relaid = true;
-}
-
-void compose_list(const AppImpl& impl, WindowImpl& window, dg::NodeId new_id) {
-  // A fixed pool of rows, each 100% of the content width (the gutter is
-  // padding), recycled by list_sync()/list_scroll_by().
-  dg::Widget widget;
-  widget.kind = dg::WidgetKind::kList;
-  widget.list_axis = dg::ScrollAxis::kVertical;
-  widget.list_item_count = 0;  // dg_list_set_items() fills it
-  widget.list_item_extent = kListItemHeight;
-  dg::BoxStyle row_box;
-  row_box.height = kListItemHeight;
-  row_box.percent.width = 100.0F;
-  dg::NodeStyle row_style;
-  row_style.text.font = impl.default_font;
-  row_style.text.size = kDefaultLabelTextSize;
-  row_style.text.align = dg::TextAlign::kLeft;
-  row_style.text.inset = kListRowInset;
-  for (int i = 0; i < kListPool; ++i) {
-    widget.list_pool.push_back(window.tree.add_child(new_id, row_box, row_style));
-  }
-  window.widgets.attach(new_id, widget);
-  const dg::NodeId track = window.tree.add_child(new_id, dg::BoxStyle{}, dg::NodeStyle{});
-  const dg::NodeId thumb = window.tree.add_child(track, dg::BoxStyle{}, dg::NodeStyle{});
-  window.widgets.attach_scrollbar(window.tree.render(), new_id, track, thumb);
-  window.relaid = true;
-}
-
-// The composed children of a scroll view, a list or a phase B component.
-void compose_owned(AppImpl& impl, WindowImpl& window, NodeSlot& slot) {
-  if (components::is_component_type(slot.type_id)) {
-    components::compose(impl, window, slot);
-  } else if (slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
-    compose_scroll_view(window, slot, slot.node_id);
-  } else if (slot.type_id == DG_NODE_TYPE_LIST) {
-    compose_list(impl, window, slot.node_id);
-  }
-}
-
-// The one place a PENDING node becomes LIVE - shared by dg_window_set_root()
-// (parent_id == the tree's own structural root) and dg_node_insert_before()
-// (parent_id == an already-live node). Defaults are chosen by type_id
-// because dg_node_set_prop() only works on a LIVE node (see node_props.h's
-// PropWrite/set_prop(): a write needs a real LayoutTree&/NodeId, and a
-// pending slot has neither) - so a node needs a sane box the instant it is
-// attached, not an invisible 0x0 one waiting for a property write that
-// cannot happen yet.
-std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::NodeId parent_id,
-                                 std::size_t child_index) {
-  NodeSlot& slot = impl.nodes[child_index];
-  if (slot.state != NodeSlot::State::kPending) {
-    return DG_ERR_ALREADY_ATTACHED;
-  }
-
-  WindowImpl& window = *impl.windows[window_index];
-
-  dg::BoxStyle box;
-  dg::NodeStyle style;
-
-  if (slot.type_id == DG_NODE_TYPE_LABEL) {
-    // A label's own box carries NO fill - only the text paints - matching
-    // examples/05_widgets/widget_scene.cpp's own transparent_text() shape,
-    // the precedent this mirrors rather than inventing a second one.
-    box.width = 240;
-    box.height = 32;
-    // The engine-chosen default this slice ships instead of font_size/
-    // font_family properties (props/drawgui.props.toml's own comment on
-    // `text`): dg_app_add_font()'s FIRST successfully added family, at a
-    // fixed size, in an opaque black that is visible against this ABI's
-    // own default window background (dg_window_opts::background_argb) -
-    // TextStyle::color's OWN default is fully transparent
-    // (graphics/types.h's Color{}), so a label with no default here would
-    // draw nothing until a caller also set DG_PROP_TEXT_COLOR.
-    style.text.font = impl.default_font;
-    style.text.size = kDefaultLabelTextSize;
-    style.text.color = dg::Color::rgba(0x00, 0x00, 0x00);
-  } else if (slot.type_id == DG_NODE_TYPE_CHECKBOX) {
-    // The outer 32x32 box (hover/press feedback on its OWN fill) - the exact
-    // dimensions examples/11_form_controls/form_scene.cpp's add_toggle()
-    // uses for an ungrouped (round == false) checkbox. The indicator CHILD
-    // that paints checked/unchecked is composed further below, once new_id
-    // exists to parent it under.
-    box.width = 32;
-    box.height = 32;
-    style.fill = kCheckboxNormal;
-    style.border_color = kCheckboxBorder;
-    style.border_width = dg::BorderWidths::all(1.0F);
-    style.radii = dg::Radii::all(6.0F);
-  } else if (slot.type_id == DG_NODE_TYPE_TEXT_FIELD) {
-    // examples/12_text_input/text_field_scene.cpp's add_field() box, copied
-    // unchanged - starts unfocused (field_style(false)).
-    box.width = kTextFieldWidth;
-    box.height = kTextFieldHeight;
-    style = text_field_box_style(editor_palette_for(impl), false);
-  } else if (slot.type_id == DG_NODE_TYPE_TEXT_AREA) {
-    box.width = kTextAreaWidth;
-    box.height = kTextAreaHeight;
-    style = text_field_box_style(editor_palette_for(impl), false);
-  } else if (has_composed_defaults(slot.type_id)) {
-    composed_defaults(impl, window, slot.type_id, box, style);
-  } else {
-    style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
-    if (slot.type_id == DG_NODE_TYPE_BUTTON) {
-      box.width = 200;
-      box.height = 64;
-      // Ready for dg_node_set_text(): the label's default font and size.
-      style.text.font = impl.default_font;
-      style.text.size = kDefaultLabelTextSize;
-      style.text.color = dg::Color::from_argb(kButtonTextArgb);
-    } else {
-      box.width = 240;
-      box.height = 120;
-    }
-  }
-
-  const dg::NodeId new_id = window.tree.add_child(parent_id, box, style);
-
-  slot.state = NodeSlot::State::kLive;
-  slot.window_index = window_index;
-  slot.node_id = new_id;
-
-  if (slot.type_id == DG_NODE_TYPE_BUTTON) {
-    dg::Widget widget;
-    widget.kind = dg::WidgetKind::kButton;
-    widget.fill_normal = dg::Color::rgba(0x35, 0x6B, 0xC7);
-    widget.fill_hover = dg::Color::rgba(0x4A, 0x86, 0xE3);
-    widget.fill_pressed = dg::Color::rgba(0x25, 0x50, 0x9C);
-    window.widgets.attach(new_id, widget);
-    window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
-  } else if (slot.type_id == DG_NODE_TYPE_LABEL) {
-    dg::Widget widget;
-    widget.kind = dg::WidgetKind::kLabel;
-    window.widgets.attach(new_id, widget);
-  } else if (slot.type_id == DG_NODE_TYPE_CHECKBOX) {
-    // P6 sub-step a2: the indicator CHILD - composed here, unaddressable
-    // through this ABI (no dg_node_t handle names it), exactly the recipe
-    // examples/11_form_controls/form_scene.cpp's add_toggle() uses. See
-    // this file's own DG_NODE_TYPE_CHECKBOX constant comment (abi/
-    // drawgui.def.toml) for why a caller cannot be asked to do this itself.
-    dg::BoxStyle indicator_box;
-    indicator_box.width = 20;
-    indicator_box.height = 20;
-    dg::NodeStyle indicator_style;
-    indicator_style.fill = dg::Color::from_argb(kCheckboxOffArgb);
-    const dg::NodeId indicator = window.tree.add_child(new_id, indicator_box, indicator_style);
-
-    dg::Widget widget;
-    widget.kind = dg::WidgetKind::kCheckbox;
-    widget.fill_normal = dg::Color::from_argb(kCheckboxNormalArgb);
-    widget.fill_hover = dg::Color::from_argb(kCheckboxHoverArgb);
-    widget.fill_pressed = dg::Color::from_argb(kCheckboxPressedArgb);
-    widget.indicator = indicator;
-    widget.indicator_on = dg::Color::from_argb(kCheckboxOnArgb);
-    widget.indicator_off = dg::Color::from_argb(kCheckboxOffArgb);
-    widget.checked = false;
-    // widget.group left unset (std::nullopt): this ABI never exports radio
-    // grouping - see abi/drawgui.def.toml's own "WHAT IS DELIBERATELY NOT
-    // HERE" entry on Widget::group for why.
-    window.widgets.attach(new_id, widget);
-    window.widgets.attach(indicator, dg::Widget{});
-    window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
-  } else if (slot.type_id == DG_NODE_TYPE_TEXT_FIELD) {
-    // examples/12_text_input/text_field_scene.cpp's add_field() recipe,
-    // copied unchanged: four caller-invisible children, in the SAME paint
-    // order (selection highlight, then composition underline, then text
-    // content, then caret - "background before foreground"), none reachable
-    // through this ABI (no dg_node_t names any of them), exactly the
-    // DG_NODE_TYPE_CHECKBOX indicator's own trade (see this file's own
-    // constant comment on DG_NODE_TYPE_TEXT_FIELD, abi/drawgui.def.toml).
-    const EditorPalette editor = editor_palette_for(impl);
-    dg::BoxStyle placeholder;
-    placeholder.kind = dg::LayoutKind::kLeaf;
-    placeholder.width = 1;
-    placeholder.height = 1;
-
-    dg::NodeStyle highlight_style;
-    highlight_style.fill = editor.selection;
-    const dg::NodeId highlight = window.tree.add_child(new_id, placeholder, highlight_style);
-
-    // composition_underline: built so Widget::composition_underline names a
-    // real NodeId (WidgetSet's own text_field_refresh_display() positions it
-    // unconditionally), but never driven - this ABI exports no IME/
-    // composition surface (abi/drawgui.def.toml's own "明确不做" entry), so
-    // `composing` never becomes true and this child stays zero-size forever.
-    dg::NodeStyle underline_style;
-    underline_style.fill = editor.underline;
-    const dg::NodeId underline = window.tree.add_child(new_id, placeholder, underline_style);
-
-    dg::NodeStyle content_style;
-    content_style.text.font = impl.default_font;
-    content_style.text.size = kTextFieldFontSize;
-    content_style.text.color = editor.text;
-    content_style.text.align = dg::TextAlign::kLeft;
-    const dg::NodeId content = window.tree.add_child(new_id, placeholder, content_style);
-
-    dg::NodeStyle caret_style;
-    caret_style.fill = editor.caret;
-    const dg::NodeId caret = window.tree.add_child(new_id, placeholder, caret_style);
-
-    dg::Widget widget;
-    widget.kind = dg::WidgetKind::kTextField;
-    // The box keeps its fill on hover/press, and gets it back after being
-    // disabled (refresh() paints fill_normal for an enabled widget).
-    widget.fill_normal = editor.fill;
-    widget.fill_hover = widget.fill_normal;
-    widget.fill_pressed = widget.fill_normal;
-    widget.content = content;
-    widget.caret = caret;
-    widget.selection_highlight = highlight;
-    widget.composition_underline = underline;
-    window.widgets.attach(new_id, widget);
-    if (impl.fonts.has_value()) {
-      window.widgets.text_field_set_focus(window.tree.render(), *impl.fonts, new_id, false);
-    }
-  } else if (slot.type_id == DG_NODE_TYPE_TEXT_AREA) {
-    // The text field's recipe, multi-line: a selection LAYER holding a pool
-    // of highlight nodes (one per visible selected line), an underline pool
-    // (one per visible line of an IME composition), the wrapping content,
-    // the caret, and a scrollbar track + thumb added last so it paints and
-    // hit-tests on top. All caller-invisible, like every composed child.
-    const EditorPalette editor = editor_palette_for(impl);
-    dg::BoxStyle placeholder;
-    placeholder.kind = dg::LayoutKind::kLeaf;
-    placeholder.width = 1;
-    placeholder.height = 1;
-
-    dg::Widget widget;
-    widget.kind = dg::WidgetKind::kTextArea;
-    widget.fill_normal = editor.fill;
-    widget.fill_hover = widget.fill_normal;
-    widget.fill_pressed = widget.fill_normal;
-    widget.text_inset = kTextAreaInset;
-
-    widget.selection_layer = window.tree.add_child(new_id, placeholder, dg::NodeStyle{});
-    dg::NodeStyle highlight_style;
-    highlight_style.fill = editor.selection;
-    for (int i = 0; i < kTextAreaHighlightPool; ++i) {
-      widget.highlight_pool.push_back(
-          window.tree.add_child(widget.selection_layer, placeholder, highlight_style));
-    }
-    dg::NodeStyle underline_style;
-    underline_style.fill = editor.underline;
-    for (int i = 0; i < kTextAreaUnderlinePool; ++i) {
-      widget.underline_pool.push_back(
-          window.tree.add_child(new_id, placeholder, underline_style));
-    }
-    dg::NodeStyle content_style;
-    content_style.text.font = impl.default_font;
-    content_style.text.size = kTextFieldFontSize;
-    content_style.text.color = editor.text;
-    content_style.text.align = dg::TextAlign::kLeft;
-    content_style.text.wrap = true;
-    widget.content = window.tree.add_child(new_id, placeholder, content_style);
-    dg::NodeStyle caret_style;
-    caret_style.fill = editor.caret;
-    widget.caret = window.tree.add_child(new_id, placeholder, caret_style);
-    const dg::NodeId track = window.tree.add_child(new_id, placeholder, dg::NodeStyle{});
-    const dg::NodeId thumb = window.tree.add_child(track, placeholder, dg::NodeStyle{});
-
-    window.widgets.attach(new_id, widget);
-    window.widgets.attach_scrollbar(window.tree.render(), new_id, track, thumb);
-    // Before the first layout the area's bounds are still zero; a refresh
-    // after every layout (repaint_and_present()) puts the children right.
-    if (impl.fonts.has_value()) {
-      window.widgets.text_area_set_focus(window.tree.render(), *impl.fonts, new_id, false);
-    }
-  } else {
-    compose_owned(impl, window, slot);
-  }
-  return DG_ERR_OK;
-}
-
-// -- The internal frame loop ------------------------------------------------
-//
-// Mirrors examples/11_form_controls/form_window.cpp's Runner::resize_if_needed()
-// + Runner::draw() exactly, generalised from one window to any window this
-// app owns - design.md section 5.16.1's "宿主只声明" applies to painting too:
-// a C host never gets a canvas, it gets dg_poll_events()/dg_wait_events(),
-// and drawgui paints and presents every frame internally.
-
-// Every layout pass goes through here, so resync_widgets() knows when the
-// composed children layout re-places (scrollbars, list rows) need
-// re-deriving.
-void relayout(WindowImpl& window) {
-  if (window.tree.layout().nodes_relaid_out != 0) {
-    window.relaid = true;
-  }
-}
-
-bool ensure_surface_current(dg::WindowManager& wm, WindowImpl& window) {
-  const dg::Expected<dg::PixelSize, dg::WindowError> size = wm.drawable_size(window.sdl_window);
-  if (!size) {
-    return false;
-  }
-  if (window.surface.has_value() && window.tree.viewport() == size.value()) {
-    return true;
-  }
-  window.tree.resize(size.value());
-  relayout(window);
-  window.surface = dg::RasterSurface::create(size.value().width, size.value().height);
-  return window.surface.has_value();
-}
-
-void repaint_and_present(dg::WindowManager& wm, WindowImpl& window) {
-  if (!ensure_surface_current(wm, window)) {
-    return;
-  }
-  // ensure_surface_current() returning true is what guarantees window.surface
-  // is engaged, but that guarantee crosses a function boundary clang-tidy's
-  // bugprone-unchecked-optional-access cannot see through - this repeats the
-  // check locally, which is a real defensive redundancy as well as what
-  // satisfies it: a future edit to ensure_surface_current() that stops
-  // engaging the optional on some path fails here loudly instead of
-  // dereferencing an empty optional.
-  if (!window.surface.has_value()) {
-    return;
-  }
-  relayout(window);
-  if (window.tree.render().damage().is_empty()) {
-    return;
-  }
-  window.tree.render().repaint(*window.surface);
-  const dg::PixelView view = window.surface->peek_pixels();
-  if (view.pixels == nullptr || !view.is_bgra8888) {
-    return;
-  }
-  const dg::ImageView image{view.pixels, view.width, view.height, view.row_bytes,
-                            dg::PixelFormat::kBgra8888};
-  (void)wm.present(window.sdl_window, image, window.tree.render().painted().rects());
-}
-
-// Every transition dg::Interaction reports, refreshed the same way every
-// prior C++ example's own dispatch()/react() pair already does (examples/
-// 05_widgets/widget_scene.cpp) - asking dg::Interaction::state_of() for each
-// touched widget rather than deriving an appearance from the event kind.
-void refresh_touched(WindowImpl& window, const dg::InteractionChange& change) {
-  const std::optional<dg::NodeId> touched[] = {change.left, change.entered, change.pressed,
-                                               change.released, change.clicked};
-  for (const std::optional<dg::NodeId>& id : touched) {
-    if (id.has_value()) {
-      window.widgets.refresh(window.tree.render(), *id, window.interaction.state_of(*id));
-    }
-  }
-}
-
-// The scroll-view/list/text-area kinds that own a scroll offset and a
-// scrollbar.
-bool is_scroller(const WindowImpl& window, dg::NodeId id) {
-  if (!window.widgets.has(id)) {
-    return false;
-  }
-  const dg::WidgetKind kind = window.widgets.at(id).kind;
-  return kind == dg::WidgetKind::kScrollView || kind == dg::WidgetKind::kList ||
-         kind == dg::WidgetKind::kTextArea;
-}
-
-// The visible length along `owner`'s scroll axis - what scroll_by()/
-// list_scroll_by()/the scrollbar functions call `viewport_extent`.
-int viewport_extent(const WindowImpl& window, dg::NodeId owner) {
-  const dg::Widget& widget = window.widgets.at(owner);
-  if (widget.kind == dg::WidgetKind::kTextArea) {
-    return window.tree.render().local_bounds(owner).height;
-  }
-  const dg::PixelRect content = window.tree.content_bounds(owner);
-  const dg::ScrollAxis axis =
-      widget.kind == dg::WidgetKind::kList ? widget.list_axis : widget.scroll_axis;
-  return axis == dg::ScrollAxis::kHorizontal ? content.width : content.height;
-}
-
-// The live slot naming `id` in window `window_index`, or null.
-NodeSlot* live_slot_of(AppImpl& impl, std::size_t window_index, dg::NodeId id) {
-  for (NodeSlot& slot : impl.nodes) {
-    if (slot.state == NodeSlot::State::kLive && slot.window_index == window_index &&
-        slot.node_id == id) {
-      return &slot;
-    }
-  }
-  return nullptr;
-}
-
-// Paints recycled list rows with the items they now show.
-void paint_list_rows(AppImpl& impl, WindowImpl& window, const NodeSlot& slot,
-                     const std::vector<dg::ListSlot>& rows) {
-  dg::RenderTree& tree = window.tree.render();
-  const ListPalette palette = list_palette_for(impl);
-  for (const dg::ListSlot& row : rows) {
-    const bool in_range = row.logical_index >= 0 &&
-                          static_cast<std::size_t>(row.logical_index) < slot.list_items.size();
-    dg::TextStyle text = tree.style(row.node).text;
-    text.text =
-        in_range ? slot.list_items[static_cast<std::size_t>(row.logical_index)] : std::string();
-    text.color = palette.text;
-    tree.set_text(row.node, text);
-    tree.set_fill(row.node, in_range && row.logical_index == slot.list_selected
-                                ? palette.selection
-                                : dg::Color{});
-  }
-}
-
-// Every pool row of a list that currently shows an item, repainted (after a
-// selection or theme change).
-void repaint_list(AppImpl& impl, WindowImpl& window, const NodeSlot& slot) {
-  const dg::Widget& widget = window.widgets.at(slot.node_id);
-  std::vector<dg::ListSlot> rows;
-  for (std::size_t i = 0; i < widget.list_pool.size() && i < widget.list_assigned.size(); ++i) {
-    if (widget.list_assigned[i] >= 0) {
-      rows.push_back(dg::ListSlot{widget.list_pool[i], widget.list_assigned[i]});
-    }
-  }
-  paint_list_rows(impl, window, slot, rows);
-}
-
-void apply_scroll_result(AppImpl& impl, WindowImpl& window, dg::NodeId owner,
-                         const dg::ScrollResult& result) {
-  if (result.slots.empty()) {
-    return;
-  }
-  const NodeSlot* slot = live_slot_of(impl, window.self_index, owner);
-  if (slot != nullptr && slot->type_id == DG_NODE_TYPE_LIST) {
-    paint_list_rows(impl, window, *slot, result.slots);
-  }
-}
-
-// A drag that started on a focused text area extends its selection; one that
-// started on a scrollbar thumb scrolls its owner.
-void drag_held(AppImpl& impl, WindowImpl& window, dg::PixelPoint at) {
-  const std::optional<dg::NodeId> held = window.interaction.holding();
-  if (!held.has_value()) {
-    return;
-  }
-  const std::optional<dg::NodeId> bar_owner = window.widgets.scrollbar_owner_of(*held);
-  if (bar_owner.has_value() && is_scroller(window, *bar_owner)) {
-    apply_scroll_result(impl, window, *bar_owner,
-                        window.widgets.scrollbar_drag(window.tree.render(), *held,
-                                                      viewport_extent(window, *bar_owner), at));
-  } else if (impl.fonts.has_value() && is_text_area(window, *held) &&
-             window.focus.current() == held) {
-    window.widgets.text_area_click(window.tree.render(), *impl.fonts, *held, at,
-                                   /*extend_selection=*/true);
-    follow_caret(impl, window, *held);
-  }
-}
-
-// A press on a scroll view's, list's or text area's own scrollbar scrolls
-// it without moving focus or the caret. True when `hit` was such a part.
-bool press_scrollbar(AppImpl& impl, WindowImpl& window, std::optional<dg::NodeId> hit,
-                     dg::PixelPoint at) {
-  const std::optional<dg::NodeId> bar_owner =
-      hit.has_value() ? window.widgets.scrollbar_owner_of(*hit) : std::nullopt;
-  if (!bar_owner.has_value() || !is_scroller(window, *bar_owner)) {
-    return false;
-  }
-  apply_scroll_result(impl, window, *bar_owner,
-                      window.widgets.scrollbar_press(window.tree.render(), *hit,
-                                                     viewport_extent(window, *bar_owner), at));
-  return true;
-}
-
-// Every press on a focused editor places its caret, not only the press that
-// focused it. `clicks` is the press's PointerEvent::clicks.
-void place_editor_caret(AppImpl& impl, WindowImpl& window, std::optional<dg::NodeId> hit,
-                        dg::PixelPoint at, int clicks) {
-  if (!impl.fonts.has_value() || !hit.has_value() || !is_text_editor(window, *hit) ||
-      window.focus.current() != hit) {
-    return;
-  }
-  clicks = std::max(clicks, 1);
-  if (is_text_area(window, *hit)) {
-    window.widgets.text_area_click(window.tree.render(), *impl.fonts, *hit, at,
-                                   /*extend_selection=*/false, clicks);
-    follow_caret(impl, window, *hit);
-  } else {
-    window.widgets.text_field_click(window.tree.render(), *impl.fonts, *hit, at.x,
-                                    /*extend_selection=*/false, clicks);
-  }
-}
-
-bool is_ancestor_or_self(const dg::RenderTree& tree, dg::NodeId ancestor, dg::NodeId id) {
-  dg::NodeId current = id;
-  while (true) {
-    if (current == ancestor) {
-      return true;
-    }
-    const dg::NodeId parent = tree.parent(current);
-    if (parent == current) {
-      return false;
-    }
-    current = parent;
-  }
-}
-
-// The wheel scrolls the nearest list, scroll view or text area under the
-// pointer; a text area's caret stays where it is.
-void wheel_scroll(AppImpl& impl, WindowImpl& window, const dg::PointerEvent& event) {
-  const dg::PixelPoint at{event.x, event.y};
-  dg::RenderTree& tree = window.tree.render();
-  const std::optional<dg::NodeId> hit = tree.hit_test(at);
-  if (!hit.has_value()) {
-    return;
-  }
-  const int dx = static_cast<int>(-event.wheel_x * kWheelStepPx);
-  const int dy = static_cast<int>(-event.wheel_y * kWheelStepPx);
-  // The innermost of the two climbs wins: a list inside a scroll view
-  // scrolls itself.
-  const std::optional<dg::NodeId> list = window.widgets.list_owner_of(tree, *hit);
-  const std::optional<dg::NodeId> view = window.widgets.scrollable_owner_of(tree, *hit);
-  const bool list_inside_view =
-      list.has_value() && view.has_value() && is_ancestor_or_self(tree, *view, *list);
-  if (list.has_value() && (!view.has_value() || list_inside_view)) {
-    if (dg::is_disabled(tree, *list)) {
-      return;
-    }
-    const std::vector<dg::ListSlot> rows =
-        window.widgets.list_scroll_by(tree, *list, viewport_extent(window, *list), dx, dy);
-    apply_scroll_result(impl, window, *list, dg::ScrollResult{true, rows});
-    return;
-  }
-  if (!view.has_value() || dg::is_disabled(tree, *view)) {
-    return;
-  }
-  if (is_text_area(window, *view)) {
-    const dg::PixelRect bounds = tree.local_bounds(*view);
-    window.widgets.scroll_by(tree, *view, dg::PixelRect{0, 0, bounds.width, bounds.height}, 0,
-                             dy);
-  } else {
-    window.widgets.scroll_by(tree, *view, window.tree.content_bounds(*view), dx, dy);
-  }
-}
-
-// The nearest ancestor-or-self of `id` that has a dg_node_t handle.
-dg_node_t* nearest_handle(AppImpl& impl, WindowImpl& window, dg::NodeId id) {
-  const dg::RenderTree& tree = window.tree.render();
-  dg::NodeId current = id;
-  while (true) {
-    if (dg_node_t* handle = find_node_handle(impl, window.self_index, current)) {
-      return handle;
-    }
-    const dg::NodeId parent = tree.parent(current);
-    if (parent == current) {
-      return nullptr;
-    }
-    current = parent;
-  }
-}
-
-// A primary press on a list row selects it and queues DG_EVENT_LIST_SELECT.
-// True when `at` hit a row of an enabled list.
-bool press_list_row(AppImpl& impl, WindowImpl& window, dg::PixelPoint at, int clicks) {
-  dg::RenderTree& tree = window.tree.render();
-  const std::optional<dg::NodeId> hit = tree.hit_test(at);
-  const std::optional<dg::NodeId> list =
-      hit.has_value() ? window.widgets.list_owner_of(tree, *hit) : std::nullopt;
-  if (!list.has_value() || dg::is_disabled(tree, *list)) {
-    return false;
-  }
-  const dg::Widget& widget = window.widgets.at(*list);
-  NodeSlot* slot = live_slot_of(impl, window.self_index, *list);
-  if (slot == nullptr) {
-    return false;
-  }
-  for (std::size_t i = 0; i < widget.list_pool.size() && i < widget.list_assigned.size(); ++i) {
-    const int index = widget.list_assigned[i];
-    if (widget.list_pool[i] != *hit || index < 0 ||
-        static_cast<std::size_t>(index) >= slot->list_items.size()) {
-      continue;
-    }
-    slot->list_selected = index;
-    repaint_list(impl, window, *slot);
-    dg_event out{};
-    out.size = sizeof(dg_event);
-    out.kind = DG_EVENT_LIST_SELECT;
-    out.window = window.self_handle;
-    out.node = slot->self_handle;
-    out.x = index;
-    out.clicks = static_cast<std::uint16_t>(std::clamp(clicks, 1, 0xFFFF));
-    impl.pending_events.push_back(out);
-    return true;
-  }
-  return false;
-}
-
-// A secondary-button press: DG_EVENT_CONTEXT_CLICK on the nearest handle
-// under the pointer. Nothing is pressed or focused.
-void context_click(AppImpl& impl, WindowImpl& window, const dg::PointerEvent& event) {
-  const dg::PixelPoint at{event.x, event.y};
-  const std::optional<dg::NodeId> hit = window.tree.render().hit_test(at);
-  if (hit.has_value() && dg::is_disabled(window.tree.render(), *hit)) {
-    return;
-  }
-  dg_event out{};
-  out.size = sizeof(dg_event);
-  out.kind = DG_EVENT_CONTEXT_CLICK;
-  out.window = window.self_handle;
-  out.node = hit.has_value() ? nearest_handle(impl, window, *hit) : nullptr;
-  out.x = event.x;
-  out.y = event.y;
-  out.clicks = static_cast<std::uint16_t>(std::clamp(event.clicks, 1, 0xFFFF));
-  impl.pending_events.push_back(out);
-}
-
-// PointerEvent::clicks (WindowManager's count), restarted at 1 when a key
-// was pressed since the previous press.
-int effective_clicks(WindowImpl& window, int clicks) {
-  clicks = std::max(clicks, 1);
-  if (clicks == 1) {
-    window.click_offset = 0;
-  } else if (window.key_since_press) {
-    window.click_offset = clicks - 1;
-  }
-  window.key_since_press = false;
-  return std::max(clicks - window.click_offset, 1);
-}
-
-void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerEvent& event) {
-  // ABI 0.2 phase B: an open dialog/menu, dropdowns, tabs, trees and tables
-  // see the event first.
-  if (components::route_pointer(impl, window, event)) {
-    return;
-  }
-  const dg::PixelPoint at{event.x, event.y};
-  const bool is_button =
-      event.action == dg::PointerAction::kDown || event.action == dg::PointerAction::kUp;
-  if (is_button && event.button != dg::PointerButton::kPrimary) {
-    // ABI 0.2: only the primary button presses/clicks/focuses; a secondary
-    // press is a context click, the middle button does nothing.
-    if (event.action == dg::PointerAction::kDown &&
-        event.button == dg::PointerButton::kSecondary) {
-      context_click(impl, window, event);
-    }
-    return;
-  }
-  dg::InteractionChange change;
-  switch (event.action) {
-    case dg::PointerAction::kMove: {
-      change =
-          window.interaction.moved_over(window.widgets.widget_at(window.tree.render(), at));
-      drag_held(impl, window, at);
-      break;
-    }
-    case dg::PointerAction::kDown: {
-      window.last_press_clicks = effective_clicks(window, event.clicks);
-      const std::optional<dg::NodeId> hit = window.widgets.widget_at(window.tree.render(), at);
-      change = window.interaction.pressed_on(hit);
-      // 8-3d: a press on a focusable widget focuses it (blurring whatever
-      // held focus before), a press anywhere else blurs - the identical
-      // rule examples/21_focus/focus_scene.cpp's own dispatch_pointer()
-      // already applies to its own Scene. This is what gives
-      // dg_node_scope_action() a real `focused` node to bubble FROM
-      // (design.md section 5.5.2 level 2).
-      const bool hit_is_focusable = hit.has_value() && window.widgets.has(*hit) &&
-                                    dg::is_focusable(window.widgets.at(*hit).kind);
-      if (press_scrollbar(impl, window, hit, at)) {
-        break;
-      }
-      if (!hit.has_value() && press_list_row(impl, window, at, window.last_press_clicks)) {
-        break;
-      }
-      const std::optional<dg::NodeId> new_focus = hit_is_focusable ? hit : std::nullopt;
-      // The border recolour + display re-derivation for editors, and
-      // DG_EVENT_FOCUS_CHANGED, all in apply_focus_change().
-      apply_focus_change(impl, window, window.focus.set(new_focus));
-      place_editor_caret(impl, window, hit, at, window.last_press_clicks);
-      break;
-    }
-    case dg::PointerAction::kUp:
-      change =
-          window.interaction.released_on(window.widgets.widget_at(window.tree.render(), at));
-      window.widgets.scrollbar_release();
-      break;
-    case dg::PointerAction::kLeave:
-      change = window.interaction.left_window();
-      break;
-    case dg::PointerAction::kWheel:
-      wheel_scroll(impl, window, event);
-      return;
-  }
-  refresh_touched(window, change);
-  // ABI 0.2: the cursor follows the pointer. WindowManager only calls the
-  // platform when the shape changes, so this is cheap on every motion.
-  if (event.action != dg::PointerAction::kLeave) {
-    impl.wm.set_cursor(window.sdl_window, dg::cursor_at(window.tree.render(), window.widgets,
-                                                        window.interaction, at));
-  }
-  if (change.clicked.has_value() && window.widgets.has(*change.clicked) &&
-      window.widgets.at(*change.clicked).kind == dg::WidgetKind::kCheckbox) {
-    // P6 sub-step a2: a completed click on a checkbox flips its checked bit
-    // immediately, before DG_EVENT_CLICK is queued - "receive CLICK, then
-    // dg_node_get_checked() to ask" (abi/drawgui.def.toml's comment on
-    // dg_node_get_checked()). toggle() cannot repaint, so refresh() follows.
-    window.widgets.toggle(*change.clicked);
-    window.widgets.refresh(window.tree.render(), *change.clicked,
-                           window.interaction.state_of(*change.clicked));
-  }
-  if (change.clicked.has_value()) {
-    dg_event out{};
-    out.size = sizeof(dg_event);
-    out.kind = DG_EVENT_CLICK;
-    out.window = window.self_handle;
-    out.node = find_node_handle(impl, window.self_index, *change.clicked);
-    out.x = event.x;
-    out.y = event.y;
-    // The release carries no count of its own; the press that started this
-    // click did, and Interaction only clicks on a release after a press.
-    out.clicks = static_cast<std::uint16_t>(std::clamp(window.last_press_clicks, 1, 0xFFFF));
-    impl.pending_events.push_back(out);
-  }
-}
-
-// P6 sub-step a2 (second half): dispatches Left/Right/Home/End/Backspace/
-// Delete on a focused DG_NODE_TYPE_TEXT_FIELD DIRECTLY to WidgetSet's own
-// text_field_move()/backspace()/delete_forward() - the SAME switch
-// examples/12_text_input/text_field_window.cpp's own Runner::handle_key()
-// already runs, copied rather than routed through design.md section
-// 5.5.2's four-level router: ActionScope::kTextField only ever carries the
-// four clipboard actions (dg::clipboard_actions.h's own header comment -
-// copy/cut/paste/select_all), never a caret move or a delete, so there is
-// no ActionId for route_key_event() to resolve one of these keys to.
-// Returns whether `field`'s COMMITTED TEXT changed (Backspace/Delete only -
-// a plain move never touches Widget::edit.text), which is what tells the caller
-// whether to queue a DG_EVENT_TEXT_CHANGED.
-// kTextArea's counterpart of handle_text_field_key(): its larger key set
-// (router.cpp's is_text_editing_intent() names the same one). Returns
-// whether the committed text changed; `consumed` reports whether the key
-// was one of the area's own (everything else continues to the router).
-bool handle_text_area_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::NodeId area,
-                          const dg::KeyEvent& event, bool& consumed) {
-  dg::RenderTree& tree = window.tree.render();
-  const bool shift = dg::has(event.mods, dg::Modifier::kShift);
-  const bool mod = dg::has(event.mods, dg::Modifier::kMod);
-  const auto move = [&](dg::TextAreaMove where) {
-    window.widgets.text_area_move(tree, fonts, area, where, shift);
-    return false;
-  };
-  consumed = true;
-  switch (event.key) {
-    case dg::Key::kLeft:
-      return move(mod ? dg::TextAreaMove::kWordLeft : dg::TextAreaMove::kCharLeft);
-    case dg::Key::kRight:
-      return move(mod ? dg::TextAreaMove::kWordRight : dg::TextAreaMove::kCharRight);
-    case dg::Key::kUp:
-      return move(dg::TextAreaMove::kLineUp);
-    case dg::Key::kDown:
-      return move(dg::TextAreaMove::kLineDown);
-    case dg::Key::kPageUp:
-      return move(dg::TextAreaMove::kPageUp);
-    case dg::Key::kPageDown:
-      return move(dg::TextAreaMove::kPageDown);
-    case dg::Key::kHome:
-      return move(mod ? dg::TextAreaMove::kDocStart : dg::TextAreaMove::kLineStart);
-    case dg::Key::kEnd:
-      return move(mod ? dg::TextAreaMove::kDocEnd : dg::TextAreaMove::kLineEnd);
-    case dg::Key::kBackspace:
-      return mod ? window.widgets.editor_delete_word(tree, fonts, area, true)
-                 : window.widgets.text_area_backspace(tree, fonts, area);
-    case dg::Key::kDelete:
-      return mod ? window.widgets.editor_delete_word(tree, fonts, area, false)
-                 : window.widgets.text_area_delete_forward(tree, fonts, area);
-    case dg::Key::kEnter:
-      if (!mod && !dg::has(event.mods, dg::Modifier::kAlt)) {
-        return window.widgets.text_area_insert(tree, fonts, area, "\n");
-      }
-      break;
-    case dg::Key::kEscape:
-    case dg::Key::kTab:
-    case dg::Key::kOther:
-      break;
-  }
-  consumed = false;
-  return false;
-}
-
-// Undo/redo (input/shortcuts.toml's undo/redo/redo_alt chords) on a focused,
-// enabled editor, applied here before the router like the editing keys
-// above - the host does not have to scope or handle them. Returns whether
-// the key was one of those chords (consumed even when nothing was undone).
-bool apply_editor_history_key(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
-                              const dg::KeyEvent& event) {
-  if (!impl.fonts.has_value() || !is_text_editor(window, editor) ||
-      dg::is_disabled(window.tree.render(), editor)) {
-    return false;
-  }
-  const dg::Chord chord{event.mods, event.logical_key};
-  for (const dg::ShortcutBinding& binding : dg::all_shortcut_bindings()) {
-    if (binding.chord != chord) {
-      continue;
-    }
-    bool changed = false;
-    if (binding.action_id == DG_ACTION_UNDO) {
-      changed = window.widgets.editor_undo(window.tree.render(), *impl.fonts, editor);
-    } else if (binding.action_id == DG_ACTION_REDO || binding.action_id == DG_ACTION_REDO_ALT) {
-      changed = window.widgets.editor_redo(window.tree.render(), *impl.fonts, editor);
-    } else {
-      continue;
-    }
-    if (changed) {
-      dg_event out{};
-      out.size = sizeof(dg_event);
-      out.kind = DG_EVENT_TEXT_CHANGED;
-      out.window = window.self_handle;
-      out.node = find_node_handle(impl, window.self_index, editor);
-      impl.pending_events.push_back(out);
-    }
-    if (is_text_area(window, editor)) {
-      follow_caret(impl, window, editor);
-    }
-    return true;
-  }
-  return false;
-}
-
-// Copy/cut/paste/select-all on a focused, enabled editor, applied here like
-// the history chords (the host has no ABI to perform them). Reuses
-// dg::apply_clipboard_action. Returns whether the key was one of those chords.
-bool apply_editor_clipboard_key(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
-                                const dg::KeyEvent& event) {
-  if (!impl.fonts.has_value() || !is_text_editor(window, editor) ||
-      dg::is_disabled(window.tree.render(), editor)) {
-    return false;
-  }
-  const dg::TextFieldEditContext ctx{window.tree.render(), *impl.fonts, window.widgets,
-                                     impl.wm};
-  bool changed = false;
-  if (!dg::apply_clipboard_key(event, editor, ctx, &changed)) {
-    return false;
-  }
-  if (changed) {
-    dg_event out{};
-    out.size = sizeof(dg_event);
-    out.kind = DG_EVENT_TEXT_CHANGED;
-    out.window = window.self_handle;
-    out.node = find_node_handle(impl, window.self_index, editor);
-    impl.pending_events.push_back(out);
-  }
-  if (is_text_area(window, editor)) {
-    follow_caret(impl, window, editor);
-  }
-  return true;
-}
-
-bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::NodeId field,
-                           const dg::KeyEvent& event) {
-  dg::RenderTree& tree = window.tree.render();
-  const bool shift = dg::has(event.mods, dg::Modifier::kShift);
-  const bool mod = dg::has(event.mods, dg::Modifier::kMod);
-  switch (event.key) {
-    case dg::Key::kLeft:
-      window.widgets.text_field_move(
-          tree, fonts, field, mod ? dg::TextFieldMove::kWordLeft : dg::TextFieldMove::kCharLeft,
-          shift);
-      return false;
-    case dg::Key::kRight:
-      window.widgets.text_field_move(
-          tree, fonts, field,
-          mod ? dg::TextFieldMove::kWordRight : dg::TextFieldMove::kCharRight, shift);
-      return false;
-    case dg::Key::kHome:
-      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart, shift);
-      return false;
-    case dg::Key::kEnd:
-      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd, shift);
-      return false;
-    case dg::Key::kBackspace:
-      return mod ? window.widgets.editor_delete_word(tree, fonts, field, true)
-                 : window.widgets.text_field_backspace(tree, fonts, field);
-    case dg::Key::kDelete:
-      return mod ? window.widgets.editor_delete_word(tree, fonts, field, false)
-                 : window.widgets.text_field_delete_forward(tree, fonts, field);
-    case dg::Key::kEscape:
-    case dg::Key::kTab:
-    case dg::Key::kUp:
-    case dg::Key::kDown:
-    case dg::Key::kEnter:
-    case dg::Key::kPageUp:
-    case dg::Key::kPageDown:
-    case dg::Key::kOther:
-      return false;
-  }
-  return false;
-}
-
-// ABI 0.2: Tab / Shift+Tab move focus through the focusable widgets in
-// tree order (DG_PROP_TAB_INDEX overrides it), before any editor sees the
-// key - Tab is focus traversal in a text area too.
-bool handle_tab(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& event) {
-  if (event.key != dg::Key::kTab || dg::has(event.mods, dg::Modifier::kMod) ||
-      dg::has(event.mods, dg::Modifier::kAlt)) {
-    return false;
-  }
-  dg::RenderTree& tree = window.tree.render();
-  const dg::FocusChange change =
-      dg::has(event.mods, dg::Modifier::kShift)
-          ? window.focus.focus_previous(tree, window.widgets, dg::LayoutTree::root())
-          : window.focus.focus_next(tree, window.widgets, dg::LayoutTree::root());
-  apply_focus_change(impl, window, change);
-  return true;
-}
-
-// 8-3d: design.md section 5.5.2's four-level router, driven by a REAL
-// dg::KeyEvent this ABI's own SDL pump produced (or, for
-// dg_debug_post_key()'s own test injection, a real SDL key event posted
-// through the real queue exactly like dg_debug_post_pointer_button() does
-// for clicks) - the ABI's own second caller of dg::route_key_event(),
-// after examples/10_scrolling's C++ one (8-3c). Only KeyAction::kDown
-// reaches resolve_action(): route_key_event() itself is blind to
-// event.action (a chord fires identically whichever way this file calls
-// it), so gating here, once, is what keeps a single key press from firing
-// its resolved action twice - on press AND on release.
-void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& event) {
-  if (components::route_key(impl, window, event)) {
-    return;
-  }
-  if (event.action != dg::KeyAction::kDown) {
-    return;
-  }
-  // P6 sub-step a2 (second half): a focused text field's own editing keys
-  // are consumed HERE, before the router runs at all - see
-  // handle_text_field_key()'s own header comment for why these six keys
-  // have no ActionId to route to in the first place. Consuming them first
-  // also sidesteps a real ambiguity the router alone cannot resolve: Home/
-  // End are ALSO the app-scope keyboard-scrolling chord (keyboard_scroll.h)
-  // - a text field's own caret move must win while it is focused, matching
-  // every desktop toolkit's "a focused text field owns Home/End, a
-  // scrollable region only gets them when nothing more specific does".
-  const std::optional<dg::NodeId> focused = window.focus.current();
-  window.widgets.set_edit_time(dg::steady_anim_time());
-  // A key press between two clicks ends a multi-click sequence: the second
-  // click places a caret instead of selecting a word (effective_clicks()).
-  window.key_since_press = true;
-  if (handle_tab(impl, window, event)) {
-    return;
-  }
-  if (focused.has_value() && apply_editor_history_key(impl, window, *focused, event)) {
-    return;
-  }
-  if (focused.has_value() && apply_editor_clipboard_key(impl, window, *focused, event)) {
-    return;
-  }
-  if (focused.has_value() && is_text_area(window, *focused) && impl.fonts.has_value() &&
-      !dg::is_disabled(window.tree.render(), *focused)) {
-    bool consumed = false;
-    const bool text_changed =
-        handle_text_area_key(window, *impl.fonts, *focused, event, consumed);
-    if (text_changed) {
-      dg_event out{};
-      out.size = sizeof(dg_event);
-      out.kind = DG_EVENT_TEXT_CHANGED;
-      out.window = window.self_handle;
-      out.node = find_node_handle(impl, window.self_index, *focused);
-      impl.pending_events.push_back(out);
-    }
-    if (consumed) {
-      follow_caret(impl, window, *focused);
-      return;
-    }
-  }
-  if (focused.has_value() && window.widgets.has(*focused) &&
-      window.widgets.at(*focused).kind == dg::WidgetKind::kTextField &&
-      impl.fonts.has_value()) {
-    const bool text_changed = handle_text_field_key(window, *impl.fonts, *focused, event);
-    if (text_changed) {
-      dg_event out{};
-      out.size = sizeof(dg_event);
-      out.kind = DG_EVENT_TEXT_CHANGED;
-      out.window = window.self_handle;
-      out.node = find_node_handle(impl, window.self_index, *focused);
-      impl.pending_events.push_back(out);
-    }
-    if (event.key != dg::Key::kOther) {
-      // One of the six editing keys handle_text_field_key() switches on
-      // (kOther is everything else - a plain character key SDL also
-      // reports as a KeyEvent beside its own TextInputEvent, which must
-      // still reach the router for e.g. Mod+C).
-      return;
-    }
-  }
-  const dg::RoutingContext ctx{window.tree.render(), window.widgets, window.action_scopes,
-                               dg::all_shortcut_bindings()};
-  const dg::KeyRouteResult routed =
-      dg::route_key_event(event, window.sdl_window, window.focus.current(), ctx);
-  if (routed.outcome != dg::KeyRouteOutcome::kRouted || !routed.action.has_value()) {
-    return;
-  }
-  const dg::ResolvedAction& action = *routed.action;
-  // ABI 0.2: the keyboard-scrolling actions scroll the focused node's
-  // scroll view (a no-op when there is none); still reported below.
-  if (action.action_id == DG_ACTION_SCROLL_PAGE_UP ||
-      action.action_id == DG_ACTION_SCROLL_PAGE_DOWN ||
-      action.action_id == DG_ACTION_SCROLL_TO_START ||
-      action.action_id == DG_ACTION_SCROLL_TO_END) {
-    (void)dg::apply_keyboard_scroll(action.action_id, window.focus.current(), window.tree,
-                                    window.widgets);
-  }
-  dg_event out{};
-  out.size = sizeof(dg_event);
-  out.kind = DG_EVENT_ACTION;
-  out.window = window.self_handle;
-  out.node = action.target.has_value()
-                 ? find_node_handle(impl, window.self_index, *action.target)
-                 : nullptr;
-  out.action_id = action.action_id;
-  impl.pending_events.push_back(out);
-}
-
-dg_event to_window_dg_event(const WindowImpl& window, const dg::WindowEvent& event) {
-  dg_event out{};
-  out.size = sizeof(dg_event);
-  out.window = window.self_handle;
-  switch (event.kind) {
-    case dg::WindowEventKind::kResized:
-      out.kind = DG_EVENT_WINDOW_RESIZED;
-      out.x = event.width;
-      out.y = event.height;
-      break;
-    case dg::WindowEventKind::kMoved:
-      out.kind = DG_EVENT_WINDOW_MOVED;
-      out.x = event.x;
-      out.y = event.y;
-      break;
-    case dg::WindowEventKind::kMinimized:
-      out.kind = DG_EVENT_WINDOW_MINIMIZED;
-      break;
-    case dg::WindowEventKind::kMaximized:
-      out.kind = DG_EVENT_WINDOW_MAXIMIZED;
-      break;
-    case dg::WindowEventKind::kRestored:
-      out.kind = DG_EVENT_WINDOW_RESTORED;
-      break;
-    case dg::WindowEventKind::kFocusGained:
-      out.kind = DG_EVENT_WINDOW_FOCUS_GAINED;
-      break;
-    case dg::WindowEventKind::kFocusLost:
-      out.kind = DG_EVENT_WINDOW_FOCUS_LOST;
-      break;
-    case dg::WindowEventKind::kEnteredFullscreen:
-      out.kind = DG_EVENT_WINDOW_FULLSCREEN_ENTERED;
-      break;
-    case dg::WindowEventKind::kLeftFullscreen:
-      out.kind = DG_EVENT_WINDOW_FULLSCREEN_LEFT;
-      break;
-  }
-  return out;
-}
-
-// ABI 0.2. A resize needs nothing here beyond the event itself: process_pump()'s
-// ensure_surface_current() pass has already rebuilt the surface at the new
-// drawable size, the same path every resize always took.
-void queue_window_events(AppImpl& impl, const std::vector<dg::WindowEvent>& events) {
-  for (const dg::WindowEvent& event : events) {
-    const WindowImpl* window = find_window_by_sdl_id(impl, event.window);
-    if (window != nullptr) {
-      impl.pending_events.push_back(to_window_dg_event(*window, event));
-    }
-  }
-}
-
-void follow_caret(AppImpl& impl, WindowImpl& window, dg::NodeId area) {
-  const std::optional<dg::PixelRect> caret =
-      window.widgets.text_area_caret_rect(window.tree.render(), area);
-  if (caret.has_value()) {
-    impl.wm.start_text_input(window.sdl_window, *caret);
-  }
-}
-
-// After layout: text areas re-place their composed children every pump (as
-// before); scroll views and lists re-derive their scrollbars, and lists
-// their rows, after a pass that actually re-placed nodes.
-void resync_widgets(AppImpl& impl, WindowImpl& window) {
-  dg::RenderTree& tree = window.tree.render();
-  const bool relaid = window.relaid;
-  window.relaid = false;
-  for (const NodeSlot& slot : impl.nodes) {
-    if (slot.state != NodeSlot::State::kLive || slot.window_index != window.self_index ||
-        !window.widgets.has(slot.node_id)) {
-      continue;
-    }
-    if (slot.type_id == DG_NODE_TYPE_TEXT_AREA && impl.fonts.has_value()) {
-      window.widgets.text_area_refresh(tree, *impl.fonts, slot.node_id);
-    } else if (relaid && slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
-      window.widgets.sync_scrollbar(tree, slot.node_id, viewport_extent(window, slot.node_id));
-    } else if (relaid && slot.type_id == DG_NODE_TYPE_LIST) {
-      const int extent = viewport_extent(window, slot.node_id);
-      paint_list_rows(
-          impl, window, slot,
-          window.widgets.list_reset(tree, slot.node_id,
-                                    static_cast<int>(slot.list_items.size()), extent));
-      window.widgets.sync_scrollbar(tree, slot.node_id, extent);
-    }
-  }
-  if (relaid) {
-    components::sync(impl, window);
-  }
-}
-
-bool insert_into_editor(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
-                        const std::string& text) {
-  if (!impl.fonts.has_value()) {
-    return false;
-  }
-  window.widgets.set_edit_time(dg::steady_anim_time());
-  const bool changed =
-      window.widgets.editor_insert(window.tree.render(), *impl.fonts, editor, text);
-  if (is_text_area(window, editor)) {
-    follow_caret(impl, window, editor);
-  }
-  return changed;
-}
-
-// ABI 0.2: timers and cross-thread user events. Neither names a window.
-void queue_timer_and_user_events(AppImpl& impl, const dg::PumpResult& pumped) {
-  for (const dg::TimerId timer : pumped.timers) {
-    dg_event out{};
-    out.size = sizeof(dg_event);
-    out.kind = DG_EVENT_TIMER;
-    out.x = static_cast<std::int32_t>(timer.value);
-    impl.pending_events.push_back(out);
-  }
-  for (const std::uint64_t payload : pumped.user_events) {
-    dg_event out{};
-    out.size = sizeof(dg_event);
-    out.kind = DG_EVENT_USER;
-    out.x = static_cast<std::int32_t>(static_cast<std::uint32_t>(payload & 0xFFFFFFFFU));
-    out.y = static_cast<std::int32_t>(static_cast<std::uint32_t>(payload >> 32U));
-    impl.pending_events.push_back(out);
-  }
-}
-
-void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
-  // Tooltip delays and indeterminate progress bars wake the wait by themselves.
-  const dg::PumpResult pumped = impl.wm.pump(components::clamp_timeout(impl, timeout_ms));
-
-  // A node attached since the last pump (dg_window_set_root()/
-  // dg_node_insert_before()) has all-zero bounds() until LayoutTree::
-  // layout() has run at least once - LayoutTree::add_child()'s own header
-  // comment: "reading absolute_bounds() before then answers with zero".
-  // Every still-open window's layout must therefore be brought current
-  // BEFORE this pump's own pointer events are hit-tested against it, not
-  // only at the end where repaint_and_present() would otherwise be the
-  // first thing to call layout() - a click delivered in the very same
-  // pump() call that first attached its target's parent must not be
-  // hit-tested against a stale, never-laid-out tree.
-  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
-    if (!window->closed) {
-      ensure_surface_current(impl.wm, *window);
-    }
-  }
-
-  for (const dg::WindowId closed_id : pumped.closed) {
-    WindowImpl* window = find_window_by_sdl_id(impl, closed_id);
-    if (window == nullptr) {
-      continue;
-    }
-    window->closed = true;
-    dg_event out{};
-    out.size = sizeof(dg_event);
-    out.kind = DG_EVENT_WINDOW_CLOSED;
-    out.window = window->self_handle;
-    impl.pending_events.push_back(out);
-  }
-
-  queue_window_events(impl, pumped.window_events);
-
-  queue_timer_and_user_events(impl, pumped);
-
-  for (const dg::PointerEvent& event : pumped.pointer) {
-    WindowImpl* window = find_window_by_sdl_id(impl, event.window);
-    if (window != nullptr) {
-      process_pointer_event(impl, *window, event);
-    }
-  }
-
-  for (const dg::KeyEvent& event : pumped.key) {
-    WindowImpl* window = find_window_by_sdl_id(impl, event.window);
-    if (window != nullptr) {
-      process_key_event(impl, *window, event);
-    }
-  }
-
-  // P6 sub-step a2 (second half): a committed SDL_EVENT_TEXT_INPUT reaches
-  // whichever node THIS ABI's own dg::Focus currently names - never SDL's
-  // own IME capture state, matching window_create()'s own comment on why
-  // start_text_input() runs once, for a window's whole lifetime, rather
-  // than being toggled per focus change. A no-op if nothing is focused, or
-  // the focused node is not a DG_NODE_TYPE_TEXT_FIELD, or this app has no
-  // FontCatalog yet (text_field_insert() needs one to re-measure the
-  // display projection - the same precondition dg_node_set_text() already
-  // has for DG_NODE_TYPE_LABEL).
-  for (const dg::TextInputEvent& event : pumped.text_input) {
-    WindowImpl* window = find_window_by_sdl_id(impl, event.window);
-    if (window == nullptr || components::route_text(impl, *window, event) ||
-        !impl.fonts.has_value()) {
-      continue;
-    }
-    const std::optional<dg::NodeId> focused = window->focus.current();
-    if (!focused.has_value() || !is_text_editor(*window, *focused)) {
-      continue;
-    }
-    const bool changed = insert_into_editor(impl, *window, *focused, event.text);
-    if (changed) {
-      dg_event out{};
-      out.size = sizeof(dg_event);
-      out.kind = DG_EVENT_TEXT_CHANGED;
-      out.window = window->self_handle;
-      out.node = find_node_handle(impl, window->self_index, *focused);
-      impl.pending_events.push_back(out);
-    }
-  }
-
-  for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
-    if (!window->closed) {
-      components::report_focus_drift(impl, *window);
-      components::tick(impl, *window);
-      // A relayout re-places a text area's composed children at its content
-      // origin (and may have resized it): re-derive them before painting.
-      relayout(*window);
-      resync_widgets(impl, *window);
-      repaint_and_present(impl.wm, *window);
-    }
-  }
 }
 
 // -- dg_dump_layout_tree ------------------------------------------------
@@ -2036,7 +422,353 @@ void dump_node(const dg::LayoutTree& tree, dg::NodeId id, std::string& out) {
   out += "]}";
 }
 
+// -- dg::Event -> dg_event --------------------------------------------------
+
+template <class... Fs>
+struct Overloaded : Fs... {
+  using Fs::operator()...;
+};
+
+std::uint16_t clicks_of(int clicks, int lo) {
+  return static_cast<std::uint16_t>(std::clamp(clicks, lo, 0xFFFF));
+}
+
+dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
+  dg_event out{};
+  out.size = sizeof(dg_event);
+  out.kind = dg_event_kind(event);
+  std::size_t window_index = 0;
+  const auto on_window = [&](dg::WindowId id) {
+    if (const WindowImpl* window = window_named(impl, id)) {
+      out.window = window->self_handle;
+      window_index = window->self_index;
+    }
+  };
+  const auto node = [&](std::optional<dg::NodeId> id) -> dg_node_t* {
+    return id.has_value() && out.window != nullptr ? find_node_handle(impl, window_index, *id)
+                                                   : nullptr;
+  };
+  std::visit(
+      Overloaded{
+          [&](const dg::events::ClickEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = e.x;
+            out.y = e.y;
+            out.clicks = clicks_of(e.clicks, 1);
+          },
+          [&](const dg::events::ContextClickEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = e.x;
+            out.y = e.y;
+            out.clicks = clicks_of(e.clicks, 1);
+          },
+          [&](const dg::events::ActionEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.action_id = e.action_id;
+          },
+          [&](const dg::events::TextChangedEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+          },
+          [&](const dg::events::FocusChangedEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+          },
+          [&](const dg::events::ListSelectEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = e.index;
+            out.clicks = clicks_of(e.clicks, 1);
+          },
+          [&](const dg::events::ValueChangedEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = e.selected;
+            out.y = e.previous;
+          },
+          [&](const dg::events::MenuEvent& e) {
+            on_window(e.window);
+            out.node = node(e.anchor);
+            out.x = e.item.value_or(-1);
+            out.y = e.menu_id;
+          },
+          [&](const dg::events::DialogResultEvent& e) {
+            on_window(e.window);
+            out.x = e.button;
+            out.y = e.dialog_id;
+          },
+          [&](const dg::events::TabSelectEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = e.index;
+          },
+          [&](const dg::events::TreeEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = e.item;
+          },
+          [&](const dg::events::TableEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = e.index;
+            out.clicks = clicks_of(e.clicks, 0);
+          },
+          [&](const dg::events::WindowStateEvent& e) {
+            on_window(e.window);
+            out.x = e.x;
+            out.y = e.y;
+          },
+          [&](const dg::events::WindowClosedEvent& e) { on_window(e.window); },
+          [&](const dg::events::TimerEvent& e) {
+            out.x = static_cast<std::int32_t>(e.timer.value);
+          },
+          [&](const dg::events::UserEvent& e) {
+            out.x =
+                static_cast<std::int32_t>(static_cast<std::uint32_t>(e.payload & 0xFFFFFFFFU));
+            out.y = static_cast<std::int32_t>(static_cast<std::uint32_t>(e.payload >> 32U));
+          },
+      },
+      event);
+  return out;
+}
+
+void append_events(AppImpl& impl, const std::vector<dg::Event>& events) {
+  for (const dg::Event& event : events) {
+    impl.pending_events.push_back(to_dg_event(impl, event));
+  }
+}
+
+// A live slot and its window, or the DG_ERR_* that says why not.
+struct LiveNode {
+  NodeSlot* slot = nullptr;
+  AppImpl* impl = nullptr;
+  dg::Window* window = nullptr;
+  std::int32_t status = DG_ERR_OK;
+};
+
+LiveNode resolve_live(dg_node_t* node_h) {
+  LiveNode out;
+  out.slot = resolve_node_slot(node_h);
+  if (out.slot == nullptr) {
+    out.status = DG_ERR_INVALID_HANDLE;
+    return out;
+  }
+  if (out.slot->state != NodeSlot::State::kLive) {
+    out.status = DG_ERR_NO_WINDOW;
+    return out;
+  }
+  out.impl = resolve_app(node_h->app);
+  out.window = out.impl->windows[out.slot->window_index]->window;
+  return out;
+}
+
+// resolve_live() of a node of type `type_id` (DG_ERR_UNSUPPORTED otherwise).
+LiveNode resolve_typed(dg_node_t* node_h, std::uint16_t type_id) {
+  LiveNode out = resolve_live(node_h);
+  if (out.status == DG_ERR_OK && out.slot->type_id != type_id) {
+    out.status = DG_ERR_UNSUPPORTED;
+  }
+  return out;
+}
+
+dg::SvgOptions svg_options(std::uint32_t tint_argb) {
+  dg::SvgOptions options;
+  if ((tint_argb >> 24U) != 0U) {
+    options.tint = dg::Color::from_argb(tint_argb);
+  }
+  return options;
+}
+
+std::int32_t show_image(LiveNode& live,
+                        const dg::Expected<dg::ImageId, dg::ImageError>& decoded,
+                        const char* function) {
+  if (!decoded) {
+    set_last_error(std::string(function) + ": " + decoded.error().message);
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return to_error_code(live.window->set_image(live.slot->node_id, decoded.value()));
+}
+
+LiveNode resolve_image_target(dg_node_t* node_h) {
+  LiveNode out = resolve_live(node_h);
+  if (out.status == DG_ERR_OK && out.slot->type_id != DG_NODE_TYPE_IMAGE &&
+      out.slot->type_id != DG_NODE_TYPE_BOX) {
+    out.status = DG_ERR_UNSUPPORTED;
+  }
+  return out;
+}
+
+// A WindowError from the runtime means the platform refused the request -
+// argument and handle problems are caught before it is called - so every
+// one maps to DG_ERR_UNSUPPORTED, with the platform's reason kept in
+// dg_last_error().
+std::int32_t to_status(const char* function,
+                       const dg::Expected<void, dg::WindowError>& result) {
+  if (!result) {
+    set_last_error(std::string(function) + ": " + result.error().message);
+    return DG_ERR_UNSUPPORTED;
+  }
+  return DG_ERR_OK;
+}
+
+// resolve_window()'s runtime window, or nullptr with the error recorded
+// under `function`'s name.
+dg::Window* resolve_os_window(const char* function, dg_window_t* window_h) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    set_last_error(std::string(function) + ": invalid window handle");
+    return nullptr;
+  }
+  return window->window;
+}
+
+// The platform window manager and id behind a live window handle.
+dg::WindowManager& manager_of(dg_window_t* window_h) {
+  return resolve_app(window_h->app)->app.window_manager();
+}
+
 }  // namespace
+
+// -- Seams (abi_internal.h) ---------------------------------------------------
+
+AppImpl* app_of(dg_app_t* handle) {
+  return resolve_app(handle);
+}
+
+WindowImpl* window_of(dg_window_t* handle) {
+  return resolve_window(handle);
+}
+
+NodeSlot* slot_of(dg_node_t* handle) {
+  return resolve_node_slot(handle);
+}
+
+std::int32_t to_error_code(dg::Status status) {
+  switch (status) {
+    case dg::Status::kOk:
+      return DG_ERR_OK;
+    case dg::Status::kInvalidArgument:
+      return DG_ERR_INVALID_ARGUMENT;
+    case dg::Status::kInvalidNode:
+      return DG_ERR_INVALID_HANDLE;
+    case dg::Status::kUnknownId:
+      return DG_ERR_UNKNOWN_ID;
+    case dg::Status::kTypeMismatch:
+      return DG_ERR_TYPE_MISMATCH;
+    case dg::Status::kValueOutOfRange:
+      return DG_ERR_VALUE_OUT_OF_RANGE;
+    case dg::Status::kNotApplicable:
+      return DG_ERR_NOT_APPLICABLE;
+    case dg::Status::kUnsupported:
+      return DG_ERR_UNSUPPORTED;
+    case dg::Status::kAlreadyAttached:
+      return DG_ERR_ALREADY_ATTACHED;
+    case dg::Status::kNoActiveTheme:
+      return DG_ERR_NO_ACTIVE_THEME;
+  }
+  return DG_ERR_INTERNAL;
+}
+
+std::uint32_t dg_event_kind(const dg::Event& event) {
+  using TreeKind = dg::events::TreeEvent::Kind;
+  using TableKind = dg::events::TableEvent::Kind;
+  using StateKind = dg::events::WindowStateEvent::Kind;
+  return std::visit(
+      Overloaded{
+          [](const dg::events::ClickEvent&) -> std::uint32_t { return DG_EVENT_CLICK; },
+          [](const dg::events::ContextClickEvent&) -> std::uint32_t {
+            return DG_EVENT_CONTEXT_CLICK;
+          },
+          [](const dg::events::ActionEvent&) -> std::uint32_t { return DG_EVENT_ACTION; },
+          [](const dg::events::TextChangedEvent&) -> std::uint32_t {
+            return DG_EVENT_TEXT_CHANGED;
+          },
+          [](const dg::events::FocusChangedEvent&) -> std::uint32_t {
+            return DG_EVENT_FOCUS_CHANGED;
+          },
+          [](const dg::events::ListSelectEvent&) -> std::uint32_t {
+            return DG_EVENT_LIST_SELECT;
+          },
+          [](const dg::events::ValueChangedEvent&) -> std::uint32_t {
+            return DG_EVENT_VALUE_CHANGED;
+          },
+          [](const dg::events::MenuEvent& e) -> std::uint32_t {
+            return e.item.has_value() ? DG_EVENT_MENU_ACTIVATE : DG_EVENT_MENU_DISMISS;
+          },
+          [](const dg::events::DialogResultEvent&) -> std::uint32_t {
+            return DG_EVENT_DIALOG_RESULT;
+          },
+          [](const dg::events::TabSelectEvent&) -> std::uint32_t {
+            return DG_EVENT_TAB_SELECT;
+          },
+          [](const dg::events::TreeEvent& e) -> std::uint32_t {
+            switch (e.kind) {
+              case TreeKind::kSelect:
+                return DG_EVENT_TREE_SELECT;
+              case TreeKind::kExpand:
+                return DG_EVENT_TREE_EXPAND;
+              case TreeKind::kCollapse:
+                return DG_EVENT_TREE_COLLAPSE;
+            }
+            return DG_EVENT_TREE_SELECT;
+          },
+          [](const dg::events::TableEvent& e) -> std::uint32_t {
+            return e.kind == TableKind::kSort ? DG_EVENT_TABLE_SORT : DG_EVENT_TABLE_SELECT;
+          },
+          [](const dg::events::WindowStateEvent& e) -> std::uint32_t {
+            switch (e.kind) {
+              case StateKind::kResized:
+                return DG_EVENT_WINDOW_RESIZED;
+              case StateKind::kMoved:
+                return DG_EVENT_WINDOW_MOVED;
+              case StateKind::kMinimized:
+                return DG_EVENT_WINDOW_MINIMIZED;
+              case StateKind::kMaximized:
+                return DG_EVENT_WINDOW_MAXIMIZED;
+              case StateKind::kRestored:
+                return DG_EVENT_WINDOW_RESTORED;
+              case StateKind::kFocusGained:
+                return DG_EVENT_WINDOW_FOCUS_GAINED;
+              case StateKind::kFocusLost:
+                return DG_EVENT_WINDOW_FOCUS_LOST;
+              case StateKind::kEnteredFullscreen:
+                return DG_EVENT_WINDOW_FULLSCREEN_ENTERED;
+              case StateKind::kLeftFullscreen:
+                return DG_EVENT_WINDOW_FULLSCREEN_LEFT;
+            }
+            return DG_EVENT_WINDOW_RESIZED;
+          },
+          [](const dg::events::WindowClosedEvent&) -> std::uint32_t {
+            return DG_EVENT_WINDOW_CLOSED;
+          },
+          [](const dg::events::TimerEvent&) -> std::uint32_t { return DG_EVENT_TIMER; },
+          [](const dg::events::UserEvent&) -> std::uint32_t { return DG_EVENT_USER; },
+      },
+      event);
+}
+
+void drain_events(AppImpl& impl) {
+  append_events(impl, impl.app.poll());
+}
+
+dg_node_t* adopt_node(dg_app_t* app, std::size_t window_index, dg::NodeId id,
+                      std::uint16_t type_id) {
+  AppImpl* impl = resolve_app(app);
+  NodeSlot slot;
+  slot.type_id = type_id;
+  slot.state = NodeSlot::State::kLive;
+  slot.window_index = window_index;
+  slot.node_id = id;
+  impl->nodes.push_back(slot);
+  all_node_handles().emplace_back(
+      dg_node_s{app, static_cast<std::uint32_t>(impl->nodes.size() - 1)});
+  dg_node_t* handle = &all_node_handles().back();
+  impl->nodes.back().self_handle = handle;
+  return handle;
+}
 
 void set_last_error(std::string message) {
   last_error_storage() = std::move(message);
@@ -2053,7 +785,7 @@ dg_app_t* app_create(const dg_app_opts* opts) {
   // one to append) - opts is accepted, matching the ABI signature, but there
   // is nothing in it yet for this function to read.
   (void)opts;
-  dg::Expected<dg::WindowManager, dg::WindowError> created = dg::WindowManager::create();
+  dg::Expected<dg::App, dg::AppError> created = dg::App::create();
   if (!created) {
     set_last_error(std::string("dg_app_create: ") + created.error().message);
     return nullptr;
@@ -2087,28 +819,12 @@ std::int32_t app_add_font(dg_app_t* app, const char* directory, const char* fami
     set_last_error("dg_app_add_font: directory and family must not be null");
     return DG_ERR_INVALID_ARGUMENT;
   }
-
-  // The scan happens once per app: a second call reuses the SAME catalog
-  // (FontCatalog is a handle to one reference-counted table, per its own
-  // header comment) rather than re-scanning `directory` a second time -
-  // this `directory` argument is therefore ignored on every call after the
-  // first, exactly as this function's def.toml summary documents.
-  if (!impl->fonts.has_value()) {
-    dg::Expected<dg::FontCatalog, dg::FontError> scanned = dg::FontCatalog::scan(directory);
-    if (!scanned) {
-      set_last_error(std::string("dg_app_add_font: ") + scanned.error().message);
-      return DG_ERR_INVALID_ARGUMENT;
-    }
-    impl->fonts = std::move(scanned).value();
-  }
-
-  const dg::Expected<dg::FontId, dg::FontError> added = impl->fonts->add(family, false);
+  // Only the first call scans `directory`; every later call ignores it,
+  // exactly as this function's def.toml summary documents.
+  const dg::Expected<void, dg::AppError> added = impl->app.add_font(directory, family);
   if (!added) {
     set_last_error(std::string("dg_app_add_font: ") + added.error().message);
-    return DG_ERR_INVALID_ARGUMENT;
-  }
-  if (!impl->default_font.is_valid()) {
-    impl->default_font = added.value();
+    return to_error_code(added.error().status);
   }
   return DG_ERR_OK;
 }
@@ -2128,57 +844,42 @@ dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
     return nullptr;
   }
 
-  dg::WindowSpec spec;
-  spec.title = opts->title != nullptr ? std::string(opts->title) : std::string();
-  spec.width = opts->width;
-  spec.height = opts->height;
-  spec.fill = dg::Color::from_argb(opts->background_argb);
+  dg::WindowOptions options;
+  options.title = opts->title != nullptr ? std::string(opts->title) : std::string();
+  options.width = opts->width;
+  options.height = opts->height;
+  options.background = dg::Color::from_argb(opts->background_argb);
   // ABI 0.2's appended fields, read only from a caller whose struct is long
   // enough to carry them - an ABI 0.1 build passes the shorter size and
   // gets 0.1's behaviour.
   if (opts->size >= offsetof(dg_window_opts, max_height) + sizeof(opts->max_height)) {
-    spec.resizable = opts->resizable != 0;
-    spec.min_width = opts->min_width;
-    spec.min_height = opts->min_height;
-    spec.max_width = opts->max_width;
-    spec.max_height = opts->max_height;
+    options.resizable = opts->resizable != 0;
+    options.min_width = opts->min_width;
+    options.min_height = opts->min_height;
+    options.max_width = opts->max_width;
+    options.max_height = opts->max_height;
   }
 
-  dg::Expected<dg::WindowId, dg::WindowError> opened = impl->wm.open(spec);
+  dg::Expected<dg::Window*, dg::AppError> opened = impl->app.create_window(options);
   if (!opened) {
     set_last_error(std::string("dg_window_create: ") + opened.error().message);
     return nullptr;
   }
 
-  dg::TreeSpec tree_spec;
-  tree_spec.viewport = dg::PixelSize{opts->width, opts->height};
-  tree_spec.background.fill = dg::Color::from_argb(opts->background_argb);
-  // dg_app_add_font()'s catalog, copied (cheap - a shared, reference-counted
-  // table, per FontCatalog's own header comment) into THIS window's own
-  // TreeSpec. A window opened before any dg_app_add_font() call gets
-  // std::nullopt here, matching render_tree.h's "absent means no node in
-  // this tree draws text" - exactly the state every window had before this
-  // slice.
-  tree_spec.fonts = impl->fonts;
-  tree_spec.images = impl->images;
-
-  auto window = std::make_unique<WindowImpl>(tree_spec);
-  window->sdl_window = opened.value();
+  auto window = std::make_unique<WindowImpl>();
+  window->window = opened.value();
   window->self_index = impl->windows.size();
-  window->widgets.set_disabled_palette(disabled_palette_for(*impl));
-  window->widgets.set_scrollbar_style(scrollbar_style_for(*impl));
-  // P6 sub-step a2 (second half): enabled for the window's whole lifetime,
-  // never toggled per focus change - the identical choice
-  // examples/12_text_input/text_field_window.cpp's own Runner::
-  // resize_if_needed() makes and explains: SDL generates no
-  // SDL_EVENT_TEXT_INPUT at all until this has been called on the window
-  // (window_manager.h's own start_text_input() doc comment), but it is
-  // this ABI's OWN dg::Focus - not SDL's IME capture state - that decides
-  // which node (if any) a committed character actually reaches
-  // (process_pump()'s pumped.text_input loop below only ever delivers to
-  // window.focus.current(), and only when it names a DG_NODE_TYPE_TEXT_FIELD).
-  impl->wm.start_text_input(window->sdl_window, dg::PixelRect{0, 0, 1, 1});
-  components::init_window(*impl, *window);
+  // Every created node that a dg::Window::remove() took with it: its handle
+  // stops resolving, so a NodeId a later add_child() may reuse is never
+  // reached through it.
+  window->window->set_on_removed([impl, index = window->self_index](dg::NodeId id) {
+    for (NodeSlot& slot : impl->nodes) {
+      if (slot.state == NodeSlot::State::kLive && slot.window_index == index &&
+          slot.node_id == id) {
+        slot.state = NodeSlot::State::kRemoved;
+      }
+    }
+  });
   impl->windows.push_back(std::move(window));
 
   all_window_handles().emplace_back(
@@ -2210,16 +911,15 @@ std::int32_t window_set_root(dg_window_t* window_h, dg_node_t* node_h) {
   if (slot.state != NodeSlot::State::kPending) {
     return DG_ERR_ALREADY_ATTACHED;
   }
-  if (window->root.has_value()) {
-    return DG_ERR_ALREADY_ATTACHED;
+  const dg::Expected<dg::NodeId, dg::Status> created =
+      window->window->create(static_cast<dg::NodeKind>(slot.type_id));
+  if (!created) {
+    return to_error_code(created.error());
   }
-
-  const std::int32_t status =
-      attach_pending_node(*impl, window_h->index, dg::LayoutTree::root(), node_h->index);
-  if (status == DG_ERR_OK) {
-    window->root = slot.node_id;
-  }
-  return status;
+  slot.state = NodeSlot::State::kLive;
+  slot.window_index = window_h->index;
+  slot.node_id = created.value();
+  return DG_ERR_OK;
 }
 
 dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
@@ -2228,11 +928,7 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
     set_last_error("dg_node_create: invalid app handle");
     return nullptr;
   }
-  if (type_id != DG_NODE_TYPE_BOX && type_id != DG_NODE_TYPE_BUTTON &&
-      type_id != DG_NODE_TYPE_LABEL && type_id != DG_NODE_TYPE_CHECKBOX &&
-      type_id != DG_NODE_TYPE_TEXT_FIELD && type_id != DG_NODE_TYPE_TEXT_AREA &&
-      type_id != DG_NODE_TYPE_SCROLL_VIEW && type_id != DG_NODE_TYPE_LIST &&
-      type_id != DG_NODE_TYPE_IMAGE && !components::is_component_type(type_id)) {
+  if (!dg::is_node_kind(type_id)) {
     set_last_error("dg_node_create: unknown type_id");
     return nullptr;
   }
@@ -2247,173 +943,6 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
   return handle;
 }
 
-namespace {
-
-// DG_NODE_TYPE_SCROLL_VIEW forwards these to its content node.
-bool is_container_prop(std::uint16_t prop_id) {
-  return prop_id == DG_PROP_DIRECTION || prop_id == DG_PROP_JUSTIFY ||
-         prop_id == DG_PROP_ALIGN || prop_id == DG_PROP_GAP || prop_id == DG_PROP_MAIN_SIZE ||
-         prop_id == DG_PROP_RUN_GAP || prop_id == DG_PROP_ALIGN_CONTENT ||
-         prop_id == DG_PROP_WRAP;
-}
-
-// The text editors forward these to their composed content node.
-bool is_text_prop(std::uint16_t prop_id) {
-  return prop_id == DG_PROP_FONT_SIZE || prop_id == DG_PROP_TEXT_ALIGN ||
-         prop_id == DG_PROP_TEXT_COLOR;
-}
-
-bool is_editor_type(std::uint16_t type_id) {
-  return type_id == DG_NODE_TYPE_TEXT_FIELD || type_id == DG_NODE_TYPE_TEXT_AREA;
-}
-
-// Which node a property write on `slot` lands on.
-dg::NodeId prop_target(const NodeSlot& slot, const WindowImpl& window, std::uint16_t prop_id) {
-  if (slot.type_id == DG_NODE_TYPE_SCROLL_VIEW && is_container_prop(prop_id)) {
-    return slot.content;
-  }
-  if (is_editor_type(slot.type_id) && is_text_prop(prop_id) &&
-      window.widgets.has(slot.node_id)) {
-    return window.widgets.at(slot.node_id).content;
-  }
-  return slot.node_id;
-}
-
-// A DG_VALUE_FLOAT carrying a whole number within [lo, hi], or nothing.
-std::optional<int> whole_number(const dg_value& value, int lo, int hi) {
-  if (value.type != DG_VALUE_FLOAT || !std::isfinite(value.number) ||
-      value.number != std::trunc(value.number) || value.number < static_cast<float>(lo) ||
-      value.number > static_cast<float>(hi)) {
-    return std::nullopt;
-  }
-  return static_cast<int>(value.number);
-}
-
-// DG_PROP_TAB_INDEX / DG_PROP_MAX_LENGTH: widget state, not node style.
-std::int32_t set_widget_prop(WindowImpl& window, const NodeSlot& slot, std::uint16_t prop_id,
-                             const dg_value& value) {
-  if (value.type != DG_VALUE_FLOAT) {
-    return DG_ERR_TYPE_MISMATCH;
-  }
-  constexpr int kLimit = 1 << 24;
-  const std::optional<int> number =
-      whole_number(value, prop_id == DG_PROP_MAX_LENGTH ? 0 : -kLimit, kLimit);
-  if (!number.has_value()) {
-    return DG_ERR_VALUE_OUT_OF_RANGE;
-  }
-  if (prop_id == DG_PROP_MAX_LENGTH) {
-    if (!is_editor_type(slot.type_id)) {
-      return DG_ERR_NOT_APPLICABLE;
-    }
-    window.widgets.editor_set_max_length(slot.node_id, *number);
-    return DG_ERR_OK;
-  }
-  if (!window.widgets.has(slot.node_id) ||
-      !dg::is_focusable(window.widgets.at(slot.node_id).kind)) {
-    return DG_ERR_NOT_APPLICABLE;
-  }
-  // attach() replaces the stored Widget by value; a copy with only the tab
-  // index changed keeps the rest of its state.
-  dg::Widget updated = window.widgets.at(slot.node_id);
-  updated.tab_index = number;
-  window.widgets.attach(slot.node_id, updated);
-  return DG_ERR_OK;
-}
-
-// DG_PROP_SCROLL_AXIS on a scroll view: the widget's axis, the gutter's
-// edge and the content's direction follow the layout's axis.
-void follow_scroll_axis(WindowImpl& window, const NodeSlot& slot) {
-  const dg::ScrollAxis axis = window.tree.box(slot.node_id).scroll_axis;
-  dg::Widget updated = window.widgets.at(slot.node_id);
-  updated.scroll_axis = axis;
-  window.widgets.attach(slot.node_id, updated);
-  const int gutter = window.widgets.scrollbar_style().size;
-  dg::BoxStyle box = window.tree.box(slot.node_id);
-  box.padding.right = axis == dg::ScrollAxis::kVertical ? gutter : 0;
-  box.padding.bottom = axis == dg::ScrollAxis::kHorizontal ? gutter : 0;
-  window.tree.set_box(slot.node_id, box);
-  dg::BoxStyle content = window.tree.box(slot.content);
-  const bool wraps = dg::wraps_children(content.kind);
-  if (axis == dg::ScrollAxis::kHorizontal) {
-    content.kind = wraps ? dg::LayoutKind::kWrapRow : dg::LayoutKind::kRow;
-  } else {
-    content.kind = wraps ? dg::LayoutKind::kWrapColumn : dg::LayoutKind::kColumn;
-  }
-  window.tree.set_box(slot.content, content);
-  window.tree.render().set_scroll_offset(slot.node_id, dg::PixelPoint{0, 0});
-  window.relaid = true;
-}
-
-// After a text property reached an editor's content node: re-derive the
-// editor's display (caret position, truncation, wrapping).
-void refresh_editor_text(AppImpl& impl, WindowImpl& window, const NodeSlot& slot) {
-  if (!impl.fonts.has_value()) {
-    return;
-  }
-  dg::RenderTree& tree = window.tree.render();
-  const bool focused = window.focus.current() == slot.node_id;
-  if (slot.type_id == DG_NODE_TYPE_TEXT_AREA) {
-    window.widgets.text_area_set_focus(tree, *impl.fonts, slot.node_id, focused);
-  } else {
-    window.widgets.text_field_set_focus(tree, *impl.fonts, slot.node_id, focused);
-  }
-}
-
-// DG_NODE_TYPE_LIST: vertical only, and DG_PROP_FONT_SIZE goes to every
-// recycled row so the size survives recycling.
-std::int32_t set_list_prop(WindowImpl& window, const NodeSlot& slot, std::uint16_t prop_id,
-                           const dg::PropValue& value) {
-  if (prop_id == DG_PROP_SCROLL_AXIS) {
-    return DG_ERR_UNSUPPORTED;
-  }
-  for (const dg::NodeId row : window.widgets.at(slot.node_id).list_pool) {
-    const dg::PropWrite result = dg::set_prop(window.tree, row, prop_id, value);
-    if (!result.ok()) {
-      return to_error_code(result.status);
-    }
-  }
-  return DG_ERR_OK;
-}
-
-// dg::set_prop() on `target`, except that DG_PROP_DIRECTION on a plain BOX
-// (a leaf until now) makes it a row/column container first - the C++ layer
-// only switches between container kinds, and a C caller has no other way
-// to build one. A refused write leaves the leaf as it was.
-dg::PropWrite write_prop(WindowImpl& window, const NodeSlot& slot, dg::NodeId target,
-                         std::uint16_t prop_id, const dg::PropValue& value) {
-  const dg::BoxStyle before = window.tree.box(target);
-  const bool make_container =
-      prop_id == DG_PROP_DIRECTION && slot.type_id == DG_NODE_TYPE_BOX &&
-      before.kind == dg::LayoutKind::kLeaf && before.scroll_axis == dg::ScrollAxis::kNone;
-  if (make_container) {
-    dg::BoxStyle container = before;
-    container.kind = dg::LayoutKind::kColumn;
-    window.tree.set_box(target, container);
-  }
-  dg::PropWrite result = dg::set_prop(window.tree, target, prop_id, value);
-  if (!result.ok() && make_container) {
-    window.tree.set_box(target, before);
-  }
-  return result;
-}
-
-// The widget-layer follow-ups of a successful write.
-void after_prop_write(AppImpl& impl, WindowImpl& window, const NodeSlot& slot,
-                      dg::NodeId target, std::uint16_t prop_id) {
-  if (prop_id == DG_PROP_DISABLED) {
-    sync_disabled(impl, window, slot.node_id);
-  } else if (prop_id == DG_PROP_SCROLL_AXIS && slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
-    follow_scroll_axis(window, slot);
-  } else if (prop_id == DG_PROP_SCROLLBAR) {
-    window.relaid = true;  // re-derive the bar's visibility at the next pump
-  }
-  if (target != slot.node_id && is_editor_type(slot.type_id)) {
-    refresh_editor_text(impl, window, slot);
-  }
-}
-
-}  // namespace
-
 std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_value* value) {
   if (node_h == nullptr || value == nullptr) {
     return DG_ERR_INVALID_ARGUMENT;
@@ -2421,17 +950,10 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
   if (value->size < sizeof(dg_value)) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  NodeSlot* slot = resolve_node_slot(node_h);
-  if (slot == nullptr) {
-    return DG_ERR_INVALID_HANDLE;
+  const LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
   }
-  if (slot->state != NodeSlot::State::kLive) {
-    return DG_ERR_NO_WINDOW;
-  }
-
-  AppImpl* impl = resolve_app(node_h->app);
-  WindowImpl& window = *impl->windows[slot->window_index];
-  const dg::NodeId target = prop_target(*slot, window, prop_id);
 
   // 7-6: DG_VALUE_TOKEN is not a literal - it names a $token live reference
   // (design.md section 5.7.2) by token_id (carried in `bits`, the same
@@ -2440,39 +962,28 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
   // exported function - the ABI's own instance of the
   // "resolution reuses dg::set_prop() unchanged" rule, one layer up.
   if (value->type == DG_VALUE_TOKEN) {
-    if (impl->active_theme == nullptr) {
-      return DG_ERR_NO_ACTIVE_THEME;
-    }
-    const dg::PropWrite result = dg::bind_token(
-        window.tree, window.theme_bindings, target, prop_id, impl->active_theme->theme,
-        impl->active_theme->variant, static_cast<dg_token_id>(value->bits));
-    return to_error_code(result.status);
+    return to_error_code(live.window->bind_token(live.slot->node_id, prop_id,
+                                                 static_cast<std::uint16_t>(value->bits)));
   }
 
-  if (const std::optional<std::int32_t> handled =
-          components::set_prop(*impl, window, *slot, prop_id, *value)) {
-    return *handled;
-  }
-  if (prop_id == DG_PROP_TAB_INDEX || prop_id == DG_PROP_MAX_LENGTH) {
-    return set_widget_prop(window, *slot, prop_id, *value);
-  }
-  if (value->type == DG_VALUE_LENGTH && value->bits > DG_LENGTH_UNIT_PERCENT) {
-    return DG_ERR_VALUE_OUT_OF_RANGE;
-  }
   const std::optional<dg::PropValue> prop_value = to_prop_value(*value);
   if (!prop_value.has_value()) {
+    // A dg_value no PropValue can carry. The writes that check the value's
+    // type first (a progress bar's value/indeterminate, DG_PROP_TAB_INDEX/
+    // MAX_LENGTH) call it a type mismatch; a length in an unknown unit is
+    // out of range; anything else is not a value at all.
+    const bool typed_first = (live.slot->type_id == DG_NODE_TYPE_PROGRESS &&
+                              (prop_id == DG_PROP_VALUE || prop_id == DG_PROP_INDETERMINATE)) ||
+                             prop_id == DG_PROP_TAB_INDEX || prop_id == DG_PROP_MAX_LENGTH;
+    if (typed_first) {
+      return DG_ERR_TYPE_MISMATCH;
+    }
+    if (value->type == DG_VALUE_LENGTH && value->bits > DG_LENGTH_UNIT_PERCENT) {
+      return DG_ERR_VALUE_OUT_OF_RANGE;
+    }
     return DG_ERR_INVALID_ARGUMENT;
   }
-  if (slot->type_id == DG_NODE_TYPE_LIST &&
-      (prop_id == DG_PROP_SCROLL_AXIS || prop_id == DG_PROP_FONT_SIZE)) {
-    return set_list_prop(window, *slot, prop_id, *prop_value);
-  }
-  const dg::PropWrite result = write_prop(window, *slot, target, prop_id, *prop_value);
-  if (result.ok()) {
-    after_prop_write(*impl, window, *slot, target, prop_id);
-    components::after_prop(*impl, window, *slot, prop_id);
-  }
-  return to_error_code(result.status);
+  return to_error_code(live.window->set_prop(live.slot->node_id, prop_id, *prop_value));
 }
 
 std::int32_t node_set_text(dg_node_t* node_h, std::uint16_t prop_id, const char* utf8,
@@ -2480,36 +991,12 @@ std::int32_t node_set_text(dg_node_t* node_h, std::uint16_t prop_id, const char*
   if (node_h == nullptr || (utf8 == nullptr && len != 0)) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  NodeSlot* slot = resolve_node_slot(node_h);
-  if (slot == nullptr) {
-    return DG_ERR_INVALID_HANDLE;
+  const LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
   }
-  if (slot->state != NodeSlot::State::kLive) {
-    return DG_ERR_NO_WINDOW;
-  }
-
-  AppImpl* impl = resolve_app(node_h->app);
-  WindowImpl& window = *impl->windows[slot->window_index];
-
   const std::string_view text(utf8 == nullptr ? "" : utf8, len);
-  if (prop_id == DG_PROP_TEXT) {
-    if (const std::optional<std::int32_t> handled =
-            components::set_text(*impl, window, *slot, text)) {
-      return *handled;
-    }
-  }
-  if (prop_id == DG_PROP_TEXT && is_text_editor(window, slot->node_id)) {
-    // An editor's text is its MODEL, not its own node's TextStyle: replace
-    // it (caret to the end). Not reported as DG_EVENT_TEXT_CHANGED - that
-    // event is for user edits, and the caller already knows what it set.
-    if (impl->fonts.has_value()) {
-      window.widgets.editor_set_text(window.tree.render(), *impl->fonts, slot->node_id, text,
-                                     window.focus.current() == slot->node_id);
-    }
-    return DG_ERR_OK;
-  }
-  const dg::PropWrite result = dg::set_text(window.tree, slot->node_id, prop_id, text);
-  return to_error_code(result.status);
+  return to_error_code(live.window->set_text(live.slot->node_id, prop_id, text));
 }
 
 std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node_t* ref_h) {
@@ -2534,18 +1021,15 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
   if (impl == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  WindowImpl& window = *impl->windows[parent_slot->window_index];
-  if (parent_slot->type_id == DG_NODE_TYPE_LIST ||
-      components::is_component_type(parent_slot->type_id)) {
+  dg::Window& window = *impl->windows[parent_slot->window_index]->window;
+  if (!dg::accepts_children(static_cast<dg::NodeKind>(parent_slot->type_id))) {
     // A list's rows come from dg_list_set_items(); a component composes its
     // own children (a DG_NODE_TYPE_TABS takes content through dg_tabs_add()'s
     // panels).
     return DG_ERR_UNSUPPORTED;
   }
   // A scroll view's children live in its composed content node.
-  const dg::NodeId container = parent_slot->type_id == DG_NODE_TYPE_SCROLL_VIEW
-                                   ? parent_slot->content
-                                   : parent_slot->node_id;
+  const dg::NodeId container = window.child_container(parent_slot->node_id);
 
   // `ref` must be a live DIRECT child of `parent` in the same window, and
   // never the node being inserted - anything else names no position.
@@ -2557,40 +1041,30 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
     }
     if (ref_h == child_h || ref_slot->state != NodeSlot::State::kLive ||
         ref_slot->window_index != parent_slot->window_index ||
-        window.tree.render().parent(ref_slot->node_id) != container) {
+        window.layout().render().parent(ref_slot->node_id) != container) {
       return DG_ERR_INVALID_ARGUMENT;
     }
     before = ref_slot->node_id;
   }
 
   if (child_slot->state == NodeSlot::State::kPending) {
-    const std::int32_t status =
-        attach_pending_node(*impl, parent_slot->window_index, container, child_h->index);
-    if (status != DG_ERR_OK || !before.has_value()) {
-      return status;
+    const dg::Expected<dg::NodeId, dg::Status> created = window.create(
+        static_cast<dg::NodeKind>(child_slot->type_id), parent_slot->node_id, before);
+    if (!created) {
+      return to_error_code(created.error());
     }
-    // attach_pending_node() always appends; a fresh last child moved before
-    // a sibling of the same parent cannot fail.
-    window.tree.move_child(child_slot->node_id, container, before);
+    child_slot->state = NodeSlot::State::kLive;
+    child_slot->window_index = parent_slot->window_index;
+    child_slot->node_id = created.value();
     return DG_ERR_OK;
   }
 
   // A live child is a MOVE, and only within its own window: its NodeId,
-  // widget state and handle all survive, so no side table is touched.
+  // widget state and handle all survive.
   if (child_slot->window_index != parent_slot->window_index) {
     return DG_ERR_ALREADY_ATTACHED;
   }
-  // Refused by LayoutTree::move_child() when `parent` lies inside `child`'s
-  // own subtree (including parent == child) - a cycle.
-  if (!window.tree.move_child(child_slot->node_id, container, before)) {
-    return DG_ERR_INVALID_ARGUMENT;
-  }
-  if (window.root == child_slot->node_id) {
-    // Unreachable in practice - a window root moved under any live node is
-    // always a cycle - but kept honest rather than leaving a stale root.
-    window.root.reset();
-  }
-  return DG_ERR_OK;
+  return to_error_code(window.move(child_slot->node_id, parent_slot->node_id, before));
 }
 
 std::int32_t node_remove(dg_node_t* node_h) {
@@ -2598,115 +1072,68 @@ std::int32_t node_remove(dg_node_t* node_h) {
   if (slot == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  // A PENDING node was never attached to any window's tree at all
-  // (attach_pending_node() is the only thing that ever calls
-  // LayoutTree::add_child()), so there is nothing for remove_subtree() to
-  // detach or any side table to have an entry for - tombstoning the ABI
-  // handle below is the whole of what removing one requires.
+  // A PENDING node was never attached to any window's tree at all, so
+  // tombstoning the ABI handle below is the whole of what removing one
+  // requires.
   if (slot->state == NodeSlot::State::kLive) {
     AppImpl* impl = resolve_app(node_h->app);
-    const std::size_t window_index = slot->window_index;
-    WindowImpl& window = *impl->windows[window_index];
-    // Collected BEFORE removal: afterwards the subtree's NodeIds are
-    // tombstoned and may be reused by the next add_child().
-    const std::vector<dg::NodeId> subtree = dg::subtree_of(window.tree.render(), slot->node_id);
-    const std::optional<dg::NodeId> focused_before = window.focus.current();
-    components::before_remove(*impl, window, subtree);
-    if (!dg::remove_subtree(window.tree, slot->node_id,
-                            {window.widgets, window.theme_bindings, window.focus,
-                             window.animation, window.action_scopes, window.interaction})) {
-      // Unreachable: a LIVE slot never names the structural root
-      // LayoutTree::root() (window.root is always a CHILD of it). Reported
-      // rather than asserted.
-      return DG_ERR_UNSUPPORTED;
+    // Events already queued keep naming the handles they were queued for.
+    drain_events(*impl);
+    const std::int32_t status =
+        to_error_code(impl->windows[slot->window_index]->window->remove(slot->node_id));
+    if (status != DG_ERR_OK) {
+      return status;
     }
-    if (focused_before.has_value() && window.focus.current() != focused_before) {
-      // The focused node went with the subtree: report the blur.
-      dg_event out{};
-      out.size = sizeof(dg_event);
-      out.kind = DG_EVENT_FOCUS_CHANGED;
-      out.window = window.self_handle;
-      impl->pending_events.push_back(out);
-    }
-    // Removing the window's root node clears the root: the window shows its
-    // bare background and dg_window_set_root() may attach a new one.
-    if (window.root.has_value() &&
-        std::find(subtree.begin(), subtree.end(), *window.root) != subtree.end()) {
-      window.root.reset();
-    }
-    // Every DESCENDANT that has a handle is gone too - its handle must not
-    // keep resolving to a NodeId a later add_child() may reuse.
-    for (NodeSlot& other : impl->nodes) {
-      if (other.state == NodeSlot::State::kLive && other.window_index == window_index &&
-          std::find(subtree.begin(), subtree.end(), other.node_id) != subtree.end()) {
-        other.state = NodeSlot::State::kRemoved;
-      }
-    }
-    window.reported_focus = window.focus.current();
   }
   slot->state = NodeSlot::State::kRemoved;
-  components::after_remove(*resolve_app(node_h->app));
   return DG_ERR_OK;
 }
 
 std::int32_t node_get_checked(dg_node_t* node_h) {
-  NodeSlot* slot = resolve_node_slot(node_h);
-  if (slot == nullptr) {
-    return DG_ERR_INVALID_HANDLE;
+  const LiveNode live = resolve_typed(node_h, DG_NODE_TYPE_CHECKBOX);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
   }
-  if (slot->state != NodeSlot::State::kLive) {
-    return DG_ERR_NO_WINDOW;
+  const dg::Expected<bool, dg::Status> checked = live.window->checked(live.slot->node_id);
+  if (!checked) {
+    return to_error_code(checked.error());
   }
-  if (slot->type_id != DG_NODE_TYPE_CHECKBOX) {
-    return DG_ERR_UNSUPPORTED;
-  }
-  AppImpl* impl = resolve_app(node_h->app);
-  WindowImpl& window = *impl->windows[slot->window_index];
-  return window.widgets.is_checked(slot->node_id) ? 1 : 0;
+  return checked.value() ? 1 : 0;
 }
 
 std::int32_t node_get_text(dg_node_t* node_h, char* buf, std::uint32_t cap,
                            std::uint32_t* out_len) {
-  NodeSlot* slot = resolve_node_slot(node_h);
-  if (slot == nullptr) {
-    return DG_ERR_INVALID_HANDLE;
+  const LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
   }
-  if (slot->state != NodeSlot::State::kLive) {
-    return DG_ERR_NO_WINDOW;
-  }
-  if (slot->type_id != DG_NODE_TYPE_TEXT_FIELD && slot->type_id != DG_NODE_TYPE_TEXT_AREA) {
+  if (live.slot->type_id != DG_NODE_TYPE_TEXT_FIELD &&
+      live.slot->type_id != DG_NODE_TYPE_TEXT_AREA) {
     return DG_ERR_UNSUPPORTED;
   }
   if (cap > 0 && buf == nullptr) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  AppImpl* impl = resolve_app(node_h->app);
-  WindowImpl& window = *impl->windows[slot->window_index];
-  const dg::TextEditState* state = window.widgets.editor_state(slot->node_id);
-  static const std::string kEmpty;
-  const std::string& text = state != nullptr ? state->text : kEmpty;
+  const dg::Expected<std::string, dg::Status> text = live.window->text(live.slot->node_id);
+  if (!text) {
+    return to_error_code(text.error());
+  }
   if (out_len != nullptr) {
-    *out_len = static_cast<std::uint32_t>(text.size());
+    *out_len = static_cast<std::uint32_t>(text.value().size());
   }
   if (cap > 0) {
-    const std::size_t to_copy = std::min<std::size_t>(cap, text.size());
-    std::copy_n(text.data(), to_copy, buf);
+    const std::size_t to_copy = std::min<std::size_t>(cap, text.value().size());
+    std::copy_n(text.value().data(), to_copy, buf);
   }
   return DG_ERR_OK;
 }
 
 std::int32_t node_scope_action(dg_node_t* node_h, std::uint16_t action_id) {
-  NodeSlot* slot = resolve_node_slot(node_h);
-  if (slot == nullptr) {
-    return DG_ERR_INVALID_HANDLE;
+  const LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
   }
-  if (slot->state != NodeSlot::State::kLive) {
-    return DG_ERR_NO_WINDOW;
-  }
-  AppImpl* impl = resolve_app(node_h->app);
-  WindowImpl& window = *impl->windows[slot->window_index];
-  window.action_scopes.scope(slot->node_id, static_cast<dg_action_id>(action_id));
-  return DG_ERR_OK;
+  return to_error_code(live.window->scope_action(live.slot->node_id, action_id));
 }
 
 std::int32_t wait_events(dg_app_t* app, std::int32_t timeout_ms) {
@@ -2715,7 +1142,7 @@ std::int32_t wait_events(dg_app_t* app, std::int32_t timeout_ms) {
     set_last_error("dg_wait_events: invalid app handle");
     return -1;
   }
-  process_pump(*impl, timeout_ms);
+  append_events(*impl, impl->app.pump(timeout_ms));
   return static_cast<std::int32_t>(impl->pending_events.size());
 }
 
@@ -2729,6 +1156,7 @@ std::int32_t poll_events(dg_app_t* app, dg_event* out, std::int32_t max) {
     set_last_error("dg_poll_events: invalid argument");
     return -1;
   }
+  drain_events(*impl);
   const auto count =
       std::min<std::size_t>(static_cast<std::size_t>(max), impl->pending_events.size());
   for (std::size_t i = 0; i < count; ++i) {
@@ -2754,11 +1182,11 @@ const char* dump_layout_tree(dg_node_t* node_h) {
     return nullptr;
   }
   AppImpl* impl = resolve_app(node_h->app);
-  WindowImpl& window = *impl->windows[slot->window_index];
+  dg::Window& window = *impl->windows[slot->window_index]->window;
 
   std::string& buffer = dump_buffer_storage();
   buffer.clear();
-  dump_node(window.tree, slot->node_id, buffer);
+  dump_node(window.layout(), slot->node_id, buffer);
   return buffer.c_str();
 }
 
@@ -2801,10 +1229,9 @@ dg_theme_t* theme_load_dir(dg_app_t* app, const char* dir, dg_theme_err* err) {
   }
 
   auto owned = std::make_unique<ThemeImpl>();
-  owned->theme = std::move(theme).value();
+  owned->theme = std::make_shared<dg::Theme>(std::move(theme).value());
   owned->package = std::move(package).value();
   impl->themes.push_back(std::move(owned));
-  impl->themes.back()->self_handle = nullptr;  // set once the handle exists, below
 
   all_theme_handles().emplace_back(
       dg_theme_s{app, static_cast<std::uint32_t>(impl->themes.size() - 1)});
@@ -2844,7 +1271,7 @@ dg_theme_t* theme_load_memory(dg_app_t* app, const char* json, std::uint32_t len
   }
 
   auto owned = std::make_unique<ThemeImpl>();
-  owned->theme = std::move(theme).value();
+  owned->theme = std::make_shared<dg::Theme>(std::move(theme).value());
   owned->package = std::move(package);
   impl->themes.push_back(std::move(owned));
 
@@ -2854,6 +1281,19 @@ dg_theme_t* theme_load_memory(dg_app_t* app, const char* json, std::uint32_t len
   impl->themes.back()->self_handle = handle;
   return handle;
 }
+
+namespace {
+
+// dg_app_set_theme()/dg_theme_set_variant()/dg_theme_override() all end
+// here: the runtime re-applies the active theme's (possibly changed) data
+// to every open window.
+void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
+  if (impl.active_theme == &theme) {
+    impl.app.set_theme(theme.theme, theme.variant);
+  }
+}
+
+}  // namespace
 
 std::int32_t theme_set_variant(dg_theme_t* theme_h, const char* variant) {
   ThemeImpl* theme = resolve_theme(theme_h);
@@ -2865,8 +1305,7 @@ std::int32_t theme_set_variant(dg_theme_t* theme_h, const char* variant) {
     return DG_ERR_INVALID_ARGUMENT;
   }
   theme->variant = *parsed;
-  AppImpl* impl = resolve_app(theme_h->app);
-  reapply_theme_if_active(*impl, *theme);
+  reapply_theme_if_active(*resolve_app(theme_h->app), *theme);
   return DG_ERR_OK;
 }
 
@@ -2887,15 +1326,14 @@ std::int32_t theme_override(dg_theme_t* theme_h, std::uint16_t token_id,
     if (value->type != DG_VALUE_COLOR) {
       return DG_ERR_TYPE_MISMATCH;
     }
-    theme->theme.set_color(token_id, theme->variant, dg::Color::from_argb(value->bits));
+    theme->theme->set_color(token_id, theme->variant, dg::Color::from_argb(value->bits));
   } else {
     if (value->type != DG_VALUE_FLOAT && value->type != DG_VALUE_LENGTH) {
       return DG_ERR_TYPE_MISMATCH;
     }
-    theme->theme.set_int(token_id, static_cast<int>(value->number));
+    theme->theme->set_int(token_id, static_cast<int>(value->number));
   }
-  AppImpl* impl = resolve_app(theme_h->app);
-  reapply_theme_if_active(*impl, *theme);
+  reapply_theme_if_active(*resolve_app(theme_h->app), *theme);
   return DG_ERR_OK;
 }
 
@@ -2917,63 +1355,30 @@ std::int32_t app_set_theme(dg_app_t* app, dg_theme_t* theme_h) {
 }
 
 // -- Window operations (ABI 0.2) ------------------------------------------
-//
-// A WindowError from dg::WindowManager means the platform refused the
-// request - argument and handle problems are caught before it is called -
-// so every one maps to DG_ERR_UNSUPPORTED, with the platform's reason kept
-// in dg_last_error().
-
-namespace {
-
-std::int32_t to_status(const char* function,
-                       const dg::Expected<void, dg::WindowError>& result) {
-  if (!result) {
-    set_last_error(std::string(function) + ": " + result.error().message);
-    return DG_ERR_UNSUPPORTED;
-  }
-  return DG_ERR_OK;
-}
-
-// resolve_window() plus the app that owns it, or nullptr with the error
-// recorded under `function`'s name.
-dg::WindowManager* resolve_window_manager(const char* function, dg_window_t* window_h,
-                                          dg::WindowId& id) {
-  WindowImpl* window = resolve_window(window_h);
-  if (window == nullptr) {
-    set_last_error(std::string(function) + ": invalid window handle");
-    return nullptr;
-  }
-  id = window->sdl_window;
-  return &resolve_app(window_h->app)->wm;
-}
-
-}  // namespace
 
 std::int32_t window_set_title(dg_window_t* window_h, const char* utf8) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_title", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_title", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
   if (utf8 == nullptr) {
     set_last_error("dg_window_set_title: utf8 must not be null");
     return DG_ERR_INVALID_ARGUMENT;
   }
-  return to_status("dg_window_set_title", wm->set_title(id, utf8));
+  return to_status("dg_window_set_title", window->set_title(utf8));
 }
 
 std::int32_t window_get_title(dg_window_t* window_h, char* buf, std::uint32_t cap,
                               std::uint32_t* out_len) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_get_title", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_get_title", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
   if (cap > 0 && buf == nullptr) {
     set_last_error("dg_window_get_title: buf must not be null when cap > 0");
     return DG_ERR_INVALID_ARGUMENT;
   }
-  const dg::Expected<std::string, dg::WindowError> title = wm->title(id);
+  const dg::Expected<std::string, dg::WindowError> title = window->title();
   if (!title) {
     set_last_error("dg_window_get_title: " + title.error().message);
     return DG_ERR_UNSUPPORTED;
@@ -2989,25 +1394,23 @@ std::int32_t window_get_title(dg_window_t* window_h, char* buf, std::uint32_t ca
 }
 
 std::int32_t window_set_size(dg_window_t* window_h, std::int32_t width, std::int32_t height) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_size", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_size", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
   if (width <= 0 || height <= 0) {
     set_last_error("dg_window_set_size: width and height must be positive");
     return DG_ERR_INVALID_ARGUMENT;
   }
-  return to_status("dg_window_set_size", wm->set_size(id, width, height));
+  return to_status("dg_window_set_size", window->set_size(width, height));
 }
 
 std::int32_t window_get_size(dg_window_t* window_h, std::int32_t* width, std::int32_t* height) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_get_size", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_get_size", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  const dg::Expected<dg::PixelSize, dg::WindowError> size = wm->size(id);
+  const dg::Expected<dg::PixelSize, dg::WindowError> size = window->size();
   if (!size) {
     set_last_error("dg_window_get_size: " + size.error().message);
     return DG_ERR_UNSUPPORTED;
@@ -3022,21 +1425,19 @@ std::int32_t window_get_size(dg_window_t* window_h, std::int32_t* width, std::in
 }
 
 std::int32_t window_set_position(dg_window_t* window_h, std::int32_t x, std::int32_t y) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_position", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_position", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_set_position", wm->set_position(id, x, y));
+  return to_status("dg_window_set_position", window->set_position(x, y));
 }
 
 std::int32_t window_get_position(dg_window_t* window_h, std::int32_t* x, std::int32_t* y) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_get_position", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_get_position", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  const dg::Expected<dg::PixelPoint, dg::WindowError> position = wm->position(id);
+  const dg::Expected<dg::PixelPoint, dg::WindowError> position = window->position();
   if (!position) {
     set_last_error("dg_window_get_position: " + position.error().message);
     return DG_ERR_UNSUPPORTED;
@@ -3051,76 +1452,68 @@ std::int32_t window_get_position(dg_window_t* window_h, std::int32_t* x, std::in
 }
 
 std::int32_t window_minimize(dg_window_t* window_h) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_minimize", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_minimize", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_minimize", wm->minimize(id));
+  return to_status("dg_window_minimize", window->minimize());
 }
 
 std::int32_t window_maximize(dg_window_t* window_h) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_maximize", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_maximize", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_maximize", wm->maximize(id));
+  return to_status("dg_window_maximize", window->maximize());
 }
 
 std::int32_t window_restore(dg_window_t* window_h) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_restore", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_restore", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_restore", wm->restore(id));
+  return to_status("dg_window_restore", window->restore());
 }
 
 std::int32_t window_set_fullscreen(dg_window_t* window_h, std::int32_t fullscreen) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_fullscreen", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_fullscreen", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_set_fullscreen", wm->set_fullscreen(id, fullscreen != 0));
+  return to_status("dg_window_set_fullscreen", window->set_fullscreen(fullscreen != 0));
 }
 
 std::int32_t window_set_resizable(dg_window_t* window_h, std::int32_t resizable) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_resizable", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_resizable", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_set_resizable", wm->set_resizable(id, resizable != 0));
+  return to_status("dg_window_set_resizable", window->set_resizable(resizable != 0));
 }
 
 std::int32_t window_set_min_size(dg_window_t* window_h, std::int32_t width,
                                  std::int32_t height) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_min_size", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_min_size", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_set_min_size", wm->set_min_size(id, width, height));
+  return to_status("dg_window_set_min_size", window->set_min_size(width, height));
 }
 
 std::int32_t window_set_max_size(dg_window_t* window_h, std::int32_t width,
                                  std::int32_t height) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_max_size", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_max_size", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return to_status("dg_window_set_max_size", wm->set_max_size(id, width, height));
+  return to_status("dg_window_set_max_size", window->set_max_size(width, height));
 }
 
 std::int32_t window_set_icon(dg_window_t* window_h, const void* pixels, std::int32_t width,
                              std::int32_t height, std::uint32_t row_bytes,
                              std::uint32_t format) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_set_icon", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_set_icon", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
   if (pixels == nullptr || width <= 0 || height <= 0 ||
@@ -3139,16 +1532,15 @@ std::int32_t window_set_icon(dg_window_t* window_h, const void* pixels, std::int
   }
   const dg::ImageView icon{static_cast<const std::uint8_t*>(pixels), width, height, row_bytes,
                            pixel_format};
-  return to_status("dg_window_set_icon", wm->set_icon(id, icon));
+  return to_status("dg_window_set_icon", window->set_icon(icon));
 }
 
 std::int32_t window_get_state(dg_window_t* window_h) {
-  dg::WindowId id;
-  dg::WindowManager* wm = resolve_window_manager("dg_window_get_state", window_h, id);
-  if (wm == nullptr) {
+  dg::Window* window = resolve_os_window("dg_window_get_state", window_h);
+  if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  const dg::Expected<dg::WindowState, dg::WindowError> state = wm->state(id);
+  const dg::Expected<dg::WindowState, dg::WindowError> state = window->state();
   if (!state) {
     set_last_error("dg_window_get_state: " + state.error().message);
     return DG_ERR_UNSUPPORTED;
@@ -3162,13 +1554,15 @@ std::int32_t window_get_state(dg_window_t* window_h) {
   return bits;
 }
 
+// -- Debug hooks: the platform's own test injection, reached through the
+// runtime's escape hatches.
+
 std::int32_t debug_warp_pointer(dg_window_t* window_h, std::int32_t x, std::int32_t y) {
   WindowImpl* window = resolve_window(window_h);
   if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  AppImpl* impl = resolve_app(window_h->app);
-  impl->wm.warp_pointer(window->sdl_window, x, y);
+  manager_of(window_h).warp_pointer(window->window->id(), x, y);
   return DG_ERR_OK;
 }
 
@@ -3177,9 +1571,8 @@ std::int32_t debug_get_cursor(dg_window_t* window_h) {
   if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  AppImpl* impl = resolve_app(window_h->app);
   const dg::Expected<dg::Cursor, dg::WindowError> cursor =
-      impl->wm.current_cursor(window->sdl_window);
+      manager_of(window_h).current_cursor(window->window->id());
   if (!cursor) {
     return DG_ERR_INVALID_HANDLE;
   }
@@ -3192,8 +1585,7 @@ std::int32_t debug_post_pointer_button(dg_window_t* window_h, std::int32_t down,
   if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  AppImpl* impl = resolve_app(window_h->app);
-  impl->wm.post_pointer_button(window->sdl_window, down != 0, x, y);
+  manager_of(window_h).post_pointer_button(window->window->id(), down != 0, x, y);
   return DG_ERR_OK;
 }
 
@@ -3217,8 +1609,8 @@ std::int32_t debug_post_key(dg_window_t* window_h, std::int32_t down,
   if (!chord.has_value()) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  AppImpl* impl = resolve_app(window_h->app);
-  impl->wm.post_logical_key(window->sdl_window, down != 0, chord->key, chord->mods);
+  manager_of(window_h).post_logical_key(window->window->id(), down != 0, chord->key,
+                                        chord->mods);
   return DG_ERR_OK;
 }
 
@@ -3244,14 +1636,15 @@ const char* debug_capture_png(dg_window_t* window_h) {
     set_last_error("dg_debug_capture_png: invalid window handle");
     return nullptr;
   }
-  if (!window->surface.has_value()) {
+  const dg::RasterSurface* surface = dg::app_detail::painted_surface(*window->window);
+  if (surface == nullptr) {
     set_last_error(
         "dg_debug_capture_png: this window has never painted a frame - call "
         "dg_wait_events()/dg_poll_events() at least once first");
     return nullptr;
   }
 
-  const std::vector<std::uint8_t> png = window->surface->encode_png();
+  const std::vector<std::uint8_t> png = surface->encode_png();
   if (png.empty()) {
     set_last_error("dg_debug_capture_png: PNG encoding failed");
     return nullptr;
@@ -3274,8 +1667,7 @@ std::int32_t debug_post_text_input(dg_window_t* window_h, const char* utf8) {
   if (utf8 == nullptr) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  AppImpl* impl = resolve_app(window_h->app);
-  impl->wm.post_text_input(window->sdl_window, std::string(utf8));
+  manager_of(window_h).post_text_input(window->window->id(), std::string(utf8));
   return DG_ERR_OK;
 }
 
@@ -3322,94 +1714,22 @@ std::int32_t debug_post_text_field_key(dg_window_t* window_h, std::int32_t down,
   } else {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  AppImpl* impl = resolve_app(window_h->app);
-  impl->wm.post_key(window->sdl_window, down != 0, key, shift != 0);
+  manager_of(window_h).post_key(window->window->id(), down != 0, key, shift != 0);
   return DG_ERR_OK;
 }
 
 // -- ABI 0.2 phase A: focus, scrolling, lists, images, timers ------------
 
-namespace {
-
-// A live slot and its window, or the DG_ERR_* that says why not.
-struct LiveNode {
-  NodeSlot* slot = nullptr;
-  AppImpl* impl = nullptr;
-  WindowImpl* window = nullptr;
-  std::int32_t status = DG_ERR_OK;
-};
-
-LiveNode resolve_live(dg_node_t* node_h) {
-  LiveNode out;
-  out.slot = resolve_node_slot(node_h);
-  if (out.slot == nullptr) {
-    out.status = DG_ERR_INVALID_HANDLE;
-    return out;
-  }
-  if (out.slot->state != NodeSlot::State::kLive) {
-    out.status = DG_ERR_NO_WINDOW;
-    return out;
-  }
-  out.impl = resolve_app(node_h->app);
-  out.window = out.impl->windows[out.slot->window_index].get();
-  return out;
-}
-
-LiveNode resolve_list(dg_node_t* node_h) {
-  LiveNode out = resolve_live(node_h);
-  if (out.status == DG_ERR_OK && out.slot->type_id != DG_NODE_TYPE_LIST) {
-    out.status = DG_ERR_UNSUPPORTED;
-  }
-  return out;
-}
-
-std::int32_t show_image(LiveNode& live,
-                        const dg::Expected<dg::ImageId, dg::ImageError>& decoded,
-                        const char* function) {
-  if (!decoded) {
-    set_last_error(std::string(function) + ": " + decoded.error().message);
-    return DG_ERR_INVALID_ARGUMENT;
-  }
-  dg::RenderTree& tree = live.window->tree.render();
-  dg::ImageStyle image = tree.style(live.slot->node_id).image;
-  image.source = decoded.value();
-  tree.set_image(live.slot->node_id, image);
-  return DG_ERR_OK;
-}
-
-LiveNode resolve_image_target(dg_node_t* node_h) {
-  LiveNode out = resolve_live(node_h);
-  if (out.status == DG_ERR_OK && out.slot->type_id != DG_NODE_TYPE_IMAGE &&
-      out.slot->type_id != DG_NODE_TYPE_BOX) {
-    out.status = DG_ERR_UNSUPPORTED;
-  }
-  return out;
-}
-
-dg::SvgOptions svg_options(std::uint32_t tint_argb) {
-  dg::SvgOptions options;
-  if ((tint_argb >> 24U) != 0U) {
-    options.tint = dg::Color::from_argb(tint_argb);
-  }
-  return options;
-}
-
-}  // namespace
-
 std::int32_t node_focus(dg_node_t* node_h) {
-  LiveNode live = resolve_live(node_h);
+  const LiveNode live = resolve_live(node_h);
   if (live.status != DG_ERR_OK) {
     return live.status;
   }
-  WindowImpl& window = *live.window;
-  const dg::NodeId id = components::focus_target(window, *live.slot);
-  if (!window.widgets.has(id) || !dg::is_focusable(window.widgets.at(id).kind) ||
-      dg::is_disabled(window.tree.render(), id)) {
+  const dg::Status status = live.window->focus(live.slot->node_id);
+  if (status == dg::Status::kUnsupported) {
     set_last_error("dg_node_focus: this node cannot take keyboard focus");
-    return DG_ERR_UNSUPPORTED;
   }
-  apply_focus_change(*live.impl, window, window.focus.set(id));
-  return DG_ERR_OK;
+  return to_error_code(status);
 }
 
 dg_node_t* window_get_focus(dg_window_t* window_h) {
@@ -3418,7 +1738,7 @@ dg_node_t* window_get_focus(dg_window_t* window_h) {
     set_last_error("dg_window_get_focus: invalid window handle");
     return nullptr;
   }
-  const std::optional<dg::NodeId> focused = window->focus.current();
+  const std::optional<dg::NodeId> focused = window->window->focused();
   if (!focused.has_value()) {
     return nullptr;
   }
@@ -3430,7 +1750,7 @@ std::int32_t window_clear_focus(dg_window_t* window_h) {
   if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  apply_focus_change(*resolve_app(window_h->app), *window, window->focus.set(std::nullopt));
+  window->window->clear_focus();
   return DG_ERR_OK;
 }
 
@@ -3439,80 +1759,53 @@ std::int32_t node_get_scroll_offset(dg_node_t* node_h, std::int32_t* x, std::int
   if (live.status != DG_ERR_OK) {
     return live.status;
   }
-  const std::uint16_t type = live.slot->type_id;
-  if (type != DG_NODE_TYPE_SCROLL_VIEW && type != DG_NODE_TYPE_LIST &&
-      type != DG_NODE_TYPE_TEXT_AREA) {
-    return DG_ERR_UNSUPPORTED;
+  const dg::Expected<dg::PixelPoint, dg::Status> offset =
+      live.window->scroll_offset(live.slot->node_id);
+  if (!offset) {
+    return to_error_code(offset.error());
   }
-  const dg::PixelPoint offset = live.window->tree.render().scroll_offset(live.slot->node_id);
   if (x != nullptr) {
-    *x = offset.x;
+    *x = offset.value().x;
   }
   if (y != nullptr) {
-    *y = offset.y;
+    *y = offset.value().y;
   }
   return DG_ERR_OK;
 }
 
 std::int32_t list_set_items(dg_node_t* node_h, const char* const* items, std::uint32_t count,
                             std::int32_t item_height) {
-  LiveNode live = resolve_list(node_h);
+  const LiveNode live = resolve_typed(node_h, DG_NODE_TYPE_LIST);
   if (live.status != DG_ERR_OK) {
     return live.status;
   }
-  if ((items == nullptr && count > 0) || item_height < 0 ||
-      count > static_cast<std::uint32_t>(kListMaxItems)) {
+  if ((items == nullptr && count > 0) || count > static_cast<std::uint32_t>(kListMaxItems)) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  NodeSlot& slot = *live.slot;
-  WindowImpl& window = *live.window;
   std::vector<std::string> copied;
   copied.reserve(count);
   for (std::uint32_t i = 0; i < count; ++i) {
     copied.emplace_back(items[i] == nullptr ? "" : items[i]);
   }
-  slot.list_items = std::move(copied);
-  slot.list_selected = -1;
-  dg::RenderTree& tree = window.tree.render();
-  dg::Widget updated = window.widgets.at(slot.node_id);
-  if (item_height > 0 && item_height != updated.list_item_extent) {
-    updated.list_item_extent = item_height;
-    for (const dg::NodeId row : updated.list_pool) {
-      dg::BoxStyle box = window.tree.box(row);
-      box.height = item_height;
-      window.tree.set_box(row, box);
-    }
-  }
-  updated.list_item_count = static_cast<int>(slot.list_items.size());
-  window.widgets.attach(slot.node_id, updated);
-  const int extent = viewport_extent(window, slot.node_id);
-  paint_list_rows(*live.impl, window, slot,
-                  window.widgets.list_reset(tree, slot.node_id,
-                                            static_cast<int>(slot.list_items.size()), extent));
-  window.widgets.sync_scrollbar(tree, slot.node_id, extent);
-  window.relaid = true;
-  return DG_ERR_OK;
+  return to_error_code(
+      live.window->list_set_items(live.slot->node_id, std::move(copied), item_height));
 }
 
 std::int32_t list_get_selected(dg_node_t* node_h) {
-  const LiveNode live = resolve_list(node_h);
+  const LiveNode live = resolve_typed(node_h, DG_NODE_TYPE_LIST);
   if (live.status != DG_ERR_OK) {
     return live.status;
   }
-  return live.slot->list_selected;
+  const dg::Expected<int, dg::Status> selected = live.window->list_selected(live.slot->node_id);
+  return selected ? selected.value() : to_error_code(selected.error());
 }
 
 std::int32_t list_set_selected(dg_node_t* node_h, std::int32_t index) {
-  LiveNode live = resolve_list(node_h);
+  const LiveNode live = resolve_typed(node_h, DG_NODE_TYPE_LIST);
   if (live.status != DG_ERR_OK) {
     return live.status;
   }
-  if (index < -1 || index >= static_cast<std::int32_t>(live.slot->list_items.size())) {
-    return DG_ERR_VALUE_OUT_OF_RANGE;
-  }
-  live.slot->list_selected = index;
-  repaint_list(*live.impl, *live.window, *live.slot);
-  return DG_ERR_OK;
+  return to_error_code(live.window->list_select(live.slot->node_id, index));
 }
 
 std::int32_t node_set_image_data(dg_node_t* node_h, const void* bytes, std::uint32_t len,
@@ -3525,8 +1818,8 @@ std::int32_t node_set_image_data(dg_node_t* node_h, const void* bytes, std::uint
     return DG_ERR_INVALID_ARGUMENT;
   }
   return show_image(live,
-                    live.impl->images.decode_any(static_cast<const std::uint8_t*>(bytes), len,
-                                                 svg_options(svg_tint_argb)),
+                    live.impl->app.images().decode_any(static_cast<const std::uint8_t*>(bytes),
+                                                       len, svg_options(svg_tint_argb)),
                     "dg_node_set_image_data");
 }
 
@@ -3539,7 +1832,7 @@ std::int32_t node_set_image_file(dg_node_t* node_h, const char* path,
   if (path == nullptr) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  return show_image(live, live.impl->images.decode_file(path, svg_options(svg_tint_argb)),
+  return show_image(live, live.impl->app.images().decode_file(path, svg_options(svg_tint_argb)),
                     "dg_node_set_image_file");
 }
 
@@ -3549,9 +1842,9 @@ std::uint32_t timer_add(dg_app_t* app, std::int32_t delay_ms, std::int32_t repea
     set_last_error("dg_timer_add: invalid app handle");
     return 0;
   }
-  const dg::TimerId id = impl->wm.add_timer(delay_ms, repeat != 0);
+  const dg::TimerId id = impl->app.add_timer(delay_ms, repeat != 0);
   if (id.value == 0 || id.value > 0x7FFFFFFFU) {
-    (void)impl->wm.cancel_timer(id);
+    (void)impl->app.cancel_timer(id);
     set_last_error("dg_timer_add: out of timer ids");
     return 0;
   }
@@ -3563,7 +1856,7 @@ std::int32_t timer_cancel(dg_app_t* app, std::uint32_t timer_id) {
   if (impl == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return impl->wm.cancel_timer(dg::TimerId{timer_id}) ? DG_ERR_OK : DG_ERR_INVALID_ARGUMENT;
+  return impl->app.cancel_timer(dg::TimerId{timer_id}) ? DG_ERR_OK : DG_ERR_INVALID_ARGUMENT;
 }
 
 std::int32_t wake(dg_app_t* app) {
@@ -3571,7 +1864,7 @@ std::int32_t wake(dg_app_t* app) {
   if (impl == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return impl->wm.wake() ? DG_ERR_OK : DG_ERR_UNSUPPORTED;
+  return impl->app.waker().wake() ? DG_ERR_OK : DG_ERR_UNSUPPORTED;
 }
 
 std::int32_t post_user_event(dg_app_t* app, std::uint64_t payload) {
@@ -3579,7 +1872,7 @@ std::int32_t post_user_event(dg_app_t* app, std::uint64_t payload) {
   if (impl == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  return impl->wm.post_user_event(payload) ? DG_ERR_OK : DG_ERR_UNSUPPORTED;
+  return impl->app.waker().post_user_event(payload) ? DG_ERR_OK : DG_ERR_UNSUPPORTED;
 }
 
 std::int32_t debug_post_wheel(dg_window_t* window_h, float dx, float dy) {
@@ -3587,7 +1880,7 @@ std::int32_t debug_post_wheel(dg_window_t* window_h, float dx, float dy) {
   if (window == nullptr) {
     return DG_ERR_INVALID_HANDLE;
   }
-  resolve_app(window_h->app)->wm.post_wheel(window->sdl_window, dx, dy);
+  manager_of(window_h).post_wheel(window->window->id(), dx, dy);
   return DG_ERR_OK;
 }
 
@@ -3609,44 +1902,9 @@ std::int32_t debug_post_pointer_button_ex(dg_window_t* window_h, std::int32_t do
   if (clicks < 0) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  resolve_app(window_h->app)
-      ->wm.post_pointer_button(window->sdl_window, down != 0, x, y, which, clicks);
+  manager_of(window_h).post_pointer_button(window->window->id(), down != 0, x, y, which,
+                                           clicks);
   return DG_ERR_OK;
-}
-
-// -- Seams for abi_components.cpp (abi_internal.h) -----------------------------
-
-AppImpl* app_of(dg_app_t* handle) {
-  return resolve_app(handle);
-}
-
-WindowImpl* window_of(dg_window_t* handle) {
-  return resolve_window(handle);
-}
-
-NodeSlot* slot_of(dg_node_t* handle) {
-  return resolve_node_slot(handle);
-}
-
-dg_node_t* handle_near(AppImpl& impl, WindowImpl& window, dg::NodeId id) {
-  return nearest_handle(impl, window, id);
-}
-
-void report_focus(AppImpl& impl, WindowImpl& window, const dg::FocusChange& change) {
-  apply_focus_change(impl, window, change);
-}
-
-std::pair<const dg::Theme*, dg::ThemeVariant> active_theme_of(const AppImpl& impl) {
-  return theme_for(impl);
-}
-
-std::int32_t attach_node(AppImpl& impl, std::size_t window_index, dg::NodeId parent_id,
-                         std::size_t child_index) {
-  return attach_pending_node(impl, window_index, parent_id, child_index);
-}
-
-float default_text_size() {
-  return kDefaultLabelTextSize;
 }
 
 }  // namespace dg::abi

@@ -132,6 +132,19 @@ sudo apt-get install -y libfontconfig1-dev
    第 2 步同一次 `python3 tools/gen_theme.py` 调用顺带重新生成的内建主题
    嵌入文件（`include/drawgui/theme/builtin_theme.generated.h`）一起提交。
 
+## C++ 运行时（`src/app`）与 C ABI（`src/abi`）
+
+窗口里的一切行为——节点创建与默认样式、组件（下拉框、标签页、树、表格、
+进度条、菜单、对话框、tooltip）、焦点、编辑器按键、指针、主题重应用、
+事件泵与绘制——都在 C++ 运行时 `dg::App` / `dg::Window` 里
+（公开头文件 `include/drawgui/app/`，实现 `src/app/`，每种组件一个
+`src/app/components/*.cpp`）。`src/abi/` 只是它上面的一层薄壳：句柄竞技场与
+校验、`dg_value` ↔ `dg::PropValue`、`dg::Event` → `dg_event`、`dg::Status` →
+`DG_ERR_*`。改行为改 `src/app`；改 C 侧参数校验或句柄语义才改 `src/abi`。
+
+`src/app` 不得包含 `drawgui.h`，也不得出现 `dg_event`/`dg_*_t` 句柄——
+`ctest` 里的 `app.no_c_abi` 会检查这一点。
+
 ## 为什么 id 永不复用
 
 一个 `prop_id` 是跨越 C ABI 边界的 `uint16_t`。消费方会把它编译进自己的

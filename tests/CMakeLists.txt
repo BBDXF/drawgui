@@ -100,6 +100,14 @@ add_executable(drawgui_unit_test
   unit/test_node_removal.cpp
   unit/test_node_move.cpp
   unit/test_popup.cpp
+
+  # One TU per public runtime header, each including only that header: they
+  # must compile standalone.
+  headers/app_node_kind.cpp
+  headers/app_status.cpp
+  headers/app_events.cpp
+  headers/app_app.cpp
+  headers/app_window.cpp
   golden/golden_image.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/03_damage_repaint/scene.cpp
   ${CMAKE_CURRENT_LIST_DIR}/../examples/04_layout/layout_scene.cpp
@@ -127,7 +135,8 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_cursor.cpp
     unit/test_scrollbar_abi.cpp
     unit/test_ui_components.cpp
-    unit/test_data_controls.cpp)
+    unit/test_data_controls.cpp
+    unit/test_app_events.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE
@@ -390,6 +399,12 @@ add_test(NAME abi.no_drift
 # abi/drawgui_abi.lock (design.md section 5.8 decision 4).
 add_test(NAME abi.abi_lock
   COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_abi_lock_check)
+
+# The C++ runtime (src/app, include/drawgui/app) sits BELOW the C ABI: it
+# must never include drawgui.h or name a dg_* handle or dg_event.
+add_test(NAME app.no_c_abi
+  COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_CURRENT_LIST_DIR}/.. -P
+    ${CMAKE_CURRENT_LIST_DIR}/../cmake/CheckAppNoAbi.cmake)
 
 # Convenience target for deliberately refreshing baselines. Never invoked by
 # CTest: a suite that can rewrite its own expectations proves nothing.

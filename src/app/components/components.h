@@ -1,0 +1,194 @@
+// The per-kind hooks of the runtime. Each kind's builder lives in its own
+// translation unit under src/app/components/; the window-wide hooks below
+// dispatch to them, by NodeKind before a node exists (defaults/compose) and
+// by std::visit on NodeRecord::state afterwards.
+//
+// The src/ui components (dropdown, progress bar, tabs, tree, table) and the
+// popups (menu, dialog, tooltip) are poll-based: the pump hands every
+// pointer/key/text event to route_*() first (an open dialog, then an open
+// menu, then dropdowns, then the controls), ticks tooltips and
+// indeterminate progress bars, and calls sync() after a layout pass. Every
+// typed result a component returns becomes one dg::Event.
+
+#pragma once
+
+#include <cstdint>
+#include <optional>
+#include <string_view>
+#include <vector>
+
+#include "app/state.h"
+#include "drawgui/layout/box.h"
+#include "drawgui/props/node_props.h"
+#include "drawgui/render/node_lifecycle.h"
+#include "drawgui/ui/control_context.h"
+#include "drawgui/ui/ui_context.h"
+
+namespace dg::app_detail::components {
+
+// -- Shared context (components/context.cpp) ------------------------------------
+
+[[nodiscard]] dg::NodeSideTables tables_of(WinState& window);
+[[nodiscard]] const dg::FontCatalog* fonts_of(const AppState& app);
+[[nodiscard]] dg::UiContext ui(WinState& window);
+[[nodiscard]] dg::ControlStyle control_style(const AppState& app);
+[[nodiscard]] dg::ControlContext controls(WinState& window);
+// NodeKind::kLabel's engine-chosen default text size.
+[[nodiscard]] float default_text_size();
+
+// -- Window-wide hooks (components/dispatch.cpp) ----------------------------------
+
+// The default box/style of a node of `kind`, before it is added.
+void defaults(const WinState& window, NodeKind kind, dg::BoxStyle& box, dg::NodeStyle& style);
+// Builds the composed children (and state) inside the freshly added node.
+void compose(WinState& window, NodeRecord& record);
+void init_window(WinState& window);
+
+// Event routing, before the core's own handling. True = consumed.
+bool route_pointer(WinState& window, const dg::PointerEvent& event);
+bool route_key(WinState& window, const dg::KeyEvent& event);
+bool route_text(WinState& window, const dg::TextInputEvent& event);
+
+// `timeout_ms` cut to the nearest tooltip deadline / animation frame.
+[[nodiscard]] int clamp_timeout(const AppState& app, int timeout_ms);
+void tick(WinState& window);
+// After a layout pass that re-placed nodes.
+void sync(WinState& window);
+void restyle(WinState& window);
+// Before Window::remove() detaches `subtree`.
+void before_remove(WinState& window, const std::vector<dg::NodeId>& subtree);
+
+// Component-specific property/text writes; nullopt = not handled here.
+std::optional<dg::Status> set_prop(WinState& window, NodeRecord& record, std::uint16_t prop_id,
+                                   const dg::PropValue& value);
+void after_prop(WinState& window, NodeRecord& record, std::uint16_t prop_id);
+std::optional<dg::Status> set_text(WinState& window, NodeRecord& record, std::string_view text);
+// The node keyboard focus goes to for Window::focus(record).
+[[nodiscard]] dg::NodeId focus_target(const NodeRecord& record);
+
+[[nodiscard]] bool any_dropdown_open(WinState& window);
+// The nearest ancestor-or-self of the node under the pointer that has a
+// tooltip.
+[[nodiscard]] std::optional<dg::NodeId> tooltip_target(WinState& window);
+
+inline int wrapper_height(const WinState& window, const NodeRecord& record, int fallback) {
+  return window.tree.box(record.id).height.value_or(fallback);
+}
+
+// -- Per-kind builders ----------------------------------------------------------
+
+// basic.cpp: box, button, label, checkbox, image.
+void basic_defaults(const AppState& app, NodeKind kind, dg::BoxStyle& box,
+                    dg::NodeStyle& style);
+void compose_basic(WinState& window, NodeRecord& record);
+// editors.cpp: text field, text area.
+void editor_defaults(const AppState& app, NodeKind kind, dg::BoxStyle& box,
+                     dg::NodeStyle& style);
+void compose_editor(WinState& window, NodeRecord& record);
+// scroll_view.cpp / list.cpp.
+void scroll_view_defaults(const WinState& window, dg::BoxStyle& box, dg::NodeStyle& style);
+void compose_scroll_view(WinState& window, NodeRecord& record);
+void list_defaults(const WinState& window, dg::BoxStyle& box, dg::NodeStyle& style);
+void compose_list(WinState& window, NodeRecord& record);
+// dropdown.cpp / progress.cpp / tabs.cpp / tree.cpp / table.cpp.
+void dropdown_defaults(const AppState& app, dg::BoxStyle& box, dg::NodeStyle& style);
+void control_defaults(NodeKind kind, dg::BoxStyle& box);
+void compose_dropdown(WinState& window, NodeRecord& record);
+void build_progress(WinState& window, NodeRecord& record);
+void build_tabs(WinState& window, NodeRecord& record);
+void build_tree(WinState& window, NodeRecord& record, std::optional<int> select = std::nullopt);
+// The tree's items with their current expansion, for a rebuild.
+void capture_tree(TreeState& state);
+void build_table(WinState& window, NodeRecord& record,
+                 std::optional<int> select = std::nullopt);
+void paint_dropdown(WinState& window, NodeRecord& record);
+
+// Per-state hooks, picked by std::visit; the templates are the defaults.
+template <class S>
+bool control_pointer(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
+                     const dg::PointerEvent& /*event*/) {
+  return false;
+}
+bool control_pointer(WinState& window, NodeRecord& record, TabsState& state,
+                     const dg::PointerEvent& event);
+bool control_pointer(WinState& window, NodeRecord& record, TreeState& state,
+                     const dg::PointerEvent& event);
+bool control_pointer(WinState& window, NodeRecord& record, TableState& state,
+                     const dg::PointerEvent& event);
+
+template <class S>
+bool control_key(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
+                 const dg::KeyEvent& /*event*/) {
+  return false;
+}
+bool control_key(WinState& window, NodeRecord& record, TabsState& state,
+                 const dg::KeyEvent& event);
+bool control_key(WinState& window, NodeRecord& record, TreeState& state,
+                 const dg::KeyEvent& event);
+bool control_key(WinState& window, NodeRecord& record, TableState& state,
+                 const dg::KeyEvent& event);
+
+template <class S>
+void sync_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/) {}
+void sync_state(WinState& window, NodeRecord& record, ProgressState& state);
+void sync_state(WinState& window, NodeRecord& record, TabsState& state);
+void sync_state(WinState& window, NodeRecord& record, TreeState& state);
+void sync_state(WinState& window, NodeRecord& record, TableState& state);
+
+template <class S>
+void restyle_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/) {}
+void restyle_state(WinState& window, NodeRecord& record, DropdownState& state);
+void restyle_state(WinState& window, NodeRecord& record, ProgressState& state);
+void restyle_state(WinState& window, NodeRecord& record, TabsState& state);
+void restyle_state(WinState& window, NodeRecord& record, TreeState& state);
+void restyle_state(WinState& window, NodeRecord& record, TableState& state);
+
+template <class S>
+void tick_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
+                dg::AnimTime /*now*/) {}
+void tick_state(WinState& window, NodeRecord& record, ProgressState& state, dg::AnimTime now);
+
+// Whether this state wants an animation frame (clamp_timeout()).
+template <class S>
+bool animating(const S& /*state*/) {
+  return false;
+}
+bool animating(const ProgressState& state);
+
+template <class S>
+std::optional<dg::Status> set_prop_state(WinState& /*window*/, NodeRecord& /*record*/,
+                                         S& /*state*/, std::uint16_t /*prop_id*/,
+                                         const dg::PropValue& /*value*/) {
+  return std::nullopt;
+}
+std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
+                                         ProgressState& state, std::uint16_t prop_id,
+                                         const dg::PropValue& value);
+
+template <class S>
+void after_prop_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
+                      std::uint16_t /*prop_id*/) {}
+void after_prop_state(WinState& window, NodeRecord& record, ProgressState& state,
+                      std::uint16_t prop_id);
+void after_prop_state(WinState& window, NodeRecord& record, TreeState& state,
+                      std::uint16_t prop_id);
+void after_prop_state(WinState& window, NodeRecord& record, TableState& state,
+                      std::uint16_t prop_id);
+
+template <class S>
+std::optional<dg::Status> set_text_state(WinState& /*window*/, NodeRecord& /*record*/,
+                                         S& /*state*/, std::string_view /*text*/) {
+  return std::nullopt;
+}
+std::optional<dg::Status> set_text_state(WinState& window, NodeRecord& record,
+                                         DropdownState& state, std::string_view text);
+
+template <class S>
+dg::NodeId focus_target_state(const NodeRecord& record, const S& /*state*/) {
+  return record.id;
+}
+dg::NodeId focus_target_state(const NodeRecord& record, const TabsState& state);
+dg::NodeId focus_target_state(const NodeRecord& record, const TreeState& state);
+dg::NodeId focus_target_state(const NodeRecord& record, const TableState& state);
+
+}  // namespace dg::app_detail::components

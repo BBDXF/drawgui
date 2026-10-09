@@ -237,7 +237,29 @@ if(DRAWGUI_HAVE_SDL3)
     # needs no WindowManager at all).
     src/shortcuts/clipboard_actions.cpp
 
-    # The C ABI (design.md section 5.8): dg_app_t wraps dg::WindowManager,
+    # The C++ runtime (dg::App / dg::Window): one WindowManager-backed app,
+    # its windows' widgets and src/ui components, and the event pump. The C
+    # ABI below is a thin shell over it.
+    src/app/app.cpp
+    src/app/focus.cpp
+    src/app/keys.cpp
+    src/app/pointer.cpp
+    src/app/pump.cpp
+    src/app/theme.cpp
+    src/app/window.cpp
+    src/app/components/basic.cpp
+    src/app/components/dispatch.cpp
+    src/app/components/dropdown.cpp
+    src/app/components/editors.cpp
+    src/app/components/list.cpp
+    src/app/components/popups.cpp
+    src/app/components/progress.cpp
+    src/app/components/scroll_view.cpp
+    src/app/components/table.cpp
+    src/app/components/tabs.cpp
+    src/app/components/tree.cpp
+
+    # The C ABI (design.md section 5.8): dg_app_t wraps dg::App,
     # so nothing here can exist without a real windowing backend. A build
     # without SDL3 has no C ABI at all.
     src/abi/abi_components.cpp
