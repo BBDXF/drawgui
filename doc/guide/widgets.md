@@ -6,8 +6,11 @@
 
 | NodeKind | 读写 | 事件 |
 |---|---|---|
+| `kBox` | 容器/色块；`prop::row()/column()` 变成容器（见 [layout.md](layout.md)） | — |
+| `kLabel` | `set_text(DG_PROP_TEXT)`；`wrap_text()` 换行（见 [text.md](text.md)） | — |
 | `kButton` | `set_text(DG_PROP_TEXT)` | `ClickEvent`（`clicks` 为连击数） |
 | `kCheckbox` | `checked(node)` | `ClickEvent`（点击自动切换） |
+| `kTextField` / `kTextArea` | `set_text`/`text(node)`、`DG_PROP_PLACEHOLDER`、`DG_PROP_MAX_LENGTH`（见 [text.md](text.md)） | `TextChangedEvent` |
 | `kList` | `window->list(node)` → `ListRef::set_items/select/selected` | `ListSelectEvent` |
 | `kScrollView` | 子节点直接 `create()` 到它下面；`scroll_offset()` | — |
 | `kImage` | `set_image(node, app.images()...)` | — |
@@ -124,7 +127,7 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 
 ### 11 种 WidgetKind
 
-`WidgetKind` 是闭集合，一共 11 个值（`widget_set.h` 头部注释仍写着「四种」，那是历史遗留，已经过时——实际数量以枚举本身为准）：
+`WidgetKind` 是闭集合，一共 11 个值（以 `widget_set.h` 里的枚举为准）：
 
 | kind | 是否接受指针输入 | 能否获得键盘焦点 | 说明 |
 |---|---|---|---|
@@ -134,15 +137,16 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 | `kCheckbox` | 是 | 是 | `checked` + `indicator` 子节点；`group` 有值时变成单选按钮（见下） |
 | `kScrollView` | 是（用于滚轮）| **否** | 裁剪节点 + 无界约束子节点 + 滚动偏移（三个已有机制的组合） |
 | `kSlider` | 是 | 是 | 轨道（本节点）+ 滑块（`thumb` 子节点），`value` 是运行时状态 |
-| `kTextField` | 是 | 是 | 单行可编辑文本框，详见 `doc/guide/text.md` |
+| `kTextField` | 是 | 是 | 单行可编辑文本框，详见 [text.md](text.md) |
 | `kTextArea` | 是 | 是 | 多行可编辑文本框，自带垂直滚动，见下方「多行编辑框」 |
 | `kList` | 是（用于滚轮）| **否** | 固定回收池的虚拟化列表（见下） |
 | `kDropdown` | 是 | 是 | 只是「锚点 + 选项 + 已选索引」，弹出层由 `dg::Dropdown` 组件负责（见下方★一节） |
 | `kScrollbar` | 是 | **否** | 滚动条的轨道或滑块，由 `attach_scrollbar()` 挂上，不要手动 attach（见下方「滚动条」） |
 
-#### radio 不是独立的 kind
+#### 底层的 radio 不是独立的 kind
 
-单选按钮就是 `kCheckbox` 上多设了一个 `group` 字段：
+`WidgetSet` 里的单选按钮就是 `kCheckbox` 上多设了一个 `group` 字段（运行时的
+`NodeKind::kRadio` 就是这样组合出来的）：
 
 ```cpp
 Widget radio_a; radio_a.kind = WidgetKind::kCheckbox; radio_a.group = 1;
@@ -218,7 +222,7 @@ PropValue::boolean(true))`，C ABI 走 `dg_node_set_prop()` 加 `DG_VALUE_BOOL`�
   `owner_of()` 对禁用的滚动条部件返回 `nullopt`，`scrollbar_press()`/`scrollbar_drag()`
   自己也再查一次禁用位。
 - **鼠标指针**：控件的默认光标（文本框的 I 形）失效，显示箭头；节点上显式设置的
-  `DG_PROP_CURSOR` 仍然生效（见 `doc/guide/input.md`「鼠标指针形状」）。
+  `DG_PROP_CURSOR` 仍然生效（见 [input.md](input.md)「鼠标指针形状」）。
 - **程序化修改不受限**：`toggle()`/`set_slider_value()`/`text_field_insert()` 等仍然有效，
   禁用只拦截用户输入。
 
@@ -233,7 +237,7 @@ widgets.refresh_subtree(tree.render(), group, interaction);         // 重绘子
 
 外观：禁用控件只用两种颜色，都来自 `WidgetSet` 上的 `dg::DisabledPalette`
 （`set_disabled_palette()`，取主题 token `color.disabled`/`color.on-disabled`，见
-`doc/guide/theming.md`）：
+[theming.md](theming.md)）：
 
 | 部位 | 禁用时 |
 |------|--------|
@@ -367,7 +371,7 @@ interaction.released_on(target);
 
 **外观**来自 `WidgetSet` 上的 `dg::ScrollbarStyle`（`set_scrollbar_style()`），对应主题
 token `color.scrollbar-track`/`-thumb`/`-thumb-hover`/`-thumb-pressed` 和
-`size.scrollbar`，见 `doc/guide/theming.md`。
+`size.scrollbar`，见 [theming.md](theming.md)。
 
 参考实现：`examples/10_scrolling`（底层）、`examples/15_list`（运行时；两者的 `--verify-*` 都检查滚动条）。
 
@@ -428,8 +432,8 @@ SVG 的处理方式：**绘制时按节点尺寸直接画矢量**（`SkSVGDOM::r
   `dg::Focus` 的当前焦点，模态陷阱就是 `Focus::enter_scope(panel, true)`。
 
 完整 API、事件路由和示例见 [`popups.md`](popups.md) 的"库组件"一节；
-`examples/25_showcase` 直接使用这些组件；`examples/22_dropdown_menu`、
-`examples/23_menu_tooltip_dialog` 通过 `dg::App` 间接使用它们。
+`examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog`、`examples/25_showcase`
+通过 `dg::App` 间接使用它们，`tests/unit/test_ui_components.cpp` 直接使用。
 
 #### ★ 数据控件：ProgressBar / Tabs / TreeView / Table（组件层）
 
@@ -470,7 +474,7 @@ space.md），**没有新增 token**。
   再次选中时恢复并对该面板跑一次 `refresh_subtree()`。内容加在 `tabs.panel(i)` 下。
 - **TreeView**：模型是先序的扁平 `TreeItem{label, depth, expanded}` 列表。展开/折叠
   重新算**扁平化可见行**（O(n)），把行数交给下面的 `kList`
-  （新增的 `WidgetSet::list_reset()`），回收池大小是
+  （`WidgetSet::list_reset()`），回收池大小是
   `ceil(viewport_height/row_height)+1`，**1 万项和 10 项一样**。
   键盘（外框有焦点时）：Up/Down/Home/End/PageUp/PageDown 移动选择，Right 展开或进入
   第一个子项，Left 折叠或回到父项；点击披露列切换展开，点击行其他位置选中；滚轮、
@@ -480,11 +484,11 @@ space.md），**没有新增 token**。
   **排序归应用**：点击可排序列表头报告 `kSortRequested`，应用自己排序后
   `set_rows()`，可选 `set_sort_indicator()`（标题后加 ` ^`/` v`）。
 
-`WidgetSet::list_reset(tree, list, item_count, viewport_extent)` 是为此新增的唯一
-`WidgetSet` API：替换 `kList` 的行数、把滚动偏移夹到新范围、忘掉所有槽位分配并把
-所有槽停到内容原点上方（裁剪之外），再 `list_sync()`——行数缩小时不会留下陈旧行；
-它同时也是布局之后的重同步。视觉集中在 `src/ui/control_visuals.cpp`，最小可用，
-等设计侧打磨。示例：`examples/27_data_widgets`（运行时版，`--verify`、`--dump-png`），`examples/25_showcase`（直接使用组件）。
+`WidgetSet::list_reset(tree, list, item_count, viewport_extent)` 替换 `kList` 的行数、
+把滚动偏移夹到新范围、忘掉所有槽位分配并把所有槽停到内容原点上方（裁剪之外），再
+`list_sync()`——行数缩小时不会留下陈旧行；它同时也是布局之后的重同步。视觉集中在
+`src/ui/control_visuals.cpp`。示例：`examples/27_data_widgets`（运行时版，`--verify`、
+`--dump-png`）；组件本身的单测在 `tests/unit/test_ui_components.cpp`。
 
 #### 多行编辑框（`kTextArea`）
 
@@ -542,23 +546,25 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
   连续输入（或连续 Backspace、连续 Delete）在 1 秒内、且从上次编辑留下的光标处继续时合并成一步；
   在非空白后输入空白会开新一步，所以 "hello world" 撤销两次。光标移动、选区变化、粘贴、剪切、
   按词删除、输入法提交都各自是独立的一步；组字预览从不记录，组字期间撤销被抑制。
-  合并用的时间来自 `WidgetSet::set_edit_time(AnimTime)`（C ABI 每次按键/输入前写入
+  合并用的时间来自 `WidgetSet::set_edit_time(AnimTime)`（`dg::App` 与 C ABI 每次按键/输入前写入
   `steady_anim_time()`，测试写固定值），内核不读真实时钟。`editor_set_text()` 会清空撤销历史。
 - **按词**：Ctrl+Left/Right（`kWordLeft`/`kWordRight`，加 Shift 扩展）、Ctrl+Backspace/Delete
   （`editor_delete_word()`）。分词按字素簇的首码点分类：空白、换行、标点符号、CJK（汉字/假名，
   连续的一串算一个词）、emoji（每个 emoji 簇单独成词）、其余（字母、数字、`_`）。
 - **多击**：`text_field_click()`/`text_area_click()` 的 `click_count`——2 选词
   （`text_edit::word_range()`，点在词右半边也选这个词），3 在 TextField 全选、在 TextArea 选所在逻辑行。
-  连击计数用 `dg::ClickCounter`（`widget/click_counter.h`）。
+  连击数来自 `PointerEvent::clicks`（见 [input.md](input.md)「多击计数」）。
 - **长度上限**：`editor_set_max_length(id, n)`，单位是**字素簇**（用户看到的字符，不是字节），0 = 不限。
   输入、粘贴、输入法提交时把插入的串在字素边界截断到放得下的长度；`editor_set_text()` 也截断；
   已有文字不会因为调小上限而被截掉。
 
-完整示例：`examples/26_text_area`（C ABI，`--verify-text-area`/`--dump-png`）。
+完整示例：`examples/12_text_input`（运行时）、`examples/26_text_area`（C ABI，`--verify-text-area`/`--dump-png`）。
 
 #### kScrollView/kList 不能获得焦点
 
-`focus.h` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kTextArea`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList`/`kScrollbar` 不行。后两者被排除是**故意的**而非疏漏——把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。键盘滚动（PageUp/PageDown/Home/End）现在由 `apply_keyboard_scroll()` 实现，但它是从当前焦点向上找最近的可滚动祖先，而不是让 ScrollView/List 自身可聚焦（见 `doc/guide/input.md`）。
+`is_focusable()` 刻意排除 `kScrollView`/`kList`/`kScrollbar`；键盘滚动由
+`apply_keyboard_scroll()` 从当前焦点向上找最近的可滚动祖先完成，原因和完整列表见
+[input.md](input.md) 的焦点一节。
 
 ## 边界与坑
 
@@ -577,7 +583,7 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - `examples/11_form_controls` —— 运行时的 `kCheckbox`/`kRadio`/`kSlider` 表单：两个单选组、
   一个随窗口变宽的滑块和一个带 `step` 的定宽滑块；底部一行演示禁用状态（开关通过
   `set_disabled()` 启用/禁用旁边的 checkbox 与 slider，`--verify-form-controls` 校验它）
-- `examples/12_text_input` —— 文本框（另见 `doc/guide/text.md`）
+- `examples/12_text_input` —— 文本框（另见 [text.md](text.md)）
 - `examples/26_text_area` —— 多行编辑框（C ABI 驱动）
 - `examples/13_image` —— 四种 `ImageFit` 对比
 - `examples/15_list` —— 虚拟化列表的回收池
@@ -586,4 +592,5 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - `examples/23_menu_tooltip_dialog` —— 运行时的右键菜单/tooltip/对话框
 - `examples/28_c_components` —— 同一批组件从纯 C 使用：`DG_NODE_TYPE_PROGRESS`/`TABS`/
   `TREE`/`TABLE`/`DROPDOWN`（`doc/reference/c-abi.md` 第 5 节「组件」）
-- `examples/27_data_widgets` —— 运行时的进度条/页签/树/表格（底层组件见 `examples/25_showcase`）
+- `examples/27_data_widgets` —— 运行时的进度条/页签/树/表格
+- `examples/25_showcase` —— 运行时把上面大多数控件放进一个窗口（含主题切换、tooltip、菜单、对话框）

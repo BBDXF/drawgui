@@ -2,8 +2,8 @@
 
 ## 用 `dg::App`
 
-`dg::App` 今天只驱动运行时自己的动画：不确定进度条（`ProgressRef::set_indeterminate(true)`）
-，`pump(-1)` 会在需要下一帧时自动醒来。它还没有面向应用的
+`dg::App` 今天只驱动运行时自己的动画：不确定进度条（`ProgressRef::set_indeterminate(true)`，
+见 [widgets.md](widgets.md)），`pump(-1)` 会在需要下一帧时自动醒来。它还没有面向应用的
 动画 API：`Window::animation()` 返回的 `AnimationEngine` 不会被运行时 `tick()`，
 主题/尺寸变化时运行时会覆盖组合子节点上的属性。需要通用的显式动画或隐式过渡时，
 目前只能按下面「直接使用底层」的方式自己持有 `AnimationEngine`
@@ -82,8 +82,7 @@ append-only lock"体系（`include/drawgui/anim/curve.h:10-23`）：那套机制
 
 ```cpp
 slide_handle_ = engine_.animate(scene.tree, scene.handles.slide_chip, DG_PROP_LEFT,
-                                dg::PropValue::number(0.0F),
-                                dg::PropValue::number(240.0F),
+                                dg::PropValue::number(from), dg::PropValue::number(to),
                                 anim_scene::kSlideDurationMs, dg::kCurveEaseInOut);
 ```
 
@@ -126,7 +125,7 @@ engine_.set_value(scene.tree, scene.handles.hover_panel, DG_PROP_BACKGROUND_COLO
 `set_value()` 第一次触发某个 (node, prop_id) 的隐式过渡时，需要知道
 "当前值"才能算出插值的起点（`from`）。这个"读回当前值"的能力由
 `AnimationEngine::read_current()` 提供，它的 switch 是**有限列表**，核实
-`src/anim/animation_engine.cpp:104-147` 后确认恰好是这 7 个：
+`src/anim/animation_engine.cpp:113-161` 后确认恰好是这 7 个：
 
 | prop_id | 读回的位置 |
 |---|---|
@@ -143,10 +142,7 @@ engine_.set_value(scene.tree, scene.handles.hover_panel, DG_PROP_BACKGROUND_COLO
 构建里会有一条诊断信息。这个列表是**故意有限而非穷举**的：`node_props.h`
 描述的可插值属性大约还有 29 个没有被覆盖，只是因为现有客户端没有用到，
 不是因为技术上做不到——想要支持另一个属性只需要在这个 switch 里加一个
-case，没有新机制要建。**这个区别在此之前只存在于一个私有 `.cpp` 文件的
-switch 语句里，从未在任何文档层面列出过**，如果你的属性不在这 7 个之中，
-`set_transition()` 声明本身不会报错，第一次写入才会静默跳变——排查这种
-"为什么这个属性没有过渡效果"的问题时要先查这张表。
+case，没有新机制要建。排查"为什么这个属性没有过渡效果"时先查这张表。
 
 已经在跑的动画槽位（第二次及以后的 `set_value()` 调用，转为"重定向"逻辑，
 不受这条限制——只有**第一次触发、需要从当前值起插值**的场景才需要
@@ -195,13 +191,12 @@ paint）而言完全无法区分。
 ### `AnimHandle{index, generation}`
 
 见上文"显式动画"一节——两个字段是为了解决动画槽位复用引发的 ABA 问题，
-这是一个**新**机制，5-3 给渲染节点用的"永不释放、所以永不悬空"那套先例
-在这里不适用：渲染节点的数量在一个会话里是有界增长的（append-only），
+渲染节点那套"永不释放、所以永不悬空"的做法在这里不适用：渲染节点的数量在一个会话里是有界增长的（append-only），
 动画数量是无界的（每一次短暂的 hover 都会用掉一个槽位），必须回收复用。
 
 ### 已知缺陷：主题切换与飞行中的 transition 冲突
 
-（与 `doc/guide/theming.md` 共享同一条记录，未修复）
+（与 [theming.md](theming.md) 共享同一条记录，未修复）
 
 如果一个 (node, prop_id) 同时被 `bind_token()` 绑定、又被
 `AnimationEngine` 驱动着一个正在飞行的动画/过渡：
@@ -221,7 +216,7 @@ paint）而言完全无法区分。
 `abi/drawgui.def.toml` 的头注释**具名拒绝**了 `dg_animate` 和
 `dg_node_set_transition`（`abi/drawgui.def.toml:67-73`）：
 
-> `dg::AnimationEngine` 这个 C++ 形态自 6-1 起就存在，但当前没有任何
+> `dg::AnimationEngine` 这个 C++ 形态早已存在，但当前没有任何
 > 验收标准需要它导出，在有真实调用方之前把一个每窗口一份的
 > `AnimationEngine` 接进 trampoline 层是同一类"没有真实调用方就先写接口"
 > 的错误。

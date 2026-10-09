@@ -53,12 +53,12 @@ app.run([&](const dg::Event& event) {
 
 ### 核心类型
 
-- `dg::PumpResult`（`include/drawgui/window/window_manager.h:414`）：一次
+- `dg::PumpResult`（`include/drawgui/window/window_manager.h:424`）：一次
   `pump()` 调用捞到的所有事件，按"调用方要怎么处理"分类。
-- `dg::Focus`（`include/drawgui/widget/focus.h:167`）：单例每窗口一份的
+- `dg::Focus`（`include/drawgui/widget/focus.h:174`）：单例每窗口一份的
   焦点状态机，`current()`/`set()`/`focus_next()`/`focus_previous()`/
   `enter_scope()`/`exit_scope()`。
-- `dg::FocusRing`（`focus.h:362`）：焦点可视化，四条描边的位置数据。
+- `dg::FocusRing`（`focus.h:380`）：焦点可视化，四条描边的位置数据。
 - `dg::Chord`/`dg::ShortcutBinding`（`include/drawgui/shortcuts/chord.h`）：
   一个解析好的按键组合、以及它绑定到的 action。
 - `dg::route_key_event()`（`include/drawgui/shortcuts/router.h:160`）：
@@ -78,7 +78,7 @@ for (const dg::TextEditingEvent& event : pumped.text_editing) { /* IME 预览态
 for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/焦点/全屏… */ }
 ```
 
-**`needs_repaint` 必须先于 `pointer` 处理**（`window_manager.h:436,442-444`）：
+**`needs_repaint` 必须先于 `pointer` 处理**（`window_manager.h:445,451-453`）：
 一个 resize 改变了每个 widget 的位置，如果同一次 `pump()` 里恰好也带来了
 指针事件，而调用方还没来得及按新尺寸重新布局，这个指针事件就会命中错误的
 坐标。这条顺序是硬性约束，详细理由见 `doc/contracts.md`。
@@ -90,7 +90,7 @@ for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/
 `set_fullscreen()` 等也会经由这里确认——在真实显示服务器上这些请求是异步生效的。
 
 `PumpResult::closed`/`close_requested` 处理窗口关闭；`text_editing` 是 IME
-组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h:454-460`
+组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h:463-469`
 的记录，这条路径主要靠合成注入测试）。
 
 #### 多击计数（双击/三击）
@@ -106,7 +106,9 @@ for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/
   每个按键（主/次/中）各自计数。
 - 判断双击请写 `clicks == 2`，两种来源结果一致。
 
-编辑框（C ABI 层）仍用自己的 `ClickCounter`，尚未迁移到这个字段（见 limitations）。
+编辑框也读这个字段：`text_field_click()`/`text_area_click()` 的 `click_count` 为 2 时选中
+指针下的词，为 3 时在 TextField 里全选、在 TextArea 里选中所在逻辑行（两个 `\n` 之间）。
+`dg::App` 和 C ABI 都自动做这件事。
 
 #### 指针捕获（pointer capture）
 
@@ -183,21 +185,22 @@ focus.focus_next(tree.render(), widgets, root_node);  // Tab
 focus.focus_previous(tree.render(), widgets, root_node);  // Shift-Tab
 ```
 
-#### `focus_order()` 的规则（`focus.h:134-165`）
+#### `focus_order()` 的规则（`focus.h:147-172`）
 
 - 默认按树的前序遍历（DOM 顺序）；`Widget::tab_index` 可以覆盖，正数排前面
   按升序，其余（含 0/未设置）按树序排在后面，负数**从 Tab 序里剔除**（但仍可
   被直接点击聚焦），完全对应 HTML 的 `tabindex` 语义。
-- 跳过：没有挂 `Widget` 的节点、`is_focusable()` 判否的 kind、零面积节点（这也
-  是弹层关闭后不再进 Tab 序的机制来源——关闭是裁成空矩形，见 `doc/guide/popups.md`）。
+- 跳过：没有挂 `Widget` 的节点、`is_focusable()` 判否的 kind、被禁用的节点及其
+  整个子树、零面积节点（这也是弹层关闭后不再进 Tab 序的机制来源——关闭是裁成空矩形，
+  见 [popups.md](popups.md)）。
 - **不跳过 `opacity == 0`** 的节点：hit_test 本来就忽略 opacity，Tab 能到达
   的集合和点击能到达的集合保持一致。
 
-#### `is_focusable()`（`focus.h:109-124`）
+#### `is_focusable()`（`focus.h:113-130`）
 
 ```
-kButton / kCheckbox / kSlider / kTextField / kDropdown  -> true
-kPanel / kLabel / kScrollView / kList                    -> false
+kButton / kCheckbox / kSlider / kTextField / kTextArea / kDropdown  -> true
+kPanel / kLabel / kScrollView / kList / kScrollbar                  -> false
 ```
 
 **`kScrollView`/`kList` 不能获得焦点**——不是遗漏，是刻意的：让一个滚动区域
@@ -220,7 +223,7 @@ focus.exit_scope(tree.render());        // 离开作用域，若当前焦点在�
 普通弹层用的是**同一个作用域机制**，只是多了一个拒绝开关，不是第二套概念。
 
 **只有一个活跃作用域，不是栈**：因为 `PopupHost` 从不允许弹层里再开弹层
-（见 `doc/guide/popups.md`），重复调用 `enter_scope()` 直接替换旧作用域，
+（见 [popups.md](popups.md)），重复调用 `enter_scope()` 直接替换旧作用域，
 没有嵌套恢复。
 
 #### 焦点环：内缩，且每个弹层需要自己的实例
@@ -231,7 +234,7 @@ dg::update_focus_ring(tree.render(), parent, ring, focus.current(), ring_color,
 ```
 
 环的几何是**从目标 bounds 内侧向内画**——四条描边永远不超出目标自身的
-bounds（`focus.h:296-362` 的长注释记录了这是 commit `d7283c2` 从"外扩"改
+bounds（`focus.h` 中 `FocusRing` 上方的长注释记录了它是从"外扩"改
 过来的：外扩假设目标周围有空白边距可占用，但一个满宽贴边的列表行（如
 下拉菜单的行）左右贴边、上下和相邻行贴边，外扩会画到相邻行内部甚至画到
 surface 外面。内缩不依赖这个假设。
@@ -246,7 +249,7 @@ surface 外面。内缩不依赖这个假设。
 
 **降级行为**：目标任一轴的尺寸小于 `2*(gap+thickness)`（默认 gap=2,
 thickness=2，即 8px）时，`fill_ring()` 直接把整个目标涂成环颜色，而不是
-画出一个反转/重叠的怪异描边（`src/widget/focus.cpp` 约 :60-66,:263-267；
+画出一个反转/重叠的怪异描边（`src/widget/focus.cpp` 的 `fill_ring()`；
 签名见 `focus.h` 的 `update_focus_ring()` 声明）。
 
 ### 快捷键：11 个 action，四级路由
@@ -282,11 +285,7 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
 和 `WidgetSet::editor_delete_word()`。词的切分见 `text_edit.h` 的
 `word_left()`/`word_right()`。
 
-**多击**：`dg::ClickCounter`（`widget/click_counter.h`）用 `AnimTime` 时钟接缝
-数连击——500ms 内、每轴 4px 内的下一次按下算连击，计数 1→2→3→1 循环；中间
-按过键就重新计数。`text_field_click()`/`text_area_click()` 的 `click_count`
-参数：2 选中指针下的词，3 在 TextField 里全选、在 TextArea 里选中所在逻辑行
-（两个 `\n` 之间）。C ABI 自动做这件事。
+编辑框的双击/三击见上文「多击计数」。
 
 #### 四级路由（design.md section 5.5.2，`router.h`）
 
@@ -318,7 +317,7 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
   "level 2 赢了 level 4"，是快捷键表压根没被查。这也是为什么应用级的
   `scroll_to_start`（绑定裸 `Home`）和文本框自己的行首（也是 `Home`，
   没有任何 shortcut 绑定）能共存而不冲突。kTextArea 的编辑意图更多：
-  上面六个再加 Up/Down/PageUp/PageDown（`dg::Key` 新增了 `kPageUp`/`kPageDown`，
+  上面六个再加 Up/Down/PageUp/PageDown（`dg::Key::kPageUp`/`kPageDown`，
   SDL 的 `SDLK_PAGEUP`/`SDLK_PAGEDOWN` 映射过来），以及**不带 Mod/Alt** 的 Enter
   （裸 Enter 或 Shift+Enter 插入换行）；Ctrl/Alt+Enter 仍然进快捷键路由。
   kTextField 的六键集合没有变。Tab 对两种编辑框都不是编辑意图，仍然是焦点切换。
@@ -327,7 +326,7 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
   是硬隔离，不区分是否恰好也是编辑意图。
 
 `route_key_event()` 把这两条早退写在函数体最前面，`resolve_action()` 本身
-甚至不会被提到——这是 8-3b 的缺陷注入测试能直接验证的结构性保证：删掉
+甚至不会被提到——这是测试能直接验证的结构性保证：删掉
 早退语句，`tests/unit/test_shortcut_routing.cpp` 就会失败。
 
 #### `Mod` 伪修饰键
@@ -351,12 +350,12 @@ dg::TextFieldEditContext ctx{tree, fonts, widgets, manager};
 bool did = dg::apply_clipboard_action(DG_ACTION_COPY, field_node, ctx);
 ```
 
-`apply_clipboard_action()`（`include/drawgui/shortcuts/clipboard_actions.h:85`）
+`apply_clipboard_action()`（`include/drawgui/shortcuts/clipboard_actions.h:87`）
 处理 copy/cut/paste/select_all 四个 action，全部注册在 `ActionScope::kTextField`
 下。**复制/剪切在没有选区时是 no-op**，剪贴板不动，返回 `false`——这是
-刻意决定，不是"选中全部再复制"的隐式回退。粘贴复用既有的 `text_field_insert()`，
-它已经会先删除选区再插入，也已经会丢弃 ASCII 控制字符（含换行）——粘贴
-带换行的文本到单行文本框会静默丢失换行，这是既有行为，不是本节引入的。
+刻意决定，不是"选中全部再复制"的隐式回退。粘贴走 `WidgetSet::editor_insert()`（单行框即 `text_field_insert()`），
+它会先删除选区再插入；单行框会丢弃 ASCII 控制字符（含换行）——粘贴
+带换行的文本到单行文本框会静默丢失换行（多行编辑框保留换行，见 [text.md](text.md)）。
 
 #### 键盘滚动
 

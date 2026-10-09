@@ -41,7 +41,7 @@ drawgui 没有 HTML/CSS 那样的多遍回流（reflow）。它用的是 Flutter
 
 这个协议本身不是这个项目发明的，但这里对它做了一处刻意的偏离：**约束和尺寸都是整型设备像素，不是浮点逻辑像素**。原因是 damage（脏矩形）系统要求「一个节点声明的矩形，必须和它实际画的矩形完全相同」。浮点布局总要在某处取整，而节点左边缘从 10.4 滑动到 10.6 时，取整结果会从 10 跳到 11——这一帧里 damage 矩形和实际绘制矩形就会错开一个像素。整型布局从根上排除了这类问题，代价是 DPI 变化会触发一次重新布局而不仅仅是重绘（但 DPI 变化本来就会改变帧缓冲尺寸从而强制全量重绘，所以这个代价基本是免费的）。
 
-第二个偏离是：**没有 intrinsic sizing**（内在尺寸测量，比如「这段文字/这组子节点自己需要多宽」）。intrinsic sizing 需要投机性地测量子树,可能导致同一节点被布局不止一次，且最坏情况下是 O(n²)。这个内核选择完全不提供它——一个 Row 通过给子节点一个无界（unbounded）主轴约束来获取子节点的自然尺寸，这仍然是普通的一遍布局，不是第二遍。这是个硬边界：**没有「自动收缩到内容大小」这种事**，除非你自己测量好再声明尺寸（文本的 wrap 高度就是这样处理的，见 `doc/guide/text.md`）。
+第二个偏离是：**没有 intrinsic sizing**（内在尺寸测量，比如「这段文字/这组子节点自己需要多宽」）。intrinsic sizing 需要投机性地测量子树,可能导致同一节点被布局不止一次，且最坏情况下是 O(n²)。这个内核选择完全不提供它——一个 Row 通过给子节点一个无界（unbounded）主轴约束来获取子节点的自然尺寸，这仍然是普通的一遍布局，不是第二遍。这是个硬边界：容器能按子节点**已声明或已测出**的尺寸收缩（`width_auto()` 就是这样），但不会为了「求内容需要多宽」去投机测量子树；文本的 wrap 高度是按给定宽度测出来的，见 [text.md](text.md)。
 
 参考实现：`include/drawgui/layout/box.h`（约束、样式的定义）与 `include/drawgui/layout/layout_tree.h`（布局树、增量布局）。
 
@@ -51,7 +51,7 @@ drawgui 没有 HTML/CSS 那样的多遍回流（reflow）。它用的是 Flutter
 
 - 改完盒样式后调用 `layout()`（首次用 `layout_full()`），再 `repaint()`。
 - 布局移动了节点之后，滚动视图/列表/多行编辑框的组合子节点要重新同步
-  （`sync_scrollbar()`、`list_reset()`、`text_area_refresh()`，见 `widgets.md`）。
+  （`sync_scrollbar()`、`list_reset()`、`text_area_refresh()`，见 [widgets.md](widgets.md)）。
 - 在 `dg::App` 的窗口里通过 `Window::layout()` 自己加节点也可以：只在 `kBox`
   下面加。改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
 
@@ -166,7 +166,7 @@ NodeId content = tree.add_child(viewport, content_box, NodeStyle{});  // 可以�
 tree.render().set_scroll_offset(viewport, PixelPoint{0, scroll_y});
 ```
 
-**滚动偏移是运行时状态，不是属性**——这是刻意设计。`set_scroll_offset()` 只重新计算子节点的绝对坐标和裁剪边界，从不调用 `measure()`，所以一次滚轮滚动的代价是一次重绘，永远不是一次重排。真正可用的示例见 `examples/10_scrolling/`；实际的封装（clamp 到内容范围）在 `WidgetSet::scroll_by()` 里（见 `doc/guide/widgets.md` 的 `kScrollView`）。
+**滚动偏移是运行时状态，不是属性**——这是刻意设计。`set_scroll_offset()` 只重新计算子节点的绝对坐标和裁剪边界，从不调用 `measure()`，所以一次滚轮滚动的代价是一次重绘，永远不是一次重排。真正可用的示例见 `examples/10_scrolling/`；实际的封装（clamp 到内容范围）在 `WidgetSet::scroll_by()` 里（见 [widgets.md](widgets.md) 的 `kScrollView`）。
 
 #### 裁剪溢出内容
 
@@ -183,7 +183,7 @@ group_style.opacity = 0.5F;   // 整个子树作为一张图片淡出，不是�
 
 ## 边界与坑
 
-- **没有 intrinsic sizing**：容器不会「收缩到内容大小」，除非你自己测量。详见 `doc/limitations.md`。
+- **没有 intrinsic sizing**：auto 尺寸的容器取子节点的自然尺寸之和，但不会投机地二次测量子树。详见 `doc/limitations.md`。
 - **`grow`/`shrink` 只是整数权重/仅对声明的 basis 生效**：见上文，没有隐式的「按测量尺寸自动收缩」。
 - **`main_align`/`cross_align` 覆盖不全**：`MainAlign` 有 `kStart`/`kCenter`/`kEnd`/`kSpaceBetween`/`kSpaceAround`/`kSpaceEvenly`；`CrossAlign`/`align_self` 有 `kStart`/`kCenter`/`kEnd`/`kStretch`，**缺 baseline 对齐**；容器方向通过 `LayoutKind`（`kRow`/`kColumn` 等）固定，**没有 reverse 变体**（`row-reverse` 之类不存在）。
 - **百分比只有六个尺寸字段**，参照轴无界时退化为 auto，见上文。
@@ -195,6 +195,6 @@ group_style.opacity = 0.5F;   // 整个子树作为一张图片淡出，不是�
 
 - `examples/04_layout` —— row/column/wrap/absolute 的基本用法，含 `layout_check.cpp` 的一致性校验
 - `examples/09_sizing` —— grow/shrink/basis/aspect_ratio
-- `examples/10_scrolling` —— `scroll_axis` + `set_scroll_offset()`
+- `examples/10_scrolling` —— 手搭 `kScrollView`：`scroll_axis` + `set_scroll_offset()`（运行时里直接用 `NodeKind::kScrollView`）
 - `examples/07_clipping` —— `Overflow::kClip` 对绘制/命中测试/damage 的联合影响
 - `examples/08_opacity` —— 组透明度 vs 逐对象 alpha 的对比

@@ -16,6 +16,10 @@ app.override_color(DG_TOKEN_COLOR_PRIMARY, dg::Color::from_argb(0xFF8E44AD));
 
 - 没有设置主题时，运行时用内置主题的深色变体给控件上色；但 `bind_token()`
   需要先 `set_theme()`（否则返回 `kNoActiveTheme`）。
+- 按钮、复选框、单选、编辑框、滚动条、滑块、下拉框等控件的颜色本身就来自主题 token，
+  切换主题自动重涂；你在它们上 `set_prop()`/`bind_token()` 的 `BACKGROUND_COLOR`/
+  `TEXT_COLOR`/`BORDER_COLOR` 优先（见 [app.md](app.md) 和 [widgets.md](widgets.md)）。
+- `override_color()` / `override_int()` 覆盖单个 token 的值（整数 token 会触发重新布局）。
 - 切换主题/变体/覆盖 token 时，运行时按正确顺序重新绑定属性、重建组件的组合子
   节点、重新同步滚动条和列表——这正是下面「直接使用底层」里要手工排序的那些步骤。
 - 修改同一个 `Theme` 对象后再用同一个指针 `set_theme()` 一次即可重新套用。
@@ -90,7 +94,7 @@ std::size_t switch_variant(Scene& scene) {
 
 `themes/schema.toml` 是 token 的编译期契约（生成
 `include/drawgui/theme/token_ids.generated.h` 等文件），运行时数据在
-`themes/builtin/theme.json` 里。当前定义了 19 个 token：
+`themes/builtin/theme.json` 里。当前定义了 20 个 token：
 
 | 分组 | token | 说明 |
 |---|---|---|
@@ -108,13 +112,14 @@ std::size_t switch_variant(Scene& scene) {
 | color | `color.scrollbar-thumb` | 滚动条滑块（静止） |
 | color | `color.scrollbar-thumb-hover` | 指针悬停时的滑块 |
 | color | `color.scrollbar-thumb-pressed` | 拖动中的滑块 |
+| color | `color.scrim` | 模态对话框盖在窗口上的半透明遮罩（`PopupStyle::scrim`） |
 | radius | `radius.sm` | 小圆角 |
 | radius | `radius.md` | 默认圆角 |
 | space | `space.sm` | 小间距 |
 | space | `space.md` | 默认间距/padding |
 | size | `size.scrollbar` | 滚动条粗细（设备像素），也是视口要预留的槽宽；胶囊的圆角和滑块内缩都按它换算 |
 
-即 7 个基础语义色 + 1 个 focus-ring 色 + 2 个禁用态颜色 + 4 个滚动条颜色 = 14 个 color
+即 7 个基础语义色 + 1 个 focus-ring 色 + 2 个禁用态颜色 + 4 个滚动条颜色 + 1 个遮罩色 = 15 个 color
 token，加 2 个圆角 + 2 个间距 + 1 个滚动条粗细 = 5 个 int token（见 `themes/schema.toml`）。
 
 两个禁用态 token 和 `color.focus-ring` 一样是**直接读取**（`Theme::color_value()`），
@@ -151,7 +156,8 @@ widgets.sync_scrollbar(tree.render(), viewport, extent);  // 只在 size 变了�
 
 `size` 变了的话，视口预留的槽（padding）也要由调用方改成新值。禁用的滚动条用禁用调色板
 （轨道 `color.disabled`、滑块 `color.on-disabled`），和滑块控件一致。`min_thumb_length`
-（默认 24）目前不是 token。C ABI 还没有滚动视图节点类型，所以 ABI 侧没有对应的刷新。
+（默认 24）目前不是 token。C ABI 的 `DG_NODE_TYPE_SCROLL_VIEW`/`DG_NODE_TYPE_LIST` 由运行时
+在主题切换时自动刷新。
 
 内建主题的取值：`on-disabled` 在 `surface` 上大约 3:1 的对比度——文字还能读，
 但明显比正文（约 15:1）暗；`disabled` 只比 `surface` 略深/略浅，控件轮廓还在但不抢眼。

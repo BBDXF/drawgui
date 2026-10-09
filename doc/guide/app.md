@@ -3,8 +3,10 @@
 C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用它：
 公开头文件都在 `include/drawgui/app/`。本页是 API 参考；`doc/guide/` 里
 每篇都先讲 `dg::App` 的用法，再在「直接使用底层」一节讲不用运行时时要自己
-承担的义务。建在运行时上的示例：`examples/12_text_input`、`15_list`、
-`11_form_controls`、`22_dropdown_menu`、`23_menu_tooltip_dialog`、`27_data_widgets`。
+承担的义务。建在运行时上的示例：`examples/11_form_controls`、`12_text_input`、
+`15_list`、`22_dropdown_menu`、`23_menu_tooltip_dialog`、`25_showcase`、
+`27_data_widgets`（共用的启动代码在 `examples/common/example_app.h`）；其余编号
+示例是直接使用底层的教学示例。
 
 | 头文件 | 内容 |
 |---|---|
@@ -40,7 +42,7 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
   `pump()`/`poll()`）。没有打开的窗口时立即返回。
 - 资源：`add_font()`、`images()`（`ImageCatalog`，解码后用
   `Window::set_image()` 显示）、`set_theme()` / `set_theme_variant()` /
-  `override_color()`、`set_tooltip_delay()`、`add_timer()` / `cancel_timer()`。
+  `override_color()` / `override_int()`（见 [theming.md](theming.md)）、`set_tooltip_delay()`、`add_timer()` / `cancel_timer()`。
 
 ## Window
 
@@ -55,7 +57,7 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
   `set_disabled`（被禁用的子树不再接收指针/键盘；进行中的按下不会产生
   `ClickEvent`，焦点会移走）、`set_tooltip`、`set_image`、`scope_action`。
 - 尺寸：`kBox` 等节点创建时带默认尺寸（`kBox` 240×120），`prop::width_auto()` /
-  `prop::height_auto()` 去掉它，回到按内容/由父容器决定（`doc/guide/layout.md`）。
+  `prop::height_auto()` 去掉它，回到按内容/由父容器决定（[layout.md](layout.md)）。
 - 主题：按钮、复选框、单选的颜色来自主题 token（与编辑框、滚动条一样），切换
   主题自动重涂；你在它们上 `set_prop`/`bind_token` 的 `BACKGROUND_COLOR`/
   `TEXT_COLOR`/`BORDER_COLOR` 优先（背景色的悬停/按下色由它派生），不必再改

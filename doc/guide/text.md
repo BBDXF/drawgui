@@ -49,7 +49,7 @@ drawgui 内核没有把文本当作特殊节点类型，而是当作 `NodeStyle:
   `text_area_composition_update()`。
 - 焦点变化时调用 `text_field_set_focus()` / `text_area_set_focus()`（省略号、光标显隐）。
 - 每次重新布局后对多行编辑框调用 `text_area_refresh()`，对未聚焦的单行框重新推导显示。
-- 剪贴板快捷键要自己走 `apply_clipboard_key()`（见 `input.md`）。
+- 剪贴板快捷键要自己走 `apply_clipboard_key()`（见 [input.md](input.md)）。
 - 换行文本要先测量再建节点（见下文）。
 
 改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
@@ -102,7 +102,7 @@ tree.add_child(parent, box, style);
 
 `TextAlign` 只有 `kLeft`/`kCenter`/`kRight` 三个值，没有 `justify`（两端对齐）。`inset` 字段给左右对齐的文本留出前后边距，`kCenter` 时被忽略（本身已经居中）。
 
-注意：**文本不使数节点自己收缩到内容大小**——节点的宽高仍然要按上面 layout.md 的规则声明,文本只是被放进这个已经定好的盒子里绘制,超出部分按 `text.wrap`/`max_lines` 处理,或者直接溢出（不裁剪,除非父节点设了 `Overflow::kClip`)。
+注意：**文本不会让节点自己收缩到内容大小**——节点的宽高仍然要按 [layout.md](layout.md) 的规则声明,文本只是被放进这个已经定好的盒子里绘制,超出部分按 `text.wrap`/`max_lines` 处理,或者直接溢出（不裁剪,除非父节点设了 `Overflow::kClip`)。
 
 #### 让一段文本自动换行（wrap）——测量→建节点两步走
 
@@ -167,7 +167,8 @@ widgets.attach(field_node, field);
 widgets.text_field_insert(tree.render(), fonts, field_node, "hello");
 widgets.text_field_backspace(tree.render(), fonts, field_node);
 widgets.text_field_move(tree.render(), fonts, field_node, TextFieldMove::kLineEnd, /*extend_selection=*/false);
-widgets.text_field_click(tree.render(), fonts, field_node, pointer_x, /*extend_selection=*/false);
+widgets.text_field_click(tree.render(), fonts, field_node, pointer_x, /*extend_selection=*/false,
+                         /*click_count=*/1);  // 2 选词，3 全选
 widgets.text_field_set_focus(tree.render(), fonts, field_node, /*focused=*/true);
 ```
 
@@ -178,11 +179,11 @@ widgets.text_field_set_focus(tree.render(), fonts, field_node, /*focused=*/true)
 `WidgetKind::kTextArea` 复用同一个编辑内核，只是把投影换成了换行段落：光标、选区、
 点击定位都通过 `dg::Paragraph` 的行几何（全部是 UTF-8 字节偏移）算出来；软换行处同一个
 偏移有两个光标位置，`Widget::caret_upstream` 记录当前用哪一个。搭建方法、按键表、
-滚动与节点池见 `doc/guide/widgets.md`「多行编辑框」。
+滚动与节点池见 [widgets.md](widgets.md)「多行编辑框」。
 
 `text_area_insert()` 与 `text_field_insert()` 的唯一区别是保留 `\n`（其它控制字符，
 包括 `\r`，照样丢弃）。粘贴走同一条路：粘进 TextArea 保留换行；粘进 TextField 的换行
-依旧被丢弃（不会插入裸 `\n`，这是原有行为，没有改成空格）。
+被丢弃（不会改成空格）。
 
 #### 接入系统输入法（IME）
 
@@ -199,10 +200,11 @@ manager->stop_text_input(window_id);
 
 ## 边界与坑
 
-- **多行编辑是 MVP**：`kTextArea` 每次按键都会把整段文字重新排版一次（O(n)），没有撤销/重做，
-  没有双击选词/三击选段；超长文档放进去之前先量一下。
+- **多行编辑是 MVP**：`kTextArea` 每次按键都会把整段文字重新排版一次（O(n)）；超长文档放进去
+  之前先量一下。撤销/重做、双击选词、三击选行两种编辑框都支持（见 [input.md](input.md)）。
 - **无公开的富文本 API**：一个 `TextStyle` 只有一种字号/颜色/字重，不能在一段文字里局部加粗或换色。
-- **无 RTL 界面镜像、无竖排、无双击选词**：这些都不存在，不是被裁剪掉的功能。
+- **无 RTL 界面镜像、无竖排**：这些都不存在，不是被裁剪掉的功能。
+- **换行文字不撑高节点**：`wrap_text()` 只决定按宽度折行，节点高度仍要自己给（或先用 `Paragraph::build()` 测量）。
 - **IME 偏移换算未经真机验证**：`TextEditingEvent` 的单位转换只是按 SDL 文档实现，没有在真实输入法上跑过。
 - 详细清单见 `doc/limitations.md` 对应条目。
 
