@@ -26,6 +26,8 @@
 
 #include <SDL3/SDL.h>
 
+#include "drawgui/widget/click_counter.h"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -34,6 +36,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -519,6 +522,9 @@ struct WindowManager::Impl {
     if (pointer_window == entry->sdl_id) {
       pointer_window = 0;
     }
+    if (captured_window == entry->sdl_id) {
+      release_capture();
+    }
     SDL_DestroyWindow(entry->window);
     windows.erase(entry);
   }
@@ -563,6 +569,11 @@ struct WindowManager::Impl {
 
   // Handles one event and records what the caller now has to do about it.
   void dispatch(const SDL_Event& event, PumpResult& result) {
+    // A registered type is not a constant, so it cannot be a case label.
+    if (user_event_type != 0 && event.type == user_event_type) {
+      dispatch_user(event, result);
+      return;
+    }
     switch (event.type) {
       case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
         const SDL_WindowID sdl_id = event.window.windowID;
@@ -594,27 +605,9 @@ struct WindowManager::Impl {
         break;
       }
       case SDL_EVENT_MOUSE_BUTTON_DOWN:
-      case SDL_EVENT_MOUSE_BUTTON_UP: {
-        // X1/X2 ("back"/"forward") are still dropped here rather than
-        // carried and ignored upstream - nothing routes them, matching
-        // Key::kOther's identical policy. Left/Right/Middle all now survive:
-        // PointerEvent::button is where a
-        // caller tells them apart, not this dispatch loop.
-        const std::optional<PointerButton> button = to_pointer_button(event.button.button);
-        if (!button.has_value()) {
-          break;
-        }
-        const auto entry = find(event.button.windowID);
-        if (entry != windows.end()) {
-          const PixelPoint at = to_physical(entry->window, event.button.x, event.button.y);
-          const PointerAction action =
-              event.button.down ? PointerAction::kDown : PointerAction::kUp;
-          PointerEvent pointer_event{WindowId{entry->sdl_id}, action, at.x, at.y};
-          pointer_event.button = *button;
-          result.pointer.push_back(pointer_event);
-        }
+      case SDL_EVENT_MOUSE_BUTTON_UP:
+        dispatch_button(event, result);
         break;
-      }
       case SDL_EVENT_WINDOW_MOUSE_ENTER: {
         const auto entry = find(event.window.windowID);
         if (entry != windows.end()) {
@@ -697,6 +690,99 @@ struct WindowManager::Impl {
   // An expose or a resize: either way the window needs a fresh frame. A
   // resize is additionally reported as kResized, but only when the size
   // really differs from the last one reported.
+  void dispatch_button(const SDL_Event& event, PumpResult& result) {
+    // X1/X2 ("back"/"forward") are still dropped here rather than
+    // carried and ignored upstream - nothing routes them, matching
+    // Key::kOther's identical policy. Left/Right/Middle all now survive:
+    // PointerEvent::button is where a
+    // caller tells them apart, not this dispatch loop.
+    const std::optional<PointerButton> button = to_pointer_button(event.button.button);
+    if (!button.has_value()) {
+      return;
+    }
+    const auto entry = find(event.button.windowID);
+    if (entry != windows.end()) {
+      const PixelPoint at = to_physical(entry->window, event.button.x, event.button.y);
+      const PointerAction action =
+          event.button.down ? PointerAction::kDown : PointerAction::kUp;
+      PointerEvent pointer_event{WindowId{entry->sdl_id}, action, at.x, at.y};
+      pointer_event.button = *button;
+      pointer_event.clicks = click_count(*button, event.button.down, event.button.clicks, at);
+      result.pointer.push_back(pointer_event);
+    }
+    track_buttons(*button, event.button.down);
+  }
+
+  static void dispatch_user(const SDL_Event& event, PumpResult& result) {
+    if (event.user.code == kWakeCode) {
+      result.woken = true;
+      return;
+    }
+    const auto low = std::bit_cast<std::uintptr_t>(event.user.data1);
+    const auto high = std::bit_cast<std::uintptr_t>(event.user.data2);
+    result.user_events.push_back((static_cast<std::uint64_t>(high) << 32U) |
+                                 (static_cast<std::uint64_t>(low) & 0xFFFFFFFFU));
+  }
+
+  // The platform's count when it has one; otherwise this manager's own,
+  // with ClickCounter's thresholds. A release repeats its press's count.
+  int click_count(PointerButton button, bool down, Uint8 platform_clicks, PixelPoint at) {
+    const auto index = static_cast<std::size_t>(button);
+    if (down) {
+      last_down_clicks[index] = platform_clicks > 0
+                                    ? static_cast<int>(platform_clicks)
+                                    : register_click(click_counters[index], at, clock());
+      return last_down_clicks[index];
+    }
+    if (platform_clicks > 0) {
+      return static_cast<int>(platform_clicks);
+    }
+    return last_down_clicks[index] > 0 ? last_down_clicks[index] : 1;
+  }
+
+  void track_buttons(PointerButton button, bool down) {
+    const unsigned bit = 1U << static_cast<unsigned>(button);
+    if (down) {
+      buttons_held |= bit;
+      return;
+    }
+    buttons_held &= ~bit;
+    if (buttons_held == 0 && captured_window != 0) {
+      release_capture();
+    }
+  }
+
+  void release_capture() {
+    captured_window = 0;
+    SDL_CaptureMouse(false);
+  }
+
+  [[nodiscard]] AnimTime clock() const { return now_fn(); }
+
+  // Pops every timer due at `now` into `result`, earliest first, and
+  // reschedules the repeating ones one period after `now`.
+  void fire_timers(PumpResult& result) {
+    const AnimTime now = clock();
+    std::vector<PendingTimer> due;
+    std::erase_if(timers, [&](const PendingTimer& timer) {
+      if (now < timer.due) {
+        return false;
+      }
+      due.push_back(timer);
+      return true;
+    });
+    std::sort(due.begin(), due.end(), [](const PendingTimer& lhs, const PendingTimer& rhs) {
+      return lhs.due.ms != rhs.due.ms ? lhs.due.ms < rhs.due.ms : lhs.id < rhs.id;
+    });
+    for (PendingTimer& timer : due) {
+      result.timers.push_back(TimerId{timer.id});
+      if (timer.period_ms > 0) {
+        timer.due = AnimTime{now.ms + timer.period_ms};
+        timers.push_back(timer);
+      }
+    }
+  }
+
   void dispatch_repaint(const SDL_Event& event, PumpResult& result) {
     const auto entry = find(event.window.windowID);
     if (entry == windows.end()) {
@@ -783,6 +869,33 @@ struct WindowManager::Impl {
 
   std::vector<OwnedWindow> windows;
 
+  // A registered SDL event type for wake()/post_user_event(), 0 if SDL had
+  // none left. Written once in create(), read from any thread afterwards.
+  Uint32 user_event_type = 0;
+  static constexpr Sint32 kWakeCode = 1;
+  static constexpr Sint32 kPayloadCode = 2;
+
+  // Timers (add_timer()). Unordered: there are few, and pump() scans them.
+  // period_ms is 0 for a one-shot timer.
+  struct PendingTimer {
+    std::uint64_t id = 0;
+    AnimTime due;
+    std::int64_t period_ms = 0;
+  };
+  std::vector<PendingTimer> timers;
+  std::uint64_t next_timer_id = 1;
+  AnimTime (*now_fn)() = &steady_anim_time;
+
+  // Derived click counts, per PointerButton, for presses with no platform
+  // count; and the count of each button's last press, repeated on its kUp.
+  std::array<ClickCounter, 3> click_counters{};
+  std::array<int, 3> last_down_clicks{};
+
+  // Pointer capture: bit per PointerButton currently held, and the captured
+  // window (0 when none).
+  unsigned buttons_held = 0;
+  SDL_WindowID captured_window = 0;
+
   // The cursor machinery (apply_cursor()). `pointer_window` is the window
   // the last motion/enter event came from, 0 before the first one;
   // `shown_cursor` is what the platform was last told to show.
@@ -816,7 +929,9 @@ Expected<WindowManager, WindowError> WindowManager::create() {
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     return Unexpected{WindowError{sdl_failure("SDL_Init(SDL_INIT_VIDEO)")}};
   }
-  return WindowManager{std::make_unique<Impl>()};
+  auto impl = std::make_unique<Impl>();
+  impl->user_event_type = SDL_RegisterEvents(1);
+  return WindowManager{std::move(impl)};
 }
 
 Expected<WindowId, WindowError> WindowManager::open(const WindowSpec& spec) {
@@ -966,7 +1081,7 @@ void WindowManager::warp_pointer(WindowId id, int x, int y) {
 }
 
 void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y,
-                                        PointerButton button) {
+                                        PointerButton button, int clicks) {
   const auto entry = impl_->find(id.value);
   if (entry == impl_->windows.end()) {
     return;
@@ -979,7 +1094,7 @@ void WindowManager::post_pointer_button(WindowId id, bool down, int x, int y,
   event.button.windowID = id.value;
   event.button.button = from_pointer_button(button);
   event.button.down = down;
-  event.button.clicks = 1;
+  event.button.clicks = static_cast<Uint8>(std::clamp(clicks, 0, 255));
   event.button.x = static_cast<float>(x) / scale;
   event.button.y = static_cast<float>(y) / scale;
   SDL_PushEvent(&event);
@@ -1123,13 +1238,100 @@ PumpResult WindowManager::pump(int timeout_ms) {
   // waiting again. Waiting per event instead would spend a full timeout on
   // each one and turn a burst into a visible stall.
   SDL_Event event;
-  bool have_event = SDL_WaitEventTimeout(&event, timeout_ms);
+  bool have_event = SDL_WaitEventTimeout(&event, effective_wait_ms(timeout_ms));
   while (have_event) {
     impl_->dispatch(event, result);
     have_event = SDL_PollEvent(&event);
   }
 
+  impl_->fire_timers(result);
   return result;
+}
+
+TimerId WindowManager::add_timer(int delay_ms, bool repeat) {
+  const std::int64_t delay = std::max(delay_ms, 0);
+  const std::uint64_t id = impl_->next_timer_id++;
+  impl_->timers.push_back(
+      Impl::PendingTimer{.id = id,
+                         .due = AnimTime{impl_->clock().ms + delay},
+                         .period_ms = repeat ? std::max<std::int64_t>(delay, 1) : 0});
+  return TimerId{id};
+}
+
+bool WindowManager::cancel_timer(TimerId id) {
+  return std::erase_if(impl_->timers, [id](const Impl::PendingTimer& timer) {
+           return timer.id == id.value;
+         }) > 0;
+}
+
+int WindowManager::effective_wait_ms(int timeout_ms) const {
+  if (impl_->timers.empty()) {
+    return timeout_ms < 0 ? -1 : timeout_ms;
+  }
+  const auto nearest =
+      std::min_element(impl_->timers.begin(), impl_->timers.end(),
+                       [](const Impl::PendingTimer& lhs, const Impl::PendingTimer& rhs) {
+                         return lhs.due < rhs.due;
+                       });
+  const std::int64_t until = std::max<std::int64_t>(nearest->due.ms - impl_->clock().ms, 0);
+  const auto capped =
+      static_cast<int>(std::min<std::int64_t>(until, std::numeric_limits<int>::max()));
+  return timeout_ms < 0 ? capped : std::min(timeout_ms, capped);
+}
+
+void WindowManager::set_clock(AnimTime (*now)()) {
+  impl_->now_fn = now != nullptr ? now : &steady_anim_time;
+}
+
+namespace {
+
+bool push_user_event(Uint32 type, Sint32 code, std::uint64_t payload) {
+  if (type == 0) {
+    return false;
+  }
+  SDL_Event event{};
+  event.user.type = type;
+  event.user.code = code;
+  // Split in two so the payload survives a 32-bit pointer; copied as bits,
+  // never dereferenced.
+  const auto low = static_cast<std::uintptr_t>(payload & 0xFFFFFFFFU);
+  const auto high = static_cast<std::uintptr_t>(payload >> 32U);
+  event.user.data1 = std::bit_cast<void*>(low);
+  event.user.data2 = std::bit_cast<void*>(high);
+  return SDL_PushEvent(&event);
+}
+
+}  // namespace
+
+bool WindowManager::wake() {
+  return push_user_event(impl_->user_event_type, Impl::kWakeCode, 0);
+}
+
+bool WindowManager::post_user_event(std::uint64_t payload) {
+  return push_user_event(impl_->user_event_type, Impl::kPayloadCode, payload);
+}
+
+bool WindowManager::capture_pointer(WindowId id) {
+  if (impl_->find(id.value) == impl_->windows.end()) {
+    return false;
+  }
+  impl_->captured_window = id.value;
+  // Best effort; see the header. SDL captures to the focused window.
+  SDL_CaptureMouse(true);
+  return true;
+}
+
+void WindowManager::release_pointer_capture() {
+  if (impl_->captured_window != 0) {
+    impl_->release_capture();
+  }
+}
+
+std::optional<WindowId> WindowManager::pointer_capture() const {
+  if (impl_->captured_window == 0) {
+    return std::nullopt;
+  }
+  return WindowId{impl_->captured_window};
 }
 
 bool WindowManager::set_clipboard_text(std::string_view text) {

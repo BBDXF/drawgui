@@ -51,6 +51,81 @@ for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/
 组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h:454-460`
 的记录，这条路径主要靠合成注入测试）。
 
+### 多击计数（双击/三击）
+
+`PointerEvent::clicks` 在 `kDown`/`kUp` 上给出本次按下在连击序列中的序号（1 单击、2 双击、
+3 三击），`kUp` 沿用它所结束的那次 `kDown` 的值；其他动作为 0。
+
+- 平台报告了计数（SDL 的 `SDL_MouseButtonEvent::clicks`，用的是系统双击时间/距离，会一直
+  数到 4、5…）时直接采用。
+- 没有平台计数的按下（`post_pointer_button()` 默认 `clicks = 0`）由 `WindowManager` 自己
+  按 `dg::ClickCounter` 的阈值推导：间隔 ≤ `kMultiClickMs`（500ms）且两轴位移 ≤
+  `kMultiClickSlopPx`（4 物理像素）算连续，按 1、2、3、1 循环；时间取自 `set_clock()` 设置的时钟。
+  每个按键（主/次/中）各自计数。
+- 判断双击请写 `clicks == 2`，两种来源结果一致。
+
+编辑框（C ABI 层）仍用自己的 `ClickCounter`，尚未迁移到这个字段（见 limitations）。
+
+### 指针捕获（pointer capture）
+
+拖动时希望按下的控件在指针离开窗口后仍收到移动和抬起：
+
+```cpp
+case PointerAction::kDown:
+  interaction.pressed_on(hit);
+  manager.capture_pointer(event.window);   // 开始拖动
+  break;
+case PointerAction::kMove:
+  if (auto target = interaction.capture_target(hit)) { /* 把拖动增量发给 target */ }
+  break;
+case PointerAction::kUp:
+  interaction.released_on(hit);            // 窗口外抬起：released 但不 clicked
+  break;                                   // 所有按键都抬起时捕获自动结束
+```
+
+语义：
+
+- 捕获期间的坐标可能落在窗口外（负数或 ≥ `drawable_size()`），命中测试返回空；
+  `Interaction` 本来就会保持按住状态并在窗口外抬起时只报 `released` 不报 `clicked`；
+  `Interaction::capture_target(hit)` 在按住期间返回被按住的控件，否则返回 `hit`。
+- 捕获在三种情况下结束：`release_pointer_capture()`、被捕获窗口关闭、某个 `kUp` 之后
+  不再有任何按键按住。`pointer_capture()` 查询当前捕获的窗口。
+- 捕获期间仍可能收到该窗口的 `kLeave`，它不会结束捕获。
+- 平台调用（`SDL_CaptureMouse`）是尽力而为：dummy 驱动不支持；SDL 在多数桌面后端上
+  按住按键时本来就会隐式捕获——这个 API 让它变得显式、可查询。`capture_pointer()`
+  只在窗口 id 无效时返回 false。
+
+## 事件循环：定时器与跨线程唤醒
+
+定时器属于 `WindowManager`（不属于某个窗口），没有回调，触发结果从 `PumpResult` 读出：
+
+```cpp
+const dg::TimerId blink = manager.add_timer(530, /*repeat=*/true);
+const dg::TimerId once = manager.add_timer(2000);
+manager.cancel_timer(once);                 // 已触发/已取消/无效的 id 返回 false，重复取消无害
+
+const dg::PumpResult pumped = manager.pump(-1);  // -1 = 不限时，只在有事情时醒来
+for (dg::TimerId id : pumped.timers) { /* 按截止时间先后，同时到期按创建顺序 */ }
+for (std::uint64_t payload : pumped.user_events) { /* 其他线程 post 的数据 */ }
+if (pumped.woken) { /* 其他线程调用过 wake() */ }
+```
+
+- `pump(timeout)` 的实际等待时间是 `effective_wait_ms(timeout)`：被截短到最近一个定时器
+  的截止时间（已过期则为 0）。没有定时器、没有事件时线程阻塞在 SDL 自己的等待里，空闲 CPU 为 0。
+- 重复定时器每次 `pump()` 最多出现一次；迟到多个周期也只报一次，然后从"被发现到期的时刻"
+  再排一个周期，不会补发。周期下限 1ms，延迟下限 0。
+- 时间来自 `set_clock()`（默认 `dg::steady_anim_time`，即动画用的同一个时钟接缝）。测试传入
+  一个返回手动推进的 `AnimTime` 的函数，截止时间就完全确定；派生的点击计数也读这个时钟。
+
+### 线程安全
+
+`WindowManager` 的所有方法都只能在调用 `create()` 的线程（主线程）上调用，**唯二的例外**是
+`wake()` 和 `post_user_event(uint64_t)`：可在任意线程、任意时刻调用（包括主线程正阻塞在
+`pump()` 时），它们通过 SDL 自身线程安全的事件队列（`SDL_RegisterEvents` 注册的用户事件类型 +
+`SDL_PushEvent`）投递，和其他事件一起按顺序送达、不会丢失；队列满时返回 false。多次 `wake()`
+在一次 `pump()` 中合并为一个 `woken = true`。调用方必须在 `WindowManager` 析构或被移动之前
+停止/join 这些线程。
+
 ## 焦点：复用 `RenderTree` 自身的树，没有第三棵树
 
 `Focus` 不维护自己的树结构——`focus_order()` 直接对 `RenderTree` 做一次

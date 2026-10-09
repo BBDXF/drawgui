@@ -154,6 +154,17 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 
 不同历史记录里对某个数字的说法互不相同（例如"连续多少个 slice 零新增绘制原语"），且都没有工具链自动验证支撑，是手工记账留下的不一致遗留（这些数字记录在被移除的开发切片文档中，见 git 历史）。这份文档不复述这类数字。
 
+### A14. 点击计数、指针捕获与定时器的边界
+
+- `PointerEvent::clicks`：平台计数会一直增长（4、5…），自行推导的计数按 1、2、3 循环；
+  判断双击用 `clicks == 2`。编辑框（C ABI 层 `abi_impl.cpp`）仍用自己的 `ClickCounter`，
+  没有迁移到这个字段；这些 C++ API 也尚未暴露到 C ABI。
+- 指针捕获只在 Linux/SDL3 上实现，dummy 驱动下平台调用无效（只有逻辑状态可观察）；
+  捕获期间不会把其他窗口的事件改派给被捕获窗口，这件事交给 SDL 自己。
+- 定时器精度受 `SDL_WaitEventTimeout` 的毫秒粒度和调度延迟限制，只保证"不早于截止时间"；
+  重复定时器不补发错过的周期。定时器到期只在 `pump()` 里检查，不 `pump()` 就不会触发。
+- 除 `wake()`/`post_user_event()` 外，`WindowManager` 不是线程安全的。
+
 ---
 
 ## E. 未实现 / 路线图缺口
@@ -172,6 +183,7 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 - **编辑框的撤销与选词是简化版**（TextField/TextArea 共用）：撤销快照是整段文字的拷贝（深度上限 100，适合表单级文本，不适合大文档）；分词是按字素簇首码点分类的简单规则，连续的汉字/假名算一个词，没有词典分词；双击选词后拖动仍按字素扩展，不按词扩展；`max_length`（`editor_set_max_length()`）只有 C++ API，没有 ABI 属性；TextArea 里 Tab 始终切焦点，不能插入 `\t`
 - **无 RTL 界面镜像**：BiDi 文本渲染本身是支持的，但整体界面镜像（flex 主轴反转、padding 左右互换、图标翻转）没有做
 - **无竖排文本**
+- **图片格式与 SVG 的边界**：位图只注册并测试了 PNG/JPEG/WebP（GIF/BMP/ICO/AVIF 等解码器未注册，送进来会被拒绝）；动图只取第一帧；无九宫格；解码全部同步。SVG 走 Skia 的 `SkSVGDOM`：没有设置字体管理器和资源提供者，所以 SVG 里的 `<text>` 不显示、`<image>`/外部引用不加载；每次绘制都重新画一遍矢量（无栅格缓存，复杂插画类 SVG 会贵）；`tint` 是整图 SrcIn 着色，只适合单色图标，多色图标会被压成一种颜色；没有任何 node 属性/C ABI 暴露 SVG 或 tint（若后续 ABI 需要，建议是 image 源的加载参数，而不是新的节点属性）。`ImageCatalog::decode()` 刻意不解析 SVG（主题包安全决定），SVG 只能经 `decode_any()`/`decode_svg()`/`decode_file()` 进入
 - **字体 fallback 链对完全未覆盖的字符只画 `.notdef` 方框（tofu）**，见 A12——这不是"处理不好"，是链条设计本身：只覆盖显式列出的语言/字符集组合
 
 ### 明确不做（scope boundary，不是遗漏）

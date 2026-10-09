@@ -26,6 +26,7 @@
 #include <string_view>
 #include <vector>
 
+#include "drawgui/anim/clock.h"
 #include "drawgui/base/cursor.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/base/pixel_geometry.h"
@@ -228,6 +229,19 @@ struct PointerEvent {
   // notches that rounding to an int would silently zero.
   float wheel_x = 0.0F;
   float wheel_y = 0.0F;
+
+  // kDown/kUp only: this press's position in a multi-click sequence - 1 for
+  // a single click, 2 for a double click, 3 for a triple. A kUp carries the
+  // count of the kDown it ends. 0 on every other action.
+  //
+  // Taken from the platform when it reports one (SDL's own clicks field,
+  // which uses the OS double-click time and distance and keeps counting past
+  // 3). A press with no platform count - post_pointer_button() with
+  // clicks = 0 - is counted by the manager itself with dg::ClickCounter's
+  // thresholds (kMultiClickMs / kMultiClickSlopPx, widget/click_counter.h)
+  // against the manager's clock (set_clock()), and cycles 1, 2, 3, 1. Test
+  // for a double click with `clicks == 2`, so both sources agree.
+  int clicks = 0;
 };
 
 // Which key changed. Not a full keyboard map - only the editing intents
@@ -397,6 +411,14 @@ enum class WindowEventKind : std::uint8_t {
   kLeftFullscreen,
 };
 
+// A timer created by WindowManager::add_timer(). Never 0 for a live timer,
+// never reused within one WindowManager.
+struct TimerId {
+  std::uint64_t value = 0;
+
+  friend bool operator==(TimerId, TimerId) = default;
+};
+
 struct WindowEvent {
   WindowId window;
   WindowEventKind kind = WindowEventKind::kResized;
@@ -469,8 +491,31 @@ struct PumpResult {
   // the repaint is still the only correct response to it, this entry just
   // says what the new size is.
   std::vector<WindowEvent> window_events;
+
+  // Timers (add_timer()) whose deadline had passed when this pump() checked,
+  // earliest deadline first (ties in creation order). A repeating timer
+  // appears at most ONCE per pump() even if it is several periods late - it
+  // is rescheduled one period after the time it was found due, never
+  // replayed in a burst. A one-shot timer is gone once it appears here.
+  std::vector<TimerId> timers;
+
+  // Payloads of post_user_event() calls, in the order they were posted (per
+  // posting thread; between threads, the order the platform queue took
+  // them).
+  std::vector<std::uint64_t> user_events;
+
+  // True when at least one wake() was consumed by this pump(). Several
+  // wake()s before one pump() collapse into one true.
+  bool woken = false;
 };
 
+// THREADS. Every WindowManager method must be called on the thread that
+// called create() (the "main thread" - SDL requires its video calls there),
+// EXCEPT wake() and post_user_event(), which may be called from any thread at
+// any time while the WindowManager is alive, concurrently with each other and
+// with whatever the main thread is doing (including blocking in pump()). The
+// caller must stop/join those threads before the WindowManager is destroyed
+// or moved from; a call racing destruction is undefined.
 class WindowManager {
  public:
   // Initializes the platform's video subsystem. One at a time per process.
@@ -529,7 +574,70 @@ class WindowManager {
 
   // Waits up to timeout_ms for something to happen, then handles everything
   // queued. Empty on a timeout.
+  //
+  // timeout_ms < 0 waits with no limit. Either way the wait is cut short at
+  // the nearest pending timer's deadline (see add_timer()) and by wake() /
+  // post_user_event() from any thread; with no timers and no events the
+  // thread sleeps in the platform's own wait - no polling, no idle CPU.
   [[nodiscard]] PumpResult pump(int timeout_ms);
+
+  // -- Timers and cross-thread wake-ups --------------------------------------
+
+  // Schedules a timer `delay_ms` (clamped to >= 0) after now, by this
+  // manager's clock. It is reported through PumpResult::timers by the first
+  // pump() that runs at or after its deadline; there are no callbacks. A
+  // repeating timer is then rescheduled `delay_ms` (clamped to >= 1) later,
+  // until cancelled. Timers belong to the manager, not to a window.
+  TimerId add_timer(int delay_ms, bool repeat = false);
+
+  // Stops a timer. True if it was pending; false for an id that already fired
+  // (one-shot), was cancelled, or was never issued - so cancelling twice is
+  // harmless. A timer cancelled before a pump() never appears in it.
+  bool cancel_timer(TimerId id);
+
+  // How long pump(timeout_ms) would actually wait right now: timeout_ms, cut
+  // to the time until the nearest timer deadline (0 when one is already
+  // due). -1 means "no limit". A test observation point for "pump wakes for
+  // the timer", and what pump() itself uses.
+  [[nodiscard]] int effective_wait_ms(int timeout_ms) const;
+
+  // The clock timers and derived click counts read. Defaults to
+  // dg::steady_anim_time (anim/clock.h); a test passes a function returning
+  // a hand-advanced AnimTime so deadlines are exact. nullptr restores the
+  // default. Changing clocks does not move pending deadlines.
+  void set_clock(AnimTime (*now)());
+
+  // Wakes a pump() blocked on any thread's behalf - the only methods here
+  // that are THREAD-SAFE (see the class comment). wake() sets
+  // PumpResult::woken; post_user_event() appends `payload` to
+  // PumpResult::user_events. Both go through the platform's own thread-safe
+  // event queue, so they are delivered in order with every other event and
+  // never lost while the manager lives; if the queue is full (SDL: 65535
+  // events) the call returns false and nothing is posted.
+  bool wake();
+  bool post_user_event(std::uint64_t payload);
+
+  // -- Pointer capture ---------------------------------------------------------
+  //
+  // Keeps pointer motion and button releases flowing to `id` while the
+  // pointer is outside it - even outside every window of this application -
+  // for the length of a drag. Reported positions are then OUTSIDE the
+  // window's bounds (negative, or >= drawable_size()), so a hit test finds
+  // nothing; dg::Interaction already keeps the press held and reports the
+  // release (without a click) in that case - see Interaction::capture_target().
+  //
+  // Capture ends at release_pointer_capture(), when the captured window
+  // closes, or automatically when a kUp leaves no button held. The intended
+  // use is to call capture_pointer() on the kDown that starts a drag and let
+  // the matching kUp end it. Returns false only for an id naming no open
+  // window; the platform call itself is best effort (SDL's dummy driver has
+  // no capture), and SDL already captures implicitly while a button is held
+  // on most desktop backends - this makes it explicit and observable.
+  // A kLeave may still arrive for a captured window when the pointer exits
+  // it; it does not end the capture.
+  bool capture_pointer(WindowId id);
+  void release_pointer_capture();
+  [[nodiscard]] std::optional<WindowId> pointer_capture() const;
 
   // Moves the actual pointer, in the window's physical pixels.
   //
@@ -554,8 +662,13 @@ class WindowManager {
   // real hardware path goes. The event is indistinguishable from a physical
   // one once queued, so everything downstream of pump() is exercised exactly
   // as it is for a user.
+  //
+  // `clicks` is the platform click count the event carries; 0, the default,
+  // means "none", and the manager derives one (see PointerEvent::clicks) -
+  // which is how a test drives a double click deterministically under
+  // set_clock().
   void post_pointer_button(WindowId id, bool down, int x, int y,
-                           PointerButton button = PointerButton::kPrimary);
+                           PointerButton button = PointerButton::kPrimary, int clicks = 0);
 
   // Puts a real SDL_EVENT_WINDOW_EXPOSED on the platform's own event queue,
   // by the same route request_close()/post_pointer_button() use. Exists so

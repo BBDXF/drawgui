@@ -115,6 +115,16 @@ class Interaction {
 
   [[nodiscard]] PointerState state_of(NodeId id) const;
 
+  // Which widget a pointer move/up should be delivered to: the held widget
+  // while a press is held (pointer capture - it keeps receiving the pointer
+  // even when `hit` is another widget or nothing, e.g. outside the window
+  // under WindowManager::capture_pointer()), otherwise `hit` itself. The
+  // hover/press/click bookkeeping above already follows these semantics;
+  // this exposes the routing to a caller delivering drag deltas.
+  [[nodiscard]] std::optional<NodeId> capture_target(std::optional<NodeId> hit) const {
+    return holding_.has_value() ? holding_ : hit;
+  }
+
   // Clears `id` from both hover and holding if it names either one -
   // node_lifecycle.h's remove_subtree() calls this so a drag or hover in
   // flight against a node that no longer exists cannot survive its
