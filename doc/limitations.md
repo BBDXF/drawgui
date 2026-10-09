@@ -173,6 +173,16 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 
 ---
 
+### A15. 数据控件（ProgressBar/Tabs/TreeView/Table）的边界
+
+- **布局后要 `sync()`**；忘了会看到隐藏面板重新出现、树/表的行叠在原点、进度填充回到 0。
+- **只读文本行**：树/表的行只有文字，没有图标、行内控件、单元格编辑或多选；行高固定（`ControlStyle::row_height`），不支持可变行高。
+- **Table 列宽固定**：不能拖拽调整列宽、没有横向滚动；排序由应用完成（只报告 `kSortRequested`）。表格持有一份单元格字符串副本，`set_rows()` 会清掉选择。
+- **TreeView 模型是先序扁平列表**，展开/折叠是 O(n) 重算可见行；没有懒加载子节点。
+- **Tabs 的隐藏面板借用 `NodeStyle::disabled` 实现"惰性"**：隐藏期间面板内节点 `is_disabled()` 为真；整树 `refresh_subtree()` 会给它们涂禁用色，重新选中时由 Tabs 恢复。标签条不会溢出滚动，标签过多会超出宽度。Enter/方向键之外没有 Space 激活（`Key` 无 Space）。
+- **指针事件在按下（kDown）时生效**；控件不接 `Interaction`，悬停反馈只来自调用方自己的 `Interaction` 循环（标签与表头是普通 `kButton`）。
+- **C ABI 没有导出这些组件**；视觉是最小版（`src/ui/control_visuals.cpp`），选中行的文字用 `on-primary`。
+
 ## E. 未实现 / 路线图缺口
 
 以下按三类区分：**真实缺口**（该有但还没做）、**有意推迟**（有明确的技术理由，未来可能补）、**明确不做**（`doc/design.md` 已经写清楚不在这个项目的范围内）。这个区分很重要——第三类不要当 bug 报告。

@@ -217,10 +217,16 @@ if(DRAWGUI_HAVE_SDL3)
 
     # The popup components (Menu/Dropdown/Tooltip/Dialog) are built on
     # PopupHost, so they need the same WindowManager-backed build.
+    src/ui/control_visuals.cpp
     src/ui/dialog.cpp
     src/ui/dropdown.cpp
     src/ui/menu.cpp
+    src/ui/progress_bar.cpp
+    src/ui/row_list.cpp
+    src/ui/table.cpp
+    src/ui/tabs.cpp
     src/ui/tooltip_popup.cpp
+    src/ui/tree_view.cpp
     src/ui/ui_context.cpp
     src/ui/ui_visuals.cpp
 

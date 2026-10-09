@@ -124,7 +124,8 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_text_area.cpp
     unit/test_cursor.cpp
     unit/test_scrollbar_abi.cpp
-    unit/test_ui_components.cpp)
+    unit/test_ui_components.cpp
+    unit/test_data_controls.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

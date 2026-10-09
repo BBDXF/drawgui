@@ -365,6 +365,61 @@ SVG 的处理方式：**绘制时按节点尺寸直接画矢量**（`SkSVGDOM::r
 `examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog`、`examples/25_showcase`
 都已改用这些组件。
 
+### ★ 数据控件：ProgressBar / Tabs / TreeView / Table（组件层）
+
+和弹层组件一样，这四个**不是新的 `WidgetKind`**，而是 `include/drawgui/ui/` 里的
+构建器类：它们通过 `LayoutTree` 建节点、注册普通控件，宿主循环调用
+`handle_pointer()`/`handle_key()` 读回带类型的结果，**没有回调**。共享的参数包是
+`dg::ControlContext`（`control_context.h`：`LayoutTree&` + `NodeSideTables` +
+字体 + `ControlStyle`），颜色/尺寸用 `control_style_from_theme()` 从已有 token
+读取（surface/on-surface/border/primary/on-primary/on-disabled、radius.sm、
+space.md），**没有新增 token**。
+
+**调用方义务：每次 `layout()` 之后对每个控件调用 `sync(ctx)`**——和
+`resync_sliders()`/`sync_scrollbar()` 同一类义务：布局会把按绘制期定位的子节点
+放回原点。拆除用 `destroy(ctx)`（内部是 `remove_subtree()`），节点与控件计数回到基线。
+
+| 组件 | 节点/控件 | 结果类型 |
+|---|---|---|
+| `dg::ProgressBar` | 轨道（kLeaf，裁剪）+ 填充；**不挂任何控件、不可聚焦** | `set_value()`/`tick()` 返回 bool |
+| `dg::Tabs` | 标签条（每个标签一个 `kButton`）+ 面板栈 | `TabsResult{kSelected, index}` |
+| `dg::TreeView` | 外框一个可聚焦 `kButton` + `kList` 回收池 + 滚动条 | `TreeResult{kSelected/kExpanded/kCollapsed, item}` |
+| `dg::Table` | 外框 `kButton` + 表头行（可排序列是 `tab_index=-1` 的 `kButton`）+ `kList` 回收池 | `TableResult{kSelected, row}` / `{kSortRequested, column}` |
+
+要点：
+
+- **ProgressBar**：确定模式填充 `value∈[0,1]` 的轨道宽度；不确定模式是一段
+  （`indeterminate_percent`，默认 30%）每 `indeterminate_period_ms` 从左扫到右，
+  位置是 `tick(ctx, AnimTime now)` 的**纯函数**（时钟缝和 `set_edit_time()` 相同，
+  测试给定时间即得定帧）。`AnimationEngine::reduced_motion()` 时停在中间，
+  `animating()` 返回 false。
+- **Tabs**：**漫游焦点**——只有选中的标签在 Tab 序列里（其他标签 `tab_index=-1`）；
+  焦点在标签上时 Left/Right 移到上/下一个**启用**的标签（循环），Home/End 到首/末。
+  **自动激活**：方向键移到哪个标签就选中哪个（"选择跟随焦点"——面板早已建好，
+  切换很便宜）；Enter 被接受但不再做事（`Key` 没有 Space）。点击选中并聚焦。
+  禁用标签（`TabItem::disabled` → `NodeStyle::disabled`）永远不会被选中/聚焦。
+  **隐藏面板**：所有面板都留在布局里（切换零重排）；未选中的面板设
+  `NodeStyle::disabled`（整棵子树退出 Tab 序列与指针归属，焦点在里面时
+  `blur_if_disabled()` 将其清掉），渲染边界收成空的裁剪框（不绘制、不命中）。
+  再次选中时恢复并对该面板跑一次 `refresh_subtree()`。内容加在 `tabs.panel(i)` 下。
+- **TreeView**：模型是先序的扁平 `TreeItem{label, depth, expanded}` 列表。展开/折叠
+  重新算**扁平化可见行**（O(n)），把行数交给下面的 `kList`
+  （新增的 `WidgetSet::list_reset()`），回收池大小是
+  `ceil(viewport_height/row_height)+1`，**1 万项和 10 项一样**。
+  键盘（外框有焦点时）：Up/Down/Home/End/PageUp/PageDown 移动选择，Right 展开或进入
+  第一个子项，Left 折叠或回到父项；点击披露列切换展开，点击行其他位置选中；滚轮、
+  滚动条只滚动。折叠一个祖先时选择移到该祖先（事件仍报 `kCollapsed`）。
+- **Table**：列宽固定，`width_px` 或 `width_percent`（`BoxPercents`，相对行宽）或
+  都不给（占剩余）；表头右侧也留滚动条槽，所以对齐。表格**持有**单元格字符串副本；
+  **排序归应用**：点击可排序列表头报告 `kSortRequested`，应用自己排序后
+  `set_rows()`，可选 `set_sort_indicator()`（标题后加 ` ^`/` v`）。
+
+`WidgetSet::list_reset(tree, list, item_count, viewport_extent)` 是为此新增的唯一
+`WidgetSet` API：替换 `kList` 的行数、把滚动偏移夹到新范围、忘掉所有槽位分配并把
+所有槽停到内容原点上方（裁剪之外），再 `list_sync()`——行数缩小时不会留下陈旧行；
+它同时也是布局之后的重同步。视觉集中在 `src/ui/control_visuals.cpp`，最小可用，
+等设计侧打磨。示例：`examples/27_data_widgets`（`--verify`、`--dump-png`）。
+
 ### 多行编辑框（`kTextArea`）
 
 `kTextArea` 和 `kTextField` 共用同一个编辑内核（`include/drawgui/widget/text_edit.h`），
@@ -443,7 +498,8 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 
 - **没有 widget 树、没有 `createXxx()` 工厂函数**——上文已经讲透。
 - **dropdown/菜单/tooltip/对话框是组件层（`include/drawgui/ui/`），不是 `WidgetKind`**——由宿主循环驱动、不支持嵌套，见上文★和 `doc/limitations.md` B 节。
-- **`kScrollView`/`kList` 不能获得键盘焦点**，它们的滚动条也不能。
+- **`kScrollView`/`kList` 不能获得键盘焦点**，它们的滚动条也不能（`TreeView`/`Table` 的焦点在外框 `kButton` 上，绕开了这一点）。
+- **数据控件（ProgressBar/Tabs/TreeView/Table）布局后要 `sync()`**，见上文★。
 - **滚动条的节点由调用方创建**，布局之后要 `sync_scrollbar()`；视口要自己留出槽，见上文「滚动条」。
 - **禁用是节点属性，写完要同步**：C++ 侧写 `DG_PROP_DISABLED` 后要调用
   `cancel_disabled()`/`blur_if_disabled()`/`refresh_subtree()`，见上文「禁用状态」。
@@ -462,3 +518,4 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - `examples/21_focus` —— Tab 顺序、focus ring
 - `examples/22_dropdown_menu` —— `dg::Dropdown` 的完整用法
 - `examples/23_menu_tooltip_dialog` —— `dg::Menu`（右键菜单）/`dg::Tooltip`/`dg::Dialog` 的用法
+- `examples/27_data_widgets` —— `dg::ProgressBar`/`dg::Tabs`/`dg::TreeView`/`dg::Table`

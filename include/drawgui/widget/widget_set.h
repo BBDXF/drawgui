@@ -575,6 +575,18 @@ class WidgetSet {
   std::vector<ListSlot> list_scroll_by(RenderTree& tree, NodeId id, int viewport_extent, int dx,
                                        int dy);
 
+  // Replaces a kList's `list_item_count` (the logical rows changed: a tree
+  // expanded/collapsed a node, a table got new data), clamps the scroll
+  // offset to the new content against `viewport_extent`, forgets every slot
+  // assignment and parks every pool slot one item extent ABOVE the content
+  // origin (outside the clip), then list_sync()s from the clamped top. The
+  // returned slots are every slot now showing a row - all of them need
+  // repainting. Slots with no row stay parked, so a shrunk list never shows
+  // a stale row. Also the post-layout resync for a kList whose pool rows a
+  // layout pass re-placed at the content origin. Empty for a non-kList.
+  std::vector<ListSlot> list_reset(RenderTree& tree, NodeId id, int item_count,
+                                   int viewport_extent);
+
   // The nearest ancestor-or-self of `id` that is a kSlider, or nothing - the
   // same shape scrollable_owner_of() has, one control over: a drag starting
   // on the thumb (a plain, non-interactive child) still has to find the

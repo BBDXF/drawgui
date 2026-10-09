@@ -462,6 +462,37 @@ std::vector<ListSlot> WidgetSet::list_scroll_by(RenderTree& tree, NodeId id,
   return list_sync(tree, id, top_index);
 }
 
+std::vector<ListSlot> WidgetSet::list_reset(RenderTree& tree, NodeId id, int item_count,
+                                            int viewport_extent) {
+  Widget* widget = find(id);
+  if (widget == nullptr || widget->kind != WidgetKind::kList) {
+    return {};
+  }
+  widget->list_item_count = std::max(0, item_count);
+  widget->list_assigned.assign(widget->list_pool.size(), -1);
+  const bool vertical = widget->list_axis != ScrollAxis::kHorizontal;
+  const int extent = widget->list_item_extent;
+  for (const NodeId node : widget->list_pool) {
+    const PixelRect current = tree.local_bounds(node);
+    const PixelRect parked = vertical ? PixelRect{0, -extent, current.width, current.height}
+                                      : PixelRect{-extent, 0, current.width, current.height};
+    if (current != parked) {
+      tree.set_local_bounds(node, parked);
+    }
+  }
+  const int max_offset =
+      std::max(0, (widget->list_item_count * extent) - std::max(0, viewport_extent));
+  PixelPoint offset = tree.scroll_offset(id);
+  int& along = vertical ? offset.y : offset.x;
+  const int clamped = std::clamp(along, 0, max_offset);
+  if (clamped != along) {
+    along = clamped;
+    tree.set_scroll_offset(id, offset);
+  }
+  sync_scrollbar(tree, id, viewport_extent);
+  return list_sync(tree, id, extent > 0 ? clamped / extent : 0);
+}
+
 std::optional<NodeId> WidgetSet::slidable_owner_of(const RenderTree& tree, NodeId id) const {
   NodeId current = id;
   while (true) {

@@ -37,6 +37,9 @@ backend, with no platform-abstraction layer ahead of a second one.
   owns an anchor, an option list and a selected index; the popup *list*
   under it is assembled by the caller out of ordinary `kButton` rows).
   `src/widget/tooltip.cpp` is a 20-line hover timer, not a control.
+  The data controls `ProgressBar`, `Tabs`, `TreeView` and `Table`
+  (`include/drawgui/ui/`, `examples/27`) are component-layer builders too,
+  not new kinds: tree and table rows recycle through `kList`'s pool.
   `Dialog` (`examples/23`) is the one exception: it is a real, separate
   top-level OS window opened via `open_dialog()`, never built on the popup
   host.
@@ -95,7 +98,7 @@ per-frame call order, see **`doc/getting-started.md`**.
 | `doc/limitations.md` | Know what will bite you before it does - costly corners, ABI capability limits, what the tests actually prove |
 | `doc/guide/layout.md` | Work with the Flexbox-like layout model |
 | `doc/guide/text.md` | Work with text display and editing |
-| `doc/guide/widgets.md` | Use the 9 built-in widgets |
+| `doc/guide/widgets.md` | Use the 11 widget kinds and the ProgressBar/Tabs/TreeView/Table components |
 | `doc/guide/theming.md` | Use or write a theme package |
 | `doc/guide/input.md` | Work with pointer, keyboard, focus and shortcuts |
 | `doc/guide/popups.md` | Build a dropdown, menu, tooltip or dialog on the popup host |
@@ -107,7 +110,7 @@ per-frame call order, see **`doc/getting-started.md`**.
 
 ## Examples
 
-27 examples, `examples/00_*` through `examples/26_*`. Most support
+28 examples, `examples/00_*` through `examples/27_*`. Most support
 `--dump-png out.png` (headless render) and a `--verify-*` flag (headless
 assertion, used in CTest); run any binary with `--help` for its full flag
 list. **Start with `examples/25_showcase`** - it is the only example that
@@ -143,6 +146,7 @@ project's cross-feature regression bed.
 | 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
 | 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
 | 26 | `text_area` | Multi-line `TEXT_AREA` through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
+| 27 | `data_widgets` | `ProgressBar` (determinate + indeterminate), `Tabs` with a disabled tab, a 10,000-item `TreeView` and a 10,000-row sortable `Table` on fixed node pools | `--verify` |
 
 ## Unit tests
 
