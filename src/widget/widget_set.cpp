@@ -1127,8 +1127,11 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
 
 TextEditState* WidgetSet::text_field_state(NodeId id) {
   Widget* widget = find(id);
-  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? &widget->edit
-                                                                       : nullptr;
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
+    return nullptr;
+  }
+  widget->edit.history.now = edit_now_;
+  return &widget->edit;
 }
 
 bool WidgetSet::text_field_commit(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -1180,6 +1183,10 @@ bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, Node
       case TextFieldMove::kLineEnd:
         return text_edit::set_cursor(*state, static_cast<int>(state->text.size()),
                                      extend_selection);
+      case TextFieldMove::kWordLeft:
+        return text_edit::move_word(*state, true, extend_selection);
+      case TextFieldMove::kWordRight:
+        return text_edit::move_word(*state, false, extend_selection);
     }
     __builtin_unreachable();
   }();
@@ -1192,7 +1199,7 @@ bool WidgetSet::text_field_select_all(RenderTree& tree, const FontCatalog& fonts
 }
 
 bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id,
-                                 int pointer_x, bool extend_selection) {
+                                 int pointer_x, bool extend_selection, int click_count) {
   Widget* widget = find(id);
   if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
     return false;
@@ -1212,6 +1219,16 @@ bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, Nod
       build_edit_paragraph(fonts, content_style.font, content_style.size, widget->edit.text);
   const int offset =
       para ? grapheme_offset_at_x(*para, grapheme_boundaries(widget->edit.text), local_x) : 0;
+  if (click_count >= 3) {
+    return text_field_commit(
+        tree, fonts, id,
+        text_edit::select_range(widget->edit, 0, static_cast<int>(widget->edit.text.size())));
+  }
+  if (click_count == 2) {
+    const TextSelection word = text_edit::word_range(widget->edit.text, offset);
+    return text_field_commit(tree, fonts, id,
+                             text_edit::select_range(widget->edit, word.start, word.end));
+  }
   return text_field_commit(tree, fonts, id,
                            text_edit::set_cursor(widget->edit, offset, extend_selection));
 }
@@ -1297,6 +1314,48 @@ bool WidgetSet::editor_select_all(RenderTree& tree, const FontCatalog& fonts, No
   return text_field_select_all(tree, fonts, id);
 }
 
+bool WidgetSet::editor_delete_word(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                   bool backward) {
+  if (TextEditState* state = text_field_state(id); state != nullptr) {
+    return text_field_commit(tree, fonts, id, text_edit::delete_word(*state, backward));
+  }
+  if (TextEditState* state = text_area_state(id); state != nullptr) {
+    state->preferred_x.reset();
+    find(id)->caret_upstream = false;
+    return text_area_commit(tree, fonts, id, text_edit::delete_word(*state, backward));
+  }
+  return false;
+}
+
+bool WidgetSet::editor_undo(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
+  if (TextEditState* state = text_field_state(id); state != nullptr) {
+    return text_field_commit(tree, fonts, id, text_edit::undo(*state));
+  }
+  if (TextEditState* state = text_area_state(id); state != nullptr) {
+    find(id)->caret_upstream = false;
+    return text_area_commit(tree, fonts, id, text_edit::undo(*state));
+  }
+  return false;
+}
+
+bool WidgetSet::editor_redo(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
+  if (TextEditState* state = text_field_state(id); state != nullptr) {
+    return text_field_commit(tree, fonts, id, text_edit::redo(*state));
+  }
+  if (TextEditState* state = text_area_state(id); state != nullptr) {
+    find(id)->caret_upstream = false;
+    return text_area_commit(tree, fonts, id, text_edit::redo(*state));
+  }
+  return false;
+}
+
+void WidgetSet::editor_set_max_length(NodeId id, int max_graphemes) {
+  Widget* widget = find(id);
+  if (widget != nullptr && is_editable_text(widget->kind)) {
+    widget->edit.max_graphemes = std::max(0, max_graphemes);
+  }
+}
+
 bool WidgetSet::editor_set_text(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                 std::string_view text, bool focused) {
   Widget* widget = find(id);
@@ -1306,7 +1365,15 @@ bool WidgetSet::editor_set_text(RenderTree& tree, const FontCatalog& fonts, Node
   const bool area = widget->kind == WidgetKind::kTextArea;
   TextEditState& edit = widget->edit;
   text_edit::cancel_composition(edit);
-  const std::string sanitized = text_edit::sanitize_insertable(text, area);
+  text_edit::clear_history(edit);
+  std::string sanitized = text_edit::sanitize_insertable(text, area);
+  if (edit.max_graphemes > 0) {
+    const std::vector<int> bounds = grapheme_boundaries(sanitized);
+    if (static_cast<int>(bounds.size()) - 1 > edit.max_graphemes) {
+      sanitized.resize(
+          static_cast<std::size_t>(bounds[static_cast<std::size_t>(edit.max_graphemes)]));
+    }
+  }
   const bool changed = sanitized != edit.text;
   edit.text = sanitized;
   edit.cursor = static_cast<int>(edit.text.size());

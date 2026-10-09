@@ -77,10 +77,13 @@ TEST_CASE("generated action_id constants and LogicalKey agree with input/shortcu
   CHECK(DG_ACTION_SCROLL_PAGE_DOWN == 6);
   CHECK(DG_ACTION_SCROLL_TO_START == 7);
   CHECK(DG_ACTION_SCROLL_TO_END == 8);
-  CHECK(kDgActionCount == 8);
+  CHECK(DG_ACTION_UNDO == 9);
+  CHECK(DG_ACTION_REDO == 10);
+  CHECK(DG_ACTION_REDO_ALT == 11);
+  CHECK(kDgActionCount == 11);
 
   const auto bindings = dg::all_shortcut_bindings();
-  REQUIRE(bindings.size() == 8);
+  REQUIRE(bindings.size() == 11);
 
   const auto find = [&](dg_action_id id) -> const dg::ShortcutBinding& {
     for (const auto& binding : bindings) {

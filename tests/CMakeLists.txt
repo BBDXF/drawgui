@@ -89,6 +89,7 @@ add_executable(drawgui_unit_test
   unit/test_grapheme.cpp
   unit/test_paragraph_geometry.cpp
   unit/test_text_edit.cpp
+  unit/test_editor_polish.cpp
   unit/test_focus.cpp
   unit/test_disabled.cpp
   unit/test_dropdown.cpp

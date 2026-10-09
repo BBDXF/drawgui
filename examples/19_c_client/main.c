@@ -451,12 +451,11 @@ static int run_verify(void) {
       }
     }
 
-    /* A modifier chord and an unknown key name are both refused - see
-     * dg_debug_post_key's own def.toml summary for why (post_logical_key()
-     * itself has no modifier parameter). */
+    /* A modifier chord is injected (ABI 0.2: the hook carries the chord's
+     * modifiers, so e.g. Mod+Z can drive a text editor's undo); an unknown
+     * key name is refused. */
     status = dg_debug_post_key(window_a, 1, "Mod+C");
-    check(status == DG_ERR_INVALID_ARGUMENT,
-          "dg_debug_post_key refuses a modifier chord it cannot inject");
+    check(status == DG_ERR_OK, "dg_debug_post_key injects a modifier chord");
     status = dg_debug_post_key(window_a, 1, "NotARealKey");
     check(status == DG_ERR_INVALID_ARGUMENT, "dg_debug_post_key refuses an unknown key name");
 

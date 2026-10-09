@@ -35,8 +35,10 @@ enum class LogicalKey : std::uint16_t {
   kPageUp,
   kV,
   kX,
+  kY,
+  kZ,
 };
 
-inline constexpr std::uint16_t kLogicalKeyCount = 8;
+inline constexpr std::uint16_t kLogicalKeyCount = 10;
 
 }  // namespace dg

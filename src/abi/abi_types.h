@@ -45,6 +45,7 @@
 #include "drawgui/theme/theme.h"
 #include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/theme_package.h"
+#include "drawgui/widget/click_counter.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
@@ -113,6 +114,7 @@ class WindowImpl {
   dg::LayoutTree tree;
   dg::WidgetSet widgets;
   dg::Interaction interaction;
+  dg::ClickCounter clicks;  // double/triple-click detection for text editors
   std::optional<dg::RasterSurface> surface;
   bool closed = false;
 

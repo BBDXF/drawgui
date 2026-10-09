@@ -19,3 +19,6 @@ regenerated on every change, never edited directly.
 | 6 | `scroll_page_down` | app | `PageDown` | PageDown | PageDown | 8-3c keyboard scrolling |
 | 7 | `scroll_to_start` | app | `Home` | Home | Home | 8-3c keyboard scrolling |
 | 8 | `scroll_to_end` | app | `End` | End | End | 8-3c keyboard scrolling |
+| 9 | `undo` | text_field | `Mod+Z` | Ctrl+Z | ⌘Z | text editor undo history |
+| 10 | `redo` | text_field | `Mod+Shift+Z` | Ctrl+Shift+Z | ⇧⌘Z | text editor undo history |
+| 11 | `redo_alt` | text_field | `Mod+Y` | Ctrl+Y | ⌘Y | text editor undo history |

@@ -475,14 +475,12 @@ export declare namespace DrawguiAbi {
   // TEST-ONLY. WindowManager::post_logical_key() at the ABI boundary, driving a
   // real SDL key event through the real queue exactly as
   // dg_debug_post_pointer_button() does for clicks - see the file header.
-  // `logical_key_name` is one bare key name from
-  // src/shortcuts/logical_key_table.generated.inc (e.g. "PageUp"), parsed with
-  // dg::parse_chord(); a name carrying a modifier ("Mod+C") or one the generated
-  // table does not list is DG_ERR_INVALID_ARGUMENT, because post_logical_key()
-  // itself has no modifier parameter (the injected event always carries
-  // SDL_KMOD_NONE) - this hook exists only to exercise 8-3d's own DG_EVENT_ACTION
-  // plumbing over an unmodified app-scope chord (PageUp/PageDown/Home/End), not
-  // to simulate arbitrary modified shortcuts headlessly.
+  // `logical_key_name` is a chord over a key name from
+  // src/shortcuts/logical_key_table.generated.inc, parsed with dg::parse_chord()
+  // - a bare key ("PageUp") or, since ABI 0.2, one carrying modifiers ("Mod+Z",
+  // "Mod+Shift+Z"; the injected event carries Ctrl/Shift/Alt accordingly, so it
+  // can drive a focused text editor's undo/redo). A malformed chord or a key the
+  // generated table does not list is DG_ERR_INVALID_ARGUMENT.
   function dg_debug_post_key(window: dg_window_t | null, down: number, logical_key_name: string | null): number;
   // TEST-ONLY. Unconditionally throws (1=bad_alloc, 2=runtime_error, else an int)
   // - the exception-boundary test's own fault injector.

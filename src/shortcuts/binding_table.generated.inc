@@ -14,3 +14,6 @@
 {DG_ACTION_SCROLL_PAGE_DOWN, ActionScope::kApp, Chord{Modifier::kNone, LogicalKey::kPageDown}, "scroll_page_down", "8-3c keyboard scrolling"},
 {DG_ACTION_SCROLL_TO_START, ActionScope::kApp, Chord{Modifier::kNone, LogicalKey::kHome}, "scroll_to_start", "8-3c keyboard scrolling"},
 {DG_ACTION_SCROLL_TO_END, ActionScope::kApp, Chord{Modifier::kNone, LogicalKey::kEnd}, "scroll_to_end", "8-3c keyboard scrolling"},
+{DG_ACTION_UNDO, ActionScope::kTextField, Chord{Modifier::kMod, LogicalKey::kZ}, "undo", "text editor undo history"},
+{DG_ACTION_REDO, ActionScope::kTextField, Chord{Modifier::kMod | Modifier::kShift, LogicalKey::kZ}, "redo", "text editor undo history"},
+{DG_ACTION_REDO_ALT, ActionScope::kTextField, Chord{Modifier::kMod, LogicalKey::kY}, "redo_alt", "text editor undo history"},

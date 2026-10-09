@@ -85,7 +85,7 @@ schema_version = 1
 
 [meta]
 # The id the next new action must take. Bump it when appending.
-next_id = 9
+next_id = 12
 
 # ---------------------------------------------------------------------------
 # Clipboard (8-4) + TextField's own select-all. All four share the
@@ -166,3 +166,35 @@ scope = "app"
 consumer = "8-3c keyboard scrolling"
 binding = "End"
 summary = "Scroll the target scrollable to its content end."
+
+# ---------------------------------------------------------------------------
+# Undo/redo for the text editors (TextField and TextArea), ABI 0.2. Same
+# text_field scope as the clipboard rows: they only mean something with a
+# focused editor. Redo has two conventional chords, and a row carries one
+# binding, so Mod+Y is its own action id (redo_alt) with the same effect.
+# The C ABI applies all three to a focused editor itself, before the router.
+# ---------------------------------------------------------------------------
+
+[[action]]
+name = "undo"
+id = 9
+scope = "text_field"
+consumer = "text editor undo history"
+binding = "Mod+Z"
+summary = "Undo the focused text editor's last edit."
+
+[[action]]
+name = "redo"
+id = 10
+scope = "text_field"
+consumer = "text editor undo history"
+binding = "Mod+Shift+Z"
+summary = "Redo the focused text editor's last undone edit."
+
+[[action]]
+name = "redo_alt"
+id = 11
+scope = "text_field"
+consumer = "text editor undo history"
+binding = "Mod+Y"
+summary = "Redo (the alternative chord, same effect as redo)."

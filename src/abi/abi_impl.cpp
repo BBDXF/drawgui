@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "drawgui/anim/clock.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/graphics/types.h"
@@ -25,6 +26,7 @@
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/router.h"
 #include "drawgui/theme/theme_loader.h"
+#include "drawgui/widget/click_counter.h"
 #include "drawgui/widget/cursor.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
@@ -57,18 +59,16 @@ constexpr std::uint32_t kCheckboxOnArgb = 0xFF2E86DE;
 constexpr dg::Color kCheckboxNormal = dg::Color::from_argb(kCheckboxNormalArgb);
 constexpr dg::Color kCheckboxBorder = dg::Color::from_argb(kCheckboxBorderArgb);
 
-// P6 sub-step a2 (second half): DG_NODE_TYPE_TEXT_FIELD's colours and
-// dimensions - lifted unchanged from examples/12_text_input/
-// text_field_scene.cpp's own palette (kFieldFill/kBorderUnfocused/
-// kBorderFocused/kTextColor/kCaretColor/kSelectionFill/
-// kCompositionUnderlineColor, kFieldWidth/kFieldHeight/kFontSize).
+// DG_NODE_TYPE_TEXT_FIELD / DG_NODE_TYPE_TEXT_AREA colours come from the
+// theme (editor_palette_for() below), so both editors follow light/dark and
+// dg_theme_override(). These are only the fallbacks for a theme lacking a
+// token - the editors' original dark palette.
 constexpr std::uint32_t kTextFieldFillArgb = 0xFF161C24;
 constexpr std::uint32_t kTextFieldBorderUnfocusedArgb = 0xFF2C3644;
 constexpr std::uint32_t kTextFieldBorderFocusedArgb = 0xFF2E86DE;
 constexpr std::uint32_t kTextFieldTextColorArgb = 0xFFE8EDF4;
-constexpr std::uint32_t kTextFieldCaretColorArgb = 0xFF2E86DE;
-constexpr std::uint32_t kTextFieldSelectionFillArgb = 0x8A2E86DE;
-constexpr std::uint32_t kTextFieldCompositionUnderlineArgb = 0xFFE8B930;
+// Selection = the accent at this opacity, so text stays readable on top.
+constexpr std::uint32_t kTextFieldSelectionAlpha = 0x8A;
 constexpr int kTextFieldWidth = 260;
 constexpr int kTextFieldHeight = 36;
 constexpr float kTextFieldFontSize = 16.0F;
@@ -84,11 +84,26 @@ constexpr int kTextAreaInset = 10;
 constexpr int kTextAreaHighlightPool = 64;
 constexpr int kTextAreaUnderlinePool = 4;
 
-dg::NodeStyle text_field_box_style(bool focused) {
+// Both editors' colours, resolved from the active (else builtin dark) theme:
+// box = color.surface, border = color.border, focused border / caret =
+// color.primary, text and IME underline = color.on-surface, selection =
+// color.primary made translucent.
+struct EditorPalette {
+  dg::Color fill = dg::Color::from_argb(kTextFieldFillArgb);
+  dg::Color border = dg::Color::from_argb(kTextFieldBorderUnfocusedArgb);
+  dg::Color border_focused = dg::Color::from_argb(kTextFieldBorderFocusedArgb);
+  dg::Color text = dg::Color::from_argb(kTextFieldTextColorArgb);
+  dg::Color caret = dg::Color::from_argb(kTextFieldBorderFocusedArgb);
+  dg::Color selection = dg::Color::from_argb((kTextFieldSelectionAlpha << 24U) |
+                                             (kTextFieldBorderFocusedArgb & 0xFFFFFFU));
+  dg::Color underline = dg::Color::from_argb(kTextFieldTextColorArgb);
+};
+EditorPalette editor_palette_for(const AppImpl& impl);
+
+dg::NodeStyle text_field_box_style(const EditorPalette& palette, bool focused) {
   dg::NodeStyle style;
-  style.fill = dg::Color::from_argb(kTextFieldFillArgb);
-  style.border_color = dg::Color::from_argb(focused ? kTextFieldBorderFocusedArgb
-                                                    : kTextFieldBorderUnfocusedArgb);
+  style.fill = palette.fill;
+  style.border_color = focused ? palette.border_focused : palette.border;
   style.border_width = dg::BorderWidths::all(1.0F);
   style.radii = dg::Radii::all(6.0F);
   style.overflow = dg::Overflow::kClip;
@@ -105,8 +120,9 @@ bool is_text_area(const WindowImpl& window, dg::NodeId id) {
 
 // Re-applies text_field_box_style() without clobbering DG_PROP_DISABLED,
 // which lives in the same NodeStyle this replaces wholesale.
-void set_text_field_box_style(dg::RenderTree& tree, dg::NodeId id, bool focused) {
-  dg::NodeStyle style = text_field_box_style(focused);
+void set_text_field_box_style(const EditorPalette& palette, dg::RenderTree& tree, dg::NodeId id,
+                              bool focused) {
+  dg::NodeStyle style = text_field_box_style(palette, focused);
   style.disabled = tree.style(id).disabled;
   tree.set_style(id, style);
 }
@@ -130,7 +146,7 @@ void set_editor_focus(AppImpl& impl, WindowImpl& window, dg::NodeId id, bool foc
   } else {
     window.widgets.text_field_set_focus(tree, *impl.fonts, id, focused);
   }
-  set_text_field_box_style(tree, id, focused);
+  set_text_field_box_style(editor_palette_for(impl), tree, id, focused);
 }
 
 // -- Global arenas ------------------------------------------------------
@@ -453,6 +469,68 @@ dg::ScrollbarStyle scrollbar_style_for(const AppImpl& impl) {
   return style;
 }
 
+EditorPalette editor_palette_for(const AppImpl& impl) {
+  const auto [theme, variant] = theme_for(impl);
+  EditorPalette palette;
+  if (theme == nullptr) {
+    return palette;
+  }
+  const auto pick = [&](dg_token_id id, dg::Color& out) {
+    if (const std::optional<dg::Color> c = theme->color_value(id, variant)) {
+      out = *c;
+    }
+  };
+  pick(DG_TOKEN_COLOR_SURFACE, palette.fill);
+  pick(DG_TOKEN_COLOR_BORDER, palette.border);
+  pick(DG_TOKEN_COLOR_PRIMARY, palette.border_focused);
+  pick(DG_TOKEN_COLOR_PRIMARY, palette.caret);
+  pick(DG_TOKEN_COLOR_ON_SURFACE, palette.text);
+  pick(DG_TOKEN_COLOR_ON_SURFACE, palette.underline);
+  palette.selection = dg::Color::from_argb((kTextFieldSelectionAlpha << 24U) |
+                                           (palette.caret.argb() & 0xFFFFFFU));
+  return palette;
+}
+
+// Re-colours every live text field / text area in `window` with `palette`.
+// Writes enabled colours only; refresh_subtree() afterwards re-dims the
+// disabled ones (it notices the overwrite and remembers the new colour).
+void restyle_editors(AppImpl& impl, std::size_t window_index, WindowImpl& window,
+                     const EditorPalette& palette) {
+  dg::RenderTree& tree = window.tree.render();
+  for (const NodeSlot& slot : impl.nodes) {
+    if (slot.state != NodeSlot::State::kLive || slot.window_index != window_index ||
+        (slot.type_id != DG_NODE_TYPE_TEXT_FIELD && slot.type_id != DG_NODE_TYPE_TEXT_AREA) ||
+        !window.widgets.has(slot.node_id)) {
+      continue;
+    }
+    const dg::NodeId id = slot.node_id;
+    set_text_field_box_style(palette, tree, id, window.focus.current() == id);
+    // attach() replaces the stored Widget by value; a copy with only the
+    // three box fills changed keeps the editing state intact.
+    dg::Widget updated = window.widgets.at(id);
+    updated.fill_normal = palette.fill;
+    updated.fill_hover = palette.fill;
+    updated.fill_pressed = palette.fill;
+    window.widgets.attach(id, updated);
+    const dg::Widget* widget = &window.widgets.at(id);
+    dg::TextStyle text = tree.style(widget->content).text;
+    text.color = palette.text;
+    tree.set_text(widget->content, text);
+    tree.set_fill(widget->caret, palette.caret);
+    if (widget->kind == dg::WidgetKind::kTextArea) {
+      for (const dg::NodeId n : widget->highlight_pool) {
+        tree.set_fill(n, palette.selection);
+      }
+      for (const dg::NodeId n : widget->underline_pool) {
+        tree.set_fill(n, palette.underline);
+      }
+    } else {
+      tree.set_fill(widget->selection_highlight, palette.selection);
+      tree.set_fill(widget->composition_underline, palette.underline);
+    }
+  }
+}
+
 // dg_app_set_theme()/dg_theme_set_variant()/dg_theme_override() all end
 // here: whichever one changed the theme's DATA, the same re-apply against
 // every open window's own dg::ThemeBindings is what makes the change live -
@@ -471,6 +549,7 @@ void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
       window->theme_bindings.apply(window->tree, theme.theme, theme.variant);
       window->widgets.set_disabled_palette(palette);
       window->widgets.set_scrollbar_style(scrollbar_style_for(impl));
+      restyle_editors(impl, window->self_index, *window, editor_palette_for(impl));
       window->widgets.refresh_subtree(window->tree.render(), dg::LayoutTree::root(),
                                       window->interaction);
     }
@@ -552,11 +631,11 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     // unchanged - starts unfocused (field_style(false)).
     box.width = kTextFieldWidth;
     box.height = kTextFieldHeight;
-    style = text_field_box_style(false);
+    style = text_field_box_style(editor_palette_for(impl), false);
   } else if (slot.type_id == DG_NODE_TYPE_TEXT_AREA) {
     box.width = kTextAreaWidth;
     box.height = kTextAreaHeight;
-    style = text_field_box_style(false);
+    style = text_field_box_style(editor_palette_for(impl), false);
   } else {
     style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
     if (slot.type_id == DG_NODE_TYPE_BUTTON) {
@@ -622,13 +701,14 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     // through this ABI (no dg_node_t names any of them), exactly the
     // DG_NODE_TYPE_CHECKBOX indicator's own trade (see this file's own
     // constant comment on DG_NODE_TYPE_TEXT_FIELD, abi/drawgui.def.toml).
+    const EditorPalette editor = editor_palette_for(impl);
     dg::BoxStyle placeholder;
     placeholder.kind = dg::LayoutKind::kLeaf;
     placeholder.width = 1;
     placeholder.height = 1;
 
     dg::NodeStyle highlight_style;
-    highlight_style.fill = dg::Color::from_argb(kTextFieldSelectionFillArgb);
+    highlight_style.fill = editor.selection;
     const dg::NodeId highlight = window.tree.add_child(new_id, placeholder, highlight_style);
 
     // composition_underline: built so Widget::composition_underline names a
@@ -637,25 +717,25 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     // composition surface (abi/drawgui.def.toml's own "明确不做" entry), so
     // `composing` never becomes true and this child stays zero-size forever.
     dg::NodeStyle underline_style;
-    underline_style.fill = dg::Color::from_argb(kTextFieldCompositionUnderlineArgb);
+    underline_style.fill = editor.underline;
     const dg::NodeId underline = window.tree.add_child(new_id, placeholder, underline_style);
 
     dg::NodeStyle content_style;
     content_style.text.font = impl.default_font;
     content_style.text.size = kTextFieldFontSize;
-    content_style.text.color = dg::Color::from_argb(kTextFieldTextColorArgb);
+    content_style.text.color = editor.text;
     content_style.text.align = dg::TextAlign::kLeft;
     const dg::NodeId content = window.tree.add_child(new_id, placeholder, content_style);
 
     dg::NodeStyle caret_style;
-    caret_style.fill = dg::Color::from_argb(kTextFieldCaretColorArgb);
+    caret_style.fill = editor.caret;
     const dg::NodeId caret = window.tree.add_child(new_id, placeholder, caret_style);
 
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kTextField;
     // The box keeps its fill on hover/press, and gets it back after being
     // disabled (refresh() paints fill_normal for an enabled widget).
-    widget.fill_normal = dg::Color::from_argb(kTextFieldFillArgb);
+    widget.fill_normal = editor.fill;
     widget.fill_hover = widget.fill_normal;
     widget.fill_pressed = widget.fill_normal;
     widget.content = content;
@@ -672,6 +752,7 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     // (one per visible line of an IME composition), the wrapping content,
     // the caret, and a scrollbar track + thumb added last so it paints and
     // hit-tests on top. All caller-invisible, like every composed child.
+    const EditorPalette editor = editor_palette_for(impl);
     dg::BoxStyle placeholder;
     placeholder.kind = dg::LayoutKind::kLeaf;
     placeholder.width = 1;
@@ -679,20 +760,20 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
 
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kTextArea;
-    widget.fill_normal = dg::Color::from_argb(kTextFieldFillArgb);
+    widget.fill_normal = editor.fill;
     widget.fill_hover = widget.fill_normal;
     widget.fill_pressed = widget.fill_normal;
     widget.text_inset = kTextAreaInset;
 
     widget.selection_layer = window.tree.add_child(new_id, placeholder, dg::NodeStyle{});
     dg::NodeStyle highlight_style;
-    highlight_style.fill = dg::Color::from_argb(kTextFieldSelectionFillArgb);
+    highlight_style.fill = editor.selection;
     for (int i = 0; i < kTextAreaHighlightPool; ++i) {
       widget.highlight_pool.push_back(
           window.tree.add_child(widget.selection_layer, placeholder, highlight_style));
     }
     dg::NodeStyle underline_style;
-    underline_style.fill = dg::Color::from_argb(kTextFieldCompositionUnderlineArgb);
+    underline_style.fill = editor.underline;
     for (int i = 0; i < kTextAreaUnderlinePool; ++i) {
       widget.underline_pool.push_back(
           window.tree.add_child(new_id, placeholder, underline_style));
@@ -700,12 +781,12 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     dg::NodeStyle content_style;
     content_style.text.font = impl.default_font;
     content_style.text.size = kTextFieldFontSize;
-    content_style.text.color = dg::Color::from_argb(kTextFieldTextColorArgb);
+    content_style.text.color = editor.text;
     content_style.text.align = dg::TextAlign::kLeft;
     content_style.text.wrap = true;
     widget.content = window.tree.add_child(new_id, placeholder, content_style);
     dg::NodeStyle caret_style;
-    caret_style.fill = dg::Color::from_argb(kTextFieldCaretColorArgb);
+    caret_style.fill = editor.caret;
     widget.caret = window.tree.add_child(new_id, placeholder, caret_style);
     const dg::NodeId track = window.tree.add_child(new_id, placeholder, dg::NodeStyle{});
     const dg::NodeId thumb = window.tree.add_child(track, placeholder, dg::NodeStyle{});
@@ -825,13 +906,14 @@ void place_editor_caret(AppImpl& impl, WindowImpl& window, std::optional<dg::Nod
       window.focus.current() != hit) {
     return;
   }
+  const int clicks = dg::register_click(window.clicks, at, dg::steady_anim_time());
   if (is_text_area(window, *hit)) {
     window.widgets.text_area_click(window.tree.render(), *impl.fonts, *hit, at,
-                                   /*extend_selection=*/false);
+                                   /*extend_selection=*/false, clicks);
     follow_caret(impl, window, *hit);
   } else {
     window.widgets.text_field_click(window.tree.render(), *impl.fonts, *hit, at.x,
-                                    /*extend_selection=*/false);
+                                    /*extend_selection=*/false, clicks);
   }
 }
 
@@ -974,9 +1056,9 @@ bool handle_text_area_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::
   consumed = true;
   switch (event.key) {
     case dg::Key::kLeft:
-      return move(dg::TextAreaMove::kCharLeft);
+      return move(mod ? dg::TextAreaMove::kWordLeft : dg::TextAreaMove::kCharLeft);
     case dg::Key::kRight:
-      return move(dg::TextAreaMove::kCharRight);
+      return move(mod ? dg::TextAreaMove::kWordRight : dg::TextAreaMove::kCharRight);
     case dg::Key::kUp:
       return move(dg::TextAreaMove::kLineUp);
     case dg::Key::kDown:
@@ -990,9 +1072,11 @@ bool handle_text_area_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::
     case dg::Key::kEnd:
       return move(mod ? dg::TextAreaMove::kDocEnd : dg::TextAreaMove::kLineEnd);
     case dg::Key::kBackspace:
-      return window.widgets.text_area_backspace(tree, fonts, area);
+      return mod ? window.widgets.editor_delete_word(tree, fonts, area, true)
+                 : window.widgets.text_area_backspace(tree, fonts, area);
     case dg::Key::kDelete:
-      return window.widgets.text_area_delete_forward(tree, fonts, area);
+      return mod ? window.widgets.editor_delete_word(tree, fonts, area, false)
+                 : window.widgets.text_area_delete_forward(tree, fonts, area);
     case dg::Key::kEnter:
       if (!mod && !dg::has(event.mods, dg::Modifier::kAlt)) {
         return window.widgets.text_area_insert(tree, fonts, area, "\n");
@@ -1007,16 +1091,60 @@ bool handle_text_area_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::
   return false;
 }
 
+// Undo/redo (input/shortcuts.toml's undo/redo/redo_alt chords) on a focused,
+// enabled editor, applied here before the router like the editing keys
+// above - the host does not have to scope or handle them. Returns whether
+// the key was one of those chords (consumed even when nothing was undone).
+bool apply_editor_history_key(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
+                              const dg::KeyEvent& event) {
+  if (!impl.fonts.has_value() || !is_text_editor(window, editor) ||
+      dg::is_disabled(window.tree.render(), editor)) {
+    return false;
+  }
+  const dg::Chord chord{event.mods, event.logical_key};
+  for (const dg::ShortcutBinding& binding : dg::all_shortcut_bindings()) {
+    if (binding.chord != chord) {
+      continue;
+    }
+    bool changed = false;
+    if (binding.action_id == DG_ACTION_UNDO) {
+      changed = window.widgets.editor_undo(window.tree.render(), *impl.fonts, editor);
+    } else if (binding.action_id == DG_ACTION_REDO || binding.action_id == DG_ACTION_REDO_ALT) {
+      changed = window.widgets.editor_redo(window.tree.render(), *impl.fonts, editor);
+    } else {
+      continue;
+    }
+    if (changed) {
+      dg_event out{};
+      out.size = sizeof(dg_event);
+      out.kind = DG_EVENT_TEXT_CHANGED;
+      out.window = window.self_handle;
+      out.node = find_node_handle(impl, window.self_index, editor);
+      impl.pending_events.push_back(out);
+    }
+    if (is_text_area(window, editor)) {
+      follow_caret(impl, window, editor);
+    }
+    return true;
+  }
+  return false;
+}
+
 bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::NodeId field,
                            const dg::KeyEvent& event) {
   dg::RenderTree& tree = window.tree.render();
   const bool shift = dg::has(event.mods, dg::Modifier::kShift);
+  const bool mod = dg::has(event.mods, dg::Modifier::kMod);
   switch (event.key) {
     case dg::Key::kLeft:
-      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft, shift);
+      window.widgets.text_field_move(
+          tree, fonts, field, mod ? dg::TextFieldMove::kWordLeft : dg::TextFieldMove::kCharLeft,
+          shift);
       return false;
     case dg::Key::kRight:
-      window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight, shift);
+      window.widgets.text_field_move(
+          tree, fonts, field,
+          mod ? dg::TextFieldMove::kWordRight : dg::TextFieldMove::kCharRight, shift);
       return false;
     case dg::Key::kHome:
       window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart, shift);
@@ -1025,9 +1153,11 @@ bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg:
       window.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd, shift);
       return false;
     case dg::Key::kBackspace:
-      return window.widgets.text_field_backspace(tree, fonts, field);
+      return mod ? window.widgets.editor_delete_word(tree, fonts, field, true)
+                 : window.widgets.text_field_backspace(tree, fonts, field);
     case dg::Key::kDelete:
-      return window.widgets.text_field_delete_forward(tree, fonts, field);
+      return mod ? window.widgets.editor_delete_word(tree, fonts, field, false)
+                 : window.widgets.text_field_delete_forward(tree, fonts, field);
     case dg::Key::kEscape:
     case dg::Key::kTab:
     case dg::Key::kUp:
@@ -1065,6 +1195,13 @@ void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& ev
   // every desktop toolkit's "a focused text field owns Home/End, a
   // scrollable region only gets them when nothing more specific does".
   const std::optional<dg::NodeId> focused = window.focus.current();
+  window.widgets.set_edit_time(dg::steady_anim_time());
+  // A key press between two clicks ends a multi-click sequence: the second
+  // click places a caret instead of selecting a word.
+  window.clicks = dg::ClickCounter{};
+  if (focused.has_value() && apply_editor_history_key(impl, window, *focused, event)) {
+    return;
+  }
   if (focused.has_value() && is_text_area(window, *focused) && impl.fonts.has_value() &&
       !dg::is_disabled(window.tree.render(), *focused)) {
     bool consumed = false;
@@ -1199,6 +1336,7 @@ bool insert_into_editor(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
   if (!impl.fonts.has_value()) {
     return false;
   }
+  window.widgets.set_edit_time(dg::steady_anim_time());
   const bool changed =
       window.widgets.editor_insert(window.tree.render(), *impl.fonts, editor, text);
   if (is_text_area(window, editor)) {
@@ -2356,11 +2494,11 @@ std::int32_t debug_post_key(dg_window_t* window_h, std::int32_t down,
   // below, matching WindowManager::post_logical_key()'s own inability to
   // inject one (see this function's def.toml summary).
   const std::optional<dg::Chord> chord = dg::parse_chord(logical_key_name);
-  if (!chord.has_value() || chord->mods != dg::Modifier::kNone) {
+  if (!chord.has_value()) {
     return DG_ERR_INVALID_ARGUMENT;
   }
   AppImpl* impl = resolve_app(window_h->app);
-  impl->wm.post_logical_key(window->sdl_window, down != 0, chord->key);
+  impl->wm.post_logical_key(window->sdl_window, down != 0, chord->key, chord->mods);
   return DG_ERR_OK;
 }
 

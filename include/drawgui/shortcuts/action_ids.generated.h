@@ -60,5 +60,17 @@ inline constexpr dg_action_id DG_ACTION_SCROLL_TO_START = 7;  // "Home"
 // scope=app consumer="8-3c keyboard scrolling"
 inline constexpr dg_action_id DG_ACTION_SCROLL_TO_END = 8;  // "End"
 
-inline constexpr std::uint16_t kDgActionMaxId = 8;
-inline constexpr std::uint16_t kDgActionCount = 8;
+// Undo the focused text editor's last edit.
+// scope=text_field consumer="text editor undo history"
+inline constexpr dg_action_id DG_ACTION_UNDO = 9;  // "Mod+Z"
+
+// Redo the focused text editor's last undone edit.
+// scope=text_field consumer="text editor undo history"
+inline constexpr dg_action_id DG_ACTION_REDO = 10;  // "Mod+Shift+Z"
+
+// Redo (the alternative chord, same effect as redo).
+// scope=text_field consumer="text editor undo history"
+inline constexpr dg_action_id DG_ACTION_REDO_ALT = 11;  // "Mod+Y"
+
+inline constexpr std::uint16_t kDgActionMaxId = 11;
+inline constexpr std::uint16_t kDgActionCount = 11;

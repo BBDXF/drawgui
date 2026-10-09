@@ -285,7 +285,7 @@ Modifier to_modifier(SDL_Keymod sdl_mods) {
   return mods;
 }
 
-// SDL_Keycode -> LogicalKey, covering exactly the eight keys
+// SDL_Keycode -> LogicalKey, covering exactly the keys
 // input/shortcuts.toml's bindings reference (LogicalKey's own generated
 // header lists them). Same shape as to_key() above: SDL_Keycode is an open,
 // platform-defined set, so `default:` is what reports "no shortcut key"
@@ -310,6 +310,10 @@ LogicalKey to_logical_key(SDL_Keycode keycode) {
       return LogicalKey::kV;
     case SDLK_X:
       return LogicalKey::kX;
+    case SDLK_Y:
+      return LogicalKey::kY;
+    case SDLK_Z:
+      return LogicalKey::kZ;
     default:
       return LogicalKey::kInvalid;
   }
@@ -363,6 +367,10 @@ SDL_Keycode from_logical_key(LogicalKey key) {
       return SDLK_V;
     case LogicalKey::kX:
       return SDLK_X;
+    case LogicalKey::kY:
+      return SDLK_Y;
+    case LogicalKey::kZ:
+      return SDLK_Z;
     case LogicalKey::kInvalid:
       break;
   }

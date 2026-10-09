@@ -375,6 +375,8 @@ enum class TextFieldMove : std::uint8_t {
   kCharRight,
   kLineStart,
   kLineEnd,
+  kWordLeft,   // Ctrl+Left (text_edit::word_left())
+  kWordRight,  // Ctrl+Right
 };
 
 // Caret movements a kTextArea registers on itself (Left/Right, Up/Down,
@@ -391,6 +393,8 @@ enum class TextAreaMove : std::uint8_t {
   kLineEnd,
   kDocStart,
   kDocEnd,
+  kWordLeft,   // Ctrl+Left (text_edit::word_left())
+  kWordRight,  // Ctrl+Right
 };
 
 // The two colours every disabled widget is painted with, normally resolved
@@ -797,8 +801,13 @@ class WidgetSet {
   // extends a selection one pointer-move event at a time - the same shape
   // a slider's drag already has, reused
   // here for a text selection rather than a value.
+  //
+  // `click_count` is the press's position in a multi-click sequence
+  // (dg::ClickCounter): 2 selects the word under the pointer
+  // (text_edit::word_range()), 3 the whole text; either ignores
+  // `extend_selection`.
   bool text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id, int pointer_x,
-                        bool extend_selection);
+                        bool extend_selection, int click_count = 1);
 
   // Applies the focused/unfocused display mode: focused shows the full string scrolled so the
   // cursor stays visible and draws a steady (non-blinking - no animation clock exists, matching
@@ -864,6 +873,26 @@ class WidgetSet {
                      std::string_view input);
   bool editor_select_all(RenderTree& tree, const FontCatalog& fonts, NodeId id);
 
+  // Ctrl+Backspace (`backward`) / Ctrl+Delete: text_edit::delete_word().
+  bool editor_delete_word(RenderTree& tree, const FontCatalog& fonts, NodeId id, bool backward);
+
+  // Undo/redo (input/shortcuts.toml's undo/redo/redo_alt, Mod+Z,
+  // Mod+Shift+Z, Mod+Y): text_edit::undo()/redo(). False when there was
+  // nothing to undo/redo or while composing.
+  bool editor_undo(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+  bool editor_redo(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  // The most grapheme clusters the editor's text may hold (0, the default,
+  // is unlimited) - TextEditState::max_graphemes. Applies to later typing,
+  // pastes and IME commits; existing text is never truncated by this call.
+  void editor_set_max_length(NodeId id, int max_graphemes);
+
+  // The clock seam for undo merging (TextEditHistory::now): every editor
+  // edit after this call is stamped with `now`. The C ABI stamps
+  // dg::steady_anim_time() before each key/text event; a test stamps
+  // whatever it likes. Never stamped, every edit sees the same time.
+  void set_edit_time(AnimTime now) { edit_now_ = now; }
+
   // Replaces the WHOLE committed text (sanitized like an insert - a
   // kTextField drops '\n', a kTextArea keeps it), ends any composition,
   // puts the caret at the end and clears the selection. `focused` is the
@@ -903,8 +932,10 @@ class WidgetSet {
   // Click/drag/shift-click at an ABSOLUTE device-pixel point: the caret goes
   // to the grapheme boundary nearest it (Paragraph::offset_at()). Ends any
   // composition without committing it.
+  // `click_count` 2 selects the word under the pointer, 3 its logical line
+  // (text_edit::line_range()), like text_field_click().
   bool text_area_click(RenderTree& tree, const FontCatalog& fonts, NodeId id,
-                       PixelPoint pointer, bool extend_selection);
+                       PixelPoint pointer, bool extend_selection, int click_count = 1);
 
   void text_area_set_focus(RenderTree& tree, const FontCatalog& fonts, NodeId id, bool focused);
   void text_area_composition_update(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -959,8 +990,11 @@ class WidgetSet {
   std::optional<ScrollbarDrag> scrollbar_drag_;
   ScrollbarStyle scrollbar_style_;
 
-  // The kTextField's editing state, or null for any other id/kind.
+  // The kTextField's editing state, or null for any other id/kind. Stamps
+  // the state's history clock with edit_now_ (every edit goes through here
+  // or text_area_state()).
   TextEditState* text_field_state(NodeId id);
+  AnimTime edit_now_;
 
   // Re-derives the focused display after a text_edit:: operation reported
   // a change, and passes `changed` through - the one place every editing

@@ -204,24 +204,30 @@ typedef struct dg_theme_err {
 /* shape as an ungrouped checkbox's unused Widget::group field. Read the field's */
 /* current text with dg_node_get_text(); dg_node_set_text(DG_PROP_TEXT) sets its */
 /* initial/replacement content the same way it already does for */
-/* DG_NODE_TYPE_LABEL. */
+/* DG_NODE_TYPE_LABEL. ABI 0.2: Mod+Z undoes and Mod+Shift+Z/Mod+Y redo (the */
+/* pump applies them to the focused editor before the router - typing within a */
+/* second merges into one step, a paste/cut/IME commit is its own; */
+/* DG_EVENT_TEXT_CHANGED when the text changed), Ctrl+Left/Right move by word */
+/* (Shift extends), Ctrl+Backspace/Delete delete a word, a double-click selects */
+/* a word and a triple-click the whole text (a text area: the logical line). */
 #define DG_NODE_TYPE_TEXT_FIELD 5u
 /* ABI 0.2: a multi-line, soft-wrapping editable text area */
 /* (WidgetKind::kTextArea), 320x160 by default, styled with */
 /* DG_NODE_TYPE_TEXT_FIELD's own palette. Everything DG_NODE_TYPE_TEXT_FIELD */
 /* does (click to focus and place the caret, committed text input, */
-/* DG_EVENT_TEXT_CHANGED, dg_node_get_text(), the clipboard actions) plus: Enter */
-/* (bare or with Shift) inserts a newline - Ctrl/Alt+Enter still reach the */
-/* shortcut router; Up/Down keep the caret's column across lines; Home/End go to */
-/* the visual (wrapped) line's ends, Ctrl+Home/End to the text's; */
-/* PageUp/PageDown move by the viewport; a press-drag selects; the wheel and the */
-/* area's own scrollbar (theme tokens color.scrollbar-track/thumb and */
-/* size.scrollbar) scroll without moving the caret, and the caret is scrolled */
-/* into view after every edit or move. Tab stays focus traversal. Its composed */
-/* children (selection highlights, IME underlines, content, caret, scrollbar */
-/* track and thumb) have no dg_node_t handle. dg_node_set_text(DG_PROP_TEXT) on */
-/* a text area or text field replaces the EDITOR'S text (caret to the end) and */
-/* queues no DG_EVENT_TEXT_CHANGED. */
+/* DG_EVENT_TEXT_CHANGED, dg_node_get_text(), the clipboard actions, undo/redo, */
+/* word moves/deletes and double/triple-click selection - see */
+/* DG_NODE_TYPE_TEXT_FIELD) plus: Enter (bare or with Shift) inserts a newline - */
+/* Ctrl/Alt+Enter still reach the shortcut router; Up/Down keep the caret's */
+/* column across lines; Home/End go to the visual (wrapped) line's ends, */
+/* Ctrl+Home/End to the text's; PageUp/PageDown move by the viewport; a */
+/* press-drag selects; the wheel and the area's own scrollbar (theme tokens */
+/* color.scrollbar-track/thumb and size.scrollbar) scroll without moving the */
+/* caret, and the caret is scrolled into view after every edit or move. Tab */
+/* stays focus traversal. Its composed children (selection highlights, IME */
+/* underlines, content, caret, scrollbar track and thumb) have no dg_node_t */
+/* handle. dg_node_set_text(DG_PROP_TEXT) on a text area or text field replaces */
+/* the EDITOR'S text (caret to the end) and queues no DG_EVENT_TEXT_CHANGED. */
 #define DG_NODE_TYPE_TEXT_AREA 6u
 
 /* dg_value::type. */
@@ -680,6 +686,12 @@ typedef uint16_t dg_action_id;
 #define DG_ACTION_SCROLL_TO_START 7
 /* Scroll the target scrollable to its content end. */
 #define DG_ACTION_SCROLL_TO_END 8
+/* Undo the focused text editor's last edit. */
+#define DG_ACTION_UNDO 9
+/* Redo the focused text editor's last undone edit. */
+#define DG_ACTION_REDO 10
+/* Redo (the alternative chord, same effect as redo). */
+#define DG_ACTION_REDO_ALT 11
 
 #endif /* !__cplusplus */
 
@@ -872,14 +884,12 @@ DG_EXPORT int32_t dg_debug_post_pointer_button(dg_window_t* window, int32_t down
 /* TEST-ONLY. WindowManager::post_logical_key() at the ABI boundary, driving a */
 /* real SDL key event through the real queue exactly as */
 /* dg_debug_post_pointer_button() does for clicks - see the file header. */
-/* `logical_key_name` is one bare key name from */
-/* src/shortcuts/logical_key_table.generated.inc (e.g. "PageUp"), parsed with */
-/* dg::parse_chord(); a name carrying a modifier ("Mod+C") or one the generated */
-/* table does not list is DG_ERR_INVALID_ARGUMENT, because post_logical_key() */
-/* itself has no modifier parameter (the injected event always carries */
-/* SDL_KMOD_NONE) - this hook exists only to exercise 8-3d's own DG_EVENT_ACTION */
-/* plumbing over an unmodified app-scope chord (PageUp/PageDown/Home/End), not */
-/* to simulate arbitrary modified shortcuts headlessly. */
+/* `logical_key_name` is a chord over a key name from */
+/* src/shortcuts/logical_key_table.generated.inc, parsed with dg::parse_chord() */
+/* - a bare key ("PageUp") or, since ABI 0.2, one carrying modifiers ("Mod+Z", */
+/* "Mod+Shift+Z"; the injected event carries Ctrl/Shift/Alt accordingly, so it */
+/* can drive a focused text editor's undo/redo). A malformed chord or a key the */
+/* generated table does not list is DG_ERR_INVALID_ARGUMENT. */
 DG_EXPORT int32_t dg_debug_post_key(dg_window_t* window, int32_t down,
                                     const char* logical_key_name);
 

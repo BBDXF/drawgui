@@ -71,8 +71,11 @@ struct TextFieldEditContext {
 };
 
 // `action_id` is expected to be one of DG_ACTION_COPY/CUT/PASTE/
-// SELECT_ALL; any other value returns false untouched - this function's
-// own job is applying one of these four actions, not validating that
+// SELECT_ALL, or one of the editor history actions DG_ACTION_UNDO/REDO/
+// REDO_ALT (WidgetSet::editor_undo()/editor_redo(); they live here for the
+// same reason select_all does - a text_field-scoped action on the focused
+// editor, with no clipboard involved); any other value returns false untouched - this
+// function's own job is applying one of these four actions, not validating that
 // route_key_event() resolved one, matching apply_keyboard_scroll()'s
 // identical stance on an unrelated action_id.
 //

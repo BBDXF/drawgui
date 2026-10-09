@@ -14,3 +14,5 @@
 {"PageUp", LogicalKey::kPageUp},
 {"V", LogicalKey::kV},
 {"X", LogicalKey::kX},
+{"Y", LogicalKey::kY},
+{"Z", LogicalKey::kZ},

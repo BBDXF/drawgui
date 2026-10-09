@@ -201,6 +201,7 @@ add_library(drawgui STATIC
   src/theme/theme_bindings.cpp
   src/theme/theme_loader.cpp
   src/theme/theme_package.cpp
+  src/widget/click_counter.cpp
   src/widget/cursor.cpp
   src/widget/focus.cpp
   src/widget/interaction.cpp

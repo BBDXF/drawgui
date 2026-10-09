@@ -10,6 +10,13 @@ bool apply_clipboard_action(dg_action_id action_id, NodeId field,
     return ctx.widgets.editor_select_all(ctx.tree, ctx.fonts, field);
   }
 
+  if (action_id == DG_ACTION_UNDO) {
+    return ctx.widgets.editor_undo(ctx.tree, ctx.fonts, field);
+  }
+  if (action_id == DG_ACTION_REDO || action_id == DG_ACTION_REDO_ALT) {
+    return ctx.widgets.editor_redo(ctx.tree, ctx.fonts, field);
+  }
+
   if (action_id == DG_ACTION_COPY || action_id == DG_ACTION_CUT) {
     const TextEditState* state = ctx.widgets.editor_state(field);
     const std::optional<TextSelection> selection =
@@ -26,6 +33,13 @@ bool apply_clipboard_action(dg_action_id action_id, NodeId field,
     if (!ctx.manager.set_clipboard_text(copied)) {
       return false;
     }
+    if (action_id == DG_ACTION_UNDO) {
+      return ctx.widgets.editor_undo(ctx.tree, ctx.fonts, field);
+    }
+    if (action_id == DG_ACTION_REDO || action_id == DG_ACTION_REDO_ALT) {
+      return ctx.widgets.editor_redo(ctx.tree, ctx.fonts, field);
+    }
+
     if (action_id == DG_ACTION_COPY) {
       return true;
     }

@@ -74,7 +74,7 @@
 
 | 组 | 前缀 | 数量 | 说明 |
 |---|---|---|---|
-| `node_type` | `DG_NODE_TYPE_` | 6 | `BOX`(1)、`BUTTON`(2)、`LABEL`(3)、`CHECKBOX`(4)、`TEXT_FIELD`(5)；0.2 起 `TEXT_AREA`(6)：多行编辑框，默认 320×160，文字距边框 10px，沿用 `TEXT_FIELD` 的配色和焦点边框；Enter 换行、Up/Down 保持列、Home/End 按视觉行、Ctrl+Home/End 到全文首尾、PageUp/PageDown 翻页、按住拖动选择；滚轮和自带滚动条（主题 token `color.scrollbar-*`/`size.scrollbar`）只滚动视口；Tab 仍切焦点——见第 1 节 |
+| `node_type` | `DG_NODE_TYPE_` | 6 | `BOX`(1)、`BUTTON`(2)、`LABEL`(3)、`CHECKBOX`(4)、`TEXT_FIELD`(5)；0.2 起 `TEXT_AREA`(6)：多行编辑框，默认 320×160，文字距边框 10px，和 `TEXT_FIELD` 共用一套颜色和焦点边框（都取自当前主题：底色 `color.surface`、文字 `color.on-surface`、边框 `color.border`、获得焦点时的边框和光标 `color.primary`、选中底色是半透明的 `color.primary`；切换主题或明暗后立即生效）；Enter 换行、Up/Down 保持列、Home/End 按视觉行、Ctrl+Home/End 到全文首尾、PageUp/PageDown 翻页、按住拖动选择；滚轮和自带滚动条（主题 token `color.scrollbar-*`/`size.scrollbar`）只滚动视口；Tab 仍切焦点——见第 1 节 |
 | `value_type` | `DG_VALUE_` | 6 | `FLOAT`/`LENGTH`/`COLOR`/`ENUM`/`TOKEN`/`BOOL`（`TOKEN` 是 7-6 加入的主题绑定值类型；`BOOL` 的 `bits` 只能是 0/1，否则 `DG_ERR_VALUE_OUT_OF_RANGE`，首个使用者是 `DG_PROP_DISABLED`） |
 | `event_kind` | `DG_EVENT_` | 13 | `WINDOW_CLOSED`/`CLICK`/`ACTION`/`TEXT_CHANGED`（`TEXT_FIELD`/`TEXT_AREA` 文字被用户编辑，只带 `window`/`node`，新文字用 `dg_node_get_text()` 取）；0.2 起追加窗口状态事件 `WINDOW_RESIZED`(5)、`WINDOW_MOVED`(6)、`WINDOW_MINIMIZED`(7)、`WINDOW_MAXIMIZED`(8)、`WINDOW_RESTORED`(9)、`WINDOW_FOCUS_GAINED`(10)、`WINDOW_FOCUS_LOST`(11)、`WINDOW_FULLSCREEN_ENTERED`(12)、`WINDOW_FULLSCREEN_LEFT`(13)。`RESIZED` 只在尺寸真的变了时才报；多数平台（包括 dummy 驱动）在窗口创建后会先报一次 `FOCUS_GAINED` |
 | `pixel_format` | `DG_PIXEL_FORMAT_` | 2 | 0.2：`BGRA8888`(1)、`RGBA8888`(2)，`dg_window_set_icon()` 的像素字节序 |
@@ -126,7 +126,7 @@
 |---|---|
 | `dg_node_create(app, type_id)` | 分配一个 pending 节点；`type_id` 只能是 `DG_NODE_TYPE_BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`/`TEXT_AREA` |
 | `dg_node_set_prop(node, prop_id, value)` | 标量属性写入，`dg::set_prop()` 的 ABI 映射；对 pending 或 live 节点都有效。写 `DG_PROP_DISABLED`（`DG_VALUE_BOOL`）成功后会自动取消该子树上的按压/hover（不产生 `DG_EVENT_CLICK`）、让落在其中的焦点失焦并重绘子树；禁用的 button/checkbox/text field 用主题 token `color.disabled`/`color.on-disabled` 着色。0.2：`DG_PROP_CURSOR`（`DG_VALUE_ENUM`，值为 `DG_CURSOR_*`）设置指针形状，事件泵在每次指针移动/按下/抬起后自动解析并切换光标（只在形状变化时才调用平台）；改了属性但指针没动时，要等下一次指针事件才生效。0.2：`DG_PROP_SCROLLBAR`（`DG_VALUE_ENUM`，`DG_SCROLLBAR_AUTO/ALWAYS/NEVER`）可以写入并会被校验；ABI 节点里只有 `TEXT_AREA` 自带滚动条，写在它上面决定滚动条何时显示（C++ 场景见 `doc/guide/widgets.md`「滚动条」） |
-| `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效（pending 返回 `DG_ERR_NO_WINDOW`）。0.2：对 `TEXT_FIELD`/`TEXT_AREA` 写的是**编辑框的文字模型**（光标移到末尾、清掉选区和组字，TextField 丢弃换行），不会产生 `DG_EVENT_TEXT_CHANGED` |
+| `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效（pending 返回 `DG_ERR_NO_WINDOW`）。0.2：对 `TEXT_FIELD`/`TEXT_AREA` 写的是**编辑框的文字模型**（光标移到末尾、清掉选区、组字和撤销历史，TextField 丢弃换行），不会产生 `DG_EVENT_TEXT_CHANGED` |
 | `dg_node_get_checked(node)` | 查询 live `CHECKBOX` 的勾选状态：返回 1/0，负数为 `DG_ERR_*`（非 checkbox 为 `DG_ERR_UNSUPPORTED`）；"收到 CLICK 再查询"的形状 |
 | `dg_node_get_text(node, buf, cap, out_len)` | 读取 live `TEXT_FIELD`/`TEXT_AREA` 的当前文字：两趟调用（先 `cap=0` 取 `out_len` 全长，再分配缓冲读取）；按字节截断 |
 | `dg_node_insert_before(parent, child, ref)` | 把 `child` 插到 live 的 `parent` 下、紧挨在 `ref` 之前（`ref` 为 NULL 时追加到末尾）。`ref` 必须是 `parent` 的直接子节点且不是 `child` 本身，否则 `DG_ERR_INVALID_ARGUMENT`。pending 的 `child` 变成 live；已在**同一窗口** live 的 `child` 被**移动**（身份、控件状态、句柄都保留）——keyed reconciler 靠它重排。把节点移到它自己或它的后代下面是环，返回 `DG_ERR_INVALID_ARGUMENT`；`child` 在另一个窗口里 live 时返回 `DG_ERR_ALREADY_ATTACHED` |
@@ -174,7 +174,7 @@
 |---|---|
 | `dg_debug_warp_pointer(window, x, y)` | 移动指针到指定坐标 |
 | `dg_debug_post_pointer_button(window, down, x, y)` | 注入一次指针按下/抬起 |
-| `dg_debug_post_key(window, down, logical_key_name)` | 注入一次按键；`logical_key_name` 必须是不带修饰键的裸键名（如 `"PageUp"`），带修饰键的名字（如 `"Mod+C"`）返回 `DG_ERR_INVALID_ARGUMENT` |
+| `dg_debug_post_key(window, down, logical_key_name)` | 注入一次按键；`logical_key_name` 是 `parse_chord()` 语法的组合键：裸键名（如 `"PageUp"`），0.2 起也可以带修饰键（如 `"Mod+Z"`、`"Mod+Shift+Z"`，注入的事件带对应的 Ctrl/Shift/Alt）；格式错误或未知键名返回 `DG_ERR_INVALID_ARGUMENT` |
 | `dg_debug_trigger_exception(kind)` | 无条件抛异常（1=bad_alloc，2=runtime_error，其它=int），用于测试异常边界本身 |
 | `dg_debug_capture_png(window)` | 把窗口当前帧编码为 PNG 放进线程局部缓冲并返回首字节指针（二进制，可能含 NUL）；golden 测试的取像入口 |
 | `dg_debug_capture_png_len()` | 上一次 `dg_debug_capture_png()` 返回缓冲的字节数 |
@@ -229,7 +229,7 @@ try {
 | 版本 | 内容 |
 |---|---|
 | 0.1 | 初始接口（94d53af），到 `dg_node_get_text()` 为止 |
-| 0.2 | `dg_node_insert_before()` 按位置插入/移动、`dg_node_remove()` 删除整棵子树（5f3917b）；`DG_PROP_DISABLED` + `DG_VALUE_BOOL`（e8bdea9）；禁用控件跟随主题切换（c488360）；窗口操作 `dg_window_set_title()` … `dg_window_get_state()`、`DG_EVENT_WINDOW_*` 状态事件、`DG_PIXEL_FORMAT_*`、`DG_WINDOW_STATE_*`、`dg_window_opts` 追加的 `resizable`/最小/最大尺寸字段；`DG_PROP_CURSOR`（事件泵自动切换光标）、C 侧的枚举属性值常量（`DG_CURSOR_*` 及其它 `DG_<PROP>_<VALUE>`）、`dg_debug_get_cursor()`；`DG_PROP_SCROLLBAR` + `DG_SCROLLBAR_*`，以及滚动条主题 token `DG_TOKEN_COLOR_SCROLLBAR_*`/`DG_TOKEN_SIZE_SCROLLBAR`；`DG_NODE_TYPE_TEXT_AREA`（复用 `dg_node_set_text()`/`dg_node_get_text()`/`DG_EVENT_TEXT_CHANGED`），`dg_debug_post_text_field_key()` 追加 `Up`/`Down`/`Enter`/`PageUp`/`PageDown` |
+| 0.2 | `dg_node_insert_before()` 按位置插入/移动、`dg_node_remove()` 删除整棵子树（5f3917b）；`DG_PROP_DISABLED` + `DG_VALUE_BOOL`（e8bdea9）；禁用控件跟随主题切换（c488360）；窗口操作 `dg_window_set_title()` … `dg_window_get_state()`、`DG_EVENT_WINDOW_*` 状态事件、`DG_PIXEL_FORMAT_*`、`DG_WINDOW_STATE_*`、`dg_window_opts` 追加的 `resizable`/最小/最大尺寸字段；`DG_PROP_CURSOR`（事件泵自动切换光标）、C 侧的枚举属性值常量（`DG_CURSOR_*` 及其它 `DG_<PROP>_<VALUE>`）、`dg_debug_get_cursor()`；`DG_PROP_SCROLLBAR` + `DG_SCROLLBAR_*`，以及滚动条主题 token `DG_TOKEN_COLOR_SCROLLBAR_*`/`DG_TOKEN_SIZE_SCROLLBAR`；`DG_NODE_TYPE_TEXT_AREA`（复用 `dg_node_set_text()`/`dg_node_get_text()`/`DG_EVENT_TEXT_CHANGED`），`dg_debug_post_text_field_key()` 追加 `Up`/`Down`/`Enter`/`PageUp`/`PageDown`；编辑框撤销/重做（`DG_ACTION_UNDO`/`REDO`/`REDO_ALT`，Mod+Z / Mod+Shift+Z / Mod+Y，事件泵直接作用于获得焦点的 `TEXT_FIELD`/`TEXT_AREA`）、Ctrl+Left/Right 按词移动、Ctrl+Backspace/Delete 删词、双击选词/三击选行（或全选），`dg_debug_post_key()` 可注入带修饰键的组合键 |
 
 ## 8. 相关文档
 

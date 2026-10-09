@@ -341,6 +341,26 @@ TEST_SUITE("abi text area") {
     CHECK(f.text() == replaced);
   }
 
+  TEST_CASE("Mod+Z / Mod+Shift+Z / Mod+Y undo and redo through dg_debug_post_key") {
+    AbiArea f;
+    f.click(40, 20);
+    REQUIRE(dg_debug_post_text_input(f.window, "x") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+Z") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    CHECK(f.text().empty());
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+Shift+Z") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    CHECK(f.text() == "x");
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+Z") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+Y") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    CHECK(f.text() == "x");
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+Y") == DG_ERR_OK);  // nothing left to redo
+    CHECK(f.pump() == 0);
+  }
+
   TEST_CASE("a disabled text area takes no edits") {
     AbiArea f;
     f.click(40, 20);

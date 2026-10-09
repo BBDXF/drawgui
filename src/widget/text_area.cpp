@@ -294,7 +294,11 @@ void WidgetSet::text_area_refresh_display(RenderTree& tree, const FontCatalog& f
 
 TextEditState* WidgetSet::text_area_state(NodeId id) {
   Widget* widget = find(id);
-  return (widget != nullptr && widget->kind == WidgetKind::kTextArea) ? &widget->edit : nullptr;
+  if (widget == nullptr || widget->kind != WidgetKind::kTextArea) {
+    return nullptr;
+  }
+  widget->edit.history.now = edit_now_;
+  return &widget->edit;
 }
 
 bool WidgetSet::text_area_commit(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -327,13 +331,13 @@ std::optional<TextSelection> WidgetSet::text_area_selection(NodeId id) const {
 
 bool WidgetSet::text_area_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                  std::string_view input) {
-  Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextArea) {
+  TextEditState* state = text_area_state(id);
+  if (state == nullptr) {
     return false;
   }
-  widget->edit.preferred_x.reset();
-  widget->caret_upstream = false;
-  return text_area_commit(tree, fonts, id, text_edit::insert(widget->edit, input, true));
+  state->preferred_x.reset();
+  find(id)->caret_upstream = false;
+  return text_area_commit(tree, fonts, id, text_edit::insert(*state, input, true));
 }
 
 bool WidgetSet::text_area_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
@@ -396,6 +400,10 @@ bool WidgetSet::text_area_move(RenderTree& tree, const FontCatalog& fonts, NodeI
       changed =
           text_edit::move_horizontal(edit, move == TextAreaMove::kCharLeft, extend_selection);
       break;
+    case TextAreaMove::kWordLeft:
+    case TextAreaMove::kWordRight:
+      changed = text_edit::move_word(edit, move == TextAreaMove::kWordLeft, extend_selection);
+      break;
     case TextAreaMove::kDocStart:
       changed = text_edit::set_cursor(edit, 0, extend_selection);
       break;
@@ -439,7 +447,7 @@ bool WidgetSet::text_area_move(RenderTree& tree, const FontCatalog& fonts, NodeI
 }
 
 bool WidgetSet::text_area_click(RenderTree& tree, const FontCatalog& fonts, NodeId id,
-                                PixelPoint pointer, bool extend_selection) {
+                                PixelPoint pointer, bool extend_selection, int click_count) {
   Widget* widget = find(id);
   if (widget == nullptr || widget->kind != WidgetKind::kTextArea) {
     return false;
@@ -465,7 +473,16 @@ bool WidgetSet::text_area_click(RenderTree& tree, const FontCatalog& fonts, Node
                                soft_wrapped(lines, static_cast<std::size_t>(line));
     }
   }
-  const bool moved = text_edit::set_cursor(widget->edit, offset, extend_selection);
+  bool moved = false;
+  if (click_count >= 2) {
+    const TextSelection range = click_count == 2
+                                    ? text_edit::word_range(widget->edit.text, offset)
+                                    : text_edit::line_range(widget->edit.text, offset);
+    widget->caret_upstream = false;
+    moved = text_edit::select_range(widget->edit, range.start, range.end);
+  } else {
+    moved = text_edit::set_cursor(widget->edit, offset, extend_selection);
+  }
   return text_area_commit(tree, fonts, id,
                           moved || cancelled || old_upstream != widget->caret_upstream);
 }

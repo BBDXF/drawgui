@@ -17,9 +17,14 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
+
+#include "drawgui/anim/clock.h"
 
 namespace dg {
 
@@ -27,6 +32,50 @@ namespace dg {
 struct TextSelection {
   int start = 0;
   int end = 0;
+};
+
+// What one undo step restores: the committed model, never the IME preview.
+struct TextEditSnapshot {
+  std::string text;
+  int cursor = 0;
+  std::optional<int> selection_anchor;
+};
+
+// How an edit is recorded. Consecutive kTyping (or kDeleteBackward, or
+// kDeleteForward) edits within TextEditHistory::kMergeWindowMs of each
+// other, each starting where the last one left the caret, merge into ONE
+// undo step; typing a whitespace after a non-whitespace starts a new step,
+// so "hello world" undoes as "hello" + " world". kOther (paste, cut, an IME
+// commit, a selection replace, a word delete) is always a step of its own.
+enum class TextEditKind : std::uint8_t {
+  kTyping,
+  kDeleteBackward,
+  kDeleteForward,
+  kOther,
+};
+
+// Undo/redo for one editor. Snapshots are whole-text copies (simple and
+// obviously correct; fine at the depth below for form-sized text).
+// `now` is the clock seam: the caller stamps it (WidgetSet::set_edit_time(),
+// fed by dg::steady_anim_time() in the C ABI, by a fixed AnimTime in tests)
+// before an edit, and only differences between stamps are read - no
+// function here reads a real clock.
+struct TextEditHistory {
+  static constexpr std::size_t kMaxDepth = 100;
+  static constexpr std::int64_t kMergeWindowMs = 1000;
+
+  std::vector<TextEditSnapshot> undo;
+  std::vector<TextEditSnapshot> redo;
+  AnimTime now;
+
+  // The merge bookkeeping of the last recorded edit. `merge_open` is cleared
+  // by anything that should end a typing run: a caret move, a selection
+  // change, undo/redo, a kOther edit.
+  bool merge_open = false;
+  TextEditKind last_kind = TextEditKind::kOther;
+  AnimTime last_time;
+  int last_cursor = 0;
+  bool last_was_space = false;
 };
 
 struct TextEditState {
@@ -58,6 +107,16 @@ struct TextEditState {
   // The x position vertical caret movement tries to keep across lines. Not
   // consumed by any single-line editor; nothing here sets it.
   std::optional<float> preferred_x;
+
+  TextEditHistory history;
+
+  // The most GRAPHEME CLUSTERS (user-perceived characters, not bytes) the
+  // committed text may hold; 0 means unlimited. Enforced by insert() (typing,
+  // paste, an IME commit), which truncates the inserted string at a cluster
+  // boundary to what still fits; the preview of an in-progress composition
+  // is not limited. Counted per piece, so a combining mark that would join
+  // the cluster before the caret still counts as one.
+  int max_graphemes = 0;
 };
 
 namespace text_edit {
@@ -72,12 +131,16 @@ namespace text_edit {
 // Repairs malformed UTF-8 to U+FFFD (dg::sanitize_utf8()) and drops ASCII
 // control characters (0x00-0x1F) and DEL. `allow_newline` keeps '\n' for a
 // multi-line editor; a single-line one passes false.
-[[nodiscard]] std::string sanitize_insertable(std::string_view input, bool allow_newline = false);
+[[nodiscard]] std::string sanitize_insertable(std::string_view input,
+                                              bool allow_newline = false);
 
 // Replaces text[lo:hi) (clamped, either order) with `replacement` verbatim,
 // moves the cursor to just after it and clears the selection. False only
-// when nothing would change (an empty range replaced by nothing).
-bool replace_range(TextEditState& state, int lo, int hi, std::string_view replacement);
+// when nothing would change (an empty range replaced by nothing). Every
+// text mutation in this file goes through here, which records the undo
+// step (as `kind`, see TextEditKind) and clears the redo stack.
+bool replace_range(TextEditState& state, int lo, int hi, std::string_view replacement,
+                   TextEditKind kind = TextEditKind::kOther);
 
 // A REAL commit: ends any composition preview, sanitizes `input`, and
 // replaces the selection (or inserts at the cursor). False when nothing
@@ -103,6 +166,53 @@ bool set_cursor(TextEditState& state, int offset, bool extend);
 // Selects the whole text. Suppressed while composing; false when the text is
 // empty or already fully selected.
 bool select_all(TextEditState& state);
+
+// Sets the selection to [anchor, cursor) exactly (a collapsed pair clears
+// it). Both must be grapheme boundaries. False when nothing changed.
+bool select_range(TextEditState& state, int anchor, int cursor);
+
+// --- Words and lines ---
+//
+// A render-free word segmentation over grapheme clusters, classified by the
+// cluster's first codepoint: whitespace, newline, punctuation/symbols, CJK
+// (Han, kana - a run of them is ONE word: there is no dictionary
+// segmentation), emoji (every emoji cluster is a word of its own) and
+// everything else (letters, digits, '_'). The same rules drive Ctrl+Left/
+// Right, Ctrl+Backspace/Delete and double-click selection.
+
+// The offset Ctrl+Left/Right moves to from `offset`: skip whitespace and
+// newlines, then one run of a single class.
+[[nodiscard]] int word_left(std::string_view text, int offset);
+[[nodiscard]] int word_right(std::string_view text, int offset);
+
+// The run of one class under `offset` (what a double-click selects). At the
+// end of a run that is followed by whitespace (or at the end of the text)
+// the run BEFORE the offset wins, so a click on a word's right half still
+// picks the word. Empty (start == end) on a newline or an empty text.
+[[nodiscard]] TextSelection word_range(std::string_view text, int offset);
+
+// The logical line (between '\n's, the newline itself excluded) holding
+// `offset` - what a triple-click in a multi-line editor selects.
+[[nodiscard]] TextSelection line_range(std::string_view text, int offset);
+
+// Ctrl+Left/Right. Suppressed while composing.
+bool move_word(TextEditState& state, bool left, bool extend);
+
+// Ctrl+Backspace (`backward`) / Ctrl+Delete: deletes the selection if any,
+// otherwise up to word_left()/word_right(). One undo step each. Suppressed
+// while composing.
+bool delete_word(TextEditState& state, bool backward);
+
+// --- Undo/redo ---
+
+// Restore the previous / re-apply the undone snapshot. Suppressed while
+// composing (the IME owns the keys then); false when there is nothing to
+// undo/redo.
+bool undo(TextEditState& state);
+bool redo(TextEditState& state);
+
+// Forgets every undo/redo step (a programmatic set_text).
+void clear_history(TextEditState& state);
 
 // Starts or updates the composition preview. `start_units`/`length_units`
 // are the IME's focus range in codepoints within `text`. An empty (after

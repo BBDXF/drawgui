@@ -132,12 +132,12 @@ thickness=2，即 8px）时，`fill_ring()` 直接把整个目标涂成环颜色
 画出一个反转/重叠的怪异描边（`src/widget/focus.cpp` 约 :60-66,:263-267；
 签名见 `focus.h` 的 `update_focus_ring()` 声明）。
 
-## 快捷键：8 个 action，四级路由
+## 快捷键：11 个 action，四级路由
 
 `input/shortcuts.toml` 是唯一真相源，生成 action id、`LogicalKey` 枚举、
 `ActionScope` 枚举——**运行期不可改键**，改绑定要改这个 toml 重新生成。
 
-当前定义的 8 个 action（`input/shortcuts.toml:97-168`）：
+当前定义的 11 个 action（`input/shortcuts.toml`，完整表见 `doc/reference/shortcuts.generated.md`）：
 
 | action | scope | 绑定 |
 |---|---|---|
@@ -149,6 +149,27 @@ thickness=2，即 8px）时，`fill_ring()` 直接把整个目标涂成环颜色
 | `scroll_page_down` | app | PageDown |
 | `scroll_to_start` | app | Home |
 | `scroll_to_end` | app | End |
+| `undo` | text_field | Mod+Z |
+| `redo` | text_field | Mod+Shift+Z |
+| `redo_alt` | text_field | Mod+Y |
+
+`redo` 有两个惯用组合键，而一行 action 只能有一个绑定，所以 Mod+Y 是独立的
+`redo_alt`（效果相同）。C++ 侧 `apply_clipboard_action()` 也处理这三个
+action（调 `WidgetSet::editor_undo()`/`editor_redo()`）；C ABI 则在路由之前
+直接对获得焦点的编辑框执行它们，宿主不需要 scope 或处理，改了文字照常发
+`DG_EVENT_TEXT_CHANGED`。
+
+**编辑键（不是快捷键，不进路由表）**：TextField 和 TextArea 都支持
+Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+Delete
+删除前/后一个词——`TextFieldMove`/`TextAreaMove` 的 `kWordLeft`/`kWordRight`
+和 `WidgetSet::editor_delete_word()`。词的切分见 `text_edit.h` 的
+`word_left()`/`word_right()`。
+
+**多击**：`dg::ClickCounter`（`widget/click_counter.h`）用 `AnimTime` 时钟接缝
+数连击——500ms 内、每轴 4px 内的下一次按下算连击，计数 1→2→3→1 循环；中间
+按过键就重新计数。`text_field_click()`/`text_area_click()` 的 `click_count`
+参数：2 选中指针下的词，3 在 TextField 里全选、在 TextArea 里选中所在逻辑行
+（两个 `\n` 之间）。C ABI 自动做这件事。
 
 ### 四级路由（design.md section 5.5.2，`router.h`）
 

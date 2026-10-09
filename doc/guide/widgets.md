@@ -380,6 +380,27 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - 与 kind 无关的访问器 `editor_state()`/`editor_insert()`/`editor_select_all()`/
   `editor_set_text()`/`editor_is_composing()` 同时适用于两种编辑框——剪贴板动作和快捷键路由用的就是它们。
 
+### 编辑框通用：撤销、按词操作、多击选择、长度上限
+
+以下对 `kTextField` 和 `kTextArea` 都成立，规则都在编辑内核 `text_edit.h` 里：
+
+- **撤销/重做**：`editor_undo()`/`editor_redo()`（Mod+Z、Mod+Shift+Z、Mod+Y）。
+  每次改文字前记一份 `{text, cursor, selection_anchor}` 快照，深度上限 100，有新编辑就清空重做栈。
+  连续输入（或连续 Backspace、连续 Delete）在 1 秒内、且从上次编辑留下的光标处继续时合并成一步；
+  在非空白后输入空白会开新一步，所以 "hello world" 撤销两次。光标移动、选区变化、粘贴、剪切、
+  按词删除、输入法提交都各自是独立的一步；组字预览从不记录，组字期间撤销被抑制。
+  合并用的时间来自 `WidgetSet::set_edit_time(AnimTime)`（C ABI 每次按键/输入前写入
+  `steady_anim_time()`，测试写固定值），内核不读真实时钟。`editor_set_text()` 会清空撤销历史。
+- **按词**：Ctrl+Left/Right（`kWordLeft`/`kWordRight`，加 Shift 扩展）、Ctrl+Backspace/Delete
+  （`editor_delete_word()`）。分词按字素簇的首码点分类：空白、换行、标点符号、CJK（汉字/假名，
+  连续的一串算一个词）、emoji（每个 emoji 簇单独成词）、其余（字母、数字、`_`）。
+- **多击**：`text_field_click()`/`text_area_click()` 的 `click_count`——2 选词
+  （`text_edit::word_range()`，点在词右半边也选这个词），3 在 TextField 全选、在 TextArea 选所在逻辑行。
+  连击计数用 `dg::ClickCounter`（`widget/click_counter.h`）。
+- **长度上限**：`editor_set_max_length(id, n)`，单位是**字素簇**（用户看到的字符，不是字节），0 = 不限。
+  输入、粘贴、输入法提交时把插入的串在字素边界截断到放得下的长度；`editor_set_text()` 也截断；
+  已有文字不会因为调小上限而被截掉。
+
 完整示例：`examples/26_text_area`（C ABI，`--verify-text-area`/`--dump-png`）。
 
 ### kScrollView/kList 不能获得焦点
