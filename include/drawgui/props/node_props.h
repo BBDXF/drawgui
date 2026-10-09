@@ -144,15 +144,24 @@ struct PropWrite {
 // one at all - the sentence "which door" only applies once there is a
 // working destination behind it.
 //
-// `length` carries an absolute value only. The table's third length mode - a
-// percentage of the incoming max_* constraint - has no constructor here
-// because the engine cannot resolve one, and this project does not write a
-// representation ahead of the code that would consume it. It arrives with the
-// slice that can resolve it.
+// `length` carries an absolute value; `percent` carries the table's second
+// length mode, a percentage of the parent's available content box (see
+// BoxPercents in layout/box.h for the reference and the unbounded case).
+// Both are PropType::k_length - the unit rides in the integer half of the
+// union (kLengthUnitPx = 0, kLengthUnitPercent = 1), so the type check, the
+// generator and every existing `length` caller are unchanged. At the C ABI
+// this is DG_VALUE_LENGTH with `bits` naming the unit.
 class PropValue {
  public:
   [[nodiscard]] static constexpr PropValue number(float value) {
     return PropValue{PropType::k_float, value, 0};
+  }
+  static constexpr std::uint32_t kLengthUnitPx = 0;
+  static constexpr std::uint32_t kLengthUnitPercent = 1;
+
+  // 50.0F is half. Only width/height/min_*/max_* accept it.
+  [[nodiscard]] static constexpr PropValue percent(float value) {
+    return PropValue{PropType::k_length, value, kLengthUnitPercent};
   }
   [[nodiscard]] static constexpr PropValue length(float value) {
     return PropValue{PropType::k_length, value, 0};
@@ -185,6 +194,9 @@ class PropValue {
   [[nodiscard]] constexpr float scalar() const { return scalar_; }
   [[nodiscard]] constexpr Color as_color() const { return Color::from_argb(bits_); }
   [[nodiscard]] constexpr std::uint32_t ordinal() const { return bits_; }
+  [[nodiscard]] constexpr bool is_percent() const {
+    return type_ == PropType::k_length && bits_ == kLengthUnitPercent;
+  }
 
   friend constexpr bool operator==(const PropValue&, const PropValue&) = default;
 

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -629,10 +630,45 @@ TEST_CASE("an enum value the arrangement lacks is refused separately from a bad 
                   PropValue::option(DG_DIRECTION_ROW_REVERSE), PropStatus::kUnsupported);
   expect_rejected(fixture.tree, fixture.row, DG_PROP_DIRECTION,
                   PropValue::option(DG_DIRECTION_COLUMN_REVERSE), PropStatus::kUnsupported);
-  expect_rejected(fixture.tree, fixture.row, DG_PROP_JUSTIFY,
-                  PropValue::option(DG_JUSTIFY_SPACE_AROUND), PropStatus::kUnsupported);
-  expect_rejected(fixture.tree, fixture.row, DG_PROP_JUSTIFY,
-                  PropValue::option(DG_JUSTIFY_SPACE_EVENLY), PropStatus::kUnsupported);
   expect_rejected(fixture.tree, fixture.row, DG_PROP_ALIGN,
                   PropValue::option(DG_ALIGN_BASELINE), PropStatus::kUnsupported);
+}
+
+TEST_CASE("justify space_around and space_evenly land as MainAlign values") {
+  Fixture fixture;
+  REQUIRE(dg::set_prop(fixture.tree, fixture.row, DG_PROP_JUSTIFY,
+                       PropValue::option(DG_JUSTIFY_SPACE_AROUND))
+              .ok());
+  CHECK(fixture.tree.box(fixture.row).main_align == dg::MainAlign::kSpaceAround);
+  REQUIRE(dg::set_prop(fixture.tree, fixture.row, DG_PROP_JUSTIFY,
+                       PropValue::option(DG_JUSTIFY_SPACE_EVENLY))
+              .ok());
+  CHECK(fixture.tree.box(fixture.row).main_align == dg::MainAlign::kSpaceEvenly);
+}
+
+// A percentage is a k_length value with the unit in the integer half, and one
+// unit replaces the other so BoxStyle never holds two answers for one field.
+TEST_CASE("a percentage length lands, replaces the pixel value, and is replaced by one") {
+  Fixture fixture;
+  const NodeId node = fixture.row_child;
+  REQUIRE(dg::set_prop(fixture.tree, node, DG_PROP_WIDTH, PropValue::length(40)).ok());
+  REQUIRE(dg::set_prop(fixture.tree, node, DG_PROP_WIDTH, PropValue::percent(50)).ok());
+  CHECK_FALSE(fixture.tree.box(node).width.has_value());
+  CHECK(fixture.tree.box(node).percent.width == std::optional<float>{50.0F});
+
+  REQUIRE(dg::set_prop(fixture.tree, node, DG_PROP_MAX_HEIGHT, PropValue::percent(10)).ok());
+  CHECK(fixture.tree.box(node).max_height == dg::kUnbounded);
+  CHECK(fixture.tree.box(node).percent.max_height == std::optional<float>{10.0F});
+
+  REQUIRE(dg::set_prop(fixture.tree, node, DG_PROP_WIDTH, PropValue::length(40)).ok());
+  CHECK(fixture.tree.box(node).width == std::optional<int>{40});
+  CHECK_FALSE(fixture.tree.box(node).percent.width.has_value());
+
+  expect_rejected(fixture.tree, node, DG_PROP_MIN_WIDTH, PropValue::percent(-1),
+                  PropStatus::kValueOutOfRange);
+  expect_rejected(fixture.tree, node, DG_PROP_MIN_WIDTH, PropValue::percent(1001),
+                  PropStatus::kValueOutOfRange);
+  // Only the six size properties take a length at all; gap is a float.
+  expect_rejected(fixture.tree, fixture.row, DG_PROP_GAP, PropValue::percent(10),
+                  PropStatus::kTypeMismatch);
 }

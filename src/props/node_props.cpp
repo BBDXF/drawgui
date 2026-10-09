@@ -298,23 +298,66 @@ struct Target {
 // and the table cannot diverge without the compiler saying so.
 // --------------------------------------------------------------------------
 
+// The largest percentage accepted: ten times the reference. Beyond that a
+// value is far more likely a caller's arithmetic bug than a design intent, and
+// resolution saturates at 2^24 regardless.
+constexpr float kMaxPercent = 1000.0F;
+
+// A length write that may carry either unit. A pixel write clears the
+// percentage for the same field and a percentage write resets the pixel field
+// to its default, so BoxStyle never holds two competing answers for one field.
+template <typename Pixels>
+[[nodiscard]] PropWrite box_length(Target& target, const PropValue& value, Pixels BoxStyle::*member,
+                                   std::optional<float> BoxPercents::*percent_member,
+                                   Pixels unset, const std::string& what) {
+  if (value.ordinal() > PropValue::kLengthUnitPercent) {
+    return out_of_range(target, what + " has an unknown length unit " +
+                                    std::to_string(value.ordinal()));
+  }
+  if (value.is_percent()) {
+    const float percent = value.scalar();
+    if (!std::isfinite(percent) || percent < 0.0F || percent > kMaxPercent) {
+      return out_of_range(target, what + " needs a finite percentage within 0..1000");
+    }
+    target.box.*member = unset;
+    target.box.percent.*percent_member = percent;
+    target.box_changed = true;
+    return PropWrite{};
+  }
+  const std::optional<int> pixels = to_pixels(value.scalar(), false);
+  if (!pixels.has_value()) {
+    return out_of_range(target,
+                        what + " needs a finite, non-negative length within +/-16777216");
+  }
+  target.box.*member = Pixels{*pixels};
+  target.box.percent.*percent_member = std::nullopt;
+  target.box_changed = true;
+  return PropWrite{};
+}
+
 PropWrite apply_width(Target& target, const PropValue& value) {
-  return box_optional(target, value, &BoxStyle::width, "width", false);
+  return box_length(target, value, &BoxStyle::width, &BoxPercents::width,
+                    std::optional<int>{}, "width");
 }
 PropWrite apply_height(Target& target, const PropValue& value) {
-  return box_optional(target, value, &BoxStyle::height, "height", false);
+  return box_length(target, value, &BoxStyle::height, &BoxPercents::height,
+                    std::optional<int>{}, "height");
 }
 PropWrite apply_min_width(Target& target, const PropValue& value) {
-  return box_scalar(target, value, &BoxStyle::min_width, "min_width", false);
+  return box_length(target, value, &BoxStyle::min_width, &BoxPercents::min_width, 0,
+                    "min_width");
 }
 PropWrite apply_max_width(Target& target, const PropValue& value) {
-  return box_scalar(target, value, &BoxStyle::max_width, "max_width", false);
+  return box_length(target, value, &BoxStyle::max_width, &BoxPercents::max_width, kUnbounded,
+                    "max_width");
 }
 PropWrite apply_min_height(Target& target, const PropValue& value) {
-  return box_scalar(target, value, &BoxStyle::min_height, "min_height", false);
+  return box_length(target, value, &BoxStyle::min_height, &BoxPercents::min_height, 0,
+                    "min_height");
 }
 PropWrite apply_max_height(Target& target, const PropValue& value) {
-  return box_scalar(target, value, &BoxStyle::max_height, "max_height", false);
+  return box_length(target, value, &BoxStyle::max_height, &BoxPercents::max_height,
+                    kUnbounded, "max_height");
 }
 
 // A RATIO, so neither a length nor a fraction: zero and negative values have
@@ -552,10 +595,11 @@ PropWrite apply_justify(Target& target, const PropValue& value) {
       target.box.main_align = MainAlign::kSpaceBetween;
       break;
     case DG_JUSTIFY_SPACE_AROUND:
+      target.box.main_align = MainAlign::kSpaceAround;
+      break;
     case DG_JUSTIFY_SPACE_EVENLY:
-      return unsupported(target, "justify=space_around / space_evenly",
-                         "MainAlign has four enumerators; both of these also distribute "
-                         "space before the first child, which place_flex_children does not");
+      target.box.main_align = MainAlign::kSpaceEvenly;
+      break;
     default:
       return out_of_range(
           target, "justify has no value with ordinal " + std::to_string(value.ordinal()));

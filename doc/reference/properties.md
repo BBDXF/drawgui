@@ -39,7 +39,8 @@ id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 
 | 工厂函数 | 对应 `PropType` | 说明 |
 |---|---|---|
 | `PropValue::number(float)` | `k_float` | 普通浮点数 |
-| `PropValue::length(float)` | `k_length` | 绝对长度；toml 描述的百分比模式（相对 `max_*` 约束）**没有构造函数**——布局侧尚不能解析它，未到实现它的阶段 |
+| `PropValue::length(float)` | `k_length` | 绝对长度（逻辑像素，四舍五入到整数设备像素） |
+| `PropValue::percent(float)` | `k_length` | 百分比（50 = 50%，范围 0..1000），仅 `width`/`height`/`min_*`/`max_*` 接受。单位放在标量联合体的整数半边：`bits == 0` 像素、`bits == 1` 百分比，其他值返回 `kValueOutOfRange`。参照物是父节点该轴的可用内容盒，参照无界时按未设置处理（见 `doc/guide/layout.md`）。C ABI 对应形状：`DG_VALUE_LENGTH` + `bits` 作单位（ABI 侧映射由后续工作接入） |
 | `PropValue::color(Color)` | `k_color` | 0xAARRGGBB，边界处非预乘 |
 | `PropValue::option(uint32_t ordinal)` | `k_enum` | 属性 `values` 列表的下标；顺序本身是 ABI 契约（生成的 `DG_<PROP>_<VALUE>` 常量就是这个序号） |
 | `PropValue::boolean(bool)` | `k_bool` | 0/1，放在整数半边；C ABI 为 `DG_VALUE_BOOL`，`bits` 不是 0/1 时返回 `kValueOutOfRange`（`PropValue::boolean_bits()` 用于原样转交 ABI 传入的位） |
@@ -101,12 +102,12 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
-| 1 | `width` | length | 完整 | 边框盒宽度；缺省即收缩到内容尺寸 |
-| 2 | `height` | length | 完整 | 边框盒高度；缺省即收缩到内容尺寸 |
-| 3 | `min_width` | length | 完整 | 尺寸源解出结果后应用的下限 |
-| 4 | `max_width` | length | 完整 | 尺寸源解出结果后应用的上限 |
-| 5 | `min_height` | length | 完整 | 同上，高度方向 |
-| 6 | `max_height` | length | 完整 | 同上，高度方向 |
+| 1 | `width` | length | 完整 | 边框盒宽度；缺省即收缩到内容尺寸；可为百分比 |
+| 2 | `height` | length | 完整 | 边框盒高度；缺省即收缩到内容尺寸；可为百分比 |
+| 3 | `min_width` | length | 完整 | 尺寸源解出结果后应用的下限；可为百分比 |
+| 4 | `max_width` | length | 完整 | 尺寸源解出结果后应用的上限；可为百分比 |
+| 5 | `min_height` | length | 完整 | 同上，高度方向；可为百分比 |
+| 6 | `max_height` | length | 完整 | 同上，高度方向；可为百分比 |
 | 7 | `aspect_ratio` | float | 完整 | width/height；从一个维度推出另一个 |
 | 8-11 | `padding_l/t/r/b` | float | 完整 | 缩小传给子节点的约束 |
 | 12-15 | `margin_l/t/r/b` | float | **部分** | 见下 |
@@ -140,7 +141,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
 | 31 | `direction` | enum(`row`/`column`/`row_reverse`/`column_reverse`) | **部分** | `row_reverse`/`column_reverse` 返回 `kUnsupported`：`size_flex_children` 按固定顺序遍历子节点，反转顺序会改变谁吸收整数除法的余数 |
-| 32 | `justify` | enum(6 值) | **部分** | `space_around`/`space_evenly` 返回 `kUnsupported`：`MainAlign` 只有 4 个枚举值，且两者都需要在第一个子节点之前预留空间，`place_flex_children` 不支持。内部字段是 `main_align`，见 5.1 |
+| 32 | `justify` | enum(6 值) | 完整 | 6 个值全部实现；`space_around`/`space_evenly` 用累计份额整数分配。内部字段是 `main_align`，见 5.1 |
 | 33 | `align` | enum(5 值) | **部分** | `baseline` 返回 `kUnsupported`：需要子节点排布前先知道其基线，属于故意缺失的内在尺寸测量。`wrap` 容器下 `stretch` 会退化。内部字段是 `cross_align`，见 5.1 |
 | 34 | `gap` | float | 完整 | 主轴上相邻子节点间距，叠加在 margin 之上 |
 | 35 | `main_size` | enum(`min`/`max`) | 完整 | 容器是收缩贴合内容还是撑满主轴 |

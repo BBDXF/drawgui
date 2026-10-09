@@ -79,9 +79,15 @@ PropValue AnimationEngine::interpolated_value(const AnimSlot& slot) {
     case PropType::k_float:
       return PropValue::number(slot.from.scalar() +
                                ((slot.to.scalar() - slot.from.scalar()) * eased));
-    case PropType::k_length:
-      return PropValue::length(slot.from.scalar() +
-                               ((slot.to.scalar() - slot.from.scalar()) * eased));
+    case PropType::k_length: {
+      // Pixels and percentages share no scale, so a mixed pair jumps.
+      if (slot.from.is_percent() != slot.to.is_percent()) {
+        return slot.to;
+      }
+      const float scalar =
+          slot.from.scalar() + ((slot.to.scalar() - slot.from.scalar()) * eased);
+      return slot.to.is_percent() ? PropValue::percent(scalar) : PropValue::length(scalar);
+    }
     case PropType::k_color:
       return PropValue::color(lerp_color(slot.from.as_color(), slot.to.as_color(), eased));
     case PropType::k_enum:
@@ -129,6 +135,9 @@ std::optional<PropValue> AnimationEngine::read_current(const LayoutTree& tree, N
       return PropValue::number(static_cast<float>(*value));
     }
     case DG_PROP_WIDTH: {
+      if (tree.box(node).percent.width.has_value()) {
+        return PropValue::percent(*tree.box(node).percent.width);
+      }
       const std::optional<int> value = tree.box(node).width;
       if (!value.has_value()) {
         return std::nullopt;
@@ -136,6 +145,9 @@ std::optional<PropValue> AnimationEngine::read_current(const LayoutTree& tree, N
       return PropValue::length(static_cast<float>(*value));
     }
     case DG_PROP_HEIGHT: {
+      if (tree.box(node).percent.height.has_value()) {
+        return PropValue::percent(*tree.box(node).percent.height);
+      }
       const std::optional<int> value = tree.box(node).height;
       if (!value.has_value()) {
         return std::nullopt;

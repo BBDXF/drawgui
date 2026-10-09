@@ -25,9 +25,12 @@
 #   type              required. One of:
 #                       float     - plain logical-pixel / unitless scalar
 #                       length    - float that may also be a percentage of
-#                                   the incoming max_* constraint; a
-#                                   percentage under an unbounded
-#                                   constraint is an error (section 5.4.5)
+#                                   the parent's available content box
+#                                   (PropValue::percent, unit in the
+#                                   integer half); a percentage under an
+#                                   unbounded reference resolves as unset
+#                                   (deviation from section 5.4.5, see
+#                                   doc/guide/layout.md)
 #                       color     - 0xAARRGGBB, unpremultiplied at the
 #                                   boundary (section 5.11.3)
 #                       enum      - one of `values`, below

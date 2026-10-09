@@ -23,6 +23,12 @@ namespace dg {
 
 struct LayoutNode {
   BoxStyle box;
+
+  // `box` with its percentages resolved against `percent_base`; identical to
+  // `box` when it carries none. Everything in box_layout.cpp reads this.
+  BoxStyle used;
+  PixelSize percent_base{kUnbounded, kUnbounded};
+  PixelSize cached_percent_base{kUnbounded, kUnbounded};
   std::uint32_t parent = 0;
   std::vector<std::uint32_t> children;
 
@@ -175,6 +181,8 @@ struct SizeLimits {
   [[nodiscard]] bool tight_height() const { return low_height == high_height; }
 };
 
+[[nodiscard]] BoxStyle resolve_percents(const BoxStyle& box, PixelSize base);
+
 [[nodiscard]] SizeLimits limits_for(const BoxStyle& box, const BoxConstraints& constraints);
 
 // The largest extent an aspect ratio may derive. Same bound the property
@@ -236,6 +244,8 @@ struct LayoutTree::Impl {
   // Returns the node's border-box size. Recursive, once per node per pass -
   // there is no speculative second call, which is what makes the pass O(n).
   PixelSize layout_node(std::uint32_t index, const BoxConstraints& constraints);
+
+  void set_percent_base(std::uint32_t index, PixelSize base);
 
   // Dispatches on LayoutKind and writes every child's local rectangle. Split
   // out so that layout_node() is only about the cache and the boundary.

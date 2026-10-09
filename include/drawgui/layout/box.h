@@ -207,6 +207,17 @@ enum class MainAlign : std::uint8_t {
   kCenter,
   kEnd,
   kSpaceBetween,
+
+  // Both also place space OUTSIDE the first and last child, so they are
+  // positional rather than per-gap: the space before child `i` of `n` is a
+  // cumulative share of the leftover, exactly as AlignContent::kSpaceAround
+  // computes it for runs. Around: half a share at each end and a full share
+  // between neighbours, so child i is preceded by (2i + 1) / 2n of it.
+  // Evenly: n + 1 equal shares, child i preceded by (i + 1) / (n + 1).
+  // Cumulative integer shares make every gap exact and deterministic - the
+  // truncation remainder lands on the later gaps, never lost.
+  kSpaceAround,
+  kSpaceEvenly,
 };
 
 // What a child does with the cross axis it was not given.
@@ -293,6 +304,44 @@ enum class AlignContent : std::uint8_t {
 
   kSpaceBetween,
   kSpaceAround,
+};
+
+// Percentages for the six size fields, each overriding its pixel
+// counterpart in BoxStyle when present. In percent units: 50.0F is half.
+//
+// The reference is the parent's AVAILABLE content box on that axis - the
+// maximum extent the parent offers its children before their margins come
+// off (for a tight parent, exactly its content box). The parent resolves a
+// child's percentages before it touches that child, because a flex parent
+// reads a child's width as its declared base before laying it out; so a
+// percentage is never a second measurement (invariant L3). Resolution is
+// floor(reference * percent / 100) in integer device pixels, a pure function
+// of two inputs, so an incremental and a full pass agree to the pixel.
+//
+// Under an UNBOUNDED reference (a scroll viewport's scrolled axis, a root
+// without a viewport) there is nothing to take a percentage of, and the
+// percentage resolves as if unset: width/height as auto, min as 0, max as
+// unbounded. design.md section 5.4.5 called that case an error; it is a
+// silent auto here because a scrolling list of 100%-wide rows is the common
+// case and its vertical percentages have no other sensible reading.
+//
+// Separate optional fields rather than turning `width` into a Length type:
+// every existing reader of BoxStyle keeps reading integers, and a tree that
+// sets no percentage is laid out by exactly the code it was before.
+struct BoxPercents {
+  std::optional<float> width;
+  std::optional<float> height;
+  std::optional<float> min_width;
+  std::optional<float> max_width;
+  std::optional<float> min_height;
+  std::optional<float> max_height;
+
+  [[nodiscard]] bool any() const {
+    return width.has_value() || height.has_value() || min_width.has_value() ||
+           max_width.has_value() || min_height.has_value() || max_height.has_value();
+  }
+
+  friend bool operator==(const BoxPercents&, const BoxPercents&) = default;
 };
 
 // Everything about a node that layout reads.
@@ -431,6 +480,10 @@ struct BoxStyle {
   std::optional<int> top;
   std::optional<int> right;
   std::optional<int> bottom;
+
+  // See BoxPercents. Each present member overrides the pixel field of the
+  // same name for layout.
+  BoxPercents percent;
 
   friend bool operator==(const BoxStyle&, const BoxStyle&) = default;
 };

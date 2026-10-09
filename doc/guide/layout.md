@@ -80,6 +80,31 @@ wrap.align_content = AlignContent::kSpaceBetween;  // 多行整体在跨轴上�
 
 `run_gap` 只对多行/多列生效——单行容器没有第二行可分隔。`align_content` 决定「行」这个整体怎么摆放，和决定单个子节点在自己所在行里怎么对齐的 `cross_align`是两码事。
 
+### 主轴留白：space_around / space_evenly
+
+```cpp
+row.main_align = MainAlign::kSpaceAround;   // 两端各半份、子节点之间整份
+row.main_align = MainAlign::kSpaceEvenly;   // n 个子节点切成 n+1 份等距
+```
+
+属性层对应 `justify = space_around / space_evenly`。两者和 `align_content` 的 `space_around` 用同一种「累计份额」整数算术：第 i 个子节点前面的留白是 `floor(leftover * k / d)`，相邻两个子节点按差值推进，所以总和恰好等于 leftover，截断余数稳定地落在靠后的间隙里（101 宽、3 个 20 宽子节点、`kSpaceAround` → x = 6, 40, 74）。只有一个子节点时两者都退化为居中。wrap 容器里按每一 run 分别计算。
+
+### 百分比尺寸
+
+```cpp
+BoxStyle half;
+half.percent.width = 50.0F;       // 50 表示 50%
+half.percent.max_height = 25.0F;
+// 属性层：set_prop(tree, node, DG_PROP_WIDTH, PropValue::percent(50));
+```
+
+- 只有 `width`/`height`/`min_*`/`max_*` 六项支持百分比；`padding`/`margin`/`gap` 不支持（它们在 toml 里是 `float` 而不是 `length`，并且 padding 的百分比在 CSS 里相对的是宽度这种跨轴语义，不值得引入）。
+- **参照物是父节点在该轴上「可用的内容盒」**：父节点给子节点的最大范围（扣掉父的 border+padding，但还没扣子节点自己的 margin）。父节点尺寸被定死时，这正好就是它的内容盒；父节点是「收缩到内容」时，参照的是它允许的最大值。
+- 解析是 `floor(参照 * 百分比 / 100)`，整数设备像素，同样的两个输入永远得到同一个像素，增量布局和全量布局逐字节一致。
+- **参照轴无界时（比如滚动视口的滚动轴）百分比按「未设置」处理**：width/height 变 auto，min 变 0，max 变无上限，不报诊断。design.md 5.4.5 原本把这种情况定为错误；这里改为 auto，因为「滚动列表里宽 100% 的行」是最常见的用法，而它竖直方向的百分比没有别的合理含义。
+- 同一个字段的像素值和百分比互斥：写百分比会把像素字段恢复为默认值，写像素会清掉百分比；直接改 `BoxStyle` 时如果两者都填了，以百分比为准。
+- 父节点在解析子节点百分比之后才读子节点的尺寸（flex 的声明 basis 就读 `width`），所以百分比从不导致二次测量；父节点 resize 或改 padding 时，子节点会因为参照变化而重新布局（参照值是缓存键的一部分，但只对带百分比的节点生效，不带百分比的树访问的节点集合和以前完全相同）。
+
 ### 让内容滚动
 
 ```cpp
@@ -115,7 +140,8 @@ group_style.opacity = 0.5F;   // 整个子树作为一张图片淡出，不是�
 
 - **没有 intrinsic sizing**：容器不会「收缩到内容大小」，除非你自己测量。详见 `doc/limitations.md`。
 - **`grow`/`shrink` 只是整数权重/仅对声明的 basis 生效**：见上文，没有隐式的「按测量尺寸自动收缩」。
-- **`main_align`/`cross_align` 覆盖不全**：`MainAlign` 有 `kStart`/`kCenter`/`kEnd`/`kSpaceBetween`，**缺 `space_around`/`space_evenly`**；`CrossAlign`/`align_self` 有 `kStart`/`kCenter`/`kEnd`/`kStretch`，**缺 baseline 对齐**；容器方向通过 `LayoutKind`（`kRow`/`kColumn` 等）固定，**没有 reverse 变体**（`row-reverse` 之类不存在）。
+- **`main_align`/`cross_align` 覆盖不全**：`MainAlign` 有 `kStart`/`kCenter`/`kEnd`/`kSpaceBetween`/`kSpaceAround`/`kSpaceEvenly`；`CrossAlign`/`align_self` 有 `kStart`/`kCenter`/`kEnd`/`kStretch`，**缺 baseline 对齐**；容器方向通过 `LayoutKind`（`kRow`/`kColumn` 等）固定，**没有 reverse 变体**（`row-reverse` 之类不存在）。
+- **百分比只有六个尺寸字段**，参照轴无界时退化为 auto，见上文。
 - **滚动偏移不触发重排**：这是设计，不是 bug；但也意味着「滚动到某处后容器尺寸变了」不会自动重新计算——你需要在下一次真正的属性变更时才会重排。
 
 以上边界完整版见 `doc/limitations.md` 对应条目。

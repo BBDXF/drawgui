@@ -354,8 +354,32 @@ MainSpread main_spread(MainAlign align, int leftover, int gap_count) {
     case MainAlign::kSpaceBetween:
       out.spread = gap_count > 0 ? leftover : 0;
       break;
+    case MainAlign::kSpaceAround:
+    case MainAlign::kSpaceEvenly:
+      // Positional; see main_lead().
+      break;
   }
   return out;
+}
+
+// Main-axis space before child `slot` of `count`, cumulatively, for the two
+// values that also place space outside the first and last child. The same
+// cumulative form as run_lead(), and for the same reason: advancing by the
+// difference of two of these keeps every gap exact, and the truncation
+// remainder lands on the later gaps deterministically.
+int main_lead(MainAlign align, int leftover, int slot, int count) {
+  switch (align) {
+    case MainAlign::kSpaceAround:
+      return share_upto(leftover, (2 * slot) + 1, 2 * count);
+    case MainAlign::kSpaceEvenly:
+      return share_upto(leftover, slot + 1, count + 1);
+    case MainAlign::kStart:
+    case MainAlign::kCenter:
+    case MainAlign::kEnd:
+    case MainAlign::kSpaceBetween:
+      break;
+  }
+  return 0;
 }
 
 int cross_offset(CrossAlign align, int slack) {
@@ -410,6 +434,51 @@ EdgeInsets content_insets(const BoxStyle& box) {
   return box.border + box.padding;
 }
 
+namespace {
+
+// floor(base * percent / 100), saturating at the same 2^24 every other extent
+// in this engine is held under. Double arithmetic on a bounded int and a
+// finite float, so the same two inputs always produce the same pixel.
+int percent_of(int base, float percent) {
+  const double raw = static_cast<double>(base) * static_cast<double>(percent) / 100.0;
+  if (!(raw > 0.0)) {
+    return 0;
+  }
+  if (raw >= static_cast<double>(kMaxAspectExtent)) {
+    return kMaxAspectExtent;
+  }
+  return static_cast<int>(std::floor(raw));
+}
+
+}  // namespace
+
+BoxStyle resolve_percents(const BoxStyle& box, PixelSize base) {
+  BoxStyle used = box;
+  const BoxPercents& pct = box.percent;
+  const bool has_w = is_bounded(base.width);
+  const bool has_h = is_bounded(base.height);
+  if (pct.width.has_value()) {
+    used.width = has_w ? std::optional<int>{percent_of(base.width, *pct.width)} : std::nullopt;
+  }
+  if (pct.height.has_value()) {
+    used.height =
+        has_h ? std::optional<int>{percent_of(base.height, *pct.height)} : std::nullopt;
+  }
+  if (pct.min_width.has_value()) {
+    used.min_width = has_w ? percent_of(base.width, *pct.min_width) : 0;
+  }
+  if (pct.max_width.has_value()) {
+    used.max_width = has_w ? percent_of(base.width, *pct.max_width) : kUnbounded;
+  }
+  if (pct.min_height.has_value()) {
+    used.min_height = has_h ? percent_of(base.height, *pct.min_height) : 0;
+  }
+  if (pct.max_height.has_value()) {
+    used.max_height = has_h ? percent_of(base.height, *pct.max_height) : kUnbounded;
+  }
+  return used;
+}
+
 SizeLimits limits_for(const BoxStyle& box, const BoxConstraints& constraints) {
   const auto merge = [](int constraint_low, int constraint_high, int style_low, int style_high,
                         const std::optional<int>& definite, int& low, int& high) {
@@ -441,7 +510,7 @@ SizeLimits limits_for(const BoxStyle& box, const BoxConstraints& constraints) {
 }
 
 PixelSize LayoutTree::Impl::measure(std::uint32_t index, const BoxConstraints& constraints) {
-  const BoxStyle& box = nodes[index].box;
+  const BoxStyle& box = nodes[index].used;
   const SizeLimits limits = limits_for(box, constraints);
   const EdgeInsets insets = content_insets(box);
 
@@ -516,7 +585,7 @@ PixelSize LayoutTree::Impl::measure(std::uint32_t index, const BoxConstraints& c
 
 PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& limits,
                                          const BoxConstraints& inner) {
-  const BoxStyle& box = nodes[index].box;
+  const BoxStyle& box = nodes[index].used;
   const EdgeInsets insets = content_insets(box);
   const std::vector<std::uint32_t>& children = nodes[index].children;
 
@@ -561,7 +630,8 @@ PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& 
   // exactly the rectangle RenderTree::set_scroll_offset moves within.
   PixelSize content;
   for (const std::uint32_t child : children) {
-    const EdgeInsets margin = nodes[child].box.margin;
+    set_percent_base(child, PixelSize{child_bound.max_width, child_bound.max_height});
+    const EdgeInsets margin = nodes[child].used.margin;
     const PixelSize size = layout_node(child, child_bound.loosened().deflate(margin));
     nodes[child].local =
         PixelRect{insets.left + margin.left, insets.top + margin.top, size.width, size.height};
@@ -574,14 +644,14 @@ PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& 
 CrossAlign LayoutTree::Impl::cross_align_of(std::uint32_t container,
                                             std::uint32_t child) const {
   const CrossAlign wanted =
-      nodes[child].box.align_self.value_or(nodes[container].box.cross_align);
+      nodes[child].used.align_self.value_or(nodes[container].used.cross_align);
 
   // The one place the degradation lives, so that the sizing pass and the
   // placing pass cannot disagree about whether a child was stretched. See
   // CrossAlign::kStretch in box.h: a run's extent is not known until the run
   // closes, so honouring it would mean a second layout of every child in the
   // run. size_wrap_children() reports it against the node it happened at.
-  return wraps_children(nodes[container].box.kind) && wanted == CrossAlign::kStretch
+  return wraps_children(nodes[container].used.kind) && wanted == CrossAlign::kStretch
              ? CrossAlign::kStart
              : wanted;
 }
@@ -617,7 +687,7 @@ void LayoutTree::Impl::classify_child(FlexItem& item, const BoxStyle& child_box,
 int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& room,
                                          const Axis& axis) {
   const std::vector<std::uint32_t>& children = nodes[index].children;
-  const int gap = nodes[index].box.gap;
+  const int gap = nodes[index].used.gap;
   const int gaps = children.empty() ? 0 : gap * static_cast<int>(children.size() - 1);
 
   // Zero rather than summed when the main axis is unbounded: `grow`
@@ -628,9 +698,12 @@ int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& ro
   // scroll-viewport's non-grow children (the common case: a plain list) are
   // measured exactly as they would be under any other bounded axis.
   const bool main_bounded = is_bounded(room.main);
+  const PixelSize percent_base =
+      axis.horizontal ? PixelSize{room.main, room.cross} : PixelSize{room.cross, room.main};
   int total_grow = 0;
   for (const std::uint32_t child : children) {
-    total_grow += main_bounded ? std::max(0, nodes[child].box.grow) : 0;
+    set_percent_base(child, percent_base);
+    total_grow += main_bounded ? std::max(0, nodes[child].used.grow) : 0;
   }
 
   // Per child rather than per container, which is what align_self buys: a
@@ -654,7 +727,7 @@ int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& ro
   int grow_base_total = 0;
 
   for (const std::uint32_t child : children) {
-    const BoxStyle& child_box = nodes[child].box;
+    const BoxStyle& child_box = nodes[child].used;
     const EdgeInsets margin = child_box.margin;
 
     FlexItem item;
@@ -705,8 +778,8 @@ int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& ro
 
 void LayoutTree::Impl::place_flex_children(std::uint32_t index, PixelSize size, int used,
                                            const Axis& axis) {
-  const EdgeInsets insets = content_insets(nodes[index].box);
-  const int gap = nodes[index].box.gap;
+  const EdgeInsets insets = content_insets(nodes[index].used);
+  const int gap = nodes[index].used.gap;
   const std::vector<std::uint32_t>& children = nodes[index].children;
 
   const int inner_main = std::max(0, axis.main_of(size) - axis.main_total(insets));
@@ -714,13 +787,19 @@ void LayoutTree::Impl::place_flex_children(std::uint32_t index, PixelSize size, 
   const int leftover = std::max(0, inner_main - used);
   const int gap_count = children.size() >= 2 ? static_cast<int>(children.size() - 1) : 0;
 
-  const MainSpread spread = main_spread(nodes[index].box.main_align, leftover, gap_count);
+  const MainSpread spread = main_spread(nodes[index].used.main_align, leftover, gap_count);
   int cursor = spread.cursor;
 
+  const MainAlign main_align = nodes[index].used.main_align;
+  const auto child_count = static_cast<int>(children.size());
   int spread_given = 0;
+  int lead_given = 0;
   int slot = 0;
   for (const std::uint32_t child : children) {
-    const EdgeInsets margin = nodes[child].box.margin;
+    const int lead = main_lead(main_align, leftover, slot, child_count);
+    cursor += lead - lead_given;
+    lead_given = lead;
+    const EdgeInsets margin = nodes[child].used.margin;
     const PixelSize child_size = nodes[child].size;
     const int room = std::max(0, inner_cross - axis.cross_total(margin));
     const int slack = std::max(0, room - axis.cross_of(child_size));
@@ -742,7 +821,7 @@ void LayoutTree::Impl::place_flex_children(std::uint32_t index, PixelSize size, 
 
 PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& limits,
                                          const BoxConstraints& inner, const Axis& axis) {
-  const EdgeInsets insets = content_insets(nodes[index].box);
+  const EdgeInsets insets = content_insets(nodes[index].used);
   const std::vector<std::uint32_t>& children = nodes[index].children;
 
   FlexRoom room;
@@ -758,11 +837,11 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
   // 5.4.7's diagnostic - "grow cannot allocate an infinite amount of space" -
   // finally has a caller.
   room.stretching =
-      nodes[index].box.cross_align == CrossAlign::kStretch && is_bounded(room.cross);
+      nodes[index].used.cross_align == CrossAlign::kStretch && is_bounded(room.cross);
   if (!is_bounded(room.main)) {
     bool any_grow = false;
     for (const std::uint32_t child : children) {
-      any_grow = any_grow || nodes[child].box.grow > 0;
+      any_grow = any_grow || nodes[child].used.grow > 0;
     }
     if (any_grow) {
       report(index,
@@ -778,7 +857,7 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
   int content_cross = 0;
   for (const std::uint32_t child : children) {
     content_cross = std::max(content_cross, axis.cross_of(nodes[child].size) +
-                                                axis.cross_total(nodes[child].box.margin));
+                                                axis.cross_total(nodes[child].used.margin));
   }
   if (room.stretching) {
     content_cross = room.cross;
@@ -799,7 +878,7 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
 
   const PixelSize content =
       axis.horizontal ? PixelSize{used, content_cross} : PixelSize{content_cross, used};
-  const PixelSize size = resolved_size(nodes[index].box, limits, insets, content);
+  const PixelSize size = resolved_size(nodes[index].used, limits, insets, content);
   place_flex_children(index, size, used, axis);
   return size;
 }
@@ -807,9 +886,9 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
 WrapLayout LayoutTree::Impl::size_wrap_children(std::uint32_t index, const FlexRoom& room,
                                                 const Axis& axis) {
   const std::vector<std::uint32_t>& children = nodes[index].children;
-  const int gap = nodes[index].box.gap;
-  const int run_gap = nodes[index].box.run_gap;
-  const CrossAlign container_align = nodes[index].box.cross_align;
+  const int gap = nodes[index].used.gap;
+  const int run_gap = nodes[index].used.run_gap;
+  const CrossAlign container_align = nodes[index].used.cross_align;
 
   WrapLayout wrapped;
   wrapped.child_main.reserve(children.size());
@@ -819,15 +898,18 @@ WrapLayout LayoutTree::Impl::size_wrap_children(std::uint32_t index, const FlexR
   bool any_stretch = false;
   bool any_flex_base = false;
 
+  const PixelSize percent_base =
+      axis.horizontal ? PixelSize{room.main, room.cross} : PixelSize{room.cross, room.main};
   Run run;
   for (std::size_t slot = 0; slot < children.size(); ++slot) {
     const std::uint32_t child = children[slot];
-    const EdgeInsets margin = nodes[child].box.margin;
-    any_grow = any_grow || nodes[child].box.grow > 0;
+    set_percent_base(child, percent_base);
+    const EdgeInsets margin = nodes[child].used.margin;
+    any_grow = any_grow || nodes[child].used.grow > 0;
     any_flex_base =
-        any_flex_base || nodes[child].box.basis.has_value() || nodes[child].box.shrink > 0;
+        any_flex_base || nodes[child].used.basis.has_value() || nodes[child].used.shrink > 0;
     any_stretch = any_stretch ||
-                  nodes[child].box.align_self.value_or(container_align) == CrossAlign::kStretch;
+                  nodes[child].used.align_self.value_or(container_align) == CrossAlign::kStretch;
 
     // LOOSE on both axes, which is the whole reason one pass is enough. A
     // child measured against the room the container offers has a size that
@@ -893,11 +975,11 @@ WrapLayout LayoutTree::Impl::size_wrap_children(std::uint32_t index, const FlexR
 
 void LayoutTree::Impl::place_wrap_children(std::uint32_t index, PixelSize size,
                                            const WrapLayout& wrapped, const Axis& axis) {
-  const EdgeInsets insets = content_insets(nodes[index].box);
-  const int gap = nodes[index].box.gap;
-  const int run_gap = nodes[index].box.run_gap;
-  const MainAlign main_align = nodes[index].box.main_align;
-  const AlignContent align_content = nodes[index].box.align_content;
+  const EdgeInsets insets = content_insets(nodes[index].used);
+  const int gap = nodes[index].used.gap;
+  const int run_gap = nodes[index].used.run_gap;
+  const MainAlign main_align = nodes[index].used.main_align;
+  const AlignContent align_content = nodes[index].used.align_content;
   const std::vector<std::uint32_t>& children = nodes[index].children;
 
   const int inner_main = std::max(0, axis.main_of(size) - axis.main_total(insets));
@@ -930,10 +1012,15 @@ void LayoutTree::Impl::place_wrap_children(std::uint32_t index, PixelSize size,
 
     int cursor = spread.cursor;
     int spread_given = 0;
+    int main_lead_given = 0;
     int within = 0;
     for (std::size_t slot = run.begin; slot < run.end; ++slot) {
+      const int child_lead =
+          main_lead(main_align, leftover_main, within, static_cast<int>(run.count()));
+      cursor += child_lead - main_lead_given;
+      main_lead_given = child_lead;
       const std::uint32_t child = children[slot];
-      const EdgeInsets margin = nodes[child].box.margin;
+      const EdgeInsets margin = nodes[child].used.margin;
       const PixelSize child_size = nodes[child].size;
       const int room = std::max(0, run_extent - axis.cross_total(margin));
       const int slack = std::max(0, room - axis.cross_of(child_size));
@@ -962,7 +1049,7 @@ void LayoutTree::Impl::place_wrap_children(std::uint32_t index, PixelSize size,
 
 PixelSize LayoutTree::Impl::measure_wrap(std::uint32_t index, const SizeLimits& limits,
                                          const BoxConstraints& inner, const Axis& axis) {
-  const EdgeInsets insets = content_insets(nodes[index].box);
+  const EdgeInsets insets = content_insets(nodes[index].used);
 
   FlexRoom room;
   room.main = axis.main_max(inner);
@@ -988,14 +1075,14 @@ PixelSize LayoutTree::Impl::measure_wrap(std::uint32_t index, const SizeLimits& 
   const PixelSize content = axis.horizontal
                                 ? PixelSize{wrapped.content_main, wrapped.content_cross}
                                 : PixelSize{wrapped.content_cross, wrapped.content_main};
-  const PixelSize size = resolved_size(nodes[index].box, limits, insets, content);
+  const PixelSize size = resolved_size(nodes[index].used, limits, insets, content);
   place_wrap_children(index, size, wrapped, axis);
   return size;
 }
 
 PixelSize LayoutTree::Impl::measure_absolute(std::uint32_t index, const SizeLimits& limits,
                                              const BoxConstraints& inner) {
-  const EdgeInsets insets = content_insets(nodes[index].box);
+  const EdgeInsets insets = content_insets(nodes[index].used);
   const std::vector<std::uint32_t>& children = nodes[index].children;
 
   // An absolute container takes all the room it is offered rather than
@@ -1006,13 +1093,14 @@ PixelSize LayoutTree::Impl::measure_absolute(std::uint32_t index, const SizeLimi
   // an overlay layer wants to cover what it overlays.
   const PixelSize content{is_bounded(inner.max_width) ? inner.max_width : inner.min_width,
                           is_bounded(inner.max_height) ? inner.max_height : inner.min_height};
-  const PixelSize size = resolved_size(nodes[index].box, limits, insets, content);
+  const PixelSize size = resolved_size(nodes[index].used, limits, insets, content);
 
   const int inner_width = std::max(0, size.width - insets.horizontal());
   const int inner_height = std::max(0, size.height - insets.vertical());
 
   for (const std::uint32_t child : children) {
-    const BoxStyle& child_box = nodes[child].box;
+    set_percent_base(child, PixelSize{inner_width, inner_height});
+    const BoxStyle& child_box = nodes[child].used;
     const EdgeInsets margin = child_box.margin;
     const int room_width = std::max(0, inner_width - margin.horizontal());
     const int room_height = std::max(0, inner_height - margin.vertical());

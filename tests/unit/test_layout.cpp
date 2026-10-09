@@ -719,4 +719,235 @@ TEST_CASE("an align_self change reaches the row that would have stretched it") {
   CHECK(all_bounds(incremental) == all_bounds(full));
 }
 
+
+// --------------------------------------------------------------------------
+// space-around / space-evenly on the main axis.
+// --------------------------------------------------------------------------
+
+std::vector<int> xs_under(LayoutTree& tree, MainAlign align, int row_width, int count) {
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+  BoxStyle row = stack_of(LayoutKind::kRow);
+  row.width = row_width;
+  row.height = 20;
+  row.main_align = align;
+  const NodeId host = tree.add_child(LayoutTree::root(), row, NodeStyle{});
+  std::vector<NodeId> children;
+  for (int i = 0; i < count; ++i) {
+    children.push_back(tree.add_child(host, sized(20, 10), NodeStyle{}));
+  }
+  tree.layout_full();
+  std::vector<int> xs;
+  for (const NodeId child : children) {
+    xs.push_back(tree.bounds(child).x);
+  }
+  return xs;
+}
+
+TEST_CASE("space-around and space-evenly place space outside the ends too, losing no pixel") {
+  {
+    LayoutTree tree{spec_of(400, 300)};
+    // 40 left over, six half-shares: leads 6, 20, 33 - the remainder lands late.
+    CHECK(xs_under(tree, MainAlign::kSpaceAround, 100, 3) == std::vector<int>{6, 40, 73});
+  }
+  {
+    LayoutTree tree{spec_of(400, 300)};
+    // 41 left over: leads 6, 20, 34; trailing space 101 - 94 = 7.
+    CHECK(xs_under(tree, MainAlign::kSpaceAround, 101, 3) == std::vector<int>{6, 40, 74});
+  }
+  {
+    LayoutTree tree{spec_of(400, 300)};
+    CHECK(xs_under(tree, MainAlign::kSpaceEvenly, 100, 3) == std::vector<int>{10, 40, 70});
+  }
+  {
+    LayoutTree tree{spec_of(400, 300)};
+    // 41 over four shares: leads 10, 20, 30 and the extra pixel trails.
+    CHECK(xs_under(tree, MainAlign::kSpaceEvenly, 101, 3) == std::vector<int>{10, 40, 70});
+  }
+  {
+    LayoutTree tree{spec_of(400, 300)};
+    // One child: both degenerate to centring.
+    CHECK(xs_under(tree, MainAlign::kSpaceAround, 100, 1) == std::vector<int>{40});
+  }
+  {
+    LayoutTree tree{spec_of(400, 300)};
+    CHECK(xs_under(tree, MainAlign::kSpaceEvenly, 100, 1) == std::vector<int>{40});
+  }
+}
+
+TEST_CASE("space-around applies per run in a wrapping row") {
+  LayoutTree tree{spec_of(400, 300)};
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+  BoxStyle wrap = stack_of(LayoutKind::kWrapRow);
+  wrap.width = 100;
+  wrap.main_align = MainAlign::kSpaceEvenly;
+  const NodeId host = tree.add_child(LayoutTree::root(), wrap, NodeStyle{});
+  std::vector<NodeId> children;
+  for (int i = 0; i < 5; ++i) {
+    children.push_back(tree.add_child(host, sized(30, 10), NodeStyle{}));
+  }
+  tree.layout_full();
+  // Runs of 3 (10 over) and 2 (40 over).
+  CHECK(tree.bounds(children[0]).x == 2);
+  CHECK(tree.bounds(children[1]).x == 35);
+  CHECK(tree.bounds(children[2]).x == 67);
+  CHECK(tree.bounds(children[3]).x == 13);
+  CHECK(tree.bounds(children[4]).x == 56);
+}
+
+TEST_CASE("changing justify to space-evenly incrementally matches a full layout") {
+  LayoutTree incremental{spec_of(400, 300)};
+  xs_under(incremental, MainAlign::kStart, 101, 3);
+  const NodeId host{1};
+  BoxStyle row = incremental.box(host);
+  row.main_align = MainAlign::kSpaceAround;
+  incremental.set_box(host, row);
+  incremental.layout();
+
+  LayoutTree full{spec_of(400, 300)};
+  xs_under(full, MainAlign::kSpaceAround, 101, 3);
+  CHECK(all_bounds(incremental) == all_bounds(full));
+}
+
+// --------------------------------------------------------------------------
+// Percentage lengths.
+// --------------------------------------------------------------------------
+
+BoxStyle percent_sized(float width, float height) {
+  BoxStyle box;
+  box.percent.width = width;
+  box.percent.height = height;
+  return box;
+}
+
+TEST_CASE("a percentage resolves against the parent's content box, nested") {
+  LayoutTree tree{spec_of(400, 300)};
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+
+  const NodeId plain = tree.add_child(LayoutTree::root(), percent_sized(50, 25), NodeStyle{});
+
+  BoxStyle outer;
+  outer.percent.width = 50;
+  outer.padding = EdgeInsets::all(10);
+  const NodeId host = tree.add_child(LayoutTree::root(), outer, NodeStyle{});
+  const NodeId inner = tree.add_child(host, percent_sized(50, 50), NodeStyle{});
+  tree.layout_full();
+
+  CHECK(tree.bounds(plain).width == 200);
+  CHECK(tree.bounds(plain).height == 75);
+  CHECK(tree.bounds(host).width == 200);
+  // 50% of 180 wide, and 50% of the 280 the host could still be tall.
+  CHECK(tree.bounds(inner).width == 90);
+  CHECK(tree.bounds(inner).height == 140);
+  CHECK(tree.bounds(host).height == 160);
+  CHECK(tree.diagnostics().empty());
+}
+
+TEST_CASE("percentage min and max clamp the size like their pixel counterparts") {
+  LayoutTree tree{spec_of(400, 300)};
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+
+  BoxStyle floored;
+  floored.percent.width = 10;
+  floored.percent.min_width = 25;
+  floored.height = 10;
+  const NodeId a = tree.add_child(LayoutTree::root(), floored, NodeStyle{});
+
+  BoxStyle capped = sized(300, 10);
+  capped.percent.max_width = 20;
+  const NodeId b = tree.add_child(LayoutTree::root(), capped, NodeStyle{});
+
+  BoxStyle rounded;
+  rounded.percent.width = 33.3F;  // 133.2 floors to 133
+  rounded.height = 10;
+  const NodeId c = tree.add_child(LayoutTree::root(), rounded, NodeStyle{});
+  tree.layout_full();
+
+  CHECK(tree.bounds(a).width == 100);
+  CHECK(tree.bounds(b).width == 80);
+  CHECK(tree.bounds(c).width == 133);
+}
+
+TEST_CASE("a percentage under an unbounded reference resolves as auto") {
+  LayoutTree tree{spec_of(400, 300)};
+  tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kColumn));
+  BoxStyle viewport = sized(200, 100);
+  viewport.scroll_axis = dg::ScrollAxis::kVertical;
+  const NodeId scroller = tree.add_child(LayoutTree::root(), viewport, NodeStyle{});
+
+  BoxStyle content;
+  content.percent.width = 100;
+  content.percent.height = 50;
+  content.percent.max_height = 10;
+  content.percent.min_height = 10;
+  const NodeId list = tree.add_child(scroller, content, NodeStyle{});
+  tree.add_child(list, sized(10, 500), NodeStyle{});
+  tree.layout_full();
+
+  CHECK(tree.bounds(list).width == 200);
+  CHECK(tree.bounds(list).height == 500);
+  CHECK(tree.diagnostics().empty());
+}
+
+void build_percent_scene(LayoutTree& tree) {
+  BoxStyle root = stack_of(LayoutKind::kColumn);
+  root.cross_align = CrossAlign::kStart;
+  tree.set_box(LayoutTree::root(), root);
+  BoxStyle row = stack_of(LayoutKind::kRow);
+  row.percent.width = 100;
+  row.percent.height = 40;
+  row.padding = EdgeInsets::all(7);
+  const NodeId host = tree.add_child(LayoutTree::root(), row, NodeStyle{});
+  BoxStyle declared = percent_sized(25, 50);
+  declared.shrink = 1;
+  tree.add_child(host, declared, NodeStyle{});
+  tree.add_child(host, grown(1), NodeStyle{});
+  BoxStyle absolute = stack_of(LayoutKind::kAbsolute);
+  absolute.percent.width = 30;
+  const NodeId layer = tree.add_child(host, absolute, NodeStyle{});
+  BoxStyle pinned = percent_sized(50, 33);
+  pinned.left = 3;
+  tree.add_child(layer, pinned, NodeStyle{});
+}
+
+TEST_CASE("a parent resize re-resolves percentages, and incremental equals full") {
+  LayoutTree incremental{spec_of(400, 300)};
+  build_percent_scene(incremental);
+  incremental.layout();
+  const NodeId declared{2};
+  CHECK(incremental.bounds(declared).width == 96);  // 25% of 386
+  CHECK(incremental.bounds(declared).height == 53);  // 50% of (40% of 300 - 14)
+
+  incremental.resize(PixelSize{613, 457});
+  incremental.layout();
+
+  LayoutTree full{spec_of(613, 457)};
+  build_percent_scene(full);
+  full.layout_full();
+  CHECK(all_bounds(incremental) == all_bounds(full));
+  CHECK(incremental.bounds(declared).width == 149);  // 25% of 599
+}
+
+TEST_CASE("a padding change on the parent reaches its percentage children") {
+  LayoutTree incremental{spec_of(400, 300)};
+  build_percent_scene(incremental);
+  incremental.layout();
+
+  const NodeId host{1};
+  BoxStyle padded = incremental.box(host);
+  padded.padding = EdgeInsets::all(31);
+  incremental.set_box(host, padded);
+  const NodeId pinned{5};
+  BoxStyle grown_pin = incremental.box(pinned);
+  grown_pin.percent.width = 80;
+  incremental.set_box(pinned, grown_pin);
+  incremental.layout();
+
+  LayoutTree full{spec_of(400, 300)};
+  build_percent_scene(full);
+  full.set_box(host, padded);
+  full.set_box(pinned, grown_pin);
+  full.layout_full();
+  CHECK(all_bounds(incremental) == all_bounds(full));
+}
+
 }  // namespace

@@ -173,7 +173,7 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 
 ### 真实缺口 / 有意推迟
 
-- **布局语义空洞**：`row_reverse`/`column_reverse`（推迟理由：反转 remainder 分配会破坏字节级一致性测试的基线）、`space_around`/`space_evenly`（算术已经存在于 `align_content`，缺一个把 `MainAlign` 扩出去的决定）、baseline 对齐（需要先有一次测量再定位，规划过但没有落地）、wrap 容器内 `align: stretch`、负 margin（当前实现遇负值会在 0 处截断，需要 `deflate` 语义配合才能对称让出空间）、百分比长度（刻意未写，理由记录在被移除的开发切片文档中，见 git 历史）、分数 grow 权重（当前只支持整数前缀和）
+- **布局语义空洞**：`row_reverse`/`column_reverse`（推迟理由：反转 remainder 分配会破坏字节级一致性测试的基线）、baseline 对齐（需要先有一次测量再定位，规划过但没有落地）、wrap 容器内 `align: stretch`、负 margin（当前实现遇负值会在 0 处截断，需要 `deflate` 语义配合才能对称让出空间）、百分比长度只覆盖 `width`/`height`/`min_*`/`max_*`（padding/margin/gap 不支持；参照为父节点可用内容盒，参照轴无界时退化为 auto 而不是报错，见 `doc/guide/layout.md`）、分数 grow 权重（当前只支持整数前缀和）
 - **手势竞技场（gesture arena）未建**，惯性滚动/回弹（fling/inertia）缺失——都需要一个还不存在的动画时钟驱动的速度来源
 - **Windows/macOS 从未验证**——当前只有 Linux/SDL3 一条实测路径
 - **JS 绑定层（P6）完全未开始**

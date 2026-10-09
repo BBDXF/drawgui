@@ -68,7 +68,7 @@ const char* kind_name(LayoutKind kind) {
          before.shrink != after.shrink || before.basis != after.basis ||
          before.align_self != after.align_self || before.left != after.left ||
          before.top != after.top || before.right != after.right ||
-         before.bottom != after.bottom;
+         before.bottom != after.bottom || before.percent != after.percent;
 }
 
 }  // namespace
@@ -77,6 +77,9 @@ LayoutTree::Impl::Impl(const TreeSpec& spec)
     : render(spec), max_damage_rects(spec.max_damage_rects) {
   LayoutNode root_node;
   root_node.box.kind = LayoutKind::kColumn;
+  root_node.used = root_node.box;
+  root_node.percent_base = spec.viewport;
+  root_node.cached_percent_base = spec.viewport;
   root_node.constraints = BoxConstraints::tight(spec.viewport);
   root_node.local = PixelRect{0, 0, spec.viewport.width, spec.viewport.height};
   nodes.push_back(std::move(root_node));
@@ -160,7 +163,7 @@ PixelSize LayoutTree::Impl::layout_node(std::uint32_t index,
   // leaving it out is what made a list of a thousand rows cost a thousand
   // nodes to change one cell. Measured, not assumed: without this clause the
   // incremental pass's cost grew linearly with the tree.
-  const SizeLimits limits = limits_for(node.box, constraints);
+  const SizeLimits limits = limits_for(node.used, constraints);
   const bool settled =
       constraints.is_tight() || (limits.tight_width() && limits.tight_height());
   const std::uint32_t boundary =
@@ -191,8 +194,15 @@ PixelSize LayoutTree::Impl::layout_node(std::uint32_t index,
   // the stored value for its own sake, and a stale one would land the mark on
   // a node that has stopped being a boundary. Dropping the term now would buy
   // a handful of cache hits and leave a trap for that change.
+  // A node's percentages depend on its parent's content box, which its
+  // constraints do not always carry (a declared flex child is handed a tight
+  // extent its parent already resolved), so the reference is part of the
+  // cache key - but only for a node that has percentages, so a tree without
+  // any revisits exactly the nodes it did before.
+  const bool same_reference =
+      !node.box.percent.any() || node.cached_percent_base == node.percent_base;
   if (!node.needs_layout && node.has_cached && node.constraints == constraints &&
-      node.relayout_boundary == boundary) {
+      node.relayout_boundary == boundary && same_reference) {
     return node.size;
   }
 
@@ -200,6 +210,7 @@ PixelSize LayoutTree::Impl::layout_node(std::uint32_t index,
   node.constraints = constraints;
   node.relayout_boundary = boundary;
   node.has_cached = true;
+  node.cached_percent_base = node.percent_base;
 
   const PixelSize size = measure(index, constraints);
 
@@ -209,6 +220,14 @@ PixelSize LayoutTree::Impl::layout_node(std::uint32_t index,
   laid_out.local.height = size.height;
   laid_out.needs_layout = false;
   return size;
+}
+
+void LayoutTree::Impl::set_percent_base(std::uint32_t index, PixelSize base) {
+  LayoutNode& node = nodes[index];
+  node.percent_base = base;
+  if (node.box.percent.any()) {
+    node.used = resolve_percents(node.box, base);
+  }
 }
 
 void LayoutTree::Impl::add_subtree(std::uint32_t index, DamageRegion& region) const {
@@ -320,6 +339,7 @@ NodeId LayoutTree::add_child(NodeId parent, const BoxStyle& box, const NodeStyle
   }
   LayoutNode node;
   node.box = box;
+  node.used = resolve_percents(box, node.percent_base);
   node.parent = parent.index;
   node.depth = impl_->nodes[parent.index].depth + 1;
   impl_->nodes[id.index] = std::move(node);
@@ -423,7 +443,9 @@ const BoxStyle& LayoutTree::box(NodeId id) const {
 
 void LayoutTree::set_box(NodeId id, const BoxStyle& box) {
   const bool parent_data_changed = differs_in_parent_data(impl_->nodes[id.index].box, box);
-  impl_->nodes[id.index].box = box;
+  LayoutNode& node = impl_->nodes[id.index];
+  node.box = box;
+  node.used = resolve_percents(box, node.percent_base);
   impl_->mark_needs_layout(id.index, true);
 
   // A parentData change has to reach the node that reads it. Marking only this
@@ -468,6 +490,7 @@ LayoutStats LayoutTree::layout_full() {
 void LayoutTree::resize(PixelSize viewport) {
   impl_->render.resize(viewport);
   impl_->nodes[0].constraints = BoxConstraints::tight(viewport);
+  impl_->set_percent_base(0, viewport);
   impl_->nodes[0].needs_layout = true;
   impl_->dirty.push_back(0);
 }
