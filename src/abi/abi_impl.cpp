@@ -31,6 +31,7 @@
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
+#include "drawgui/shortcuts/clipboard_actions.h"
 #include "drawgui/window/window_manager.h"
 
 #include "abi_types.h"
@@ -1130,6 +1131,43 @@ bool apply_editor_history_key(AppImpl& impl, WindowImpl& window, dg::NodeId edit
   return false;
 }
 
+// Copy/cut/paste/select-all on a focused, enabled editor, applied here like
+// the history chords (the host has no ABI to perform them). Reuses
+// dg::apply_clipboard_action. Returns whether the key was one of those chords.
+bool apply_editor_clipboard_key(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
+                                const dg::KeyEvent& event) {
+  if (!impl.fonts.has_value() || !is_text_editor(window, editor) ||
+      dg::is_disabled(window.tree.render(), editor)) {
+    return false;
+  }
+  const dg::Chord chord{event.mods, event.logical_key};
+  for (const dg::ShortcutBinding& binding : dg::all_shortcut_bindings()) {
+    if (binding.chord != chord) {
+      continue;
+    }
+    const dg_action_id id = binding.action_id;
+    if (id != DG_ACTION_COPY && id != DG_ACTION_CUT && id != DG_ACTION_PASTE &&
+        id != DG_ACTION_SELECT_ALL) {
+      continue;
+    }
+    const dg::TextFieldEditContext ctx{window.tree.render(), *impl.fonts, window.widgets, impl.wm};
+    const bool done = dg::apply_clipboard_action(id, editor, ctx);
+    if (done && (id == DG_ACTION_CUT || id == DG_ACTION_PASTE)) {
+      dg_event out{};
+      out.size = sizeof(dg_event);
+      out.kind = DG_EVENT_TEXT_CHANGED;
+      out.window = window.self_handle;
+      out.node = find_node_handle(impl, window.self_index, editor);
+      impl.pending_events.push_back(out);
+    }
+    if (is_text_area(window, editor)) {
+      follow_caret(impl, window, editor);
+    }
+    return true;
+  }
+  return false;
+}
+
 bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::NodeId field,
                            const dg::KeyEvent& event) {
   dg::RenderTree& tree = window.tree.render();
@@ -1200,6 +1238,9 @@ void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& ev
   // click places a caret instead of selecting a word.
   window.clicks = dg::ClickCounter{};
   if (focused.has_value() && apply_editor_history_key(impl, window, *focused, event)) {
+    return;
+  }
+  if (focused.has_value() && apply_editor_clipboard_key(impl, window, *focused, event)) {
     return;
   }
   if (focused.has_value() && is_text_area(window, *focused) && impl.fonts.has_value() &&

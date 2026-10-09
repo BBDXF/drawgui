@@ -256,7 +256,7 @@ struct AbiArea {
   dg_window_t* window = nullptr;
   dg_node_t* area = nullptr;
 
-  AbiArea() {
+  explicit AbiArea(std::uint16_t type = DG_NODE_TYPE_TEXT_AREA) {
     setenv("SDL_VIDEODRIVER", "dummy", 1);
     app = dg_app_create(nullptr);
     REQUIRE(app != nullptr);
@@ -268,7 +268,7 @@ struct AbiArea {
     opts.height = 200;
     window = dg_window_create(app, &opts);
     REQUIRE(window != nullptr);
-    area = dg_node_create(app, DG_NODE_TYPE_TEXT_AREA);
+    area = dg_node_create(app, type);
     REQUIRE(area != nullptr);
     REQUIRE(dg_window_set_root(window, area) == DG_ERR_OK);
   }
@@ -359,6 +359,46 @@ TEST_SUITE("abi text area") {
     CHECK(f.text() == "x");
     REQUIRE(dg_debug_post_key(f.window, 1, "Mod+Y") == DG_ERR_OK);  // nothing left to redo
     CHECK(f.pump() == 0);
+  }
+
+  TEST_CASE("Mod+A/C/X/V copy, cut and paste through dg_debug_post_key") {
+    AbiArea f;
+    f.click(40, 20);
+    const std::string init = "a\nb";
+    REQUIRE(dg_node_set_text(f.area, DG_PROP_TEXT, init.data(),
+                             static_cast<std::uint32_t>(init.size())) == DG_ERR_OK);
+    f.click(40, 20);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+A") == DG_ERR_OK);
+    CHECK(f.pump() == 0);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+C") == DG_ERR_OK);
+    CHECK(f.pump() == 0);
+    CHECK(f.text() == init);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+X") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    CHECK(f.text().empty());
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+V") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    CHECK(f.text() == init);  // newline kept in a text area
+  }
+
+  TEST_CASE("Mod+A/C/X/V in a text field copy, cut and paste through dg_debug_post_key") {
+    AbiArea f(DG_NODE_TYPE_TEXT_FIELD);
+    f.click(40, 20);
+    const std::string init = "ab";
+    REQUIRE(dg_node_set_text(f.area, DG_PROP_TEXT, init.data(),
+                             static_cast<std::uint32_t>(init.size())) == DG_ERR_OK);
+    f.click(40, 20);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+A") == DG_ERR_OK);
+    CHECK(f.pump() == 0);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+C") == DG_ERR_OK);
+    CHECK(f.pump() == 0);
+    CHECK(f.text() == init);
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+X") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    CHECK(f.text().empty());
+    REQUIRE(dg_debug_post_key(f.window, 1, "Mod+V") == DG_ERR_OK);
+    CHECK(f.pump() == 1);
+    CHECK(f.text() == init);
   }
 
   TEST_CASE("a disabled text area takes no edits") {
