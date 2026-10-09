@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "drawgui/base/pixel_geometry.h"
 #include "drawgui/render/render_tree.h"
 
@@ -34,8 +36,13 @@ namespace dg::detail {
 // `images` may be null the same way `fonts` may: a tree built before this
 // slice names no image, so a null catalog and an invalid ImageId produce the
 // identical visible outcome - the placeholder colour, or nothing.
+struct ParagraphCacheEntry;
+
+// `paragraph_cache` is the node's own slot for a wrapped paragraph's layout
+// (Node::paragraph_cache); null means "build every time".
 void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style,
-                const FontCatalog* fonts, const ImageCatalog* images);
+                const FontCatalog* fonts, const ImageCatalog* images,
+                std::shared_ptr<ParagraphCacheEntry>* paragraph_cache = nullptr);
 
 // Confines everything drawn until the matching restore() to `bounds` rounded
 // by `radii`.

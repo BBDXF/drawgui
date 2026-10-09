@@ -19,6 +19,10 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypeface.h"
 
+namespace skia::textlayout {
+class FontCollection;
+}  // namespace skia::textlayout
+
 namespace dg {
 
 // A maximal stretch of one string drawn by one face.
@@ -57,6 +61,10 @@ struct FontAccess {
 
   // Empty when the style names no valid font or carries no text. Otherwise
   // every byte of the string is covered by exactly one run, in order.
+  // The catalog's shared SkParagraph font collection, created on first use.
+  [[nodiscard]] static sk_sp<skia::textlayout::FontCollection> paragraph_collection(
+      const FontCatalog& catalog);
+
   [[nodiscard]] static std::vector<TextRun> runs(const FontCatalog& catalog,
                                                  const TextStyle& text);
 };

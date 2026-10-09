@@ -243,16 +243,39 @@ float run_width(const TextRun& run, const SkFont& font, const std::string& sourc
 // settles a plain label's box. Text taller than `bounds` is clipped, not
 // grown, matching how a plain label already behaves when its string
 // overflows a box laid out too small for it.
+//
+// A node that paints the same wrapped text at the same width frame after
+// frame reuses its laid-out paragraph from `cache` (doc/limitations.md A1)
+// instead of re-running the whole SkParagraph pipeline every paint.
 void paint_paragraph(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text,
-                     const FontCatalog* fonts) {
+                     const FontCatalog* fonts, std::shared_ptr<ParagraphCacheEntry>* cache) {
   if (fonts == nullptr) {
     return;
   }
   const float inset = static_cast<float>(text.inset);
   const float width = std::max(0.0F, static_cast<float>(bounds.width) - (2.0F * inset));
-  std::unique_ptr<skia::textlayout::Paragraph> paragraph =
-      detail::build_paragraph(*fonts, text, width);
-  if (!paragraph) {
+
+  skia::textlayout::Paragraph* paragraph = nullptr;
+  std::unique_ptr<skia::textlayout::Paragraph> uncached;
+  if (cache != nullptr && *cache && (*cache)->fonts == fonts && (*cache)->width == width &&
+      (*cache)->text == text) {
+    paragraph = (*cache)->paragraph.get();
+  } else {
+    uncached = detail::build_paragraph(*fonts, text, width);
+    paragraph = uncached.get();
+    if (cache != nullptr) {
+      cache->reset();
+      if (uncached) {
+        auto entry = std::make_shared<ParagraphCacheEntry>();
+        entry->fonts = fonts;
+        entry->text = text;
+        entry->width = width;
+        entry->paragraph = std::move(uncached);
+        *cache = std::move(entry);
+      }
+    }
+  }
+  if (paragraph == nullptr) {
     return;
   }
   canvas.save();
@@ -263,12 +286,12 @@ void paint_paragraph(SkCanvas& canvas, const PixelRect& bounds, const TextStyle&
 }
 
 void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text,
-                const FontCatalog* fonts) {
+                const FontCatalog* fonts, std::shared_ptr<ParagraphCacheEntry>* cache) {
   if (text.text.empty() || text.size <= 0.0F || text.color.alpha() == 0 || fonts == nullptr) {
     return;
   }
   if (text.wrap) {
-    paint_paragraph(canvas, bounds, text, fonts);
+    paint_paragraph(canvas, bounds, text, fonts, cache);
     return;
   }
   sk_sp<SkTypeface> primary = FontAccess::typeface(*fonts, text.font);
@@ -479,7 +502,8 @@ void apply_clip(SkCanvas& canvas, const PixelRect& bounds, const Radii& radii) {
 }
 
 void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& style,
-                const FontCatalog* fonts, const ImageCatalog* images) {
+                const FontCatalog* fonts, const ImageCatalog* images,
+                std::shared_ptr<ParagraphCacheEntry>* paragraph_cache) {
   if (bounds.is_empty()) {
     return;
   }
@@ -510,14 +534,14 @@ void paint_node(SkCanvas& canvas, const PixelRect& bounds, const NodeStyle& styl
   paint_image(canvas, bounds, style.image, style.radii, images);
 
   if (style.border_width.is_zero() || style.border_color.alpha() == 0) {
-    paint_text(canvas, bounds, style.text, fonts);
+    paint_text(canvas, bounds, style.text, fonts, paragraph_cache);
     return;
   }
 
   paint_border(canvas, rect, style, paint);
 
   // Text last, so a label reads over its own border rather than under it.
-  paint_text(canvas, bounds, style.text, fonts);
+  paint_text(canvas, bounds, style.text, fonts, paragraph_cache);
 }
 
 }  // namespace dg::detail

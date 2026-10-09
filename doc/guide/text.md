@@ -13,8 +13,9 @@ drawgui 内核没有把文本当作特殊节点类型，而是当作 `NodeStyle:
 - `dg::FontCatalog`：一张可共享（引用计数）的字体表。`scan(dir)` 扫描目录建表，`add(family, bold)` 注册一个具名字族并返回 `FontId`，`resolve(...)` 回答「这个字/这个码点该由哪个字族画」。
 - `dg::FontId`：`{value}`，0 表示无效。
 - `dg::TextStyle`：一次文本绘制的全部参数——`text`、`font`、`language`（BCP 47）、`size`、`color`、`align`、`wrap`、`max_lines`。
-- `dg::Paragraph`：`wrap = true` 时用来**提前测量**高度的类型，不参与实际绘制路径（绘制仍由 `NodeStyle::text` 走）。
-- `dg::WidgetSet` 的 `kTextField` 一族：单行可编辑文本框的状态和操作。
+- `dg::Paragraph`：`wrap = true` 时用来**提前测量**高度的类型，不参与实际绘制路径（绘制仍由 `NodeStyle::text` 走）。它也提供多行编辑用的几何查询：`offset_at()`、`caret_rect()`、`range_rects()`、`lines()`、`line_of()`、`word_at()`，所有偏移都是 UTF-8 字节偏移（SkParagraph 这几个接口内部用 UTF-16，已在内部换算）。
+- `dg::TextEditState` / `dg::text_edit::*`（`drawgui/widget/text_edit.h`）：与渲染无关的编辑核心——文本、光标、选区、IME 组字预览及插入/删除/移动/组字操作；`kTextField` 的编辑函数都是它的薄包装。
+- `dg::WidgetSet` 的 `kTextField` 一族：单行可编辑文本框（状态在 `Widget::edit`）。
 - `dg::grapheme_boundaries()`：按 UAX #29 扩展字位簇（extended grapheme cluster）切分字符串，是光标移动/删除的最小单位。
 
 **建立 FontCatalog 必须在建任何文本节点之前完成**，且必须先 `add()` 一个具体字族才能用它。`add()` 对不存在的字族会直接返回失败（`Expected<FontId, FontError>`），绝不会静默换成别的字体：
@@ -149,7 +150,7 @@ manager->stop_text_input(window_id);
 
 ## 性能坑
 
-`src/render/paragraph_build.cpp:54` 附近，每次调用 `Paragraph::build()` 都会 `sk_make_sp<FontCollection>()` 新建一个 `FontCollection`——**没有任何缓存**。这意味着每一帧、每一个 wrap 文本节点都会重建一整条 SkParagraph 排版管线。如果你的场景里有需要每帧重绘的自动换行文本（比如跟随窗口大小实时换行的说明文字），这条路径会成为明显的性能瓶颈。**结论：包裹（wrap）文本不要放在高频重绘路径上**——静态段落、一次性弹窗说明这类场景没问题，逐帧变化的 wrap 文本要自己做缓存或者避免频繁 `build()`。
+`FontCollection` 每个 `FontCatalog` 只建一次；绘制 wrap 文本节点时，排好的段落按节点缓存，文本、样式、宽度都不变的重绘不会重新排版（只移动位置也不会）。真正的代价只剩"变化时重排"：逐帧改内容或改宽度的 wrap 文本仍然每帧完整排版一次，`Paragraph::build()` 本身也不走这份缓存、每次调用都排一次。**结论：静态段落随便用；逐帧变化的 wrap 文本放进高频路径前先量一下。**细节见 `doc/limitations.md` A1。
 
 ## 相关 example
 

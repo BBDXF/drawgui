@@ -15,6 +15,7 @@
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypeface.h"
+#include "modules/skparagraph/include/FontCollection.h"
 
 namespace dg {
 
@@ -55,6 +56,13 @@ struct FontCatalog::Impl {
   std::vector<sk_sp<SkTypeface>> typefaces;
 
   FontChain chain;
+
+  // SkParagraph's font collection over `manager`, built lazily by the first
+  // wrapped paragraph and then reused by every later one
+  // (detail::build_paragraph()) - building one per paragraph was the whole
+  // of doc/limitations.md A1's old cost. `manager` never changes after
+  // scan(), so nothing ever needs to invalidate it.
+  sk_sp<skia::textlayout::FontCollection> paragraph_collection;
 };
 
 // CBDT/CBLC, sbix or COLR present. Read off the font's own tables rather than

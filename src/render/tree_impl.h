@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -25,6 +26,10 @@ class SkCanvas;
 class SkPicture;
 
 namespace dg {
+
+namespace detail {
+struct ParagraphCacheEntry;
+}  // namespace detail
 
 // How far a shadow's paint reaches beyond the node's own declared box, in
 // device pixels, on every side - 0 when there is no shadow. Symmetric and
@@ -105,6 +110,13 @@ struct Node {
   // superset of what changed and painting is still exact, while the shape
   // itself is applied by the canvas and by clip_contains().
   std::optional<PixelRect> clip_bounds;
+
+  // The paint-side layout of a `TextStyle::wrap` node, reused across paints
+  // while its text, style and width are unchanged (doc/limitations.md A1).
+  // `mutable` because painting is const by contract; this is a cache, not
+  // tree state. Dropped by set_text()/set_style()/a width change and by
+  // removal.
+  mutable std::shared_ptr<detail::ParagraphCacheEntry> paragraph_cache;
 
   // Where this node may put pixels: its own box (grown by any shadow's
   // reach), minus whatever its ancestors clip away. Empty means it is

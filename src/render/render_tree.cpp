@@ -210,6 +210,7 @@ bool RenderTree::remove_child(NodeId id, RemovalKey /*key*/) {
     victim.removed = true;
     victim.generation += 1;
     victim.children.clear();
+    victim.paragraph_cache.reset();
     // `parent` is deliberately left alone rather than reset to its
     // default (0, the root's own index): RenderTree::parent() below
     // refuses to read a tombstoned node's fields at all, so nothing ever
@@ -345,6 +346,9 @@ void RenderTree::set_style(NodeId id, const NodeStyle& style) {
     impl_->damage_subtree(id.index);
   }
 
+  if (node.style.text != style.text) {
+    node.paragraph_cache.reset();
+  }
   node.style = style;
   node.clip_atomic = clips_atomically(style);
   if (clip_changed) {
@@ -364,6 +368,7 @@ void RenderTree::set_text(NodeId id, const TextStyle& text) {
     return;
   }
   style.text = text;
+  impl_->nodes[id.index].paragraph_cache.reset();
   impl_->nodes[id.index].clip_atomic = clips_atomically(style);
   impl_->invalidate(id.index);
 }
@@ -382,7 +387,11 @@ void RenderTree::set_local_bounds(NodeId id, const PixelRect& bounds) {
   // after it. Damaging only the destination is what leaves a trail of stale
   // paint behind a moving node.
   impl_->damage_subtree(id.index);
-  impl_->nodes[id.index].local = bounds;
+  Node& node = impl_->nodes[id.index];
+  if (node.local.width != bounds.width) {
+    node.paragraph_cache.reset();
+  }
+  node.local = bounds;
   impl_->reposition(id.index);
   impl_->invalidate(id.index);
 }
@@ -434,6 +443,12 @@ const DamageRegion& RenderTree::painted() const {
 
 void RenderTree::damage_rect(const PixelRect& rect) {
   impl_->damage.add(rect);
+}
+
+std::size_t RenderTree::paragraph_cache_size() const {
+  return static_cast<std::size_t>(
+      std::count_if(impl_->nodes.begin(), impl_->nodes.end(),
+                    [](const Node& node) { return !node.removed && node.paragraph_cache; }));
 }
 
 void RenderTree::damage_all() {

@@ -36,6 +36,7 @@
 #include "drawgui/render/font_catalog.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/widget/interaction.h"
+#include "drawgui/widget/text_edit.h"
 
 namespace dg {
 
@@ -245,53 +246,15 @@ struct Widget {
   NodeId selection_highlight;
   NodeId composition_underline;
 
-  // The MODEL. RUNTIME STATE, not a property - the identical argument
-  // already made for the scroll offset and the slider's value: this
-  // accumulates
-  // across an unbounded stream of keystrokes rather than being declared
-  // once. Well-formed UTF-8, sanitized at every mutation entry point
-  // (WidgetSet::text_field_insert()); `cursor`/`selection_anchor` are byte
-  // offsets that ALWAYS land on a grapheme-cluster boundary (dg::
-  // grapheme_boundaries()), enforced by construction because every mutator
-  // only ever places them via a grapheme-boundary query, never raw
-  // arithmetic - 7-2b lifted 4-9's ASCII-only restriction once
-  // libgrapheme's segmentation (7-1) made real grapheme-cluster boundaries
-  // available; design.md's mandatory minimum edit unit (line ~1001) is now
-  // honoured by that segmentation rather than by ASCII's byte-offset
-  // coincidence.
-  std::string text;
-  int cursor = 0;                       // byte offset into `text`, in [0, text.size()]
-  std::optional<int> selection_anchor;  // set => a selection [min(anchor,cursor), max(...))
-  int scroll_x = 0;                     // device pixels; DERIVED, never declared
-
-  // 7-3's own composition state, RUNTIME STATE for the
-  // identical reason `text`/`cursor` above already are - SDL delivers one
-  // SDL_EVENT_TEXT_EDITING per keystroke while an IME composes, an
-  // unbounded stream exactly like committed keystrokes. Deliberately
-  // SEPARATE from `text`/`cursor`/`selection_anchor` rather than folded
-  // into them: composition never touches any of the three above until a
-  // REAL commit arrives (a TextInputEvent, through text_field_insert()
-  // unchanged) - this is what lets Escape/focus-loss/a click mid-
-  // composition simply discard `composition_text` below and leave the
-  // committed model exactly as it was, with no undo to perform.
-  //
-  // `composing` is false whenever nothing is in progress; while true,
-  // `composition_replace_start`/`composition_replace_end` are the byte
-  // range WITHIN `text` composition virtually sits over (captured ONCE at
-  // composition start from whatever selection/cursor was there - a plain
-  // cursor position with no selection is `{cursor, cursor}`), and
-  // `composition_text` is the IME's own not-yet-committed string (already
-  // sanitized). `composition_focus_start`/`composition_focus_length` are
-  // byte offsets WITHIN `composition_text` - SDL_TextEditingEvent's own
-  // `start`/`length` (TextEditingEvent's own comment records the "UTF-8
-  // characters" unit question this slice found and could not verify
-  // against a live IME), converted to bytes and clamped defensively.
-  bool composing = false;
-  std::string composition_text;
-  int composition_focus_start = 0;
-  int composition_focus_length = 0;
-  int composition_replace_start = 0;
-  int composition_replace_end = 0;
+  // The MODEL - text, caret, selection and IME composition preview - lives
+  // in the render-free editing core (include/drawgui/widget/text_edit.h),
+  // which every text_field_* mutator below delegates to. RUNTIME STATE, not
+  // a property - the identical argument already made for the scroll offset
+  // and the slider's value: it accumulates across an unbounded stream of
+  // keystrokes (and, while an IME composes, SDL_EVENT_TEXT_EDITING events)
+  // rather than being declared once.
+  TextEditState edit;
+  int scroll_x = 0;  // device pixels; DERIVED, never declared
 
   // kList only. `list_pool` is the PERMANENT pool of item nodes - built once,
   // never grown or shrunk (this engine has no node-removal path at all,
@@ -334,12 +297,6 @@ struct Widget {
   NodeId scrollbar_track;
   NodeId scrollbar_thumb;
   NodeId scrollbar_of;
-};
-
-// A normalized [start, end) byte range into a kTextField's Widget::text.
-struct TextSelection {
-  int start = 0;
-  int end = 0;
 };
 
 // One pool slot's new identity after `WidgetSet::list_sync()`/
@@ -855,17 +812,17 @@ class WidgetSet {
   std::optional<ScrollbarDrag> scrollbar_drag_;
   ScrollbarStyle scrollbar_style_;
 
-  // Replaces widget.text[lo:hi) with `replacement`, moves the cursor to just
-  // past the replacement, clears any selection, then re-derives the
-  // display - the one place all of insert/backspace/delete meet, so the
-  // projection logic (ellipsis vs scroll, caret and highlight geometry)
-  // exists in exactly one function rather than three copies of it.
-  static bool text_field_replace_range(RenderTree& tree, const FontCatalog& fonts, NodeId id,
-                                       Widget& widget, int lo, int hi,
-                                       std::string_view replacement);
+  // The kTextField's editing state, or null for any other id/kind.
+  TextEditState* text_field_state(NodeId id);
+
+  // Re-derives the focused display after a text_edit:: operation reported
+  // a change, and passes `changed` through - the one place every editing
+  // wrapper meets, so the projection logic (ellipsis vs scroll, caret and
+  // highlight geometry) exists in exactly one function.
+  bool text_field_commit(RenderTree& tree, const FontCatalog& fonts, NodeId id, bool changed);
 
   // Re-derives everything paint-time about a kTextField from its model
-  // (text/cursor/selection_anchor) and `focused`: the content child's
+  // (Widget::edit) and `focused`: the content child's
   // displayed string (full+scrolled, or ellipsis-truncated), the caret's
   // position and visibility, and the selection highlight's rectangle.
   static void text_field_refresh_display(RenderTree& tree, const FontCatalog& fonts, NodeId id,

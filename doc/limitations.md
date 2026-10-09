@@ -6,11 +6,17 @@
 
 ## A. 能用但有代价的坑
 
-### A1. `TextStyle::wrap = true` 每次调用都重建整条排版管线
+### A1. `TextStyle::wrap = true` 的文本在内容或宽度变化时才重新排版
 
-`src/render/paragraph_build.cpp:53-55` 每次 `build_paragraph()` 都新建一个 `sk_make_sp<FontCollection>()`——也就是说，每一帧、每一个开启 `wrap` 的文本节点，都要重新走一遍 SkParagraph 的整条构建管线，没有缓存。
+`FontCollection` 现在每个 `FontCatalog` 只建一次（`FontAccess::paragraph_collection()`，`src/render/font_catalog.cpp`），所有段落共享它的字体查找与 SkParagraph 自带的整形缓存。绘制侧另有逐节点的段落缓存（`Node::paragraph_cache`，`src/render/tree_impl.h`）：同一个 wrap 节点在文本、样式、宽度都不变时，重复重绘直接复用上一次排好的 `skia::textlayout::Paragraph`，不再调用 `build_paragraph()`。`set_text()`/`set_style()` 改了文本样式、`set_local_bounds()` 改了宽度时丢弃缓存（只移动位置不丢）；节点经 `remove_subtree()` 删除时一并释放。绘制时还会再比对一次键（字体目录、`TextStyle`、宽度），所以任何其它路径改了样式也不会画出过期的排版。`detail::paragraph_build_count()` 与 `RenderTree::paragraph_cache_size()` 是给测试用的计数探针（`tests/unit/test_paragraph_geometry.cpp`）。
 
-**结论**：不要把 `wrap = true` 的文本节点放进高频重绘路径（跟手动画、逐帧更新的场景）。静态或低频更新的换行文本不受影响。
+剩下的代价：
+
+- 文本或宽度**每次真的变化**都要完整重排一次（例如逐帧改字的 wrap 文本、跟随窗口拖拽实时改宽的段落）——缓存只省掉"没变却重绘"的那部分。
+- `dg::Paragraph::build()`（布局前的高度测量、TextField 的光标测量）不经过绘制侧缓存，每次调用都排一次版；只是不再额外新建 `FontCollection`。
+- 每个缓存条目持有一份 `TextStyle` 副本和排好的段落，内存随 wrap 节点数线性增长。
+
+**结论**：静态或低频更新的换行文本基本没有重复排版开销；逐帧改变内容或宽度的 wrap 文本仍然每帧排版一次，放进高频路径前先量一下。
 
 ### A2. `close()` 只裁空不删节点；要释放请用 `destroy()`
 

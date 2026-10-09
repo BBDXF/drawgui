@@ -1,5 +1,6 @@
 #include "render/paragraph_build.h"
 
+#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -21,6 +22,11 @@
 namespace dg::detail {
 namespace {
 
+std::uint64_t& build_counter() {
+  static std::uint64_t count = 0;
+  return count;
+}
+
 SkColor to_sk_color(Color color) {
   return static_cast<SkColor>(color.argb());
 }
@@ -39,6 +45,13 @@ skia::textlayout::TextAlign to_sk_text_align(TextAlign align) {
 
 }  // namespace
 
+ParagraphCacheEntry::ParagraphCacheEntry() = default;
+ParagraphCacheEntry::~ParagraphCacheEntry() = default;
+
+std::uint64_t paragraph_build_count() {
+  return build_counter();
+}
+
 std::unique_ptr<skia::textlayout::Paragraph> build_paragraph(const FontCatalog& fonts,
                                                              const TextStyle& text,
                                                              float width) {
@@ -51,24 +64,11 @@ std::unique_ptr<skia::textlayout::Paragraph> build_paragraph(const FontCatalog& 
     return nullptr;
   }
 
-  sk_sp<skia::textlayout::FontCollection> collection =
-      sk_make_sp<skia::textlayout::FontCollection>();
-  // ASSET, not "default": FontCollection only consults its "default" manager
-  // for automatic fallback search (defaultFallback()/defaultEmojiFallback()),
-  // never for an explicit family-name lookup - findTypefaces() walks asset,
-  // dynamic and test managers instead. Every run below names an explicit
-  // family (paragraph_runs.h), so this is the manager that has to be
-  // registered here, not the other one.
-  collection->setAssetFontManager(FontAccess::font_manager(fonts));
-
-  // No FontCollection-driven fallback search: every run below already names
-  // its own family, resolved by FontCatalog::resolve() the same way the
-  // plain SkFont paint path resolves it (paragraph_runs.h). Leaving fallback
-  // enabled would ask this project's SkFontMgr for
-  // matchFamilyStyleCharacter(), which this project already measured
-  // as always null here - so it would find nothing SkParagraph's own search
-  // could not, and would cost a search on every run for it.
-  collection->disableFontFallback();
+  // One collection per FontCatalog, shared by every paragraph built over it
+  // (FontAccess::paragraph_collection()), so its typeface lookups and
+  // shaping cache survive from one build to the next.
+  sk_sp<skia::textlayout::FontCollection> collection = FontAccess::paragraph_collection(fonts);
+  ++build_counter();
 
   skia::textlayout::TextStyle base_style;
   base_style.setFontSize(text.size);

@@ -20,6 +20,8 @@
 #pragma once
 
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "drawgui/base/expected.h"
 #include "drawgui/render/font_catalog.h"
@@ -39,6 +41,38 @@ struct ParagraphMetrics {
   // multi-line counterpart of the single-line TextField's ellipsize(),
   // reported rather than silently absorbed.
   bool exceeded_max_lines = false;
+};
+
+// A float rectangle in a paragraph's own coordinates (its top-left is 0,0).
+struct PixelRectF {
+  float x = 0.0F;
+  float y = 0.0F;
+  float width = 0.0F;
+  float height = 0.0F;
+};
+
+// Where a caret at some offset is drawn: a vertical bar at `x` spanning
+// [top, top + height), on line `line` (an index into Paragraph::lines()).
+struct CaretRect {
+  float x = 0.0F;
+  float top = 0.0F;
+  float height = 0.0F;
+  int line = 0;
+};
+
+// One visual line. `start`..`end_incl` is every byte the line owns,
+// including a terminating '\n'; `end_excl_newline` stops before that '\n'
+// (equal to `end_incl` on a soft-wrapped or final line). Lines tile the
+// text: each `start` is the previous line's `end_incl`. A text ending in
+// '\n' has a final EMPTY line (start == end_incl == text size) - the line
+// a caret after that newline sits on.
+struct LineInfo {
+  int start = 0;
+  int end_excl_newline = 0;
+  int end_incl = 0;
+  float top = 0.0F;
+  float height = 0.0F;
+  float baseline = 0.0F;
 };
 
 // A laid-out paragraph, built once against a fixed width. Immutable: a
@@ -82,6 +116,42 @@ class Paragraph {
   // function does one thing" shape every other primitive at this layer
   // already has.
   [[nodiscard]] float caret_x(int offset) const;
+
+  // Multi-line editing geometry. Every offset here is a UTF-8 BYTE offset
+  // into the TextStyle::text the paragraph was built from, exactly like
+  // caret_x(). SkParagraph's own hit-test/range/line/word queries
+  // (getGlyphPositionAtCoordinate, getRectsForRange, getLineMetrics,
+  // getWordBoundary) were MEASURED to speak UTF-16 code units in the linked
+  // archive (tests/unit/test_paragraph.cpp, "CJK + emoji offsets") - only
+  // the getGlyphCluster* family is UTF-8 - so these convert both ways
+  // internally rather than leaking a second offset unit to callers.
+
+  // The grapheme-cluster boundary nearest the point (x, y), in paragraph
+  // coordinates. `y` picks the line (clamped to the first/last); `x` is then
+  // resolved within that line and never lands past its '\n'.
+  [[nodiscard]] int offset_at(float x, float y) const;
+
+  // The caret for `offset` (clamped to the text). An offset that is both
+  // the end of one soft-wrapped line and the start of the next is drawn at
+  // the START of the next line unless `upstream` asks for the end of the
+  // previous one. Empty lines (including the one after a trailing '\n')
+  // get a caret from their own line metrics.
+  [[nodiscard]] CaretRect caret_rect(int offset, bool upstream = false) const;
+
+  // The highlight rectangles covering [start, end) - one or more per line.
+  [[nodiscard]] std::vector<PixelRectF> range_rects(int start, int end) const;
+
+  // Every visual line, top to bottom. Never empty for a built paragraph.
+  [[nodiscard]] std::vector<LineInfo> lines() const;
+
+  // The index into lines() of the line containing `offset` (downstream: a
+  // soft-wrap boundary belongs to the later line).
+  [[nodiscard]] int line_of(int offset) const;
+
+  // The [start, end) byte range of the word (or run of whitespace/
+  // punctuation, by SkParagraph's own word segmentation) containing
+  // `offset`.
+  [[nodiscard]] std::pair<int, int> word_at(int offset) const;
 
  private:
   struct Impl;

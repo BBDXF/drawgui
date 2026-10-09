@@ -41,45 +41,6 @@ bool interactive(WidgetKind kind) {
   return false;
 }
 
-// Replaces 4-9's filter_ascii(): accepts arbitrary well-formed Unicode text
-// rather than dropping every non-ASCII byte whole (libgrapheme's
-// segmentation, proven by 7-1, is what makes lifting the restriction safe).
-// Two things are still rejected, not merely "everything except ASCII":
-//
-//   - malformed UTF-8 (a lone continuation byte, a truncated multi-byte
-//     lead, an overlong encoding, a surrogate codepoint) is repaired to
-//     U+FFFD one invalid byte at a time via dg::sanitize_utf8() - 7-2's own
-//     paragraph_build.cpp substitution,
-//     reused here rather than a second hand-rolled policy;
-//   - ASCII control characters (0x00-0x1F) and DEL (0x7F) are dropped: a
-//     literal newline or tab a paste/IME might commit has no meaning in a
-//     single-line field (multi-line TextArea editing stays out of scope -
-//     design.md's MVP-8 list names TextField, not TextArea, and 4-9 already
-//     verified that).
-//
-// Stripping control bytes AFTER sanitize_utf8() (rather than folding both
-// into one pass) is safe because well-formed UTF-8 guarantees every byte
-// below 0x80 is a complete one-byte codepoint on its own, never a
-// continuation byte of something else - so a plain byte-range filter over
-// the sanitized result cannot split anything.
-std::string sanitize_insertable_text(std::string_view input) {
-  const std::string well_formed = sanitize_utf8(input);
-  std::string out;
-  out.reserve(well_formed.size());
-  for (const char byte : well_formed) {
-    const auto value = static_cast<unsigned char>(byte);
-    if (value < 0x20 || value == 0x7F) {
-      continue;
-    }
-    out.push_back(byte);
-  }
-  return out;
-}
-
-TextSelection normalize_selection(int cursor, int anchor) {
-  return TextSelection{std::min(cursor, anchor), std::max(cursor, anchor)};
-}
-
 // Builds a throwaway, single-line, unwrapped Paragraph over `text` purely
 // for pixel measurement - the shaping-aware replacement for 4-9's
 // measure_ascii_width()/ascii_offset_at_x() (7-2b's own
@@ -115,24 +76,6 @@ std::optional<Paragraph> build_edit_paragraph(const FontCatalog& fonts, FontId f
     return std::nullopt;
   }
   return std::move(built).value();
-}
-
-// One grapheme-cluster step from `from`, which MUST already be a boundary
-// in `boundaries` (every TextField mutator's own invariant - doc/widgets.h's
-// Widget::cursor comment). Left/right unified into one function via
-// `left`, matching design.md's own "the minimum unit is the grapheme
-// cluster, not the byte" mandate for both directions at once rather than as
-// two independently-derived pieces of arithmetic.
-int grapheme_step(const std::vector<int>& boundaries, int from, bool left) {
-  const auto it = std::lower_bound(boundaries.begin(), boundaries.end(), from);
-  if (it == boundaries.end() || *it != from) {
-    return from;  // defensive: `from` was not on a boundary - should not happen
-  }
-  if (left) {
-    return it == boundaries.begin() ? from : *(it - 1);
-  }
-  const auto next = it + 1;
-  return next == boundaries.end() ? from : *next;
 }
 
 // The grapheme boundary in `boundaries` whose MIDPOINT to its neighbour
@@ -1026,137 +969,26 @@ constexpr int kCaretWidthPx = 2;
 // vertical bar vs. a horizontal one).
 constexpr int kCompositionUnderlineHeightPx = 2;
 
-// The byte range within a composition's own preedit string that SDL's
-// start/length units resolve to (Widget::composition_focus_start/_length).
-struct CompositionFocusBytes {
-  int start = 0;
-  int end = 0;
-};
-
-// Converts SDL_TextEditingEvent's own start/length ("UTF-8 characters",
-// TextEditingEvent's own header comment) into a byte range within `text`
-// (assumed well-formed - the caller already ran it through
-// sanitize_insertable_text()) by walking codepoints via dg::utf8_decode().
-// `int64_t` accumulators rather than `int` ones: a hostile or merely buggy
-// IME's start/length are exactly the "absurd cursor offset"
-// -DDG_SANITIZE=ON is meant to catch, and `start_units + length_units`
-// computed directly in `int` could overflow before either value is ever
-// compared against `text`'s own length. Both ends are clamped to
-// `text.size()` by the walk itself stopping there, never by trusting the
-// input.
-CompositionFocusBytes composition_focus_bytes(std::string_view text, int start_units,
-                                              int length_units) {
-  const std::int64_t start = std::max<std::int64_t>(0, start_units);
-  const std::int64_t end = start + std::max<std::int64_t>(0, length_units);
-
-  CompositionFocusBytes result;
-  std::size_t byte = 0;
-  std::int64_t index = 0;
-  bool start_found = false;
-  while (true) {
-    if (!start_found && index >= start) {
-      result.start = static_cast<int>(byte);
-      start_found = true;
-    }
-    if (start_found && index >= end) {
-      result.end = static_cast<int>(byte);
-      return result;
-    }
-    if (byte >= text.size()) {
-      break;
-    }
-    const Utf8Step step = utf8_decode(text, byte);
-    byte += step.length;
-    ++index;
-  }
-  if (!start_found) {
-    result.start = static_cast<int>(text.size());
-  }
-  result.end = static_cast<int>(text.size());
-  return result;
-}
-
-// Clears every composition field back to "not composing" - shared by
-// text_field_cancel_composition(), a blur (text_field_set_focus(false)) and
-// a click/commit arriving mid-composition (text_field_click()/
-// text_field_insert()), none of which touch `text`/`cursor`/
-// `selection_anchor` themselves: composition never wrote to any of them, so
-// there is nothing to undo.
-void reset_composition_fields(Widget& widget) {
-  widget.composing = false;
-  widget.composition_text.clear();
-  widget.composition_focus_start = 0;
-  widget.composition_focus_length = 0;
-  widget.composition_replace_start = 0;
-  widget.composition_replace_end = 0;
-}
-
-// What the FOCUSED display branch of text_field_refresh_display() paints,
-// computed once rather than branched on `widget.composing` repeatedly
-// inline - split out for the same reason `dispatch_keyboard()` was split
-// out of the SDL3 backend's own `dispatch()`: clang-tidy's cognitive-
-// complexity budget. `highlight` is the user's own selection OR (while
-// composing) SDL's own "focused clause" range, mutually exclusive by
-// construction; `underline` is only set while composing, spanning the
-// WHOLE preedit.
-struct FocusedProjection {
-  std::string text;
-  int cursor = 0;
-  std::optional<TextSelection> highlight;
-  std::optional<TextSelection> underline;
-};
-
-FocusedProjection focused_display_projection(const Widget& widget) {
-  if (!widget.composing) {
-    FocusedProjection projection{widget.text, widget.cursor, std::nullopt, std::nullopt};
-    if (widget.selection_anchor.has_value() && *widget.selection_anchor != widget.cursor) {
-      projection.highlight = normalize_selection(widget.cursor, *widget.selection_anchor);
-    }
-    return projection;
-  }
-
-  // While composing (7-3), the DISPLAY splices the IME's
-  // not-yet-committed preedit into `widget.text` at the point composition
-  // began - `widget.text`/`cursor`/`selection_anchor` are never written by
-  // composition itself, only read here, exactly the same "paint-time
-  // projection, not a second copy" shape ellipsize() already has for
-  // `widget.text` itself.
-  FocusedProjection projection;
-  projection.text =
-      widget.text.substr(0, static_cast<std::size_t>(widget.composition_replace_start)) +
-      widget.composition_text +
-      widget.text.substr(static_cast<std::size_t>(widget.composition_replace_end));
-  projection.cursor = widget.composition_replace_start + widget.composition_focus_start;
-  if (widget.composition_focus_length > 0) {
-    const int start = widget.composition_replace_start + widget.composition_focus_start;
-    projection.highlight = TextSelection{start, start + widget.composition_focus_length};
-  }
-  projection.underline = TextSelection{
-      widget.composition_replace_start,
-      widget.composition_replace_start + static_cast<int>(widget.composition_text.size())};
-  return projection;
-}
-
 }  // namespace
 
 const std::string& WidgetSet::text_field_text(NodeId id) const {
   static const std::string kEmpty;
   const Widget* widget = find(id);
-  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->text : kEmpty;
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->edit.text
+                                                                        : kEmpty;
 }
 
 int WidgetSet::text_field_cursor(NodeId id) const {
   const Widget* widget = find(id);
-  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->cursor : 0;
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->edit.cursor : 0;
 }
 
 std::optional<TextSelection> WidgetSet::text_field_selection(NodeId id) const {
   const Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField ||
-      !widget->selection_anchor.has_value() || *widget->selection_anchor == widget->cursor) {
+  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
     return std::nullopt;
   }
-  return normalize_selection(widget->cursor, *widget->selection_anchor);
+  return text_edit::selection(widget->edit);
 }
 
 void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& fonts,
@@ -1171,7 +1003,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
 
   if (!focused) {
     widget.scroll_x = 0;
-    content_style.text = ellipsize(fonts, font, size, widget.text, visible_width);
+    content_style.text = ellipsize(fonts, font, size, widget.edit.text, visible_width);
     tree.set_text(widget.content, content_style);
     // The content child's own box must be wide enough to hold what it
     // paints - paint_text() clips to ITS OWN NODE's bounds, which is a different clip than the
@@ -1187,7 +1019,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
     return;
   }
 
-  const FocusedProjection projection = focused_display_projection(widget);
+  const text_edit::Projection projection = text_edit::display_projection(widget.edit);
 
   content_style.text = projection.text;
   const std::optional<Paragraph> para =
@@ -1234,7 +1066,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   // selection_highlight is dual-purpose while composing (7-3):
   // the user's OWN selection when not composing, or SDL_TextEditingEvent's
   // own "focused clause" range within the preedit when composing -
-  // focused_display_projection() above is where the two are told apart.
+  // text_edit::display_projection() is where the two are told apart.
   if (projection.highlight.has_value()) {
     const float start_x = para ? para->caret_x(projection.highlight->start) : 0.0F;
     const float end_x = para ? para->caret_x(projection.highlight->end) : 0.0F;
@@ -1268,180 +1100,68 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   }
 }
 
-bool WidgetSet::text_field_replace_range(RenderTree& tree, const FontCatalog& fonts, NodeId id,
-                                         Widget& widget, int lo, int hi,
-                                         std::string_view replacement) {
-  const int size = static_cast<int>(widget.text.size());
-  const int start = std::clamp(std::min(lo, hi), 0, size);
-  const int end = std::clamp(std::max(lo, hi), 0, size);
-  if (start == end && replacement.empty()) {
-    return false;
+TextEditState* WidgetSet::text_field_state(NodeId id) {
+  Widget* widget = find(id);
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? &widget->edit : nullptr;
+}
+
+bool WidgetSet::text_field_commit(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                  bool changed) {
+  if (changed) {
+    text_field_refresh_display(tree, fonts, id, *find(id), true);
   }
-  widget.text.replace(static_cast<std::size_t>(start), static_cast<std::size_t>(end - start),
-                      replacement);
-  widget.cursor = start + static_cast<int>(replacement.size());
-  widget.selection_anchor.reset();
-  text_field_refresh_display(tree, fonts, id, widget, true);
-  return true;
+  return changed;
 }
 
 bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                   std::string_view input) {
-  Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
-    return false;
-  }
-  // A REAL commit (7-3) - whether IME-sourced or an ordinary
-  // keystroke/paste, this is the one call that actually writes to the
-  // model. `widget->cursor`/`selection_anchor` were never touched while
-  // composing, so discarding the stale preview here and falling straight
-  // through to the unchanged logic below inserts/replaces at exactly the
-  // range that was already there when composition began - the commit path
-  // this slice was asked to verify, not add a parallel one to.
-  if (widget->composing) {
-    reset_composition_fields(*widget);
-  }
-  const std::string sanitized = sanitize_insertable_text(input);
-  if (widget->selection_anchor.has_value()) {
-    const TextSelection selection =
-        normalize_selection(widget->cursor, *widget->selection_anchor);
-    return text_field_replace_range(tree, fonts, id, *widget, selection.start, selection.end,
-                                    sanitized);
-  }
-  if (sanitized.empty()) {
-    return false;
-  }
-  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor, widget->cursor,
-                                  sanitized);
+  TextEditState* state = text_field_state(id);
+  return state != nullptr && text_field_commit(tree, fonts, id, text_edit::insert(*state, input));
 }
 
 bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
-  Widget* widget = find(id);
-  // Suppressed while composing (7-3): a real IME
-  // consumes Backspace itself for candidate/clause editing while it is
-  // active, so it never reaches this far in practice; simulating that here
-  // (rather than editing the committed model underneath an active preview)
-  // is what keeps the two from disagreeing about what is on screen.
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
-    return false;
-  }
-  if (widget->selection_anchor.has_value()) {
-    const TextSelection selection =
-        normalize_selection(widget->cursor, *widget->selection_anchor);
-    return text_field_replace_range(tree, fonts, id, *widget, selection.start, selection.end,
-                                    "");
-  }
-  if (widget->cursor <= 0) {
-    return false;
-  }
-  const int start = grapheme_step(grapheme_boundaries(widget->text), widget->cursor, true);
-  return text_field_replace_range(tree, fonts, id, *widget, start, widget->cursor, "");
+  TextEditState* state = text_field_state(id);
+  return state != nullptr && text_field_commit(tree, fonts, id, text_edit::backspace(*state));
 }
 
 bool WidgetSet::text_field_delete_forward(RenderTree& tree, const FontCatalog& fonts,
                                           NodeId id) {
-  Widget* widget = find(id);
-  // Suppressed while composing - the same rule text_field_backspace() above
-  // applies, for the identical reason.
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
-    return false;
-  }
-  if (widget->selection_anchor.has_value()) {
-    const TextSelection selection =
-        normalize_selection(widget->cursor, *widget->selection_anchor);
-    return text_field_replace_range(tree, fonts, id, *widget, selection.start, selection.end,
-                                    "");
-  }
-  const int size = static_cast<int>(widget->text.size());
-  if (widget->cursor >= size) {
-    return false;
-  }
-  const int end = grapheme_step(grapheme_boundaries(widget->text), widget->cursor, false);
-  return text_field_replace_range(tree, fonts, id, *widget, widget->cursor, end, "");
+  TextEditState* state = text_field_state(id);
+  return state != nullptr &&
+         text_field_commit(tree, fonts, id, text_edit::delete_forward(*state));
 }
 
 bool WidgetSet::text_field_move(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                 TextFieldMove move, bool extend_selection) {
-  Widget* widget = find(id);
-  // Suppressed while composing, matching text_field_backspace()'s own
-  // reasoning: arrow-key navigation belongs to the IME's own clause/
-  // candidate selection while it is active.
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
+  TextEditState* state = text_field_state(id);
+  // Suppressed while composing: arrow-key navigation belongs to the IME's
+  // own clause/candidate selection while it is active.
+  if (state == nullptr || state->composing) {
     return false;
   }
-  const int size = static_cast<int>(widget->text.size());
-  const int old_cursor = widget->cursor;
-  const std::optional<int> old_anchor = widget->selection_anchor;
-
-  // Plain (non-extending) Left/Right with an active selection collapses to
-  // the selection's near edge rather than moving from the cursor - matching
-  // every desktop toolkit. Home/End always jump to the absolute ends
-  // regardless of a selection, which is why only kCharLeft/kCharRight below
-  // consult `collapsing`.
-  const bool collapsing = !extend_selection && old_anchor.has_value();
-  const TextSelection current = collapsing ? normalize_selection(old_cursor, *old_anchor)
-                                           : TextSelection{old_cursor, old_cursor};
-
-  // Grapheme-cluster boundaries of the CURRENT text - the font-independent
-  // source kCharLeft/kCharRight step through (7-2b), computed once and
-  // reused by whichever case needs it rather than per-branch.
-  const std::vector<int> boundaries = grapheme_boundaries(widget->text);
-
-  // A returning switch inside an immediately-invoked lambda, rather than a
-  // single mutable local the switch assigns and `break`s out of: the
-  // earlier shape (one `int new_cursor;` assigned in every case) could not
-  // satisfy GCC and clang-tidy at once - GCC's `-O3` flow analysis wants an
-  // initializer (`cppcoreguidelines-init-variables` wants the same thing
-  // clang-tidy-side), but any initializer clang-tidy can see is never read
-  // is a dead store (`clang-analyzer-deadcode.DeadStores`) once every case
-  // below overwrites it. A `return` per case has no separate "initial
-  // value" for either check to disagree about.
-  const int new_cursor = [&] {
+  // A returning switch inside an immediately-invoked lambda keeps GCC's
+  // flow analysis and clang-tidy's dead-store check from disagreeing about
+  // an initial value.
+  const bool changed = [&] {
     switch (move) {
       case TextFieldMove::kCharLeft:
-        return collapsing ? current.start : grapheme_step(boundaries, old_cursor, true);
+        return text_edit::move_horizontal(*state, true, extend_selection);
       case TextFieldMove::kCharRight:
-        return collapsing ? current.end : grapheme_step(boundaries, old_cursor, false);
+        return text_edit::move_horizontal(*state, false, extend_selection);
       case TextFieldMove::kLineStart:
-        return 0;
+        return text_edit::set_cursor(*state, 0, extend_selection);
       case TextFieldMove::kLineEnd:
-        return size;
+        return text_edit::set_cursor(*state, static_cast<int>(state->text.size()),
+                                     extend_selection);
     }
     __builtin_unreachable();
   }();
-
-  if (extend_selection) {
-    if (!old_anchor.has_value()) {
-      widget->selection_anchor = old_cursor;
-    }
-  } else {
-    widget->selection_anchor.reset();
-  }
-  widget->cursor = new_cursor;
-
-  if (new_cursor == old_cursor && widget->selection_anchor == old_anchor) {
-    return false;
-  }
-  text_field_refresh_display(tree, fonts, id, *widget, true);
-  return true;
+  return text_field_commit(tree, fonts, id, changed);
 }
 
 bool WidgetSet::text_field_select_all(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
-  Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField || widget->composing) {
-    return false;
-  }
-  const int size = static_cast<int>(widget->text.size());
-  if (size == 0) {
-    return false;
-  }
-  if (widget->selection_anchor == 0 && widget->cursor == size) {
-    return false;
-  }
-  widget->selection_anchor = 0;
-  widget->cursor = size;
-  text_field_refresh_display(tree, fonts, id, *widget, true);
-  return true;
+  TextEditState* state = text_field_state(id);
+  return state != nullptr && text_field_commit(tree, fonts, id, text_edit::select_all(*state));
 }
 
 bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -1457,34 +1177,16 @@ bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, Nod
   // preview alive across it. Falls through and still positions the cursor
   // at the click, exactly as it would have with no composition in
   // progress.
-  if (widget->composing) {
-    reset_composition_fields(*widget);
-  }
+  text_edit::cancel_composition(widget->edit);
   const PixelRect field_bounds = tree.absolute_bounds(id);
   const TextStyle& content_style = tree.style(widget->content).text;
   const float local_x = static_cast<float>(pointer_x - field_bounds.x + widget->scroll_x);
   const std::optional<Paragraph> para =
-      build_edit_paragraph(fonts, content_style.font, content_style.size, widget->text);
+      build_edit_paragraph(fonts, content_style.font, content_style.size, widget->edit.text);
   const int offset =
-      para ? grapheme_offset_at_x(*para, grapheme_boundaries(widget->text), local_x) : 0;
-
-  const int old_cursor = widget->cursor;
-  const std::optional<int> old_anchor = widget->selection_anchor;
-
-  if (extend_selection) {
-    if (!widget->selection_anchor.has_value()) {
-      widget->selection_anchor = old_cursor;
-    }
-  } else {
-    widget->selection_anchor.reset();
-  }
-  widget->cursor = offset;
-
-  if (widget->cursor == old_cursor && widget->selection_anchor == old_anchor) {
-    return false;
-  }
-  text_field_refresh_display(tree, fonts, id, *widget, true);
-  return true;
+      para ? grapheme_offset_at_x(*para, grapheme_boundaries(widget->edit.text), local_x) : 0;
+  return text_field_commit(tree, fonts, id,
+                           text_edit::set_cursor(widget->edit, offset, extend_selection));
 }
 
 void WidgetSet::text_field_set_focus(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -1494,12 +1196,12 @@ void WidgetSet::text_field_set_focus(RenderTree& tree, const FontCatalog& fonts,
     return;
   }
   if (!focused) {
-    widget->selection_anchor.reset();
+    widget->edit.selection_anchor.reset();
     // Losing focus ends composition without committing it (7-3, doc/
     // ime.md section 6) - the identical rule Escape and a click already
     // apply, restated here because a blur can arrive with no key or click
     // of its own (a DIFFERENT field being focused instead).
-    reset_composition_fields(*widget);
+    text_edit::cancel_composition(widget->edit);
   }
   text_field_refresh_display(tree, fonts, id, *widget, focused);
 }
@@ -1507,64 +1209,31 @@ void WidgetSet::text_field_set_focus(RenderTree& tree, const FontCatalog& fonts,
 void WidgetSet::text_field_composition_update(RenderTree& tree, const FontCatalog& fonts,
                                               NodeId id, std::string_view text, int start_units,
                                               int length_units) {
-  Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField) {
-    return;
+  TextEditState* state = text_field_state(id);
+  if (state != nullptr) {
+    text_field_commit(tree, fonts, id,
+                      text_edit::composition_update(*state, text, start_units, length_units));
   }
-  const std::string sanitized = sanitize_insertable_text(text);
-  if (sanitized.empty()) {
-    // SDL's own convention: an empty preedit means composition ended
-    // WITHOUT a commit - a real commit is always a separate, later
-    // text_field_insert() call. Identical to an explicit cancellation, so
-    // this reuses it rather than duplicating the reset.
-    text_field_cancel_composition(tree, fonts, id);
-    return;
-  }
-  if (!widget->composing) {
-    // Composition START: capture the anchor ONCE from whatever
-    // selection/cursor the model already has - never re-derived from it
-    // again while composing (composition must
-    // never touch `cursor`/`selection_anchor` itself, so a later real
-    // commit through text_field_insert() replaces exactly this range).
-    const std::optional<int> anchor = widget->selection_anchor;
-    if (anchor.has_value() && *anchor != widget->cursor) {
-      const TextSelection selection = normalize_selection(widget->cursor, *anchor);
-      widget->composition_replace_start = selection.start;
-      widget->composition_replace_end = selection.end;
-    } else {
-      widget->composition_replace_start = widget->cursor;
-      widget->composition_replace_end = widget->cursor;
-    }
-    widget->composing = true;
-  }
-  widget->composition_text = sanitized;
-  const CompositionFocusBytes bytes =
-      composition_focus_bytes(sanitized, start_units, length_units);
-  widget->composition_focus_start = bytes.start;
-  widget->composition_focus_length = bytes.end - bytes.start;
-  text_field_refresh_display(tree, fonts, id, *widget, true);
 }
 
 void WidgetSet::text_field_cancel_composition(RenderTree& tree, const FontCatalog& fonts,
                                               NodeId id) {
-  Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kTextField || !widget->composing) {
-    return;
+  TextEditState* state = text_field_state(id);
+  if (state != nullptr) {
+    text_field_commit(tree, fonts, id, text_edit::cancel_composition(*state));
   }
-  reset_composition_fields(*widget);
-  text_field_refresh_display(tree, fonts, id, *widget, true);
 }
 
 bool WidgetSet::text_field_is_composing(NodeId id) const {
   const Widget* widget = find(id);
-  return widget != nullptr && widget->kind == WidgetKind::kTextField && widget->composing;
+  return widget != nullptr && widget->kind == WidgetKind::kTextField && widget->edit.composing;
 }
 
 const std::string& WidgetSet::text_field_composition_text(NodeId id) const {
   static const std::string kEmpty;
   const Widget* widget = find(id);
   return (widget != nullptr && widget->kind == WidgetKind::kTextField)
-             ? widget->composition_text
+             ? widget->edit.composition_text
              : kEmpty;
 }
 

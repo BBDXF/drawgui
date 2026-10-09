@@ -96,8 +96,8 @@ NodeId add_field(dg::LayoutTree& tree, dg::WidgetSet& widgets, dg::ActionScopes&
   widget.caret = caret;
   widget.selection_highlight = highlight;
   widget.composition_underline = underline;
-  widget.text = initial;
-  widget.cursor = static_cast<int>(initial.size());
+  widget.edit.text = initial;
+  widget.edit.cursor = static_cast<int>(initial.size());
   widgets.attach(field, widget);
 
   // 8-4: this field scopes its own clipboard actions onto itself, the

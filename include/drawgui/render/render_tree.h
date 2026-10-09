@@ -771,6 +771,11 @@ class RenderTree {
   // when asked to show what damage tracking is worth.
   RepaintStats repaint_full(RasterSurface& surface);
 
+  // How many live nodes currently hold a cached wrapped-paragraph layout -
+  // a debug/test probe for the paint-side paragraph cache
+  // (doc/limitations.md A1), not something an application needs.
+  [[nodiscard]] std::size_t paragraph_cache_size() const;
+
  private:
   struct Impl;
 

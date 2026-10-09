@@ -205,6 +205,7 @@ add_library(drawgui STATIC
   src/widget/focus.cpp
   src/widget/interaction.cpp
   src/widget/tooltip.cpp
+  src/widget/text_edit.cpp
   src/widget/widget_set.cpp)
 
 if(DRAWGUI_HAVE_SDL3)

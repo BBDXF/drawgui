@@ -772,7 +772,7 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
 // copy/cut/paste/select_all), never a caret move or a delete, so there is
 // no ActionId for route_key_event() to resolve one of these keys to.
 // Returns whether `field`'s COMMITTED TEXT changed (Backspace/Delete only -
-// a plain move never touches Widget::text), which is what tells the caller
+// a plain move never touches Widget::edit.text), which is what tells the caller
 // whether to queue a DG_EVENT_TEXT_CHANGED.
 bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::NodeId field,
                            const dg::KeyEvent& event) {

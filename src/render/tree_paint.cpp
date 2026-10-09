@@ -114,7 +114,8 @@ void RenderTree::Impl::paint_node_and_children(const PaintPass& pass,
 
   const bool wanted = !pass.region.has_value() || intersects(visible, *pass.region);
   if (wanted) {
-    detail::paint_node(*pass.canvas, node.absolute, node.style, pass.fonts, pass.images);
+    detail::paint_node(*pass.canvas, node.absolute, node.style, pass.fonts, pass.images,
+                       &node.paragraph_cache);
     ++pass.stats->nodes_drawn;
   }
 

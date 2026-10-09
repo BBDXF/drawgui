@@ -233,4 +233,30 @@ sk_sp<SkFontMgr> FontAccess::font_manager(const FontCatalog& catalog) {
   return catalog.impl_->manager;
 }
 
+sk_sp<skia::textlayout::FontCollection> FontAccess::paragraph_collection(
+    const FontCatalog& catalog) {
+  sk_sp<skia::textlayout::FontCollection>& collection = catalog.impl_->paragraph_collection;
+  if (collection) {
+    return collection;
+  }
+  collection = sk_make_sp<skia::textlayout::FontCollection>();
+  // ASSET, not "default": FontCollection only consults its "default" manager
+  // for automatic fallback search (defaultFallback()/defaultEmojiFallback()),
+  // never for an explicit family-name lookup - findTypefaces() walks asset,
+  // dynamic and test managers instead. Every paragraph run names an explicit
+  // family (paragraph_runs.h), so this is the manager that has to be
+  // registered here, not the other one.
+  collection->setAssetFontManager(catalog.impl_->manager);
+
+  // No FontCollection-driven fallback search: every run already names its
+  // own family, resolved by FontCatalog::resolve() the same way the plain
+  // SkFont paint path resolves it (paragraph_runs.h). Leaving fallback
+  // enabled would ask this project's SkFontMgr for
+  // matchFamilyStyleCharacter(), which this project already measured as
+  // always null here - so it would find nothing SkParagraph's own search
+  // could not, and would cost a search on every run for it.
+  collection->disableFontFallback();
+  return collection;
+}
+
 }  // namespace dg
