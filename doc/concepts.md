@@ -17,6 +17,16 @@
 
 细节和取舍见 `doc/guide/widgets.md`。
 
+**后续更新：在这两棵树之上还有一层 C++ 运行时。** `dg::App`/`dg::Window`
+（公开头文件 `include/drawgui/app/`，实现 `src/app/`）把「建节点 + 附加
+`Widget` + 默认样式 + 组件组合 + 事件泵 + 绘制」打包成
+`window.create(dg::NodeKind::kButton, parent)` 这样的调用，C ABI（`src/abi/`）
+只是它上面的一层薄壳。所以分层是：`render`/`layout`/`widget`/`ui`/`window`
+等底层模块 → `app` 运行时 → `abi`。运行时内部仍然是上面描述的「两棵树 +
+侧表」，没有引入 widget 树；需要时可以经 `dg::Window` 的 escape hatch
+（`layout()`、`widgets()` 等）直接拿到它们，约定见
+[`doc/contracts.md`](contracts.md) 第 9 条。参考见 `doc/guide/app.md`。
+
 ## 2. 侧表模式
 
 `WidgetSet` 不是特例，是这个引擎的通用模式。以下都是按 `NodeId` 索引的
@@ -42,8 +52,8 @@
 ## 3. 属性是数字，不是字段
 
 节点的视觉/布局属性不是 C++ 结构体字段，而是通过一个 `uint16_t`
-（`dg_prop_id`）寻址的通道：`set_prop(node, id, PropValue)`。目前有 52 个
-属性，从 `DG_PROP_WIDTH`(1) 到 `DG_PROP_DISABLED`(52)
+（`dg_prop_id`）寻址的通道：`set_prop(node, id, PropValue)`。目前有 68 个
+属性，从 `DG_PROP_WIDTH`(1) 到 `DG_PROP_IMAGE_TINT`(68)
 （`include/drawgui/abi/drawgui.h` 里的 `DG_PROP_*` 宏）。
 
 这么做是为了 ABI 稳定：id 从 `props/drawgui.props.toml` 生成，被
@@ -62,7 +72,7 @@
 矩形覆盖的区域，不是整帧重画。
 
 `DamageRegion` 对矩形数量有上限（`TreeSpec::max_damage_rects`，默认 8，
-`include/drawgui/render/damage.h:39`、`render_tree.h:538`）。超过这个数量
+`include/drawgui/render/damage.h:39`、`render_tree.h:554`）。超过这个数量
 时，多块脏矩形会被合并成更大的一块——这会导致「明明只改了一个像素，
 观察到的却是半屏重绘」。**这是设计好的行为，不是 bug**：合并成一块矩形
 比维护任意多块矩形要便宜，超过阈值时"过度重绘一点"换"damage 追踪本身
@@ -92,7 +102,7 @@ token，如果是，这是预期行为。
 `dg::Paragraph::build()` 测量出来**，再拿这个测量结果去构造节点——而不是
 先建节点、让引擎去反算文本占多高。
 
-依据：`include/drawgui/render/render_tree.h:128-140` 附近的注释——这是有意
+依据：`include/drawgui/render/render_tree.h:115-123` 附近的注释——这是有意
 的设计，跟 `ImageStyle` 的处理方式一致：一个盒子必须先知道自己的尺寸，
 内容才能在这个尺寸内被解析，顺序不能反过来。
 
@@ -115,7 +125,7 @@ token，如果是，这是预期行为。
 多态一律靠 `switch` 在少数几个已知类型（`WidgetKind`、`dg_node_type` 等）
 上分发，不是靠抽象基类 + 虚函数。
 
-`include/drawgui/widget/widget_set.h:47` 附近的注释记录了被拒绝的方案：
+`include/drawgui/widget/widget_set.h:50` 附近的注释记录了被拒绝的方案：
 一个带虚 `paint()` 的抽象 `IWidget` interface——这类"提前抽象"在这个项目
 里的一贯做法是拒绝，接口只从至少一个已经跑起来的实现里提炼，不会先写
 接口再补实现。
@@ -128,5 +138,5 @@ token，如果是，这是预期行为。
   [`doc/guide/`](guide/)
 - 属性 id、token id、action id、C ABI 函数的完整清单：
   [`doc/reference/`](reference/)
-- 已知的能力边界（比如 `transform` 属性、C ABI 只有五种节点类型的限制）：
+- 已知的能力边界（比如 `transform` 属性的限制）：
   [`doc/limitations.md`](limitations.md)

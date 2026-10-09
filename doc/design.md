@@ -115,6 +115,13 @@ package，直接消解了这个问题，而不是靠"记录确切 tag"的纪律�
 > 唯一实现，README 明确记录了这一决定：抽象要从至少一个已验证工作的实现里
 > 提炼，不为一个还不存在的第二个后端预先搭建；「Widget」层今天是 9 个
 > `WidgetKind`，不是「30+ 控件」。
+>
+> **后续更新（2026-10）**：`WidgetKind` 现为 11 个（新增 `Scrollbar`、`TextArea`），
+> 另有一层库组件 `include/drawgui/ui/`（Menu/Dropdown/Tooltip/Dialog/
+> ProgressBar/Tabs/TreeView/Table）。图中没有的一层也已落地：C ABI 之下、
+> 底层模块之上的 C++ 运行时 `dg::App`/`dg::Window`（`include/drawgui/app/`、
+> `src/app/`），C ABI（`src/abi/`）现在只是它上面的一层薄壳，`ctest` 的
+> `app.no_c_abi` 保证运行时不反向依赖 `drawgui.h`。JS/语言绑定两层仍未开始。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -689,6 +696,10 @@ MVP 阶段的八个控件就是用来验证这条的。
 > 既不是"MVP 八个"（`Box`/`Row`/`Column`/`Image` 未建成，`Checkbox`/`Slider`/
 > `Dropdown` 却已建成），也远未到"完整目标集约 30 个"。验收标准本身
 > （新增控件不应需要新增 RenderObject）依然是判断"何时该止步"的有效标尺。
+>
+> **后续更新（2026-10）**：上面"9 个"已过时——现为 11 个 `WidgetKind`（另加
+> `Scrollbar`/`TextArea`），菜单、对话框、tooltip、进度条、标签页、树、表格
+> 作为 `include/drawgui/ui/` 的组合组件存在，而不是新的 `WidgetKind`。
 
 ### 5.7 Theme 层
 
@@ -1795,6 +1806,12 @@ int dg_set_log_callback(dg_app_t*, dg_log_cb, void* user, uint8_t min_level);
 > 的说明：SDL3 是唯一后端，抽象接口要等第二个后端出现才抽取）。`abi/
 > drawgui.d.ts` 确实存在，但它是给 P6 未来 JS 绑定用的生成产物，今天没有任何
 > 构建目标读取它。
+>
+> **后续更新（2026-10）**：下图之后新增了 `include/drawgui/app/` + `src/app/`
+> （C++ 运行时 `dg::App`/`dg::Window`，C ABI 的下层）、`include/drawgui/ui/` +
+> `src/ui/`（库组件）；`examples/` 现为 29 个（`00`–`28`）；`cmake/` 下另有
+> `Generate{Props,Theme,Abi,Shortcuts}.cmake`、`CheckAppNoAbi.cmake` 与 ASan
+> 构建用的 `skia_uninstrumented_asan.h`。下图本身未改，按此对照阅读。
 
 ```
 drawgui/
@@ -1847,6 +1864,21 @@ drawgui/
 | **P8** 移动端 | Android/iOS 宿主 + 生命周期 + 触摸 | 单个示例在真机跑通 |
 
 依赖关系：P2/P3 可与 P1 后半程并行；P4 依赖 P1+P3；P5 依赖 P3+P4；P6 依赖 P5。
+
+**后续更新（2026-10，路线图现状）**：上表保留原始设想，实际状态如下——
+- P0–P3：已完成（CPU raster 路径；`FetchSkia.cmake` 已被 `FetchSkia2.cmake` 取代）；
+  P1 的 `IPlatform`/`IWindow` 抽象与 Skia GL/GrDirectContext 未建（SDL3 单后端 + CPU
+  raster，见 §5.1 追记）。
+- P4：已完成，验收标准按下文变更（overlay-only `PopupHost`）；手势竞技场未建。
+- P4.5：动画时钟与隐式过渡已建；惯性/回弹滚动未建。
+- P5：已完成并超出原范围——C ABI 0.2 覆盖容器、文本、表单控件、列表、菜单/下拉/
+  tooltip/对话框/进度条/标签页/树/表格等；`examples/19_c_client` 即"纯 C 双窗口响应
+  点击"的验收示例。ABI 底下新增了公开的 C++ 运行时 `dg::App`（不在原路线图中）。
+- P6：**仍未开始**（无 `js/` 目录，`abi/drawgui.d.ts` 无消费者）。
+- P7：部分——外部 theme package 与热重载（`src/theme/theme_package.cpp`）、图片/SVG
+  图标已建；IME 的预编辑（preedit）会在聚焦的编辑器内预览、提交走 `text_input`（`src/app/pump.cpp`），中文输入的真机验证未记录；Windows/macOS 验证与三平台 CI 未做
+  （CI 只跑 `ubuntu-latest`）。
+- P8：未开始。
 
 **验收标准变更记录（P4，记录在已移除的开发切片文档 §11 中，见 git 历史）**：原表述「右键菜单以真 OS 窗口弹出
 并超出父窗口边界」实际上是两个独立要求的合取，而它们各自的达成情况不同——不是

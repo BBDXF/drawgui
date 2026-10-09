@@ -132,6 +132,19 @@ sudo apt-get install -y libfontconfig1-dev
    第 2 步同一次 `python3 tools/gen_theme.py` 调用顺带重新生成的内建主题
    嵌入文件（`include/drawgui/theme/builtin_theme.generated.h`）一起提交。
 
+## 新增一个快捷键动作 / C ABI 函数
+
+另外两族生成代码走同一个“唯一真源 → 生成 → 锁”流程：
+
+| 族 | 真源 | 生成 | 锁 | ctest 关卡 |
+| --- | --- | --- | --- | --- |
+| 快捷键/动作 | `input/shortcuts.toml` | `python3 tools/gen_shortcuts.py`（`include/drawgui/shortcuts/*.generated.h`、`src/shortcuts/*.generated.inc`、`doc/reference/shortcuts.generated.md`） | `python3 tools/shortcut_lock.py --write` → `input/action_ids.lock` | `shortcuts.no_drift`、`shortcuts.abi_lock`、`shortcuts.lock_selftest` |
+| C ABI | `abi/drawgui.def.toml`（另读 `props/drawgui.props.toml`） | 由构建经 `cmake/GenerateAbi.cmake` 调用 `tools/gen_abi.py`（`include/drawgui/abi/drawgui.h`、`src/abi/drawgui_abi.generated.cpp`、`abi/drawgui.d.ts`） | `python3 tools/abi_lock.py --write` → `abi/drawgui_abi.lock` | `abi.no_drift`、`abi.abi_lock` |
+
+规则和属性一样：追加、不复用、不手改生成文件、真源 + 生成文件 + 锁同一个提交。
+注意新增属性也会改动 `drawgui.h`（`DG_PROP_*` 宏），所以加属性后也要让
+`abi.no_drift` 通过。
+
 ## C++ 运行时（`src/app`）与 C ABI（`src/abi`）
 
 窗口里的一切行为——节点创建与默认样式、组件（下拉框、标签页、树、表格、
@@ -224,8 +237,11 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-`ctest` 会把属性/主题/ABI 的相关检查（`props.*`、`theme.*`、`abi.*`）和
-golden-image 测试一起跑掉。CI 的 `build` job 跑的就是这三条命令；另有一个
+`ctest` 会把单元测试（`unit`）、`layout.incremental_equals_full`、
+`widgets.interaction_equals_full`、golden-image 测试（`golden.scenes`），以及
+生成代码/锁的检查（`props.*`、`theme.*`、`abi.*`、`shortcuts.*`）和
+`app.no_c_abi`（`cmake/CheckAppNoAbi.cmake`）一起跑掉——完整清单见
+`tests/CMakeLists.txt` 里的 `add_test`。CI 的 `build` job 跑的就是这三条命令；另有一个
 不需要构建的 `generated` job 直接跑属性和快捷键的 `--check`/selftest 脚本，
 所以属性或快捷键方面过期或破坏契约的提交不必等构建就会失败。
 
@@ -282,6 +298,15 @@ Release 构建依然有用,依然带着行号,因为 `DG_SANITIZE` 无论
 interface target 上,和 `drawgui_warnings` 挨着,只应用于第一方 target。
 Skia 是一个没有插桩的预编译归档文件;ASan 设计上就是要和未插桩代码链接
 在一起的,所以这能工作,但也意味着 `libskia.a` 内部的缺陷在这里是不可见的。
+
+`DG_SANITIZE=ON` 时，第一方 C++ 代码还会经 `-include` 强制包含
+`cmake/skia_uninstrumented_asan.h`（根 `CMakeLists.txt` 里挂在
+`drawgui_sanitizers` 上）。原因：Skia 的 `include/private/SkASAN.h` 只看
+**包含它的**翻译单元是否插桩，插桩时会让 `skia_private::TArray` 多出一个
+`fPoisoned` 成员，从而改变 `sizeof(TArray)` 和所有内嵌它的 Skia 类布局——
+而预编译归档是不插桩编译的，两边布局不一致会被 ASan 报成越界读（例如
+`SkSVGSVG::getViewBox()`）。这个头抢先占住 `SkASAN.h` 的 include guard，
+让 Skia 头文件看到与归档一致的配置。不要删它，也不要把它挪进普通构建。
 
 编译行和链接行拿到的是同一份 flag 列表。一个用 `-fsanitize=address`
 编译、却没有用它链接的 target 会因为未定义的 `__asan_*` 符号而失败——

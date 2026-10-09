@@ -6,6 +6,8 @@
 
 **最可靠的做法：不要凭这份文档里的描述从零写主循环，直接照抄 `examples/` 里的循环结构**，尤其是 `examples/08` 之后涉及 resize、overlay、焦点的例子。这份文档的作用是让你在偏离 example 写法时知道自己在动哪条约定。
 
+（后续更新：第 1–8 条针对的是直接使用底层 `WindowManager`/`LayoutTree`/`PopupHost` 自己写主循环的情况。用 C++ 运行时 `dg::App`/`dg::Window` 或 C ABI 时，这些都由 `src/app/` 承担，调用方只需遵守第 9 条的 escape hatch 约定。）
+
 ---
 
 ## 1. resize 之后必须用 `drawable_size()` 重建 surface，不能用 `WindowSpec` 里的旧尺寸
@@ -14,7 +16,7 @@
 
 **不做会怎样**：窗口被拖拽缩放后，继续用创建窗口时的 `WindowSpec` 尺寸分配 surface，会导致新一帧按旧尺寸光栅化——要么画面被拉伸/裁切，要么在 `present()` 里因尺寸不匹配而越界写入。这正是 commit `8ff1f4e` 修复前 5 个 example 里实际发生过的问题。
 
-**依据**：`include/drawgui/window/window_manager.h:430-435`（`needs_repaint` 字段注释：“the only correct response to either is the same: ask for the drawable size again”）；修复提交 `8ff1f4e`。
+**依据**：`include/drawgui/window/window_manager.h:440-445`（`needs_repaint` 字段注释：“the only correct response to either is the same: ask for the drawable size again”）；修复提交 `8ff1f4e`。
 
 **正确写法**：
 ```cpp
@@ -34,7 +36,7 @@ for (const WindowId id : frame.needs_repaint) {
 
 **不做会怎样**：resize 改变了每个控件的位置，如果先处理同一批里的指针事件，会拿旧布局做命中测试——点击位置和实际显示的控件对不上，通常是点偏或点空。
 
-**依据**：`include/drawgui/window/window_manager.h:441-443`。
+**依据**：`include/drawgui/window/window_manager.h:451-453`。
 
 **正确写法**：按 `WindowManager::pump()` 返回结构体里字段声明的顺序处理：`closed`/`close_requested` → `needs_repaint` → `pointer` → `key`/`text_input`/`text_editing`。
 
@@ -46,7 +48,7 @@ for (const WindowId id : frame.needs_repaint) {
 
 **不做会怎样**：`repaint_full()` 会清空累积的 damage（它自己的文档注释这么说），紧接着如果用“检查 damage 是否非空”的守卫来决定是否 present，会因为 damage 刚被清空而判定“无需 present”，于是第一帧完全没有画面——直到第一次真实的鼠标移动产生新的 damage，窗口才会恢复正常显示。这是 `35b7c54` 修复前的实际 bug，`tests/unit/test_first_frame_present.cpp` 是它的回归测试。
 
-**依据**：`src/render/render_tree.cpp:413-418`（`repaint_full()` 用整个视口构造 damage 后立即 `retire_damage()`，清空累积 damage）；`tests/unit/test_first_frame_present.cpp`；提交 `35b7c54`、`a758cd3`。
+**依据**：`src/render/render_tree.cpp:467-474`（`repaint_full()` 用整个视口构造 damage 后立即 `retire_damage()`，清空累积 damage）；`tests/unit/test_first_frame_present.cpp`；提交 `35b7c54`、`a758cd3`。
 
 **正确写法**：
 ```cpp
@@ -64,7 +66,7 @@ windows.present(id, image, full_rect);   // 无条件 present，不要查 damage
 
 **不做会怎样**：不测量直接给一个随意高度，要么文字被裁切，要么留出大片空白——布局树不知道这段文字实际排出来是几行。
 
-**依据**：`include/drawgui/render/render_tree.h:128-140`（“A wrapping node's HEIGHT is not derived here … that stays the caller's job … a box must know its own size before its content is resolved, never the other way around”）；`doc/guide/text.md`。
+**依据**：`include/drawgui/render/render_tree.h:115-123`（“A wrapping node's HEIGHT is not derived here … that stays the caller's job … a box must know its own size before its content is resolved, never the other way around”）；`doc/guide/text.md`。
 
 **正确写法**：
 ```cpp
@@ -103,7 +105,7 @@ tree.set_local_bounds(node, {x, y, max_width, measured.height});      // 再定�
 
 **不做会怎样**：**完全静默**——`FontCatalog::holds(FontId)` 返回 false 时，`build_paragraph()`/`paragraph_runs` 直接返回空，不抛异常、不打日志，画面上该有文字的地方什么都没有。这是最难排查的一类问题，因为没有任何报错信号。
 
-**依据**：`include/drawgui/render/render_tree.h:101-103`；`src/render/paragraph_build.cpp:45`（`if (text.text.empty() || !fonts.holds(text.font) || text.size <= 0.0F) return nullptr;`）；`src/render/paragraph_runs.cpp:9`。
+**依据**：`include/drawgui/render/render_tree.h:541-545`（`TreeSpec::fonts`）；`src/render/paragraph_build.cpp:58`（`if (text.text.empty() || !fonts.holds(text.font) || text.size <= 0.0F) return nullptr;`）；`src/render/paragraph_runs.cpp:9`。
 
 **正确写法**：在事件循环、任何节点构造之前完成：
 ```cpp
@@ -138,11 +140,27 @@ dg::remove_subtree(render_tree, node_id, {...同上...});
 
 ---
 
+## 9. 经 `dg::Window` 的 escape hatch 直接改底层对象时的约定
+
+**背景**：用 C++ 运行时 `dg::App`/`dg::Window`（`include/drawgui/app/`）时，上面第 1–3、5–8 条里的主循环、overlay、焦点、删除节点都由运行时（`src/app/`）替你做了。但 `dg::Window` 还暴露了一组 escape hatch：`layout()`、`widgets()`、`focus_state()`、`interaction()`、`theme_bindings()`、`animation()`、`action_scopes()`、`popups()`，直接返回运行时驱动的那些对象。
+
+**做什么**：
+- 只在两次 `pump()` 之间读写它们；读永远安全。
+- 只写运行时**不负责组合**的节点（自己经 `layout()` 建在 `kBox` 下的节点，或 `create()` 节点自身的样式），写完调用 `window.invalidate(node)`，让下一次 `pump()` 重新布局并重绘该子树。
+- 删除/移动 `create()` 出来的节点或组件的组合子节点，只能用 `Window::remove()`/`move()`，不能通过 escape hatch 直接 `remove_subtree()`/`move_child()`。
+- 不要在 `App::destroy_window()` 之后继续持有任何 escape hatch 返回的引用。
+
+**不做会怎样**：运行时自己的记录（节点种类、组合子节点、`on_removed()` 回调）会和树对不上，变成悬空记录；对组合子节点或主题绑定属性的直接写入会在下一次 restyle/resize 时被运行时重新推导而**静默覆盖**；`destroy_window()` 之后的引用全部悬空。
+
+**依据**：`include/drawgui/app/window.h` 的 “Escape hatches” 注释块（“The contract: …”）；`include/drawgui/app/app.h` 中 `destroy_window()` 的注释。
+
+---
+
 ## 给「改动者」而非「调用方」的一条约束
 
 以下这条不是给使用这个库的人的义务，是给**修改这个库本身**的人的：如果将来有人打算用 `LayoutTree::add_child()`（而不是现在的 `RenderTree::add_child()`）来挂载 overlay 容器，"overlay 打开期间可以安全 `layout()`" 这条安全性会立刻失效。
 
-原因：`LayoutTree::Impl::run()` 的脏节点遍历只沿 `LayoutNode::children` 走（`src/layout/layout_tree.cpp` 的 `dirty`/`run()` 逻辑），而 overlay 容器目前只通过 `RenderTree::add_child()` 挂树，从未进入任何 `LayoutNode::children` 列表，因此永远不会被 `apply_bounds()` 遍历、覆写。这不是巧合设计出的“不需要管”，是两条不同挂树路径导致的偶然安全——一旦挂树方式改成走 `LayoutTree::add_child()`，容器就会被纳入布局遍历，`layout()` 会覆写它的 bounds。`examples/25_showcase/showcase_check.cpp:225` 附近的断言是这条安全性的回归测试；改动挂树路径前必须先确认这个测试还有意义。
+原因：`LayoutTree::Impl::run()` 的脏节点遍历只沿 `LayoutNode::children` 走（`src/layout/layout_tree.cpp` 的 `dirty`/`run()` 逻辑），而 overlay 容器目前只通过 `RenderTree::add_child()` 挂树，从未进入任何 `LayoutNode::children` 列表，因此永远不会被 `apply_bounds()` 遍历、覆写。这不是巧合设计出的“不需要管”，是两条不同挂树路径导致的偶然安全——一旦挂树方式改成走 `LayoutTree::add_child()`，容器就会被纳入布局遍历，`layout()` 会覆写它的 bounds。（`src/window/popup_host.cpp` 里 `show()` 用的就是 `parent_tree.add_child(RenderTree::root(), …)`。）目前**没有**专门钉住这条安全性的回归测试（原先引用的 `showcase_check.cpp` 断言随示例重写已不存在）；改动挂树路径时必须自己补一个“overlay 打开期间 `layout()` 后容器 bounds 不变”的测试。
 
 ---
 
