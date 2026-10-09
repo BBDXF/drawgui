@@ -81,6 +81,7 @@ add_executable(drawgui_unit_test
   unit/test_props_damage.cpp
   unit/test_complex_props.cpp
   unit/test_image.cpp
+  unit/test_image_formats.cpp
   unit/test_animation.cpp
   unit/test_theme.cpp
   unit/test_theme_package.cpp
@@ -163,7 +164,8 @@ set(DRAWGUI_SYSTEM_FONT_DIR "/usr/share/fonts"
 
 target_compile_definitions(drawgui_unit_test PRIVATE
   DG_TEST_FONT_DIR="${DRAWGUI_TEST_FONT_DIR}"
-  DG_SYSTEM_FONT_DIR="${DRAWGUI_SYSTEM_FONT_DIR}")
+  DG_SYSTEM_FONT_DIR="${DRAWGUI_SYSTEM_FONT_DIR}"
+  DG_TEST_FIXTURE_DIR="${CMAKE_CURRENT_LIST_DIR}/fixtures")
 
 add_dependencies(drawgui_unit_test drawgui_test_fonts)
 

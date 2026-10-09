@@ -321,7 +321,26 @@ style.image.placeholder = Color::from_argb(0xFF3A4152);  // source 无效时画�
 tree.add_child(parent, box, style);
 ```
 
-只支持**位图**（BMP/GIF/ICO/JPEG/PNG/WBMP），**不支持 SVG，也没有九宫格（nine-patch）拉伸**。`ImageCatalog::decode()` 是同步解码，没有异步/线程池。
+**支持的格式**：位图 PNG / JPEG / WebP（Skia 预编译包里注册并经测试的三种解码器），以及 SVG 矢量图标。
+
+| 入口 | 行为 |
+|---|---|
+| `decode(bytes, size)` | **只解位图**（PNG/JPEG/WebP，按内容嗅探），**永不解析 SVG**——主题包把不可信资源字节送到这里，见 `theming.md` 的安全决定 |
+| `decode_any(bytes, size, SvgOptions{})` | 格式无关：去掉 BOM/空白后以 `<` 开头的当 SVG，其余走 `decode()`。用于应用自带的可信资源 |
+| `decode_svg(bytes, size, SvgOptions{})` | 明确按 SVG 解析 |
+| `decode_file(path, SvgOptions{})` | 读文件后交给 `decode_any()` |
+
+```cpp
+// 单色图标 + 着色：保留图标自身的覆盖率/alpha，所有颜色替换为 tint
+Expected<ImageId, ImageError> icon =
+    images.decode_file("icons/plus.svg", SvgOptions{.tint = Color::rgba(0x4F, 0xC3, 0xF7)});
+style.image.source = icon.value_or(ImageId{});
+style.image.fit = ImageFit::kContain;
+```
+
+SVG 的处理方式：**绘制时按节点尺寸直接画矢量**（`SkSVGDOM::render` + 缩放），不做栅格缓存——任何节点尺寸、任何 DPI 下都清晰，节点改尺寸不需要重新栅格化，代价是每次绘制都走一遍矢量绘制（图标场景足够便宜）。`pixel_size()` 对 SVG 返回其固有尺寸（`width`/`height` 属性，没有则取 `viewBox`），fit 模式按它计算；没有正的固有尺寸的 SVG 会被拒绝。`tint` 按目录条目固定，同一个 SVG 要两种颜色就解码两次（只是一个解析好的 DOM，不是位图）。`ImageCatalog::is_vector(id)` 可区分两类条目。
+
+**没有九宫格（nine-patch）拉伸**。所有解码都是同步的，没有异步/线程池。参考：`examples/13_image`（第六个面板是着色的 SVG 图标）、`tests/unit/test_image_formats.cpp`。
 
 ### ★ dropdown / 右键菜单 / tooltip / 对话框 —— 这些是「配方」，不是「控件」
 

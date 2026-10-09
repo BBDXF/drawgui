@@ -18,14 +18,22 @@
 namespace dg {
 
 struct ImageAccess {
-  // Null when `id` names nothing in `catalog`, including the zero id. The
+  // The decoded bitmap; null for an SVG entry. Null when `id` names nothing in `catalog`, including the zero id. The
   // caller draws the placeholder (or nothing) rather than substituting an
   // image, matching FontAccess::typeface()'s "no id, no font" contract.
   [[nodiscard]] static sk_sp<SkImage> image(const ImageCatalog& catalog, ImageId id) {
     if (!catalog.holds(id)) {
       return nullptr;
     }
-    return catalog.impl_->images[id.value - 1];
+    return catalog.impl_->images[id.value - 1].bitmap;
+  }
+
+  // The whole entry (bitmap or SVG), or null when `id` names nothing here.
+  [[nodiscard]] static const ImageEntry* entry(const ImageCatalog& catalog, ImageId id) {
+    if (!catalog.holds(id)) {
+      return nullptr;
+    }
+    return &catalog.impl_->images[id.value - 1];
   }
 };
 

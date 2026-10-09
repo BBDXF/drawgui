@@ -149,6 +149,17 @@ int run(std::ostream& out) {
                 image_scene::kPlaceholderColor, "placeholder", out, ok);
   }
 
+  // SVG icon: 24x24 contained in 96x96 -> scale 4. The centre (12,12) is on
+  // the tinted cross; (8,8) in icon units -> (32,32) is inside the ring but
+  // off the cross, so it shows the frame fill.
+  {
+    const PixelRect box = scene.tree.bounds(scene.handles.icon_panel);
+    check_pixel(view, box.left() + 48, box.top() + 48, image_scene::kIconTint, "svg cross", out,
+                ok);
+    check_pixel(view, box.left() + 32, box.top() + 32, image_scene::kFrameFill, "svg hole", out,
+                ok);
+  }
+
   out << "  fit-mode pixel oracle: " << (ok ? "PASS" : "FAIL") << "\n";
 
   // THE central claim, against this exact scene rather than a scene built

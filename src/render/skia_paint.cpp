@@ -8,7 +8,9 @@
 #include <vector>
 
 #include "include/core/SkCanvas.h"
+#include "include/core/SkBlendMode.h"
 #include "include/core/SkColor.h"
+#include "include/core/SkColorFilter.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontTypes.h"
@@ -29,6 +31,7 @@
 #include "render/paragraph_build.h"
 
 #include "modules/skparagraph/include/Paragraph.h"
+#include "modules/svg/include/SkSVGDOM.h"
 
 namespace dg::detail {
 namespace {
@@ -391,6 +394,31 @@ void draw_placeholder(SkCanvas& canvas, const SkRect& rect, Color placeholder) {
   canvas.drawRect(rect, paint);
 }
 
+// An SVG entry is drawn as VECTORS, scaled from its intrinsic size onto
+// `dst` at paint time - never through a cached raster - so it is crisp at
+// every node size and DPI scale, and resizing a node costs no re-rasterize.
+// A tint is a SrcIn colour filter over an isolated layer: the icon's own
+// coverage/alpha survives, every colour becomes the tint.
+void paint_svg(SkCanvas& canvas, const ImageEntry& entry, const SkRect& dst) {
+  if (entry.intrinsic.isEmpty() || dst.isEmpty()) {
+    return;
+  }
+  canvas.save();
+  if (entry.tint.has_value()) {
+    SkPaint layer;
+    layer.setColorFilter(
+        SkColorFilters::Blend(to_sk_color(*entry.tint), SkBlendMode::kSrcIn));
+    canvas.saveLayer(&dst, &layer);
+  }
+  canvas.translate(dst.fLeft, dst.fTop);
+  canvas.scale(dst.width() / entry.intrinsic.width(), dst.height() / entry.intrinsic.height());
+  entry.svg->render(&canvas);
+  canvas.restore();
+  if (entry.tint.has_value()) {
+    canvas.restore();
+  }
+}
+
 // Clipped to `bounds` and `radii` exactly like the fill is (apply_clip() is
 // shared with the overflow clip below), so an image respects rounded corners
 // the same way a background colour already does.
@@ -407,10 +435,10 @@ void paint_image(SkCanvas& canvas, const PixelRect& bounds, const ImageStyle& im
   }
   const SkRect rect = to_sk_rect(bounds);
 
-  sk_sp<SkImage> decoded = (image.source.is_valid() && images != nullptr)
-                               ? ImageAccess::image(*images, image.source)
-                               : nullptr;
-  if (!decoded) {
+  const ImageEntry* entry = (image.source.is_valid() && images != nullptr)
+                                ? ImageAccess::entry(*images, image.source)
+                                : nullptr;
+  if (entry == nullptr) {
     if (image.placeholder.alpha() == 0) {
       return;
     }
@@ -421,18 +449,20 @@ void paint_image(SkCanvas& canvas, const PixelRect& bounds, const ImageStyle& im
     return;
   }
 
-  const auto source_width = static_cast<float>(decoded->width());
-  const auto source_height = static_cast<float>(decoded->height());
-  if (source_width <= 0.0F || source_height <= 0.0F) {
-    return;
-  }
-
   canvas.save();
   apply_clip(canvas, bounds, radii);
-  SkPaint paint;
-  paint.setAntiAlias(true);
-  canvas.drawImageRect(decoded, image_dst_rect(rect, source_width, source_height, image.fit),
-                       SkSamplingOptions{}, &paint);
+  if (entry->svg) {
+    paint_svg(canvas, *entry, image_dst_rect(rect, entry->intrinsic.width(),
+                                             entry->intrinsic.height(), image.fit));
+  } else if (entry->bitmap && entry->bitmap->width() > 0 && entry->bitmap->height() > 0) {
+    const auto source_width = static_cast<float>(entry->bitmap->width());
+    const auto source_height = static_cast<float>(entry->bitmap->height());
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    canvas.drawImageRect(entry->bitmap,
+                         image_dst_rect(rect, source_width, source_height, image.fit),
+                         SkSamplingOptions{}, &paint);
+  }
   canvas.restore();
 }
 

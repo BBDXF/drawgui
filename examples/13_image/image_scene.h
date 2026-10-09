@@ -51,14 +51,15 @@ inline constexpr dg::Color kTopRight = dg::Color::rgba(0x2E, 0xCC, 0x71);
 inline constexpr dg::Color kBottomLeft = dg::Color::rgba(0x2E, 0x86, 0xDE);
 inline constexpr dg::Color kBottomRight = dg::Color::rgba(0xF1, 0xC4, 0x0F);
 inline constexpr dg::Color kPlaceholderColor = dg::Color::rgba(0x55, 0x5B, 0x66);
+inline constexpr dg::Color kIconTint = dg::Color::rgba(0x4F, 0xC3, 0xF7);
 inline constexpr dg::Color kFrameFill = dg::Color::from_argb(0xFF20262F);
 
-// Wide and tall enough that the row of five panels (768px of panels, 96px of
-// gaps, 48px of padding = 912 wide; the tallest panel at 192 plus 48 of
+// Wide and tall enough that the row of six panels (864px of panels, 120px of
+// gaps, 48px of padding = 1032 wide; the tallest panel at 192 plus 48 of
 // padding = 240 tall) fits with room to spare - a window this demo opens
 // narrower than this would overrun the row's main axis, which is a real
 // LayoutTree diagnostic (design.md section 5.4.7) and not a bug in the scene.
-inline constexpr dg::PixelSize kDemoViewport{960, 300};
+inline constexpr dg::PixelSize kDemoViewport{1060, 300};
 
 // Four flat quadrants, `size` pixels square. The formula is the four
 // dg::Canvas::fill_rect calls themselves - reproducible from source, no
@@ -72,7 +73,17 @@ struct Handles {
   dg::NodeId cover_panel;
   dg::NodeId none_panel;
   dg::NodeId placeholder_panel;
+  dg::NodeId icon_panel;
 };
+
+// A 24x24 monochrome "plus in a ring" SVG icon, drawn as vectors at 96x96
+// and tinted with kIconTint: the ring's centre stays the frame fill, the
+// bar crossing the centre paints the tint.
+inline constexpr const char* kIconSvg =
+    R"(<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">)"
+    R"(<circle cx="12" cy="12" r="10" fill="none" stroke="black" stroke-width="2"/>)"
+    R"(<rect x="11" y="6" width="2" height="12"/><rect x="6" y="11" width="12" height="2"/>)"
+    R"(</svg>)";
 
 struct Scene {
   dg::LayoutTree tree;

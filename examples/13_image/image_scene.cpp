@@ -1,6 +1,8 @@
 #include "image_scene.h"
 
+#include <cstdint>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include "drawgui/graphics/canvas.h"
@@ -61,6 +63,13 @@ Scene build(dg::TreeSpec spec) {
       images.decode(png.data(), png.size());
   const dg::ImageId source = decoded.value_or(dg::ImageId{});
 
+  const std::string svg{kIconSvg};
+  const dg::ImageId icon =
+      images
+          .decode_svg(reinterpret_cast<const std::uint8_t*>(svg.data()), svg.size(),
+                      dg::SvgOptions{kIconTint})
+          .value_or(dg::ImageId{});
+
   spec.images = images;
   dg::LayoutTree tree{spec};
   Handles handles;
@@ -83,6 +92,8 @@ Scene build(dg::TreeSpec spec) {
   handles.placeholder_panel =
       tree.add_child(handles.row, panel_box(128, 128),
                      panel_style(dg::ImageId{}, ImageFit::kFill, kPlaceholderColor));
+  handles.icon_panel =
+      tree.add_child(handles.row, panel_box(96, 96), panel_style(icon, ImageFit::kContain));
 
   tree.layout_full();
   return Scene{std::move(tree), std::move(images), source, handles};
