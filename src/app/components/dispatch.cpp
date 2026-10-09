@@ -150,6 +150,9 @@ void sync(WinState& window) {
 
 void restyle(WinState& window) {
   for (NodeRecord* record : records_in_order(window)) {
+    if (record->kind == NodeKind::kButton || record->kind == NodeKind::kCheckbox) {
+      style_control(window, *record);
+    }
     std::visit([&](auto& state) { restyle_state(window, *record, state); }, record->state);
   }
 }

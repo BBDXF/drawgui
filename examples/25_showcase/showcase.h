@@ -30,6 +30,7 @@ inline constexpr int kFieldMaxLength = 12;
 inline constexpr int kProgressTickMs = 80;
 inline constexpr int kClockTickMs = 1000;
 inline constexpr std::uint64_t kWakerPayload = 42;
+inline constexpr const char* kNamePlaceholder = "输入你的名字…";
 
 enum Tab : std::uint8_t {
   kBasics,
@@ -52,21 +53,9 @@ struct Paint {
   Role role = Role::kPage;
 };
 
-// Buttons, checkboxes and radios get hard-coded colours from the runtime;
-// the showcase re-colours them for the active variant (see restyle()).
-enum class ControlLook : std::uint8_t { kPrimary, kSecondary, kToggle };
-
-struct Control {
-  dg::NodeId node;
-  ControlLook look = ControlLook::kSecondary;
-};
-
-struct Icon {
-  dg::NodeId node;
-  // [variant][0 = plain, 1 = accent]
-  std::array<std::array<dg::ImageId, 2>, 2> ids{};
-  bool accent = false;
-};
+// Buttons follow the theme by themselves (primary); a secondary one gets a
+// subtle fill of its own, the runtime deriving its hover/press shades.
+enum class ControlLook : std::uint8_t { kPrimary, kSecondary };
 
 struct Nodes {
   dg::NodeId root;
@@ -97,7 +86,6 @@ struct Nodes {
 
   // 文本
   dg::NodeId name_field;
-  dg::NodeId name_placeholder;
   dg::NodeId code_field;
   dg::NodeId code_counter;
   dg::NodeId text_area;
@@ -216,8 +204,6 @@ class Showcase {
   dg::ThemeVariant variant_;
   Nodes n_;
   std::vector<Paint> paints_;
-  std::vector<Control> controls_;
-  std::vector<Icon> icons_;
 
   std::vector<std::vector<std::string>> rows_;
   int sort_column_ = -1;

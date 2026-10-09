@@ -119,12 +119,22 @@ inline int wrapper_height(const WinState& window, const NodeRecord& record, int 
   return window.tree.box(record.id).height.value_or(fallback);
 }
 
+// The height a composed view should fill: the laid-out one once a layout
+// has settled it (so grow/stretch/percentages count), else the box's own.
+inline int laid_out_height(const WinState& window, const NodeRecord& record, int fallback) {
+  const int laid_out = window.tree.render().local_bounds(record.id).height;
+  return laid_out > 0 ? laid_out : wrapper_height(window, record, fallback);
+}
+
 // -- Per-kind builders ----------------------------------------------------------
 
 // basic.cpp: box, button, label, checkbox, image.
 void basic_defaults(const AppState& app, NodeKind kind, dg::BoxStyle& box,
                     dg::NodeStyle& style);
 void compose_basic(WinState& window, NodeRecord& record);
+// The theme colours of a button, checkbox or radio (a no-op for other
+// kinds); again after every theme change and caller colour write.
+void style_control(WinState& window, NodeRecord& record);
 // editors.cpp: text field, text area.
 void editor_defaults(const AppState& app, NodeKind kind, dg::BoxStyle& box,
                      dg::NodeStyle& style);
@@ -201,6 +211,7 @@ void restyle_state(WinState& window, NodeRecord& record, TabsState& state);
 void restyle_state(WinState& window, NodeRecord& record, TreeState& state);
 void restyle_state(WinState& window, NodeRecord& record, TableState& state);
 void restyle_state(WinState& window, NodeRecord& record, SliderState& state);
+void restyle_state(WinState& window, NodeRecord& record, RadioState& state);
 
 template <class S>
 void tick_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,

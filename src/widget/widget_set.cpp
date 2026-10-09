@@ -1050,7 +1050,10 @@ std::optional<TextSelection> WidgetSet::text_field_selection(NodeId id) const {
 void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& fonts,
                                            NodeId id, Widget& widget, bool focused) {
   const PixelRect field_bounds = tree.local_bounds(id);
-  const int visible_width = std::max(0, field_bounds.width);
+  // The text sits `text_inset` in from both side edges; everything below is
+  // computed in that inner strip and shifted right by `inset` when placed.
+  const int inset = std::max(0, std::min(widget.text_inset, field_bounds.width / 2));
+  const int visible_width = std::max(0, field_bounds.width - (2 * inset));
   const int inner_height = std::max(0, field_bounds.height);
 
   TextStyle content_style = tree.style(widget.content).text;
@@ -1068,10 +1071,10 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
     // text before the field's own clip is ever consulted - visible_width is always enough
     // because ellipsize() guarantees the truncated string fits inside it.
     tree.set_local_bounds(widget.content,
-                          PixelRect{0, 0, std::max(1, visible_width), inner_height});
-    tree.set_local_bounds(widget.caret, PixelRect{0, 0, 0, inner_height});
-    tree.set_local_bounds(widget.selection_highlight, PixelRect{0, 0, 0, inner_height});
-    tree.set_local_bounds(widget.composition_underline, PixelRect{0, 0, 0, inner_height});
+                          PixelRect{inset, 0, std::max(1, visible_width), inner_height});
+    tree.set_local_bounds(widget.caret, PixelRect{inset, 0, 0, inner_height});
+    tree.set_local_bounds(widget.selection_highlight, PixelRect{inset, 0, 0, inner_height});
+    tree.set_local_bounds(widget.composition_underline, PixelRect{inset, 0, 0, inner_height});
     return;
   }
 
@@ -1107,7 +1110,8 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   // off before that happens.
   const int content_width = std::max(
       visible_width, static_cast<int>(std::lround(static_cast<double>(total_width))) + 1);
-  tree.set_local_bounds(widget.content, PixelRect{-scroll_x, 0, content_width, inner_height});
+  tree.set_local_bounds(widget.content,
+                        PixelRect{inset - scroll_x, 0, content_width, inner_height});
 
   // Clamped so the caret's own width stays fully inside the field even when
   // the cursor sits at the very last byte of an overflowing string -
@@ -1117,7 +1121,8 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   const int caret_x =
       std::clamp(static_cast<int>(std::lround(static_cast<double>(cursor_x))) - scroll_x, 0,
                  std::max(0, visible_width - kCaretWidthPx));
-  tree.set_local_bounds(widget.caret, PixelRect{caret_x, 0, kCaretWidthPx, inner_height});
+  tree.set_local_bounds(widget.caret,
+                        PixelRect{inset + caret_x, 0, kCaretWidthPx, inner_height});
 
   // selection_highlight is dual-purpose while composing (7-3):
   // the user's OWN selection when not composing, or SDL_TextEditingEvent's
@@ -1126,12 +1131,13 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   if (projection.highlight.has_value()) {
     const float start_x = para ? para->caret_x(projection.highlight->start) : 0.0F;
     const float end_x = para ? para->caret_x(projection.highlight->end) : 0.0F;
-    const int hl_x = static_cast<int>(std::lround(static_cast<double>(start_x))) - scroll_x;
+    const int hl_x =
+        inset + static_cast<int>(std::lround(static_cast<double>(start_x))) - scroll_x;
     const int hl_w =
         std::max(0, static_cast<int>(std::lround(static_cast<double>(end_x - start_x))));
     tree.set_local_bounds(widget.selection_highlight, PixelRect{hl_x, 0, hl_w, inner_height});
   } else {
-    tree.set_local_bounds(widget.selection_highlight, PixelRect{0, 0, 0, inner_height});
+    tree.set_local_bounds(widget.selection_highlight, PixelRect{inset, 0, 0, inner_height});
   }
 
   // The composition underline (7-3): a thin bar under the
@@ -1143,7 +1149,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
     const float underline_start_x = para ? para->caret_x(projection.underline->start) : 0.0F;
     const float underline_end_x = para ? para->caret_x(projection.underline->end) : 0.0F;
     const int underline_x =
-        static_cast<int>(std::lround(static_cast<double>(underline_start_x))) - scroll_x;
+        inset + static_cast<int>(std::lround(static_cast<double>(underline_start_x))) - scroll_x;
     const int underline_w =
         std::max(0, static_cast<int>(
                         std::lround(static_cast<double>(underline_end_x - underline_start_x))));
@@ -1152,7 +1158,7 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
     tree.set_local_bounds(widget.composition_underline,
                           PixelRect{underline_x, underline_y, underline_w, underline_h});
   } else {
-    tree.set_local_bounds(widget.composition_underline, PixelRect{0, 0, 0, inner_height});
+    tree.set_local_bounds(widget.composition_underline, PixelRect{inset, 0, 0, inner_height});
   }
 }
 
@@ -1245,7 +1251,9 @@ bool WidgetSet::text_field_click(RenderTree& tree, const FontCatalog& fonts, Nod
   text_edit::cancel_composition(widget->edit);
   const PixelRect field_bounds = tree.absolute_bounds(id);
   const TextStyle& content_style = tree.style(widget->content).text;
-  const float local_x = static_cast<float>(pointer_x - field_bounds.x + widget->scroll_x);
+  const int inset = std::max(0, std::min(widget->text_inset, field_bounds.width / 2));
+  const float local_x =
+      static_cast<float>(pointer_x - field_bounds.x - inset + widget->scroll_x);
   const std::optional<Paragraph> para =
       build_edit_paragraph(fonts, content_style.font, content_style.size, widget->edit.text);
   const int offset =

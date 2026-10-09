@@ -205,10 +205,28 @@ TEST_SUITE("abi phase a") {
     App::set(half, DG_PROP_WIDTH, length(50, DG_LENGTH_UNIT_PERCENT));
     (void)a.pump(1);
     CHECK(child_field(a.root, 0, "w") == 200);
-    const dg_value bad_unit = length(5, 2);
+    const dg_value bad_unit = length(5, 3);
     CHECK(dg_node_set_prop(half, DG_PROP_WIDTH, &bad_unit) == DG_ERR_VALUE_OUT_OF_RANGE);
     const dg_value percent_gap = length(5, DG_LENGTH_UNIT_PERCENT);
     CHECK(dg_node_set_prop(a.root, DG_PROP_GAP, &percent_gap) == DG_ERR_TYPE_MISMATCH);
+  }
+
+  TEST_CASE("DG_LENGTH_UNIT_AUTO drops a box's default size: it hugs its content") {
+    App a;
+    dg_node_t* row = a.add(a.root, DG_NODE_TYPE_BOX);
+    App::set(row, DG_PROP_DIRECTION, option(DG_DIRECTION_ROW));
+    (void)a.pump(1);
+    CHECK(child_field(a.root, 0, "w") == 240);  // the creation-time default stays
+    App::set(row, DG_PROP_WIDTH, length(0, DG_LENGTH_UNIT_AUTO));
+    App::set(row, DG_PROP_HEIGHT, length(0, DG_LENGTH_UNIT_AUTO));
+    dg_node_t* chip = a.add(row, DG_NODE_TYPE_BOX);
+    App::set(chip, DG_PROP_WIDTH, length(30));
+    App::set(chip, DG_PROP_HEIGHT, length(20));
+    (void)a.pump(1);
+    CHECK(child_field(a.root, 0, "w") == 30);
+    CHECK(child_field(a.root, 0, "h") == 20);
+    const dg_value auto_gap = length(0, DG_LENGTH_UNIT_AUTO);
+    CHECK(dg_node_set_prop(row, DG_PROP_GAP, &auto_gap) == DG_ERR_TYPE_MISMATCH);
   }
 
   TEST_CASE("focus: dg_node_focus, Tab order, tab_index, clear, and removal") {
@@ -460,5 +478,43 @@ TEST_SUITE("abi phase a") {
           0x99000000U);
     CHECK(dg::popup_style_from_theme(theme.value(), dg::ThemeVariant::kLight).scrim.argb() ==
           0x660F141AU);
+  }
+
+  TEST_CASE("runtime polish through the C ABI: placeholder, insets, wrap_text, tint, grow, tabs") {
+    App a(true);
+    dg_node_t* field = a.add(a.root, DG_NODE_TYPE_TEXT_FIELD);
+    dg_node_t* label = a.add(a.root, DG_NODE_TYPE_LABEL);
+    CHECK(dg_node_set_text(field, DG_PROP_PLACEHOLDER, "hint", 4) == DG_ERR_OK);
+    CHECK(dg_node_set_text(label, DG_PROP_PLACEHOLDER, "hint", 4) == DG_ERR_NOT_APPLICABLE);
+    App::set(field, DG_PROP_PADDING_L, number(4));
+    const dg_value negative = number(-1);
+    CHECK(dg_node_set_prop(field, DG_PROP_PADDING_L, &negative) == DG_ERR_VALUE_OUT_OF_RANGE);
+    App::set(label, DG_PROP_WRAP_TEXT, option(1, DG_VALUE_BOOL));
+    App::set(label, DG_PROP_PADDING_L, number(8));
+    const dg_value bad_bool = option(2, DG_VALUE_BOOL);
+    CHECK(dg_node_set_prop(label, DG_PROP_WRAP_TEXT, &bad_bool) == DG_ERR_VALUE_OUT_OF_RANGE);
+    dg_node_t* image = a.add(a.root, DG_NODE_TYPE_IMAGE);
+    App::set(image, DG_PROP_IMAGE_TINT, option(0xFFFF0000U, DG_VALUE_COLOR));
+    dg_node_t* button = a.add(a.root, DG_NODE_TYPE_BUTTON);
+    App::set(button, DG_PROP_BACKGROUND_COLOR, option(0xFF336699U, DG_VALUE_COLOR));
+
+    // A tree that grows: its composed view follows the laid-out height.
+    dg_node_t* tree = a.add(a.root, DG_NODE_TYPE_TREE);
+    App::set(tree, DG_PROP_HEIGHT, length(0, DG_LENGTH_UNIT_AUTO));
+    App::set(tree, DG_PROP_GROW, number(1));
+    const char* labels[] = {"a"};
+    const std::int32_t depths[] = {0};
+    REQUIRE(dg_tree_set_items(tree, labels, depths, nullptr, 1) == DG_ERR_OK);
+    dg_node_t* tabs = a.add(a.root, DG_NODE_TYPE_TABS);
+    App::set(tabs, DG_PROP_WIDTH, length(100, DG_LENGTH_UNIT_PERCENT));
+    App::set(tabs, DG_PROP_HEIGHT, length(60));
+    REQUIRE(dg_tabs_add(tabs, "One", 0) != nullptr);
+    (void)a.pump(3);
+    const int grown = child_field(a.root, 4, "h");
+    CHECK(grown == 300 - (36 + 32 + 64 + 64 + 60));  // the leftover, not the 240 default
+    CHECK(child_field(tree, 0, "h") == grown);
+    // The strip (the tab root's first child) spans the full 400px.
+    const std::string dump = dg_dump_layout_tree(tabs);
+    CHECK(dump.find("\"w\":400") != std::string::npos);
   }
 }

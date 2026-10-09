@@ -247,6 +247,16 @@ switch (prop_id) {
   case DG_PROP_RADIO_GROUP:
     DG_PROP_ASSIGN(radio_group, float);
     break;
+  // -- visual ----------------------------------------------------
+  case DG_PROP_PLACEHOLDER:
+    DG_PROP_ASSIGN_COMPLEX(placeholder, text);
+    break;
+  case DG_PROP_WRAP_TEXT:
+    DG_PROP_ASSIGN(wrap_text, bool);
+    break;
+  case DG_PROP_IMAGE_TINT:
+    DG_PROP_ASSIGN(image_tint, color);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

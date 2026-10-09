@@ -232,7 +232,9 @@ TabsNodes build_tabs(ControlContext& ctx, NodeId parent, const TabsSpec& spec) {
   strip_box.height = style.tab_height;
   strip_box.cross_align = CrossAlign::kStretch;
   strip_box.border.bottom = 1;
+  // The strip's own surface spans the whole tabs node, not only the tabs.
   NodeStyle strip;
+  strip.fill = style.surface;
   strip.border_color = style.border;
   strip.border_width.bottom = 1.0F;
   const NodeId strip_node = ctx.layout.add_child(nodes.root, strip_box, strip);

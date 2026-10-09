@@ -137,6 +137,9 @@ void resync_widgets(WinState& window) {
       // An unfocused field's ellipsis depends on its laid-out width.
       refresh_editor_text(window, *record);
     }
+    if (is_editor_kind(record->kind)) {
+      sync_placeholder(window, *record);
+    }
   }
   if (relaid) {
     // A layout pass puts every slider thumb back at its track's origin.

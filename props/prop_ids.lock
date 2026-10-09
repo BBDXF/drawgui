@@ -84,3 +84,6 @@
    63  max_value
    64  step
    65  radio_group
+   66  placeholder
+   67  wrap_text
+   68  image_tint

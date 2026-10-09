@@ -28,6 +28,15 @@ struct Setting {
 [[nodiscard]] inline Setting height_percent(float percent) {
   return {DG_PROP_HEIGHT, PropValue::percent(percent)};
 }
+// No size of its own: content-sized, or stretched/grown by the parent.
+[[nodiscard]] inline Setting width_auto() { return {DG_PROP_WIDTH, PropValue::auto_length()}; }
+[[nodiscard]] inline Setting height_auto() { return {DG_PROP_HEIGHT, PropValue::auto_length()}; }
+[[nodiscard]] inline Setting wrap_text(bool wrap = true) {
+  return {DG_PROP_WRAP_TEXT, PropValue::boolean(wrap)};
+}
+[[nodiscard]] inline Setting image_tint(Color color) {
+  return {DG_PROP_IMAGE_TINT, PropValue::color(color)};
+}
 [[nodiscard]] inline Setting gap(float px) { return {DG_PROP_GAP, PropValue::number(px)}; }
 [[nodiscard]] inline Setting grow(float factor) { return {DG_PROP_GROW, PropValue::number(factor)}; }
 [[nodiscard]] inline Setting row() {

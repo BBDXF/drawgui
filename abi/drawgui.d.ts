@@ -147,6 +147,7 @@ export const pixel_format = {
 export const length_unit = {
   PX: 0,
   PERCENT: 1,
+  AUTO: 2,
 } as const;
 
 // ABI 0.2: dg_debug_post_pointer_button_ex()'s `button`.
@@ -366,6 +367,9 @@ export const prop = {
   max_value: 63,
   step: 64,
   radio_group: 65,
+  placeholder: 66,
+  wrap_text: 67,
+  image_tint: 68,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -431,9 +435,12 @@ export declare namespace DrawguiAbi {
   // P6 sub-step a1: dg::set_text() at the ABI boundary - the dedicated-setter
   // channel's fifth client (design.md section 5.9.5), for the same reason
   // dg_node_set_gradient/_shadow/_image would be: a UTF-8 string cannot ride
-  // dg_value's fixed-size {float, uint32} union. `prop_id` must be DG_PROP_TEXT
-  // (any other id is DG_ERR_TYPE_MISMATCH/DG_ERR_UNKNOWN_ID, the same validation
-  // dg_node_set_prop() runs). `utf8`/`len` are copied immediately - not retained
+  // dg_value's fixed-size {float, uint32} union. `prop_id` must be DG_PROP_TEXT,
+  // or (ABI 0.2) DG_PROP_PLACEHOLDER on a DG_NODE_TYPE_TEXT_FIELD/TEXT_AREA - the
+  // muted hint shown while the editor is empty and not composing
+  // (DG_ERR_NOT_APPLICABLE on any other node); any other id is
+  // DG_ERR_TYPE_MISMATCH/DG_ERR_UNKNOWN_ID, the same validation
+  // dg_node_set_prop() runs. `utf8`/`len` are copied immediately - not retained
   // past the call. Requires a LIVE node (DG_ERR_NO_WINDOW otherwise), matching
   // dg_node_set_prop().
   function dg_node_set_text(node: dg_node_t | null, prop_id: number, utf8: string | null, len: number): number;

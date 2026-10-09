@@ -39,12 +39,13 @@ namespace components {
 void build_tree(WinState& window, NodeRecord& record, std::optional<int> select) {
   TreeState& c = std::get<TreeState>(record.state);
   dg::ControlContext ctx = controls(window);
+  c.built_height = laid_out_height(window, record, kTreeHeight);
   const FocusKeeper keeper(window, c.tree.root());
   c.tree.destroy(ctx);
   dg::TreeViewSpec spec;
   spec.items = c.items;
   spec.viewport_height = std::max(ctx.style.row_height,
-                                  wrapper_height(window, record, kTreeHeight) - (2 * kFrame));
+                                  c.built_height - (2 * kFrame));
   spec.box.percent.width = 100.0F;
   c.tree.build(ctx, record.id, std::move(spec));
   if (select.has_value()) {
@@ -76,7 +77,12 @@ bool control_key(WinState& window, NodeRecord& record, TreeState& state,
   return r.event != dg::TreeEvent::kIgnored;
 }
 
-void sync_state(WinState& window, NodeRecord& /*record*/, TreeState& state) {
+void sync_state(WinState& window, NodeRecord& record, TreeState& state) {
+  if (laid_out_height(window, record, kTreeHeight) != state.built_height) {
+    capture_tree(state);
+    build_tree(window, record, state.tree.selected());
+    return;
+  }
   dg::ControlContext ctx = controls(window);
   state.tree.sync(ctx);
 }

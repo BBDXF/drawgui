@@ -20,11 +20,12 @@ inline constexpr std::uint32_t kTextFieldBorderFocusedArgb = 0xFF2E86DE;
 inline constexpr std::uint32_t kTextFieldTextColorArgb = 0xFFE8EDF4;
 // Selection = the accent at this opacity, so text stays readable on top.
 inline constexpr std::uint32_t kTextFieldSelectionAlpha = 0x8A;
+inline constexpr std::uint32_t kTextFieldPlaceholderAlpha = 0x8C;
 
 // Both editors' colours, resolved from the active (else builtin dark) theme:
 // box = color.surface, border = color.border, focused border / caret =
 // color.primary, text and IME underline = color.on-surface, selection =
-// color.primary made translucent.
+// color.primary made translucent, placeholder = color.on-surface translucent.
 struct EditorPalette {
   dg::Color fill = dg::Color::from_argb(kTextFieldFillArgb);
   dg::Color border = dg::Color::from_argb(kTextFieldBorderUnfocusedArgb);
@@ -34,6 +35,9 @@ struct EditorPalette {
   dg::Color selection = dg::Color::from_argb((kTextFieldSelectionAlpha << 24U) |
                                              (kTextFieldBorderFocusedArgb & 0xFFFFFFU));
   dg::Color underline = dg::Color::from_argb(kTextFieldTextColorArgb);
+  // The placeholder: the text colour at reduced opacity.
+  dg::Color placeholder = dg::Color::from_argb((kTextFieldPlaceholderAlpha << 24U) |
+                                               (kTextFieldTextColorArgb & 0xFFFFFFU));
 };
 
 [[nodiscard]] EditorPalette editor_palette_for(const AppState& app);

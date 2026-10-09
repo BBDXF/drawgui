@@ -16,6 +16,7 @@
 #include "drawgui/graphics/raster_surface.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/image_catalog.h"
+#include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/logical_key.generated.h"
@@ -95,6 +96,16 @@ class Check {
     return w_.layout().render().style(node).text.text;
   }
   [[nodiscard]] dg::PixelRect bounds(NodeId node) const { return drive_.bounds(node); }
+  // Whether anything under `node` (its composed children too) paints `text`.
+  [[nodiscard]] bool shows_text(NodeId node, const std::string& text) const {
+    const dg::RenderTree& tree = w_.layout().render();
+    for (const NodeId id : dg::subtree_of(tree, node)) {
+      if (tree.style(id).text.text == text) {
+        return true;
+      }
+    }
+    return false;
+  }
   [[nodiscard]] dg::Cursor cursor_over(NodeId node) {
     const dg::PixelRect r = bounds(node);
     feed(drive_.move(r.x + (r.width / 2), r.y + (r.height / 2)));
@@ -165,12 +176,13 @@ class Check {
     out_ << "\n文本: placeholder, typing, max length, clipboard, undo, wrapping\n";
     tab(kText);
     const Nodes& n = demo_.nodes();
+    const bool hinted = shows_text(n.name_field, kNamePlaceholder);
     click(n.name_field);
-    check(w_.focused() == n.name_field,
+    check(hinted && w_.focused() == n.name_field,
           "a click on the placeholder focuses the field under it");
     type("小明 Ming");
     check(
-        w_.text(n.name_field).value() == "小明 Ming" && label_text(n.name_placeholder).empty(),
+        w_.text(n.name_field).value() == "小明 Ming" && !shows_text(n.name_field, kNamePlaceholder),
         "typed text arrives and the placeholder hides");
     chord(dg::LogicalKey::kA);
     chord(dg::LogicalKey::kC);

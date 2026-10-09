@@ -80,8 +80,10 @@ PropValue AnimationEngine::interpolated_value(const AnimSlot& slot) {
       return PropValue::number(slot.from.scalar() +
                                ((slot.to.scalar() - slot.from.scalar()) * eased));
     case PropType::k_length: {
-      // Pixels and percentages share no scale, so a mixed pair jumps.
-      if (slot.from.is_percent() != slot.to.is_percent()) {
+      // Pixels and percentages share no scale (and auto has none), so a mixed
+      // pair jumps.
+      if (slot.from.is_percent() != slot.to.is_percent() || slot.from.is_auto() ||
+          slot.to.is_auto()) {
         return slot.to;
       }
       const float scalar =

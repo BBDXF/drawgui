@@ -19,7 +19,6 @@
 #include "drawgui/render/render_tree.h"
 #include "drawgui/theme/theme_loader.h"
 #include "drawgui/theme/token_ids.generated.h"
-#include "drawgui/widget/widget_set.h"
 
 namespace showcase {
 namespace {
@@ -69,7 +68,8 @@ const char* const kParagraph =
     "中英文混排也能正确断行 (mixed scripts wrap correctly)。字号、颜色都跟随主题，"
     "切换到深色模式时会一起变化。";
 
-// Monochrome SVG icons (24x24 viewBox); the catalog tints them.
+// Monochrome SVG icons (24x24 viewBox), decoded once; each node's
+// DG_PROP_IMAGE_TINT, bound to a theme token, colours them at paint time.
 const char* const kIcons[] = {
     R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3z"/></svg>)",
     R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>)",
@@ -125,14 +125,6 @@ std::vector<std::string> list_items() {
     items.push_back("第 " + std::to_string(i) + " 项 · item #" + std::to_string(i));
   }
   return items;
-}
-
-// TextStyle::inset (space before left/right-aligned text) has no property.
-void text_inset(dg::Window& w, dg::NodeId node, int px) {
-  dg::NodeStyle style = w.layout().render().style(node);
-  style.text.inset = px;
-  w.layout().render().set_style(node, style);
-  w.invalidate(node);
 }
 
 // Rough label width: CJK and emoji are about a full em, Latin about half.
@@ -271,14 +263,8 @@ dg::Color Showcase::color_of(Role role) const {
 NodeId Showcase::box(NodeId parent, bool row, float gap) {
   const NodeId node = w_.create(NodeKind::kBox, parent).value();
   (void)w_.set(node, {row ? dg::prop::row() : dg::prop::column(), dg::prop::gap(gap),
-                      dg::prop::background(dg::Color{})});
-  // A plain box starts 240x120; there is no "auto" property value, so clear
-  // the size in its BoxStyle and let it hug its content.
-  dg::BoxStyle style = w_.layout().box(node);
-  style.width.reset();
-  style.height.reset();
-  w_.layout().set_box(node, style);
-  w_.invalidate(node);
+                      dg::prop::background(dg::Color{}), dg::prop::width_auto(),
+                      dg::prop::height_auto()});
   return node;
 }
 
@@ -309,13 +295,11 @@ NodeId Showcase::button(NodeId parent, const std::string& text, ControlLook look
   (void)w_.set_text(node, DG_PROP_TEXT, text);
   (void)w_.set_prop(node, DG_PROP_CURSOR, dg::PropValue::option(DG_CURSOR_POINTER));
   radius(node, 8);
-  if (look == ControlLook::kPrimary) {
-    (void)w_.bind_token(node, DG_PROP_TEXT_COLOR, DG_TOKEN_COLOR_ON_PRIMARY);
-  } else {
+  if (look == ControlLook::kSecondary) {
+    paint(node, DG_PROP_BACKGROUND_COLOR, Role::kSubtle);
     (void)w_.bind_token(node, DG_PROP_TEXT_COLOR, DG_TOKEN_COLOR_ON_SURFACE);
     outline(node);
   }
-  controls_.push_back({node, look});
   return node;
 }
 
@@ -326,17 +310,9 @@ NodeId Showcase::toggle(NodeId parent, NodeKind kind, const std::string& text) {
   align(row, DG_ALIGN_CENTER);
   const NodeId node = w_.create(kind, row).value();
   (void)w_.set(node, {dg::prop::width(26), dg::prop::height(26)});
-  if (kind == NodeKind::kCheckbox) {
-    pad(node, 5);
-    radius(node, 6);
-  } else {
-    pad(node, 6);
-    radius(node, 13);
-  }
-  outline(node);
+  pad(node, kind == NodeKind::kCheckbox ? 5 : 6);
   (void)w_.set_prop(node, DG_PROP_CURSOR, dg::PropValue::option(DG_CURSOR_POINTER));
   label(row, text, 14, false, 7.0F * static_cast<float>(text.size()) + 10.0F);
-  controls_.push_back({node, ControlLook::kToggle});
   return node;
 }
 
@@ -534,11 +510,7 @@ void Showcase::build_text(NodeId page) {
   (void)w_.set(n_.name_field,
                {dg::prop::width_percent(100), dg::prop::height(36), dg::prop::font_size(15)});
   (void)w_.set_prop(n_.name_field, DG_PROP_CURSOR, dg::PropValue::option(DG_CURSOR_TEXT));
-  // The runtime's text field has no placeholder; a muted label laid over
-  // the field's text area stands in for one and hides once there is text.
-  n_.name_placeholder = label(n_.name_field, "输入你的名字…", 15, true, 300);
-  (void)w_.set(n_.name_placeholder, dg::prop::height(34));
-  text_inset(w_, n_.name_placeholder, 0);
+  (void)w_.set_text(n_.name_field, DG_PROP_PLACEHOLDER, kNamePlaceholder);
   label(fields, "邀请码（最多 12 个字符）", 13, true);
   const NodeId code_row = box(fields, true, 10);
   align(code_row, DG_ALIGN_CENTER);
@@ -580,19 +552,13 @@ void Showcase::build_text(NodeId page) {
     (void)w_.set_prop(line, DG_PROP_TEXT_ALIGN, dg::PropValue::option(how));
     paint(line, DG_PROP_BACKGROUND_COLOR, Role::kAccentSoft);
     radius(line, 6);
-    text_inset(w_, line, 10);
+    pad(line, 10, 0);
   }
 
   const NodeId wrap = card(bottom, "自动换行段落", "宽度固定的标签，文字超出时折行");
   (void)w_.set(wrap, dg::prop::grow(1));
   n_.paragraph = label(wrap, kParagraph, 15);
-  (void)w_.set(n_.paragraph, dg::prop::height(120));
-  // No property turns on wrapping for a label; the render tree's TextStyle
-  // has it, so set it there (a style of our own create() node).
-  dg::NodeStyle style = w_.layout().render().style(n_.paragraph);
-  style.text.wrap = true;
-  w_.layout().render().set_style(n_.paragraph, style);
-  w_.invalidate(n_.paragraph);
+  (void)w_.set(n_.paragraph, {dg::prop::height(120), dg::prop::wrap_text()});
 }
 
 void Showcase::build_layout(NodeId page) {
@@ -694,19 +660,22 @@ void Showcase::build_data(NodeId page) {
   const NodeId list_card = card(top, "列表", "1000 项，只创建可见的行");
   (void)w_.set(list_card, dg::prop::width(250));
   n_.list = w_.create(NodeKind::kList, list_card).value();
-  (void)w_.set(n_.list, {dg::prop::width_percent(100), dg::prop::height(300)});
+  (void)w_.set(n_.list,
+               {dg::prop::width_percent(100), dg::prop::height_auto(), dg::prop::grow(1)});
   (void)w_.list(n_.list).value().set_items(list_items(), 30);
 
   const NodeId tree_card = card(top, "树形视图", "方向键展开 / 折叠");
   (void)w_.set(tree_card, dg::prop::width(250));
   n_.tree = w_.create(NodeKind::kTree, tree_card).value();
-  (void)w_.set(n_.tree, {dg::prop::width_percent(100), dg::prop::height(300)});
+  (void)w_.set(n_.tree,
+               {dg::prop::width_percent(100), dg::prop::height_auto(), dg::prop::grow(1)});
   (void)w_.tree(n_.tree).value().set_items(tree_items());
 
   const NodeId table_card = card(top, "表格", "点击表头排序（再点一次反向）");
   (void)w_.set(table_card, dg::prop::grow(1));
   n_.table = w_.create(NodeKind::kTable, table_card).value();
-  (void)w_.set(n_.table, {dg::prop::width_percent(100), dg::prop::height(300)});
+  (void)w_.set(n_.table,
+               {dg::prop::width_percent(100), dg::prop::height_auto(), dg::prop::grow(1)});
   dg::TableRef table = w_.table(n_.table).value();
   (void)table.set_columns({{"水果", std::nullopt, 30.0F, true},
                            {"单价", std::nullopt, 22.0F, true},
@@ -802,32 +771,24 @@ void Showcase::build_images(NodeId page) {
 
   const NodeId icons =
       card(page, "SVG 图标", "矢量图标按主题着色，16 / 24 / 32 / 48 像素都清晰");
-  const dg::ThemeVariant variants[] = {dg::ThemeVariant::kLight, dg::ThemeVariant::kDark};
+  std::vector<dg::ImageId> ids;
+  for (const char* const svg : kIcons) {
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(svg);  // NOLINT
+    const dg::Expected<dg::ImageId, dg::ImageError> id =
+        app_.images().decode_svg(bytes, std::char_traits<char>::length(svg), dg::SvgOptions{});
+    ids.push_back(id ? id.value() : dg::ImageId{});
+  }
   for (const float size : {16.0F, 24.0F, 32.0F, 48.0F}) {
     const NodeId r = box(icons, true, 18);
     align(r, DG_ALIGN_CENTER);
     (void)w_.set(r, dg::prop::height(std::max(size, 24.0F) + 4));
     label(r, number_text(size) + " px", 13, true, 60);
-    for (std::size_t k = 0; k < std::size(kIcons); ++k) {
-      Icon icon;
-      icon.node = w_.create(NodeKind::kImage, r).value();
-      (void)w_.set(icon.node, {dg::prop::width(size), dg::prop::height(size)});
-      icon.accent = k % 2 == 1;
-      const std::string svg = kIcons[k];
-      for (std::size_t v = 0; v < 2; ++v) {
-        for (std::size_t a = 0; a < 2; ++a) {
-          dg::SvgOptions options;
-          options.tint = theme_->color_value(
-              a == 0 ? DG_TOKEN_COLOR_ON_SURFACE : DG_TOKEN_COLOR_PRIMARY, variants[v]);
-          const auto* bytes = reinterpret_cast<const std::uint8_t*>(svg.data());  // NOLINT
-          const dg::Expected<dg::ImageId, dg::ImageError> id =
-              app_.images().decode_svg(bytes, svg.size(), options);
-          if (id) {
-            icon.ids[v][a] = id.value();
-          }
-        }
-      }
-      icons_.push_back(icon);
+    for (std::size_t k = 0; k < ids.size(); ++k) {
+      const NodeId icon = w_.create(NodeKind::kImage, r).value();
+      (void)w_.set(icon, {dg::prop::width(size), dg::prop::height(size)});
+      (void)w_.set_image(icon, ids[k]);
+      (void)w_.bind_token(icon, DG_PROP_IMAGE_TINT,
+                          k % 2 == 1 ? DG_TOKEN_COLOR_PRIMARY : DG_TOKEN_COLOR_ON_SURFACE);
     }
   }
 }
@@ -878,58 +839,8 @@ void Showcase::set_variant(dg::ThemeVariant variant) {
   restyle();
 }
 
-// The runtime paints buttons, checkboxes and radios in fixed colours and
-// keeps no theme binding for their fills; re-colour them from the theme.
+// What the theme switch changes beyond the bound tokens and the palette.
 void Showcase::restyle() {
-  const Palette p = palette(variant_);
-  const auto token = [&](dg_token_id id) {
-    return theme_->color_value(id, variant_).value_or(dg::Color{});
-  };
-  const dg::Color surface = token(DG_TOKEN_COLOR_SURFACE);
-  const dg::Color border = token(DG_TOKEN_COLOR_BORDER);
-  const dg::Color primary = token(DG_TOKEN_COLOR_PRIMARY);
-  dg::RenderTree& render = w_.layout().render();
-  for (const Control& c : controls_) {
-    if (!w_.widgets().has(c.node)) {
-      continue;
-    }
-    dg::Widget widget = w_.widgets().at(c.node);
-    switch (c.look) {
-      case ControlLook::kPrimary:
-        widget.fill_normal = primary;
-        widget.fill_hover = token(DG_TOKEN_COLOR_PRIMARY_HOVER);
-        widget.fill_pressed = token(DG_TOKEN_COLOR_PRIMARY_PRESSED);
-        break;
-      case ControlLook::kSecondary:
-        widget.fill_normal = p.subtle;
-        widget.fill_hover = border;
-        widget.fill_pressed = p.accent_soft;
-        break;
-      case ControlLook::kToggle:
-        widget.fill_normal = surface;
-        widget.fill_hover = p.subtle;
-        widget.fill_pressed = border;
-        widget.indicator_on = primary;
-        widget.indicator_off = surface;
-        break;
-    }
-    w_.widgets().attach(c.node, widget);
-    w_.widgets().refresh(render, c.node, w_.interaction().state_of(c.node));
-    if (c.look == ControlLook::kToggle && widget.indicator.index != 0) {
-      dg::NodeStyle style = render.style(widget.indicator);
-      style.radii = dg::Radii::all(w_.kind_of(c.node) == NodeKind::kRadio ? 7.0F : 3.0F);
-      render.set_style(widget.indicator, style);
-      w_.widgets().refresh(render, widget.indicator, dg::PointerState{});
-    }
-    w_.invalidate(c.node);
-  }
-  const std::size_t v = variant_ == dg::ThemeVariant::kDark ? 1 : 0;
-  for (const Icon& icon : icons_) {
-    const dg::ImageId id = icon.ids[v][icon.accent ? 1 : 0];
-    if (id.is_valid()) {
-      (void)w_.set_image(icon.node, id);
-    }
-  }
   (void)w_.set_text(n_.theme_button, DG_PROP_TEXT,
                     variant_ == dg::ThemeVariant::kDark ? "☀ 浅色模式" : "☾ 深色模式");
 }
@@ -1119,10 +1030,7 @@ void Showcase::on_event(const dg::Event& event) {
                  },
                  [&](const TextChangedEvent& e) {
                    if (e.node == n_.name_field) {
-                     const std::string text = w_.text(n_.name_field).value_or("");
-                     (void)w_.set_text(n_.name_placeholder, DG_PROP_TEXT,
-                                       text.empty() ? "输入你的名字…" : "");
-                     status("用户名：" + text);
+                     status("用户名：" + w_.text(n_.name_field).value_or(""));
                    } else if (e.node == n_.code_field) {
                      const std::string text = w_.text(n_.code_field).value_or("");
                      (void)w_.set_text(

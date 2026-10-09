@@ -81,6 +81,7 @@ pixel_format.BGRA8888=1
 pixel_format.RGBA8888=2
 length_unit.PX=0
 length_unit.PERCENT=1
+length_unit.AUTO=2
 pointer_button.PRIMARY=1
 pointer_button.SECONDARY=2
 pointer_button.MIDDLE=3

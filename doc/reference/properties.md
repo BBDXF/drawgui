@@ -40,7 +40,8 @@ id 由生成的 `switch` 默认分支决定，而不是一次范围检查后的 
 |---|---|---|
 | `PropValue::number(float)` | `k_float` | 普通浮点数 |
 | `PropValue::length(float)` | `k_length` | 绝对长度（逻辑像素，四舍五入到整数设备像素） |
-| `PropValue::percent(float)` | `k_length` | 百分比（50 = 50%，范围 0..1000），仅 `width`/`height`/`min_*`/`max_*` 接受。单位放在标量联合体的整数半边：`bits == 0` 像素、`bits == 1` 百分比，其他值返回 `kValueOutOfRange`。参照物是父节点该轴的可用内容盒，参照无界时按未设置处理（见 `doc/guide/layout.md`）。C ABI 对应形状：`DG_VALUE_LENGTH` + `bits` 作单位（ABI 侧映射由后续工作接入） |
+| `PropValue::percent(float)` | `k_length` | 百分比（50 = 50%，范围 0..1000），仅 `width`/`height`/`min_*`/`max_*` 接受。单位放在标量联合体的整数半边：`bits == 0` 像素、`bits == 1` 百分比、`bits == 2` auto，其他值返回 `kValueOutOfRange`。参照物是父节点该轴的可用内容盒，参照无界时按未设置处理（见 `doc/guide/layout.md`）。C ABI 对应形状：`DG_VALUE_LENGTH` + `bits` 作单位（ABI 侧映射由后续工作接入） |
+| `PropValue::auto_length()` | `k_length` | auto（`bits == 2`，数值忽略），同样只有六个尺寸属性接受：把该字段恢复为未设置——`width`/`height` 回到按内容尺寸（或由父容器 stretch/grow），`min_*` 变 0，`max_*` 变无上限，同时清掉百分比。用来去掉运行时节点创建时的默认尺寸（如 `kBox` 的 240×120）。`dg::prop::width_auto()`/`height_auto()`；C ABI 为 `DG_LENGTH_UNIT_AUTO` |
 | `PropValue::color(Color)` | `k_color` | 0xAARRGGBB，边界处非预乘 |
 | `PropValue::option(uint32_t ordinal)` | `k_enum` | 属性 `values` 列表的下标；顺序本身是 ABI 契约（生成的 `DG_<PROP>_<VALUE>` 常量就是这个序号） |
 | `PropValue::boolean(bool)` | `k_bool` | 0/1，放在整数半边；C ABI 为 `DG_VALUE_BOOL`，`bits` 不是 0/1 时返回 `kValueOutOfRange`（`PropValue::boolean_bits()` 用于原样转交 ABI 传入的位） |
@@ -78,7 +79,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
 `kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
 
-## 5. 属性表（59 项）
+## 5. 属性表（68 项）
 
 列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
 常量与文档、setter 里出现的那个词汇）；**内部字段**是
@@ -102,14 +103,14 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
-| 1 | `width` | length | 完整 | 边框盒宽度；缺省即收缩到内容尺寸；可为百分比 |
-| 2 | `height` | length | 完整 | 边框盒高度；缺省即收缩到内容尺寸；可为百分比 |
+| 1 | `width` | length | 完整 | 边框盒宽度；缺省即收缩到内容尺寸；可为百分比或 auto |
+| 2 | `height` | length | 完整 | 边框盒高度；缺省即收缩到内容尺寸；可为百分比或 auto |
 | 3 | `min_width` | length | 完整 | 尺寸源解出结果后应用的下限；可为百分比 |
 | 4 | `max_width` | length | 完整 | 尺寸源解出结果后应用的上限；可为百分比 |
 | 5 | `min_height` | length | 完整 | 同上，高度方向；可为百分比 |
 | 6 | `max_height` | length | 完整 | 同上，高度方向；可为百分比 |
 | 7 | `aspect_ratio` | float | 完整 | width/height；从一个维度推出另一个 |
-| 8-11 | `padding_l/t/r/b` | float | 完整 | 缩小传给子节点的约束 |
+| 8-11 | `padding_l/t/r/b` | float | 完整 | 缩小传给子节点的约束；同时镜像到节点自己的 `TextStyle::pad_*`，文字在内容盒里排版（label/button 的内边距生效）。运行时的 `TEXT_FIELD`/`TEXT_AREA` 上它设置编辑框的对称文字内边距（默认 10），不进入布局盒子 |
 | 12-15 | `margin_l/t/r/b` | float | **部分** | 见下 |
 
 `margin_*`（parentData，`parent_data_scope="base"`）：仅支持非负值。负值会
@@ -117,7 +118,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 加到位置上，deflate（缩小约束）却没有对称处理负值。这是记录在案的功能缺口，
 不是隐藏 bug（`src/props/node_props.cpp:355-357` 注释原文）。
 
-### 5.3 visual（id 16-30, 47-51, 55-56）
+### 5.3 visual（id 16-30, 47-51, 55-56, 66-68）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -137,6 +138,9 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 51 | `text_color` | color | 完整 | `TextStyle::color`，走普通标量路径；默认全透明，只设 `text` 不设它则看不见文字 |
 | 55 | `font_size` | float | 完整 | `TextStyle::size`，逻辑像素，须为正的有限数；不改变节点盒子大小 |
 | 56 | `text_align` | enum(`left`/`center`/`right`) | 完整 | `TextStyle::align`，序号即 `DG_TEXT_ALIGN_*`。没有字重属性（`TextStyle` 没有字重） |
+| 66 | `placeholder` | text | **运行时/C ABI** | 0.2：编辑框为空且没有组字时显示的提示文字（颜色是 `color.on-surface` 半透明，随主题）；**专用 setter**：`Window::set_text(node, DG_PROP_PLACEHOLDER, …)` / `dg_node_set_text()`，只有 `TEXT_FIELD`/`TEXT_AREA` 接受，其余节点（以及 C++ 的 `dg::set_text()`）返回 `kNotApplicable`；标量入口返回 `kTypeMismatch` |
+| 67 | `wrap_text` | bool | 完整 | 0.2：`TextStyle::wrap`——节点文字按宽度折行（SkParagraph 路径）。不会撑高节点，高度仍由调用方给；`dg::prop::wrap_text()` |
+| 68 | `image_tint` | color | 完整 | 0.2：`ImageStyle::tint`，绘制时把图片（SVG 与位图）整体 SrcIn 着色、保留 alpha；全透明 = 不着色（SVG 则沿用解码时的 `SvgOptions::tint`）。可 `bind_token()` 绑主题色，同一份解码结果可在多个节点上着不同颜色；`dg::prop::image_tint()` |
 
 ### 5.4 container（id 31-37, 46, 54, 59）
 
@@ -186,9 +190,9 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 
 ## 6. 状态汇总（自查结果）
 
-- 46 项完整、10 项部分实现、8 项只在 C ABI / 运行时生效（`tab_index`/`max_length`/
-  `value`/`indeterminate`/`min_value`/`max_value`/`step`/`radio_group`）、1 项未实现（`transform`），共 65 项（含 P6 a1 新增的 `text`/`text_color`，
-  以及 `disabled`、`cursor`、`scrollbar`、`font_size`、`text_align`、`wrap`）。
+- 48 项完整、10 项部分实现、9 项只在 C ABI / 运行时生效（`tab_index`/`max_length`/
+  `value`/`indeterminate`/`min_value`/`max_value`/`step`/`radio_group`/`placeholder`）、1 项未实现（`transform`），共 68 项（含 P6 a1 新增的 `text`/`text_color`，
+  以及 `disabled`、`cursor`、`scrollbar`、`font_size`、`text_align`、`wrap`，0.2 的 `placeholder`/`wrap_text`/`image_tint`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
   （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。

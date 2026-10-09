@@ -263,6 +263,9 @@ std::optional<dg::PropValue> to_prop_value(const dg_value& value) {
       if (value.bits == DG_LENGTH_UNIT_PERCENT) {
         return dg::PropValue::percent(value.number);
       }
+      if (value.bits == DG_LENGTH_UNIT_AUTO) {
+        return dg::PropValue::auto_length();
+      }
       if (value.bits != DG_LENGTH_UNIT_PX) {
         return std::nullopt;
       }
@@ -993,7 +996,7 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
     if (typed_first) {
       return DG_ERR_TYPE_MISMATCH;
     }
-    if (value->type == DG_VALUE_LENGTH && value->bits > DG_LENGTH_UNIT_PERCENT) {
+    if (value->type == DG_VALUE_LENGTH && value->bits > DG_LENGTH_UNIT_AUTO) {
       return DG_ERR_VALUE_OUT_OF_RANGE;
     }
     return DG_ERR_INVALID_ARGUMENT;

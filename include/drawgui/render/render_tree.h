@@ -102,6 +102,14 @@ struct TextStyle {
   // kCenter, which is already clear of both.
   int inset = 0;
 
+  // The node's padding, mirrored here by the padding_* property writes: the
+  // text lays out inside the bounds minus these (then `inset` applies on top).
+  // All zero by default, so every scene without padding paints unchanged.
+  int pad_left = 0;
+  int pad_top = 0;
+  int pad_right = 0;
+  int pad_bottom = 0;
+
   // Routes this run through SkParagraph instead of the plain SkFont path
   // above when true - 7-2's multi-line/shaping/BiDi/CJK substrate. FALSE BY
   // DEFAULT, and that default is what keeps
@@ -188,6 +196,13 @@ struct ImageStyle {
   // image at all stays inert: `carries_image()` below is false for it, so
   // every scene built before this slice is unaffected byte for byte.
   Color placeholder;
+
+  // Applied at paint time: every painted pixel takes this colour, keeping its
+  // alpha (SrcIn), for bitmaps and SVGs alike. Fully transparent (the
+  // default) means no tint - an SVG then keeps its decode-time
+  // SvgOptions::tint, if any. Not image semantics on its own: carries_image()
+  // ignores it.
+  Color tint;
 
   friend bool operator==(const ImageStyle&, const ImageStyle&) = default;
 };

@@ -23,7 +23,17 @@
   滚动条拖动、点击选择都由运行时处理（`examples/15_list`）。
 - `set_disabled(node, true)`：整棵子树不再响应指针/键盘，进行中的按下不会产生
   `ClickEvent`，焦点会移走——不需要自己取消 hover/press 或模糊焦点。
-- 数据控件见 `examples/27_data_widgets`。
+- 数据控件见 `examples/27_data_widgets`。`kList`/`kTree`/`kTable` 跟随布局后的
+  尺寸：`grow`、父容器 stretch、百分比高度都生效（树和表格高度变化后在下一次布局
+  同步时重建内部视图）。`kTabs` 的标签栏背景铺满整个节点宽度。
+- 主题：`kButton`（`color.primary`/`-hover`/`-pressed`，文字 `color.on-primary`）、
+  `kCheckbox`/`kRadio`（`color.surface` 底、`color.border` 边框、选中指示器
+  `color.primary`，复选框指示器是圆角方块、单选是圆点）都从主题取色并随切换重涂。
+  在它们上面写或绑定 `BACKGROUND_COLOR`（悬停/按下色由它派生）、`TEXT_COLOR`、
+  `BORDER_COLOR` 时，你的值优先，主题不再覆盖那一项。复选框默认 32×32、内边距 6。
+- 图片：`dg::prop::image_tint(color)`（`DG_PROP_IMAGE_TINT`）在绘制时给图片整体
+  着色（SVG 和位图都可，保留 alpha），可 `bind_token()` 到主题色——单色 SVG 图标
+  解码一次即可在多个节点上用不同颜色。
 - 滑块（`kSlider`）：默认 200x20，范围 0..100、`step` 0（连续）、值 0。按下轨道
   任意处，滑块圆点跳到指针下并获得焦点，按住拖动会一直跟随直到松开（拖出轨道两端会
   夹住）；获得焦点后 Left/Down、Right/Up 移动一个 `step`（连续时为范围的 1/100），

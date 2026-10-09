@@ -327,7 +327,8 @@ struct Widget {
   // pool's size are simply not highlighted, so a pool should hold at least
   // the number of lines the viewport can show plus one. `text_inset` is the
   // padding (device pixels) between the area's border box and its text, on
-  // every side.
+  // every side. A kTextField reads it too: its text keeps that distance from
+  // the left and right edges (vertically it stays centred).
   NodeId selection_layer;
   std::vector<NodeId> highlight_pool;
   std::vector<NodeId> underline_pool;

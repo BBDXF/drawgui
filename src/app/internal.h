@@ -71,6 +71,11 @@ bool ensure_surface_current(WinState& window);
 void restyle_editors(WinState& window);
 bool insert_into_editor(WinState& window, dg::NodeId editor, const std::string& text);
 void refresh_editor_text(WinState& window, const NodeRecord& record);
+// Shows/hides and places an editor's placeholder (empty text, not composing).
+void sync_placeholder(WinState& window, const NodeRecord& record);
+// DG_PROP_PADDING_* on a text editor: its symmetric text inset.
+dg::Status set_editor_padding(WinState& window, const NodeRecord& record,
+                              const dg::PropValue& value);
 
 // -- components/list.cpp ----------------------------------------------------------
 

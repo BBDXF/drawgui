@@ -1,7 +1,9 @@
 // NodeKind::kBox, kButton, kLabel, kCheckbox and kImage: their default boxes
 // and the widgets composed inside them.
 
+#include <algorithm>
 #include <cstdint>
+#include <optional>
 
 #include "app/components/components.h"
 #include "app/internal.h"
@@ -16,23 +18,38 @@ namespace {
 // the 32px-tall default box basic_defaults() gives it.
 constexpr float kDefaultLabelTextSize = 16.0F;
 
-// P6 sub-step a2: NodeKind::kCheckbox's colours - lifted unchanged from
-// examples/11_form_controls/form_scene.cpp's own add_toggle() palette
-// (kToggleNormal/kToggleHover/kTogglePressed/kBorder/kOff/kAccent), the
-// recipe this runtime copies rather than invents.
-constexpr std::uint32_t kCheckboxNormalArgb = 0xFF2C3644;
-constexpr std::uint32_t kCheckboxHoverArgb = 0xFF3B4A5E;
-constexpr std::uint32_t kCheckboxPressedArgb = 0xFF1F2731;
-constexpr std::uint32_t kCheckboxBorderArgb = 0xFF141A22;
-constexpr std::uint32_t kCheckboxOffArgb = 0xFF10151C;
-constexpr std::uint32_t kCheckboxOnArgb = 0xFF2E86DE;
+// A checkbox's indicator corner radius (a radio's dot is fully round).
+constexpr float kCheckboxIndicatorRadius = 4.0F;
+constexpr float kControlRadius = 6.0F;
 
-constexpr dg::Color kCheckboxNormal = dg::Color::from_argb(kCheckboxNormalArgb);
-constexpr dg::Color kCheckboxBorder = dg::Color::from_argb(kCheckboxBorderArgb);
+// `base` with `over` laid on top at `amount` (0..1); alpha from `base`.
+dg::Color mix(dg::Color base, dg::Color over, float amount) {
+  const auto channel = [amount](std::uint8_t a, std::uint8_t b) {
+    return static_cast<std::uint8_t>(static_cast<float>(a) +
+                                     ((static_cast<float>(b) - static_cast<float>(a)) * amount) +
+                                     0.5F);
+  };
+  return dg::Color::rgba(channel(base.red(), over.red()), channel(base.green(), over.green()),
+                         channel(base.blue(), over.blue()), base.alpha());
+}
 
-// NodeKind::kButton's default text: the label's size, white on the
-// button's own blue fills.
-constexpr std::uint32_t kButtonTextArgb = 0xFFFFFFFF;
+bool is_dark(dg::Color c) {
+  return (299 * c.red()) + (587 * c.green()) + (114 * c.blue()) < 128000;
+}
+
+// Hover/press shades of a caller's own fill: towards white on a dark fill,
+// towards black on a light one.
+constexpr float kHoverShade = 0.08F;
+constexpr float kPressShade = 0.16F;
+dg::Color shade(dg::Color c, float amount) {
+  return mix(c, is_dark(c) ? dg::Color::rgba(0xFF, 0xFF, 0xFF) : dg::Color::rgba(0, 0, 0),
+             amount);
+}
+
+bool user_set(const NodeRecord& record, std::uint16_t prop_id) {
+  return std::find(record.user_props.begin(), record.user_props.end(), prop_id) !=
+         record.user_props.end();
+}
 
 constexpr int kImageSize = 64;
 
@@ -69,27 +86,29 @@ void basic_defaults(const AppState& app, NodeKind kind, dg::BoxStyle& box,
     // the node exists to parent it under.
     box.width = 32;
     box.height = 32;
-    style.fill = kCheckboxNormal;
-    style.border_color = kCheckboxBorder;
+    // Padded like the radio, so the 20x20 indicator sits in the centre.
+    box.padding = dg::EdgeInsets::all(6);
+    // Colours: style_control(), once the node exists.
     style.border_width = dg::BorderWidths::all(1.0F);
-    style.radii = dg::Radii::all(6.0F);
+    style.radii = dg::Radii::all(kControlRadius);
   } else if (kind == NodeKind::kImage) {
     box.width = kImageSize;
     box.height = kImageSize;
     style.image.fit = dg::ImageFit::kContain;
+  } else if (kind == NodeKind::kButton) {
+    box.width = 200;
+    box.height = 64;
+    style.radii = dg::Radii::all(kControlRadius);
+    // Ready for set_text(): the label's default font and size. The colours
+    // come from style_control(), once the node exists.
+    style.text.font = app.default_font;
+    style.text.size = kDefaultLabelTextSize;
   } else {
+    // A plain box: 240x120 (DG_LENGTH_UNIT_AUTO / dg::prop::width_auto()
+    // drops it, back to content-sized).
     style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
-    if (kind == NodeKind::kButton) {
-      box.width = 200;
-      box.height = 64;
-      // Ready for set_text(): the label's default font and size.
-      style.text.font = app.default_font;
-      style.text.size = kDefaultLabelTextSize;
-      style.text.color = dg::Color::from_argb(kButtonTextArgb);
-    } else {
-      box.width = 240;
-      box.height = 120;
-    }
+    box.width = 240;
+    box.height = 120;
   }
 }
 
@@ -98,11 +117,8 @@ void compose_basic(WinState& window, NodeRecord& record) {
   if (record.kind == NodeKind::kButton) {
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kButton;
-    widget.fill_normal = dg::Color::rgba(0x35, 0x6B, 0xC7);
-    widget.fill_hover = dg::Color::rgba(0x4A, 0x86, 0xE3);
-    widget.fill_pressed = dg::Color::rgba(0x25, 0x50, 0x9C);
     window.widgets.attach(new_id, widget);
-    window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
+    style_control(window, record);
   } else if (record.kind == NodeKind::kLabel) {
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kLabel;
@@ -117,24 +133,76 @@ void compose_basic(WinState& window, NodeRecord& record) {
     indicator_box.width = 20;
     indicator_box.height = 20;
     dg::NodeStyle indicator_style;
-    indicator_style.fill = dg::Color::from_argb(kCheckboxOffArgb);
+    indicator_style.radii = dg::Radii::all(kCheckboxIndicatorRadius);
     const dg::NodeId indicator = window.tree.add_child(new_id, indicator_box, indicator_style);
 
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kCheckbox;
-    widget.fill_normal = dg::Color::from_argb(kCheckboxNormalArgb);
-    widget.fill_hover = dg::Color::from_argb(kCheckboxHoverArgb);
-    widget.fill_pressed = dg::Color::from_argb(kCheckboxPressedArgb);
     widget.indicator = indicator;
-    widget.indicator_on = dg::Color::from_argb(kCheckboxOnArgb);
-    widget.indicator_off = dg::Color::from_argb(kCheckboxOffArgb);
     widget.checked = false;
     // widget.group left unset (std::nullopt): a plain checkbox. A grouped
     // one is NodeKind::kRadio (slider_radio.cpp).
     window.widgets.attach(new_id, widget);
     window.widgets.attach(indicator, dg::Widget{});
-    window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});
+    style_control(window, record);
   }
+}
+
+// Buttons: color.primary / -hover / -pressed with color.on-primary text.
+// Checkboxes and radios: a color.surface box (hover/press a shade of
+// color.on-surface over it) with a color.border outline; the checked
+// indicator is color.primary, the unchecked one transparent. A colour
+// property the caller wrote or bound on the node wins (NodeRecord::
+// user_props); a caller BACKGROUND_COLOR becomes the normal fill, with the
+// hover/press shades derived from it.
+void style_control(WinState& window, NodeRecord& record) {
+  const bool button = record.kind == NodeKind::kButton;
+  if ((!button && record.kind != NodeKind::kCheckbox && record.kind != NodeKind::kRadio) ||
+      !window.widgets.has(record.id)) {
+    return;
+  }
+  const auto [theme, variant] = theme_for(window.app);
+  const dg::ControlStyle cs = control_style(window.app);
+  const auto token = [&, theme = theme, variant = variant](dg_token_id id, dg::Color fallback) {
+    return theme != nullptr ? theme->color_value(id, variant).value_or(fallback) : fallback;
+  };
+  if (record.user_fill_token.has_value() && theme != nullptr) {
+    if (const std::optional<dg::Color> c =
+            theme->color_value(static_cast<dg_token_id>(*record.user_fill_token), variant)) {
+      record.user_fill = *c;
+    }
+  }
+  dg::RenderTree& tree = window.tree.render();
+  dg::Widget widget = window.widgets.at(record.id);
+  if (record.user_fill.has_value()) {
+    widget.fill_normal = *record.user_fill;
+    widget.fill_hover = shade(*record.user_fill, kHoverShade);
+    widget.fill_pressed = shade(*record.user_fill, kPressShade);
+  } else if (button) {
+    widget.fill_normal = cs.accent;
+    widget.fill_hover = token(DG_TOKEN_COLOR_PRIMARY_HOVER, shade(cs.accent, kHoverShade));
+    widget.fill_pressed = token(DG_TOKEN_COLOR_PRIMARY_PRESSED, shade(cs.accent, kPressShade));
+  } else {
+    const float hover = is_dark(cs.surface) ? 0.10F : 0.06F;
+    widget.fill_normal = cs.surface;
+    widget.fill_hover = mix(cs.surface, cs.on_surface, hover);
+    widget.fill_pressed = mix(cs.surface, cs.on_surface, 2.0F * hover);
+  }
+  dg::NodeStyle style = tree.style(record.id);
+  if (button) {
+    if (!user_set(record, DG_PROP_TEXT_COLOR)) {
+      style.text.color = cs.on_accent;
+    }
+  } else {
+    widget.indicator_on = cs.accent;
+    widget.indicator_off = dg::Color{};
+    if (!user_set(record, DG_PROP_BORDER_COLOR)) {
+      style.border_color = cs.border;
+    }
+  }
+  tree.set_style(record.id, style);
+  window.widgets.attach(record.id, widget);
+  window.widgets.refresh(tree, record.id, window.interaction.state_of(record.id));
 }
 
 }  // namespace dg::app_detail::components

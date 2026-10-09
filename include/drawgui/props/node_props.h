@@ -148,7 +148,7 @@ struct PropWrite {
 // length mode, a percentage of the parent's available content box (see
 // BoxPercents in layout/box.h for the reference and the unbounded case).
 // Both are PropType::k_length - the unit rides in the integer half of the
-// union (kLengthUnitPx = 0, kLengthUnitPercent = 1), so the type check, the
+// union (kLengthUnitPx = 0, kLengthUnitPercent = 1, kLengthUnitAuto = 2), so the type check, the
 // generator and every existing `length` caller are unchanged. At the C ABI
 // this is DG_VALUE_LENGTH with `bits` naming the unit.
 class PropValue {
@@ -158,10 +158,17 @@ class PropValue {
   }
   static constexpr std::uint32_t kLengthUnitPx = 0;
   static constexpr std::uint32_t kLengthUnitPercent = 1;
+  // "No size of its own": the field goes back to unset (content-sized, or
+  // stretched/grown by the parent's flex rules). `scalar` is ignored.
+  static constexpr std::uint32_t kLengthUnitAuto = 2;
 
   // 50.0F is half. Only width/height/min_*/max_* accept it.
   [[nodiscard]] static constexpr PropValue percent(float value) {
     return PropValue{PropType::k_length, value, kLengthUnitPercent};
+  }
+  // Only width/height/min_*/max_* accept it.
+  [[nodiscard]] static constexpr PropValue auto_length() {
+    return PropValue{PropType::k_length, 0.0F, kLengthUnitAuto};
   }
   [[nodiscard]] static constexpr PropValue length(float value) {
     return PropValue{PropType::k_length, value, 0};
@@ -196,6 +203,9 @@ class PropValue {
   [[nodiscard]] constexpr std::uint32_t ordinal() const { return bits_; }
   [[nodiscard]] constexpr bool is_percent() const {
     return type_ == PropType::k_length && bits_ == kLengthUnitPercent;
+  }
+  [[nodiscard]] constexpr bool is_auto() const {
+    return type_ == PropType::k_length && bits_ == kLengthUnitAuto;
   }
 
   friend constexpr bool operator==(const PropValue&, const PropValue&) = default;

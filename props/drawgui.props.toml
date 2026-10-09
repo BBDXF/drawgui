@@ -74,7 +74,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 66
+next_id = 69
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -833,3 +833,42 @@ group = "interaction"
 field = "radio_group"
 applies_to = ["box"]
 summary = "Which group (an integer) a radio button belongs to; selecting one clears the others in its window's group."
+
+# ---------------------------------------------------------------------------
+# Runtime polish (ABI 0.2, unreleased): an editor's placeholder, label
+# wrapping, and an image tint applied at paint time.
+#
+# `placeholder` is a second `text`-typed property and so takes the same
+# dedicated setter (dg::Window::set_text() / dg_node_set_text()); only the
+# runtime's TEXT_FIELD / TEXT_AREA accept it. The plain C++ dg::set_text()
+# reports it kNotApplicable - it names composed editor state, not a
+# TextStyle of the node itself.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "placeholder"
+id = 66
+type = "text"
+group = "visual"
+field = "placeholder"
+applies_to = ["box"]
+optional = true
+summary = "A text editor's placeholder, painted muted while its text is empty; dedicated setter, not a scalar."
+
+[[property]]
+name = "wrap_text"
+id = 67
+type = "bool"
+group = "visual"
+field = "wrap_text"
+applies_to = ["box"]
+summary = "TextStyle::wrap - the node's text breaks into lines at its width (SkParagraph) instead of one run."
+
+[[property]]
+name = "image_tint"
+id = 68
+type = "color"
+group = "visual"
+field = "image_tint"
+applies_to = ["box"]
+summary = "Recolours the node's image at paint time (SrcIn, alpha kept); fully transparent = no tint. Overrides a decode-time SVG tint."

@@ -277,6 +277,17 @@ inline constexpr dg_prop_id DG_PROP_STEP = 64;
 // type=float; applies_to=box
 inline constexpr dg_prop_id DG_PROP_RADIO_GROUP = 65;
 
+// -- visual ------------------------------------------------------
+// A text editor's placeholder, painted muted while its text is empty; dedicated setter, not a scalar.
+// type=text optional; applies_to=box
+inline constexpr dg_prop_id DG_PROP_PLACEHOLDER = 66;
+// TextStyle::wrap - the node's text breaks into lines at its width (SkParagraph) instead of one run.
+// type=bool; applies_to=box
+inline constexpr dg_prop_id DG_PROP_WRAP_TEXT = 67;
+// Recolours the node's image at paint time (SrcIn, alpha kept); fully transparent = no tint. Overrides a decode-time SVG tint.
+// type=color; applies_to=box
+inline constexpr dg_prop_id DG_PROP_IMAGE_TINT = 68;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -363,8 +374,8 @@ inline constexpr std::uint32_t DG_TEXT_ALIGN_RIGHT = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 65;
+inline constexpr std::uint16_t kDgPropMaxId = 68;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 65;
+inline constexpr std::uint16_t kDgPropCount = 68;

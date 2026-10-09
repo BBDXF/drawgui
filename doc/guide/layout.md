@@ -17,7 +17,13 @@ window->set_prop(row, DG_PROP_PADDING_L, dg::PropValue::number(20));
 
 - 普通 `kBox` 一开始是 240×120 的叶子；写 `DG_PROP_DIRECTION`（`prop::row()` /
   `prop::column()`）会把它变成行/列容器。做根节点或容器时记得给尺寸
-  （像素、百分比）或 `grow`，否则内容会被挤在 240×120 里。
+  （像素、百分比）或 `grow`，否则内容会被挤在 240×120 里；想让它按内容收缩
+  （或由父容器 stretch/grow 决定），写 `prop::width_auto()` / `prop::height_auto()`
+  （`PropValue::auto_length()`，C ABI 为 `DG_LENGTH_UNIT_AUTO`）把默认尺寸去掉。
+  默认值保持 240×120 是为了兼容已有调用方（ABI 测试与示例依赖它）。
+- `kList`/`kTree`/`kTable` 跟其他节点一样参与 flex：`grow`、父容器的 stretch、
+  百分比高度都会生效；树和表格在布局后发现高度变了，会按新高度重建内部视图
+  （下一帧生效）。
 - `gap`、`grow`、`padding_*` 是数值（`PropValue::number`），宽高是长度
   （`PropValue::length` / `percent`，即 `prop::width()` / `prop::width_percent()`）。
 - 滚动：建 `NodeKind::kScrollView`，往它下面 `create()` 的子节点会自动放进它的

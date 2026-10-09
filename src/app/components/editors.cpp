@@ -2,6 +2,8 @@
 // children, re-colouring on a theme change, and committed-text insertion.
 // Their keys are handled by keys.cpp, their pointer presses by pointer.cpp.
 
+#include <algorithm>
+#include <cmath>
 #include <optional>
 #include <string>
 
@@ -25,6 +27,8 @@ constexpr float kTextFieldFontSize = 16.0F;
 constexpr int kTextAreaWidth = 320;
 constexpr int kTextAreaHeight = 160;
 constexpr int kTextAreaInset = 10;
+// The text field's text keeps the text area's distance from its side edges.
+constexpr int kTextFieldInset = kTextAreaInset;
 constexpr int kTextAreaHighlightPool = 64;
 constexpr int kTextAreaUnderlinePool = 4;
 
@@ -66,6 +70,8 @@ EditorPalette editor_palette_for(const AppState& app) {
   pick(DG_TOKEN_COLOR_ON_SURFACE, palette.underline);
   palette.selection = dg::Color::from_argb((kTextFieldSelectionAlpha << 24U) |
                                            (palette.caret.argb() & 0xFFFFFFU));
+  palette.placeholder = dg::Color::from_argb((kTextFieldPlaceholderAlpha << 24U) |
+                                             (palette.text.argb() & 0xFFFFFFU));
   return palette;
 }
 
@@ -105,7 +111,56 @@ void restyle_editors(WinState& window) {
       tree.set_fill(widget->selection_highlight, palette.selection);
       tree.set_fill(widget->composition_underline, palette.underline);
     }
+    sync_placeholder(window, *record);
   }
+}
+
+void sync_placeholder(WinState& window, const NodeRecord& record) {
+  if (!window.widgets.has(record.id) || record.placeholder == dg::RenderTree::root() ||
+      !window.tree.render().is_valid(record.placeholder)) {
+    return;
+  }
+  dg::RenderTree& tree = window.tree.render();
+  const dg::Widget& widget = window.widgets.at(record.id);
+  const dg::TextEditState* edit = window.widgets.editor_state(record.id);
+  const bool show = !record.placeholder_text.empty() && edit != nullptr && edit->text.empty() &&
+                    !edit->composing;
+  const dg::TextStyle& content = tree.style(widget.content).text;
+  dg::TextStyle text = tree.style(record.placeholder).text;
+  text.text = show ? record.placeholder_text : std::string();
+  text.font = content.font;
+  text.size = content.size;
+  text.align = dg::TextAlign::kLeft;
+  text.color = editor_palette_for(window.app).placeholder;
+  text.wrap = record.kind == NodeKind::kTextArea;
+  tree.set_text(record.placeholder, text);
+  const dg::PixelRect field = tree.local_bounds(record.id);
+  const int inset = std::max(0, std::min(widget.text_inset, field.width / 2));
+  const int top = record.kind == NodeKind::kTextArea ? inset : 0;
+  const dg::PixelRect placed{inset, top, std::max(1, field.width - (2 * inset)),
+                             std::max(1, field.height - (2 * top))};
+  if (tree.local_bounds(record.placeholder) != placed) {
+    tree.set_local_bounds(record.placeholder, placed);
+  }
+}
+
+dg::Status set_editor_padding(WinState& window, const NodeRecord& record,
+                              const dg::PropValue& value) {
+  if (value.type() != dg::PropType::k_float) {
+    return dg::Status::kTypeMismatch;
+  }
+  const float number = value.scalar();
+  constexpr float kMaxInset = 1 << 16;
+  if (!std::isfinite(number) || number < 0.0F || number > kMaxInset) {
+    return dg::Status::kValueOutOfRange;
+  }
+  dg::Widget updated = window.widgets.at(record.id);
+  updated.text_inset = static_cast<int>(std::lround(number));
+  window.widgets.attach(record.id, updated);
+  refresh_editor_text(window, record);
+  sync_placeholder(window, record);
+  window.relaid = true;
+  return dg::Status::kOk;
 }
 
 bool insert_into_editor(WinState& window, dg::NodeId editor, const std::string& text) {
@@ -189,6 +244,8 @@ void compose_editor(WinState& window, NodeRecord& record) {
     content_style.text.color = editor.text;
     content_style.text.align = dg::TextAlign::kLeft;
     const dg::NodeId content = window.tree.add_child(new_id, placeholder, content_style);
+    // DG_PROP_PLACEHOLDER's text, under the caret; empty until set.
+    record.placeholder = window.tree.add_child(new_id, placeholder, dg::NodeStyle{});
 
     dg::NodeStyle caret_style;
     caret_style.fill = editor.caret;
@@ -205,6 +262,7 @@ void compose_editor(WinState& window, NodeRecord& record) {
     widget.caret = caret;
     widget.selection_highlight = highlight;
     widget.composition_underline = underline;
+    widget.text_inset = kTextFieldInset;
     window.widgets.attach(new_id, widget);
     if (app.fonts.has_value()) {
       window.widgets.text_field_set_focus(window.tree.render(), *app.fonts, new_id, false);
@@ -249,6 +307,7 @@ void compose_editor(WinState& window, NodeRecord& record) {
   content_style.text.align = dg::TextAlign::kLeft;
   content_style.text.wrap = true;
   widget.content = window.tree.add_child(new_id, placeholder, content_style);
+  record.placeholder = window.tree.add_child(new_id, placeholder, dg::NodeStyle{});
   dg::NodeStyle caret_style;
   caret_style.fill = editor.caret;
   widget.caret = window.tree.add_child(new_id, placeholder, caret_style);

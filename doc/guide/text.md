@@ -18,7 +18,16 @@ const dg::NodeId field = window->create(dg::NodeKind::kTextField, root).value();
   方向键与 Home/End（加 Shift 选择）、Mod+C/X/V/A 剪贴板、撤销/重做、
   输入法预编辑（preedit 只做预览，不改已提交文本），全部由运行时处理。
   未聚焦且放不下的单行框显示省略号。
-- `DG_PROP_WRAP` 让标签换行；`DG_PROP_MAX_LENGTH` 限制编辑框长度。
+- 占位符：`window->set_text(field, DG_PROP_PLACEHOLDER, "输入你的名字…")`
+  （`kTextField`/`kTextArea`）。文字为空且没有组字时以 `color.on-surface` 的半透明色
+  显示，随主题切换；其它节点返回 `kNotApplicable`。
+- 编辑框文字离边框 10px（单行框左右，多行框四边）；写 `padding_*` 改这个内边距
+  （对称，取最后写入的值，不影响布局盒子）。
+- `dg::prop::wrap_text()`（`DG_PROP_WRAP_TEXT`）让标签按宽度换行（注意
+  `DG_PROP_WRAP` 是容器换行，不是文字）；换行不会撑高节点，高度仍由你给。
+- 任何节点写 `padding_*` 都会让它自己的文字在内容盒里排版（左对齐的标签向右
+  缩进、换行宽度变窄、`padding_t` 下移）。
+- `DG_PROP_MAX_LENGTH` 限制编辑框长度。
 - 示例：`examples/12_text_input`（C++ 运行时）、`examples/26_text_area`（C ABI）。
 
 下面的「直接使用底层」讲文本栈本身。

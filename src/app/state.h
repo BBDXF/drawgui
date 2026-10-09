@@ -73,9 +73,12 @@ struct TabsState {
   std::vector<dg::NodeId> panels;
 };
 
+// `built_height`: the node height the composed view was last built for; a
+// layout that settles another height (grow, stretch, a percentage) rebuilds.
 struct TreeState {
   dg::TreeView tree;
   std::vector<dg::TreeItem> items;
+  int built_height = 0;
 };
 
 struct TableState {
@@ -84,6 +87,7 @@ struct TableState {
   std::vector<std::vector<std::string>> rows;
   std::optional<int> sort_column;
   bool sort_ascending = true;
+  int built_height = 0;
 };
 
 // NodeKind::kSlider: the WidgetSet kSlider widget holds the value and range;
@@ -110,6 +114,17 @@ struct NodeRecord {
   ComponentState state;
   // The text Window::set_tooltip() bound.
   std::string tooltip;
+  // Colour properties the caller wrote or token-bound on this node: the
+  // runtime's own theme styling (buttons, checkboxes, radios) leaves them
+  // alone. A caller BACKGROUND_COLOR becomes the widget's normal fill (as a
+  // colour, or as the token it is bound to).
+  std::vector<std::uint16_t> user_props;
+  std::optional<dg::Color> user_fill;
+  std::optional<std::uint16_t> user_fill_token;
+  // NodeKind::kTextField / kTextArea: the composed placeholder node and the
+  // text DG_PROP_PLACEHOLDER set.
+  dg::NodeId placeholder{};
+  std::string placeholder_text;
 };
 
 struct NodeIdHash {

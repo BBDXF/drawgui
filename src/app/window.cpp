@@ -212,6 +212,37 @@ void after_prop_write(WinState& window, const NodeRecord& record, dg::NodeId tar
   }
 }
 
+bool is_padding_prop(std::uint16_t prop_id) {
+  return prop_id == DG_PROP_PADDING_L || prop_id == DG_PROP_PADDING_T ||
+         prop_id == DG_PROP_PADDING_R || prop_id == DG_PROP_PADDING_B;
+}
+
+bool is_user_colour_prop(std::uint16_t prop_id) {
+  return prop_id == DG_PROP_BACKGROUND_COLOR || prop_id == DG_PROP_TEXT_COLOR ||
+         prop_id == DG_PROP_BORDER_COLOR;
+}
+
+// A caller colour write (or token binding) on a button/checkbox/radio: the
+// runtime's theme styling stops touching that property, and a background
+// colour becomes the widget's fill (its hover/press shades derived).
+void note_user_colour(WinState& window, NodeRecord& record, std::uint16_t prop_id,
+                      std::optional<dg::Color> colour, std::optional<std::uint16_t> token) {
+  if (!is_user_colour_prop(prop_id) ||
+      (record.kind != NodeKind::kButton && record.kind != NodeKind::kCheckbox &&
+       record.kind != NodeKind::kRadio)) {
+    return;
+  }
+  if (std::find(record.user_props.begin(), record.user_props.end(), prop_id) ==
+      record.user_props.end()) {
+    record.user_props.push_back(prop_id);
+  }
+  if (prop_id == DG_PROP_BACKGROUND_COLOR) {
+    record.user_fill = colour;
+    record.user_fill_token = token;
+  }
+  components::style_control(window, record);
+}
+
 // Where an insertion under `parent` goes, or the Status that refuses it.
 dg::Status insertion_point(const WinState& window, dg::NodeId parent,
                            std::optional<dg::NodeId> before, dg::NodeId& container) {
@@ -508,10 +539,19 @@ Status Window::set_prop(NodeId node, std::uint16_t prop_id, const PropValue& val
       (prop_id == DG_PROP_SCROLL_AXIS || prop_id == DG_PROP_FONT_SIZE)) {
     return app_detail::set_list_prop(window, *record, prop_id, value);
   }
+  if (is_editor_kind(record->kind) && app_detail::is_padding_prop(prop_id) &&
+      window.widgets.has(record->id)) {
+    // The editor's text inset, not its box padding: the composed children
+    // are placed by the widget layer, not by layout.
+    return app_detail::set_editor_padding(window, *record, value);
+  }
   const PropWrite result = app_detail::write_prop(window, *record, target, prop_id, value);
   if (result.ok()) {
     app_detail::after_prop_write(window, *record, target, prop_id);
     app_detail::components::after_prop(window, *record, prop_id);
+    if (target == record->id && value.type() == PropType::k_color) {
+      app_detail::note_user_colour(window, *record, prop_id, value.as_color(), std::nullopt);
+    }
   }
   return app_detail::to_status(result.status);
 }
@@ -531,6 +571,13 @@ Status Window::bind_token(NodeId node, std::uint16_t prop_id, std::uint16_t toke
   const PropWrite result =
       dg::bind_token(window.tree, window.theme_bindings, target, prop_id, *window.app.theme,
                      window.app.variant, static_cast<dg_token_id>(token_id));
+  if (result.ok() && target == record->id) {
+    NodeRecord& self = *app_detail::record_of(window, node);
+    app_detail::note_user_colour(window, self, prop_id,
+                                 window.app.theme->color_value(
+                                     static_cast<dg_token_id>(token_id), window.app.variant),
+                                 token_id);
+  }
   return app_detail::to_status(result.status);
 }
 
@@ -546,6 +593,11 @@ Status Window::set_text(NodeId node, std::uint16_t prop_id, std::string_view tex
       return *handled;
     }
   }
+  if (prop_id == DG_PROP_PLACEHOLDER && is_editor_kind(record->kind)) {
+    record->placeholder_text.assign(text);
+    app_detail::sync_placeholder(window, *record);
+    return Status::kOk;
+  }
   if (prop_id == DG_PROP_TEXT && app_detail::is_text_editor(window, record->id)) {
     // An editor's text is its MODEL, not its own node's TextStyle: replace
     // it (caret to the end). Not reported as a TextChangedEvent - that
@@ -554,6 +606,7 @@ Status Window::set_text(NodeId node, std::uint16_t prop_id, std::string_view tex
       window.widgets.editor_set_text(window.tree.render(), *fonts, record->id, text,
                                      window.focus.current() == record->id);
     }
+    app_detail::sync_placeholder(window, *record);
     return Status::kOk;
   }
   const PropWrite result = dg::set_text(window.tree, record->id, prop_id, text);

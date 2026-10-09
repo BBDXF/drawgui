@@ -54,6 +54,12 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
 - 属性：`set_prop`、`set(node, {dg::prop::width(120), dg::prop::row()})`（逐个应用，返回第一个失败）、`bind_token`、`set_text` / `text`、`checked`（checkbox 与 radio）、
   `set_disabled`（被禁用的子树不再接收指针/键盘；进行中的按下不会产生
   `ClickEvent`，焦点会移走）、`set_tooltip`、`set_image`、`scope_action`。
+- 尺寸：`kBox` 等节点创建时带默认尺寸（`kBox` 240×120），`prop::width_auto()` /
+  `prop::height_auto()` 去掉它，回到按内容/由父容器决定（`doc/guide/layout.md`）。
+- 主题：按钮、复选框、单选的颜色来自主题 token（与编辑框、滚动条一样），切换
+  主题自动重涂；你在它们上 `set_prop`/`bind_token` 的 `BACKGROUND_COLOR`/
+  `TEXT_COLOR`/`BORDER_COLOR` 优先（背景色的悬停/按下色由它派生），不必再改
+  `widgets()` 里的 `fill_*`。
 - 焦点：`focus`、`clear_focus`、`focused`；变化以 `FocusChangedEvent` 报告。
 - 弹层：`open_menu(anchor, at, std::vector<MenuEntry>)`、`close_menu`、
   `open_dialog(DialogOptions)`、`close_dialog`；返回的 id 会出现在对应的
@@ -119,7 +125,10 @@ for (const dg::Event& e : app.pump(-1)) {
 3. 不要通过它们移除/移动 `create()` 节点或组合子节点（用 `remove()`/`move()`），
    也不要跨 `destroy_window()` 持有引用。
 4. 主题切换、尺寸变化时运行时会重建组合子节点和主题绑定属性，覆盖你直接写入
-   的值。
+   的值（按钮/复选框/单选的 `Widget::fill_*` 也会被主题重写——改颜色请写属性）。
+5. 尺寸、占位符、换行、内边距、图片着色都有属性（`width_auto()`、
+   `DG_PROP_PLACEHOLDER`、`wrap_text()`、`padding_*`、`image_tint()`），不需要
+   再改 `BoxStyle`/`TextStyle`/`ImageStyle`。
 
 测试用的输入注入走 `App::window_manager()` 的 `post_pointer_button()`、
 `post_key()`、`post_logical_key()`、`post_text_input()` 等——与 C ABI 的

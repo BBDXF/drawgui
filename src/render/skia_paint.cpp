@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -169,6 +170,15 @@ sk_sp<SkShader> gradient_shader(const SkRect& rect, const LinearGradientStyle& g
 // already clear of both, so it ignores it - a centred run that also honoured
 // the inset would drift off centre whenever the two edges were treated
 // differently.
+// The rectangle the text lays out in: the node minus its mirrored padding.
+PixelRect text_box(const PixelRect& bounds, const TextStyle& text) {
+  const int left = std::max(0, text.pad_left);
+  const int top = std::max(0, text.pad_top);
+  return PixelRect{bounds.x + left, bounds.y + top,
+                   std::max(0, bounds.width - left - std::max(0, text.pad_right)),
+                   std::max(0, bounds.height - top - std::max(0, text.pad_bottom))};
+}
+
 float text_origin_x(const PixelRect& bounds, const TextStyle& text, float width) {
   const auto left = static_cast<float>(bounds.left());
   const auto right = static_cast<float>(bounds.right());
@@ -255,8 +265,9 @@ void paint_paragraph(SkCanvas& canvas, const PixelRect& bounds, const TextStyle&
   if (fonts == nullptr) {
     return;
   }
+  const PixelRect box = text_box(bounds, text);
   const float inset = static_cast<float>(text.inset);
-  const float width = std::max(0.0F, static_cast<float>(bounds.width) - (2.0F * inset));
+  const float width = std::max(0.0F, static_cast<float>(box.width) - (2.0F * inset));
 
   skia::textlayout::Paragraph* paragraph = nullptr;
   std::unique_ptr<skia::textlayout::Paragraph> uncached;
@@ -283,8 +294,8 @@ void paint_paragraph(SkCanvas& canvas, const PixelRect& bounds, const TextStyle&
   }
   canvas.save();
   canvas.clipRect(to_sk_rect(bounds), false);
-  paragraph->paint(&canvas, static_cast<float>(bounds.left()) + inset,
-                   static_cast<float>(bounds.top()));
+  paragraph->paint(&canvas, static_cast<float>(box.left()) + inset,
+                   static_cast<float>(box.top()));
   canvas.restore();
 }
 
@@ -323,8 +334,9 @@ void paint_text(SkCanvas& canvas, const PixelRect& bounds, const TextStyle& text
   // itself would make one string sit on several baselines - the CJK half of a
   // mixed label would step up or down mid-sentence.
   const SkFont primary_font = run_font(primary, text.size);
-  const float baseline = text_baseline_y(bounds, primary_font);
-  float pen = text_origin_x(bounds, text, width);
+  const PixelRect box = text_box(bounds, text);
+  const float baseline = text_baseline_y(box, primary_font);
+  float pen = text_origin_x(box, text, width);
 
   // Clipped to the node. A string is the only thing in NodeStyle that is not
   // naturally contained by the box it was given, and a glyph escaping that box
@@ -399,22 +411,22 @@ void draw_placeholder(SkCanvas& canvas, const SkRect& rect, Color placeholder) {
 // every node size and DPI scale, and resizing a node costs no re-rasterize.
 // A tint is a SrcIn colour filter over an isolated layer: the icon's own
 // coverage/alpha survives, every colour becomes the tint.
-void paint_svg(SkCanvas& canvas, const ImageEntry& entry, const SkRect& dst) {
+void paint_svg(SkCanvas& canvas, const ImageEntry& entry, const SkRect& dst,
+               std::optional<Color> tint) {
   if (entry.intrinsic.isEmpty() || dst.isEmpty()) {
     return;
   }
   canvas.save();
-  if (entry.tint.has_value()) {
+  if (tint.has_value()) {
     SkPaint layer;
-    layer.setColorFilter(
-        SkColorFilters::Blend(to_sk_color(*entry.tint), SkBlendMode::kSrcIn));
+    layer.setColorFilter(SkColorFilters::Blend(to_sk_color(*tint), SkBlendMode::kSrcIn));
     canvas.saveLayer(&dst, &layer);
   }
   canvas.translate(dst.fLeft, dst.fTop);
   canvas.scale(dst.width() / entry.intrinsic.width(), dst.height() / entry.intrinsic.height());
   entry.svg->render(&canvas);
   canvas.restore();
-  if (entry.tint.has_value()) {
+  if (tint.has_value()) {
     canvas.restore();
   }
 }
@@ -451,14 +463,22 @@ void paint_image(SkCanvas& canvas, const PixelRect& bounds, const ImageStyle& im
 
   canvas.save();
   apply_clip(canvas, bounds, radii);
+  // A node's own tint (ImageStyle::tint) wins over the decode-time one.
+  const std::optional<Color> tint =
+      image.tint.alpha() != 0 ? std::optional<Color>(image.tint) : entry->tint;
   if (entry->svg) {
-    paint_svg(canvas, *entry, image_dst_rect(rect, entry->intrinsic.width(),
-                                             entry->intrinsic.height(), image.fit));
+    paint_svg(canvas, *entry,
+              image_dst_rect(rect, entry->intrinsic.width(), entry->intrinsic.height(),
+                             image.fit),
+              tint);
   } else if (entry->bitmap && entry->bitmap->width() > 0 && entry->bitmap->height() > 0) {
     const auto source_width = static_cast<float>(entry->bitmap->width());
     const auto source_height = static_cast<float>(entry->bitmap->height());
     SkPaint paint;
     paint.setAntiAlias(true);
+    if (image.tint.alpha() != 0) {
+      paint.setColorFilter(SkColorFilters::Blend(to_sk_color(image.tint), SkBlendMode::kSrcIn));
+    }
     canvas.drawImageRect(entry->bitmap,
                          image_dst_rect(rect, source_width, source_height, image.fit),
                          SkSamplingOptions{}, &paint);

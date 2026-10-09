@@ -182,7 +182,11 @@ typedef struct dg_theme_err {
 /* needs. */
 /* A plain, non-interactive leaf (WidgetKind::kPanel). */
 #define DG_NODE_TYPE_BOX 1u
-/* A clickable leaf (WidgetKind::kButton): hover/press/click, three fills. */
+/* A clickable leaf (WidgetKind::kButton): hover/press/click, three fills. ABI */
+/* 0.2: the fills and text colour come from the theme */
+/* (color.primary/-hover/-pressed, color.on-primary) and follow a theme switch; */
+/* a DG_PROP_BACKGROUND_COLOR (hover/press shades derived from it) or */
+/* DG_PROP_TEXT_COLOR written or token-bound on it wins over the theme. */
 #define DG_NODE_TYPE_BUTTON 2u
 /* P6 sub-step a1: static text (WidgetKind::kLabel), not interactive - a click */
 /* inside it belongs to whatever ancestor accepts it. Carries an engine-chosen */
@@ -316,8 +320,9 @@ typedef struct dg_theme_err {
 /* dg_tree_set_items() pushes a flattened, depth-annotated item list (copied). */
 /* Clicks and Up/Down/Left/Right/Home/End/PageUp/PageDown/Enter select, expand */
 /* and collapse (DG_EVENT_TREE_SELECT/_EXPAND/_COLLAPSE); the wheel and its */
-/* scrollbar scroll it. Focusable. DG_PROP_HEIGHT (pixels) sizes it; percentage */
-/* heights are not honoured. */
+/* scrollbar scroll it. Focusable. DG_PROP_HEIGHT sizes it; percentage heights, */
+/* DG_PROP_GROW and a parent's stretch are honoured too (the viewport follows */
+/* the laid-out size after each layout). */
 #define DG_NODE_TYPE_TREE 13u
 /* ABI 0.2 phase B: a virtualized table with a header row (dg::Table), 360x240 */
 /* by default. dg_table_set_columns() defines columns (title, width, sortable), */
@@ -325,7 +330,9 @@ typedef struct dg_theme_err {
 /* row (or Up/Down/Home/End/PageUp/PageDown while focused) selects it - */
 /* DG_EVENT_TABLE_SELECT; a press on a sortable header queues */
 /* DG_EVENT_TABLE_SORT - the caller sorts its data, pushes it again and calls */
-/* dg_table_set_sort_indicator(). Focusable. DG_PROP_HEIGHT (pixels) sizes it. */
+/* dg_table_set_sort_indicator(). Focusable. DG_PROP_HEIGHT sizes it; percentage */
+/* heights, DG_PROP_GROW and a parent's stretch are honoured too (the viewport */
+/* follows the laid-out size after each layout). */
 #define DG_NODE_TYPE_TABLE 14u
 /* ABI 0.2: a horizontal slider (WidgetKind::kSlider), 200x20 by default: a */
 /* rounded track (theme color.border) and a round thumb as tall as the track */
@@ -496,6 +503,12 @@ typedef struct dg_theme_err {
 /* (else DG_ERR_VALUE_OUT_OF_RANGE/NOT_APPLICABLE); 0..1000. Under an unbounded */
 /* parent axis it resolves as unset. */
 #define DG_LENGTH_UNIT_PERCENT 1u
+/* ABI 0.2: no size of its own - `number` is ignored and the field goes back to */
+/* unset: DG_PROP_WIDTH/HEIGHT size the node to its content (or let the parent */
+/* stretch/grow it), MIN_* become 0 and MAX_* unbounded. Accepted by the same */
+/* six properties as PERCENT. A node's creation-time default size (e.g. a BOX's */
+/* 240x120) is unchanged; write AUTO to drop it. */
+#define DG_LENGTH_UNIT_AUTO 2u
 
 /* ABI 0.2: dg_debug_post_pointer_button_ex()'s `button`. */
 /* The primary (usually left) button. */
@@ -760,6 +773,12 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_STEP 64
 /* Which group (an integer) a radio button belongs to; selecting one clears the others in its window's group. */
 #define DG_PROP_RADIO_GROUP 65
+/* A text editor's placeholder, painted muted while its text is empty; dedicated setter, not a scalar. */
+#define DG_PROP_PLACEHOLDER 66
+/* TextStyle::wrap - the node's text breaks into lines at its width (SkParagraph) instead of one run. */
+#define DG_PROP_WRAP_TEXT 67
+/* Recolours the node's image at paint time (SrcIn, alpha kept); fully transparent = no tint. Overrides a decode-time SVG tint. */
+#define DG_PROP_IMAGE_TINT 68
 
 /* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for
  * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names
@@ -997,9 +1016,12 @@ DG_EXPORT int32_t dg_node_set_prop(dg_node_t* node, uint16_t prop_id, const dg_v
 /* P6 sub-step a1: dg::set_text() at the ABI boundary - the dedicated-setter */
 /* channel's fifth client (design.md section 5.9.5), for the same reason */
 /* dg_node_set_gradient/_shadow/_image would be: a UTF-8 string cannot ride */
-/* dg_value's fixed-size {float, uint32} union. `prop_id` must be DG_PROP_TEXT */
-/* (any other id is DG_ERR_TYPE_MISMATCH/DG_ERR_UNKNOWN_ID, the same validation */
-/* dg_node_set_prop() runs). `utf8`/`len` are copied immediately - not retained */
+/* dg_value's fixed-size {float, uint32} union. `prop_id` must be DG_PROP_TEXT, */
+/* or (ABI 0.2) DG_PROP_PLACEHOLDER on a DG_NODE_TYPE_TEXT_FIELD/TEXT_AREA - the */
+/* muted hint shown while the editor is empty and not composing */
+/* (DG_ERR_NOT_APPLICABLE on any other node); any other id is */
+/* DG_ERR_TYPE_MISMATCH/DG_ERR_UNKNOWN_ID, the same validation */
+/* dg_node_set_prop() runs. `utf8`/`len` are copied immediately - not retained */
 /* past the call. Requires a LIVE node (DG_ERR_NO_WINDOW otherwise), matching */
 /* dg_node_set_prop(). */
 DG_EXPORT int32_t dg_node_set_text(dg_node_t* node, uint16_t prop_id, const char* utf8,

@@ -306,14 +306,21 @@ constexpr float kMaxPercent = 1000.0F;
 // A length write that may carry either unit. A pixel write clears the
 // percentage for the same field and a percentage write resets the pixel field
 // to its default, so BoxStyle never holds two competing answers for one field.
+// An auto write resets both: the field is unset again.
 template <typename Pixels>
 [[nodiscard]] PropWrite box_length(Target& target, const PropValue& value,
                                    Pixels BoxStyle::*member,
                                    std::optional<float> BoxPercents::*percent_member,
                                    Pixels unset, const std::string& what) {
-  if (value.ordinal() > PropValue::kLengthUnitPercent) {
+  if (value.ordinal() > PropValue::kLengthUnitAuto) {
     return out_of_range(
         target, what + " has an unknown length unit " + std::to_string(value.ordinal()));
+  }
+  if (value.is_auto()) {
+    target.box.*member = unset;
+    target.box.percent.*percent_member = std::nullopt;
+    target.box_changed = true;
+    return PropWrite{};
   }
   if (value.is_percent()) {
     const float percent = value.scalar();
@@ -378,17 +385,29 @@ PropWrite apply_aspect_ratio(Target& target, const PropValue& value) {
   return PropWrite{};
 }
 
+// Padding also moves the node's own text: TextStyle mirrors it, so a padded
+// label or button lays its run out inside the content box.
+[[nodiscard]] PropWrite text_padding(Target& target, const PropValue& value, int EdgeInsets::*side,
+                                     int TextStyle::*mirror, const std::string& what) {
+  PropWrite laid_out = box_edge(target, value, &BoxStyle::padding, side, what);
+  if (laid_out.ok()) {
+    target.style.text.*mirror = target.box.padding.*side;
+    target.style_changed = true;
+  }
+  return laid_out;
+}
+
 PropWrite apply_padding_l(Target& target, const PropValue& value) {
-  return box_edge(target, value, &BoxStyle::padding, &EdgeInsets::left, "padding_l");
+  return text_padding(target, value, &EdgeInsets::left, &TextStyle::pad_left, "padding_l");
 }
 PropWrite apply_padding_t(Target& target, const PropValue& value) {
-  return box_edge(target, value, &BoxStyle::padding, &EdgeInsets::top, "padding_t");
+  return text_padding(target, value, &EdgeInsets::top, &TextStyle::pad_top, "padding_t");
 }
 PropWrite apply_padding_r(Target& target, const PropValue& value) {
-  return box_edge(target, value, &BoxStyle::padding, &EdgeInsets::right, "padding_r");
+  return text_padding(target, value, &EdgeInsets::right, &TextStyle::pad_right, "padding_r");
 }
 PropWrite apply_padding_b(Target& target, const PropValue& value) {
-  return box_edge(target, value, &BoxStyle::padding, &EdgeInsets::bottom, "padding_b");
+  return text_padding(target, value, &EdgeInsets::bottom, &TextStyle::pad_bottom, "padding_b");
 }
 
 // Margin is parentData whose scope is `base`: every container applies it, and
@@ -887,6 +906,28 @@ PropWrite apply_text(Target& target, const PropValue& /*value*/) {
 // direct NodeStyle member, so style_color()'s pointer-to-NodeStyle-member
 // helper does not fit here - this is the one line that helper would have
 // been.
+PropWrite apply_placeholder(Target& target, const PropValue& /*value*/) {
+  return reject(target, PropStatus::kTypeMismatch,
+                "property: placeholder IS implemented, through the dedicated "
+                "dg::Window::set_text() channel on a text editor - the value names a UTF-8 "
+                "string, which does not fit PropValue's tagged union");
+}
+
+PropWrite apply_wrap_text(Target& target, const PropValue& value) {
+  if (value.ordinal() > 1U) {
+    return out_of_range(target, "wrap_text needs a bool: 0 (false) or 1 (true)");
+  }
+  target.style.text.wrap = value.ordinal() == 1U;
+  target.style_changed = true;
+  return PropWrite{};
+}
+
+PropWrite apply_image_tint(Target& target, const PropValue& value) {
+  target.style.image.tint = value.as_color();
+  target.style_changed = true;
+  return PropWrite{};
+}
+
 PropWrite apply_text_color(Target& target, const PropValue& value) {
   target.style.text.color = value.as_color();
   target.style_changed = true;
@@ -1307,6 +1348,13 @@ PropWrite set_text(LayoutTree& tree, NodeId node, dg_prop_id prop_id, std::strin
       complex_prop_prelude(tree, node, prop_id, PropType::k_text);
   if (rejected.has_value()) {
     return *rejected;
+  }
+  if (prop_id != DG_PROP_TEXT) {
+    // placeholder: composed editor state the runtime (dg::Window) owns.
+    return PropWrite{PropStatus::kNotApplicable,
+                     "property: placeholder does not apply to this node; it needs a "
+                     "dg::Window text field or text area\n    at " +
+                         tree.path_of(node)};
   }
   TextStyle style = tree.render().style(node).text;
   style.text.assign(text);

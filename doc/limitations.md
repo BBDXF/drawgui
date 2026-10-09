@@ -122,8 +122,9 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，85 个函数，完整列�
 - **窗口**：开窗并操作（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询），接收 `DG_EVENT_WINDOW_*` 状态事件。没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
 - **节点**：十四种——`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`，以及 phase B 的组件 `DROPDOWN`、`PROGRESS`、`TABS`、`TREE`、`TABLE`；按位置插入、同窗口内移动、整棵子树删除。
 - **弹层**（phase B）：菜单 `dg_menu_open()`（锚定节点或坐标，`DG_EVENT_MENU_ACTIVATE`/`_DISMISS`）、模态对话框 `dg_dialog_open()`（`DG_EVENT_DIALOG_RESULT`）、tooltip `dg_node_set_tooltip()`（`dg_wait_events()` 自己为延迟醒来）。
-- **布局**：`BOX` 写 `DG_PROP_DIRECTION` 变成行/列容器（`JUSTIFY`/`ALIGN`/`GAP`/`WRAP` 等随之可用）；百分比长度（`DG_LENGTH_UNIT_PERCENT`，只用于 `WIDTH`/`HEIGHT`/`MIN_*`/`MAX_*`）。
-- **文字**：`DG_PROP_TEXT`/`TEXT_COLOR`/`FONT_SIZE`/`TEXT_ALIGN`；编辑框 `DG_PROP_MAX_LENGTH`。
+- **布局**：`BOX` 写 `DG_PROP_DIRECTION` 变成行/列容器（`JUSTIFY`/`ALIGN`/`GAP`/`WRAP` 等随之可用）；百分比长度（`DG_LENGTH_UNIT_PERCENT`）与 `DG_LENGTH_UNIT_AUTO`（回到按内容/由父容器拉伸，去掉创建时的默认尺寸），都只用于 `WIDTH`/`HEIGHT`/`MIN_*`/`MAX_*`。
+- **文字**：`DG_PROP_TEXT`/`TEXT_COLOR`/`FONT_SIZE`/`TEXT_ALIGN`/`WRAP_TEXT`（自动换行），`PADDING_*` 同时移动节点自己的文字；编辑框 `DG_PROP_MAX_LENGTH`、`DG_PROP_PLACEHOLDER`（`dg_node_set_text()`）、文字内边距（默认 10px，`PADDING_*` 修改）。
+- **主题**：`BUTTON`/`CHECKBOX`/`RADIO` 的颜色来自主题 token 并随切换更新；调用方写入或绑定的 `BACKGROUND_COLOR`/`TEXT_COLOR`/`BORDER_COLOR` 优先（背景色的悬停/按下色由它派生）。
 - **焦点**：`dg_node_focus()`/`dg_window_get_focus()`/`dg_window_clear_focus()`、Tab/Shift+Tab、`DG_PROP_TAB_INDEX`、`DG_EVENT_FOCUS_CHANGED`。
 - **指针**：`DG_EVENT_CLICK` 带连击数（`dg_event::clicks`），右键按下是 `DG_EVENT_CONTEXT_CLICK`。
 - **事件循环**：`dg_timer_add()`/`dg_timer_cancel()`（`DG_EVENT_TIMER`），线程安全的 `dg_wake()`/`dg_post_user_event()`（`DG_EVENT_USER`）。
@@ -132,10 +133,10 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，85 个函数，完整列�
 能用但有边界的地方：
 
 - **容器不能变回叶子**：`BOX` 一旦写过 `DIRECTION` 就一直是容器；`row_reverse`/`column_reverse` 未实现。`WRAP` 必须在 `DIRECTION` 之后写。
-- **文字没有字族/字重属性**：只有 `dg_app_add_font()` 注册的第一个字族，`TextStyle` 本身没有字重。改大字号不会撑高节点盒子；编辑框的 `TEXT_COLOR` 在下次切换主题时被主题色覆盖。
+- **文字没有字族/字重属性**：只有 `dg_app_add_font()` 注册的第一个字族，`TextStyle` 本身没有字重。改大字号不会撑高节点盒子，开了 `WRAP_TEXT` 的标签也不会按行数长高（高度仍由调用方给）；编辑框的 `TEXT_COLOR` 在下次切换主题时被主题色覆盖。编辑框的 `PADDING_*` 只设一个对称的文字内边距（最后写入的那一边的值；`TEXT_FIELD` 只用于左右，`TEXT_AREA` 四边），不进入布局盒子。
 - **`SCROLL_VIEW`** 只沿一个轴滚动；它的内容节点没有句柄，`PADDING`/`BACKGROUND` 之类只能写在视口上（容器属性会转给内容节点）。写 `PADDING_R`/`PADDING_B` 会覆盖为滚动条预留的槽。键盘滚动只在焦点落在它里面的控件上时生效（滚动视图本身不可聚焦，见 A6）。
 - **`LIST`** 只有单列文字行：同时可见最多 30 行（32 个复用行节点），数据整体推送（`dg_list_set_items()` 全量拷贝，没有增量更新、也没有按索引拉取的回调），行高统一、不可聚焦、没有键盘导航、没有悬停高亮，选中发生在按下而不是松开。
-- **`IMAGE`**：同步解码；图片表只增不减，app 存活期间不释放（换图片会留下旧图）；SVG 视为可信资源（经 Skia SVG 解析器）；`svg_tint_argb` 是整图 SrcIn 着色。见 E 节的图片格式边界。
+- **`IMAGE`**：同步解码；图片表只增不减，app 存活期间不释放（换图片会留下旧图）；SVG 视为可信资源（经 Skia SVG 解析器）；`svg_tint_argb` 是解码时的整图 SrcIn 着色；`DG_PROP_IMAGE_TINT`（可绑定主题 token）在绘制时着色、覆盖解码时的 tint，同一张图可在多个节点上着不同颜色。见 E 节的图片格式边界。
 - **定时器 id 低于 2^31**，事件里放在 `int32_t x` 中；用户事件的 64 位负载拆在 `x`/`y` 两个字段里。
 - **焦点事件只报新焦点**，不报失去焦点的是谁；焦点落在没有句柄的节点上时 `node` 为 NULL。
 
@@ -152,7 +153,7 @@ phase B 组件（菜单、下拉框、tooltip、对话框、ProgressBar、Tabs�
 - **每个窗口同时最多一个 `dg_menu_open()` 菜单、一个对话框**；再开菜单会先关旧的（旧菜单报 `DG_EVENT_MENU_DISMISS`），对话框打开时 `dg_menu_open()` 返回 `DG_ERR_UNSUPPORTED`。不支持子菜单。菜单/对话框打开期间该窗口的全部指针/按键/文字事件都交给它们（菜单外的点击关掉菜单，且这次点击被吃掉）。
 - **弹层不随主题切换重绘**：已打开的菜单/对话框/tooltip 保持打开时的样式，下次打开才用新主题；`DROPDOWN`/`PROGRESS`/`TABS`/`TREE`/`TABLE` 本身在主题切换时**重建内部节点**（状态、选中、展开、排序指示、调用方的标签页面板都保留；节点数不变），内部节点上的焦点移到重建后的对应节点。
 - **数据整体推送**：`dg_tree_set_items()`/`dg_table_set_cells()`/`dg_dropdown_set_items()` 全量拷贝，没有增量更新；`dg_table_set_columns()` 清空行。表格**不自己排序**：`DG_EVENT_TABLE_SORT` 之后由调用方排好、重新推送、`dg_table_set_sort_indicator()`。
-- **尺寸**：`TREE`/`TABLE`/`PROGRESS` 的高度只认像素 `DG_PROP_HEIGHT`（写入会重建内部节点、池大小随之变化），百分比高度不生效；宽度跟随节点（内部是 100%）。
+- **尺寸**：`TREE`/`TABLE` 的内部视图跟随布局后的节点高度（像素、百分比、`GROW`、父容器拉伸都算）：高度变化后在下一次布局同步时重建内部节点（池大小随之变化），所以变化后的第一帧仍是旧高度；`PROGRESS` 的轨道填满节点；宽度跟随节点（内部是 100%）。
 - **`TABS`** 只能通过 `dg_tabs_add()` 加标签（没有删除/改名）；`dg_node_insert_before(tabs, …)` 返回 `DG_ERR_UNSUPPORTED`，内容放进返回的面板 `BOX`。隐藏面板被禁用（离开 Tab 序列）。
 - **`dg_tree_set_selected(-1)`/`dg_table_set_selected(-1)`** 通过重建/重推清空选中，滚动位置会回到顶部（树）或被夹紧（表）。
 - **焦点事件**：组件自己移动焦点（点标签、点树）时，事件泵比较前后焦点补发 `DG_EVENT_FOCUS_CHANGED`，`node` 是最近的有句柄祖先（标签页报 `TABS` 节点）；弹层打开期间不报。
@@ -228,7 +229,7 @@ phase B 组件（菜单、下拉框、tooltip、对话框、ProgressBar、Tabs�
 - **编辑框的撤销与选词是简化版**（TextField/TextArea 共用）：撤销快照是整段文字的拷贝（深度上限 100，适合表单级文本，不适合大文档）；分词是按字素簇首码点分类的简单规则，连续的汉字/假名算一个词，没有词典分词；双击选词后拖动仍按字素扩展，不按词扩展；`max_length`（`editor_set_max_length()`）只有 C++ API，没有 ABI 属性；TextArea 里 Tab 始终切焦点，不能插入 `\t`
 - **无 RTL 界面镜像**：BiDi 文本渲染本身是支持的，但整体界面镜像（flex 主轴反转、padding 左右互换、图标翻转）没有做
 - **无竖排文本**
-- **图片格式与 SVG 的边界**：位图只注册并测试了 PNG/JPEG/WebP（GIF/BMP/ICO/AVIF 等解码器未注册，送进来会被拒绝）；动图只取第一帧；无九宫格；解码全部同步。SVG 走 Skia 的 `SkSVGDOM`：没有设置字体管理器和资源提供者，所以 SVG 里的 `<text>` 不显示、`<image>`/外部引用不加载；每次绘制都重新画一遍矢量（无栅格缓存，复杂插画类 SVG 会贵）；`tint` 是整图 SrcIn 着色，只适合单色图标，多色图标会被压成一种颜色；C ABI 通过 `dg_node_set_image_data()`/`_file()` 的 `svg_tint_argb` 参数暴露 SVG 与 tint（图片源的加载参数，而不是节点属性），C++ 侧仍没有对应的 node 属性。`ImageCatalog::decode()` 刻意不解析 SVG（主题包安全决定），SVG 只能经 `decode_any()`/`decode_svg()`/`decode_file()` 进入
+- **图片格式与 SVG 的边界**：位图只注册并测试了 PNG/JPEG/WebP（GIF/BMP/ICO/AVIF 等解码器未注册，送进来会被拒绝）；动图只取第一帧；无九宫格；解码全部同步。SVG 走 Skia 的 `SkSVGDOM`：没有设置字体管理器和资源提供者，所以 SVG 里的 `<text>` 不显示、`<image>`/外部引用不加载；每次绘制都重新画一遍矢量（无栅格缓存，复杂插画类 SVG 会贵）；`tint` 是整图 SrcIn 着色，只适合单色图标，多色图标会被压成一种颜色；C ABI 通过 `dg_node_set_image_data()`/`_file()` 的 `svg_tint_argb` 参数暴露解码时的 tint；绘制时的 tint 是节点属性 `image_tint`（`DG_PROP_IMAGE_TINT`，位图同样适用）。`ImageCatalog::decode()` 刻意不解析 SVG（主题包安全决定），SVG 只能经 `decode_any()`/`decode_svg()`/`decode_file()` 进入
 - **字体 fallback 链对完全未覆盖的字符只画 `.notdef` 方框（tofu）**，见 A12——这不是"处理不好"，是链条设计本身：只覆盖显式列出的语言/字符集组合
 
 ### 明确不做（scope boundary，不是遗漏）

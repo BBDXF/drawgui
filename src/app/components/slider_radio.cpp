@@ -27,13 +27,7 @@ constexpr float kSliderDefaultMax = 100.0F;
 constexpr float kArrowFraction = 0.01F;
 constexpr float kPageFraction = 0.1F;
 
-// The radio button's own palette: the checkbox's (basic.cpp), round.
-constexpr std::uint32_t kRadioNormalArgb = 0xFF2C3644;
-constexpr std::uint32_t kRadioHoverArgb = 0xFF3B4A5E;
-constexpr std::uint32_t kRadioPressedArgb = 0xFF1F2731;
-constexpr std::uint32_t kRadioBorderArgb = 0xFF141A22;
-constexpr std::uint32_t kRadioOffArgb = 0xFF10151C;
-constexpr std::uint32_t kRadioOnArgb = 0xFF2E86DE;
+// The radio button: the checkbox's theme colours (style_control()), round.
 constexpr int kRadioSize = 32;
 constexpr int kRadioDot = 20;
 
@@ -109,8 +103,6 @@ void slider_radio_defaults(NodeKind kind, dg::BoxStyle& box, dg::NodeStyle& styl
   box.width = kRadioSize;
   box.height = kRadioSize;
   box.padding = dg::EdgeInsets::all((kRadioSize - kRadioDot) / 2);
-  style.fill = dg::Color::from_argb(kRadioNormalArgb);
-  style.border_color = dg::Color::from_argb(kRadioBorderArgb);
   style.border_width = dg::BorderWidths::all(1.0F);
   style.radii = dg::Radii::all(static_cast<float>(kRadioSize) / 2.0F);
 }
@@ -139,21 +131,15 @@ void compose_radio(WinState& window, NodeRecord& record) {
   dot_box.width = kRadioDot;
   dot_box.height = kRadioDot;
   dg::NodeStyle dot_style;
-  dot_style.fill = dg::Color::from_argb(kRadioOffArgb);
   dot_style.radii = dg::Radii::all(static_cast<float>(kRadioDot) / 2.0F);
   const dg::NodeId dot = window.tree.add_child(record.id, dot_box, dot_style);
   dg::Widget widget;
   widget.kind = dg::WidgetKind::kCheckbox;
-  widget.fill_normal = dg::Color::from_argb(kRadioNormalArgb);
-  widget.fill_hover = dg::Color::from_argb(kRadioHoverArgb);
-  widget.fill_pressed = dg::Color::from_argb(kRadioPressedArgb);
   widget.indicator = dot;
-  widget.indicator_on = dg::Color::from_argb(kRadioOnArgb);
-  widget.indicator_off = dg::Color::from_argb(kRadioOffArgb);
   widget.group = 0;
   window.widgets.attach(record.id, widget);
   window.widgets.attach(dot, dg::Widget{});
-  window.widgets.refresh(window.tree.render(), record.id, dg::PointerState{});
+  style_control(window, record);
 }
 
 bool control_pointer(WinState& window, NodeRecord& record, SliderState& state,
@@ -275,6 +261,10 @@ bool control_key(WinState& window, NodeRecord& record, RadioState& /*state*/,
     emit(window.app, dg::events::ClickEvent{window.sdl_window, next, 0, 0, 0});
   }
   return true;
+}
+
+void restyle_state(WinState& window, NodeRecord& record, RadioState& /*state*/) {
+  style_control(window, record);
 }
 
 void restyle_state(WinState& window, NodeRecord& record, SliderState& /*state*/) {

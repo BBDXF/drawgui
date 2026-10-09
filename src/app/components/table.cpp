@@ -39,13 +39,14 @@ namespace components {
 void build_table(WinState& window, NodeRecord& record, std::optional<int> select) {
   TableState& c = std::get<TableState>(record.state);
   dg::ControlContext ctx = controls(window);
+  c.built_height = laid_out_height(window, record, kTableHeight);
   const FocusKeeper keeper(window, c.table.root());
   c.table.destroy(ctx);
   dg::TableSpec spec;
   spec.columns = c.columns;
   spec.rows = c.rows;
   spec.viewport_height =
-      std::max(ctx.style.row_height, wrapper_height(window, record, kTableHeight) -
+      std::max(ctx.style.row_height, c.built_height -
                                          (2 * kFrame) - ctx.style.row_height);
   spec.box.percent.width = 100.0F;
   c.table.build(ctx, record.id, std::move(spec));
@@ -75,7 +76,11 @@ bool control_key(WinState& window, NodeRecord& record, TableState& state,
   return r.event != dg::TableEvent::kIgnored;
 }
 
-void sync_state(WinState& window, NodeRecord& /*record*/, TableState& state) {
+void sync_state(WinState& window, NodeRecord& record, TableState& state) {
+  if (laid_out_height(window, record, kTableHeight) != state.built_height) {
+    build_table(window, record, state.table.selected());
+    return;
+  }
   dg::ControlContext ctx = controls(window);
   state.table.sync(ctx);
 }
