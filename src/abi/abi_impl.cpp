@@ -59,7 +59,9 @@ static_assert(static_cast<std::uint16_t>(dg::NodeKind::kProgress) == DG_NODE_TYP
 static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTabs) == DG_NODE_TYPE_TABS);
 static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTree) == DG_NODE_TYPE_TREE);
 static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTable) == DG_NODE_TYPE_TABLE);
-static_assert(dg::kNodeKindMin == DG_NODE_TYPE_BOX && dg::kNodeKindMax == DG_NODE_TYPE_TABLE);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kSlider) == DG_NODE_TYPE_SLIDER);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kRadio) == DG_NODE_TYPE_RADIO);
+static_assert(dg::kNodeKindMin == DG_NODE_TYPE_BOX && dg::kNodeKindMax == DG_NODE_TYPE_RADIO);
 
 // The longest dg_list_set_items() a caller can pass.
 constexpr auto kListMaxItems = dg::limits::kListMaxItems;
@@ -456,7 +458,7 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.node = node(e.node);
             out.x = e.x;
             out.y = e.y;
-            out.clicks = clicks_of(e.clicks, 1);
+            out.clicks = clicks_of(e.clicks, 0);
           },
           [&](const dg::events::ContextClickEvent& e) {
             on_window(e.window);
@@ -530,6 +532,10 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.x =
                 static_cast<std::int32_t>(static_cast<std::uint32_t>(e.payload & 0xFFFFFFFFU));
             out.y = static_cast<std::int32_t>(static_cast<std::uint32_t>(e.payload >> 32U));
+          },
+          [&](const dg::events::SliderEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
           },
       },
       event);
@@ -747,6 +753,9 @@ std::uint32_t dg_event_kind(const dg::Event& event) {
           },
           [](const dg::events::TimerEvent&) -> std::uint32_t { return DG_EVENT_TIMER; },
           [](const dg::events::UserEvent&) -> std::uint32_t { return DG_EVENT_USER; },
+          [](const dg::events::SliderEvent&) -> std::uint32_t {
+            return DG_EVENT_SLIDER_CHANGED;
+          },
       },
       event);
 }
@@ -975,6 +984,11 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
     // out of range; anything else is not a value at all.
     const bool typed_first = (live.slot->type_id == DG_NODE_TYPE_PROGRESS &&
                               (prop_id == DG_PROP_VALUE || prop_id == DG_PROP_INDETERMINATE)) ||
+                             (live.slot->type_id == DG_NODE_TYPE_SLIDER &&
+                              (prop_id == DG_PROP_VALUE || prop_id == DG_PROP_MIN_VALUE ||
+                               prop_id == DG_PROP_MAX_VALUE || prop_id == DG_PROP_STEP)) ||
+                             (live.slot->type_id == DG_NODE_TYPE_RADIO &&
+                              prop_id == DG_PROP_RADIO_GROUP) ||
                              prop_id == DG_PROP_TAB_INDEX || prop_id == DG_PROP_MAX_LENGTH;
     if (typed_first) {
       return DG_ERR_TYPE_MISMATCH;
@@ -1091,9 +1105,12 @@ std::int32_t node_remove(dg_node_t* node_h) {
 }
 
 std::int32_t node_get_checked(dg_node_t* node_h) {
-  const LiveNode live = resolve_typed(node_h, DG_NODE_TYPE_CHECKBOX);
+  const LiveNode live = resolve_live(node_h);
   if (live.status != DG_ERR_OK) {
     return live.status;
+  }
+  if (live.slot->type_id != DG_NODE_TYPE_CHECKBOX && live.slot->type_id != DG_NODE_TYPE_RADIO) {
+    return DG_ERR_UNSUPPORTED;
   }
   const dg::Expected<bool, dg::Status> checked = live.window->checked(live.slot->node_id);
   if (!checked) {

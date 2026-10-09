@@ -11,17 +11,17 @@
 在细看每个函数之前，必须先知道这个 ABI **不能**做什么——这些不是遗漏，是
 `abi/drawgui.def.toml` 文件头注释里点名拒绝的：
 
-- **只能创建十四种节点**：`DG_NODE_TYPE_BOX`（=1，`WidgetKind::kPanel`）、
+- **只能创建十六种节点**：`DG_NODE_TYPE_BOX`（=1，`WidgetKind::kPanel`）、
   `BUTTON`（=2，`kButton`）、`LABEL`（=3，`kLabel`）、`CHECKBOX`（=4，
   `kCheckbox`）、`TEXT_FIELD`（=5，`kTextField`）、`TEXT_AREA`（=6，
   `kTextArea`，0.2）、`SCROLL_VIEW`（=7，`kScrollView`，0.2）、`LIST`
   （=8，`kList`，0.2）、`IMAGE`（=9，0.2），以及 0.2 phase B 的组件
   `DROPDOWN`（=10）、`PROGRESS`（=11）、`TABS`（=12）、`TREE`（=13）、`TABLE`
-  （=14），见第 5 节「组件」。菜单、对话框、tooltip 不是节点，是窗口/节点上的
-  函数。C++ 侧的 `kSlider` 仍未导出。checkbox 不导出
-  `Widget::group`（做不成 radio）；text field 不导出任何 IME 组字
-  （composition）接口——两者都在 `abi/drawgui.def.toml` 文件头
-  "WHAT IS DELIBERATELY NOT HERE"里具名拒绝。
+  （=14），见第 5 节「组件」；0.2 的表单控件 `SLIDER`（=15，`kSlider`）和
+  `RADIO`（=16，分组的 `kCheckbox`），见第 5 节「滑块与单选」。菜单、对话框、
+  tooltip 不是节点，是窗口/节点上的函数。普通 `CHECKBOX` 仍没有分组（要互斥选择用
+  `RADIO`）；text field 不导出任何 IME 组字（composition）接口——在
+  `abi/drawgui.def.toml` 文件头 "WHAT IS DELIBERATELY NOT HERE"里具名拒绝。
 - **容器**：`BOX` 默认是叶子（子节点叠放在左上角）；对它写
   `DG_PROP_DIRECTION`（`DG_DIRECTION_ROW`/`COLUMN`）就变成行/列容器，
   之后 `JUSTIFY`/`ALIGN`/`GAP`/`MAIN_SIZE` 生效，`DG_PROP_WRAP`
@@ -80,16 +80,16 @@
 | `dg_value` | 一个带类型标签的属性值——`type`（`DG_VALUE_*`）、`number`（浮点/长度）、`bits`（颜色 ARGB、枚举序号或布尔 0/1） |
 | `dg_app_opts` | 应用级选项，目前为空，只留 `size` 供未来扩展 |
 | `dg_window_opts` | 窗口初始状态：`title`（创建时拷贝，不持有）、`width`、`height`、`background_argb`；0.2 起追加 `resizable`、`min_width`/`min_height`、`max_width`/`max_height`（0 = 该轴不限制）——只有 `size` 覆盖到这些字段时才读取，0.1 编出来的短结构体照旧得到不可调整大小、无限制的窗口 |
-| `dg_event` | `dg_poll_events()` 的一条事件：`kind`、`window`、`node`、`x`/`y`、`action_id`，0.2 追加 `clicks`（`uint16_t`，放在原来的尾部填充里，`sizeof(dg_event)` 不变，64 位上仍是 40 字节）。各字段按 `kind` 解释：`CLICK`/`CONTEXT_CLICK` 的 `x`/`y` 是指针位置、`clicks` 是连击数（2 = 双击）；`LIST_SELECT` 的 `x` 是行号；`TIMER` 的 `x` 是定时器 id；`USER` 的 64 位负载拆在 `x`（低 32 位）和 `y`（高 32 位）；`WINDOW_MOVED` 是新的左上角（逻辑屏幕坐标），`WINDOW_RESIZED` 是新的可绘制宽/高（设备像素）；`FOCUS_CHANGED` 的 `node` 是新的焦点（NULL = 无焦点）。phase B 只追加 kind、复用字段（大小仍是 40 字节）：`MENU_ACTIVATE` 的 `x` = 项序号、`y` = 菜单 id、`node` = 锚点；`MENU_DISMISS` 的 `x` = -1、`y` = 菜单 id；`VALUE_CHANGED` 的 `node` = 下拉框、`x` = 新选项、`y` = 旧选项（-1 = 无）；`DIALOG_RESULT` 的 `x` = 按钮（-1 = 没有取消按钮时的 Escape）、`y` = 对话框 id、`node` 为 NULL；`TAB_SELECT` 的 `x` = 标签；`TREE_SELECT`/`_EXPAND`/`_COLLAPSE` 的 `x` = 条目；`TABLE_SELECT` 的 `x` = 行、指针选中时 `clicks` 为连击数；`TABLE_SORT` 的 `x` = 列 |
+| `dg_event` | `dg_poll_events()` 的一条事件：`kind`、`window`、`node`、`x`/`y`、`action_id`，0.2 追加 `clicks`（`uint16_t`，放在原来的尾部填充里，`sizeof(dg_event)` 不变，64 位上仍是 40 字节）。各字段按 `kind` 解释：`CLICK`/`CONTEXT_CLICK` 的 `x`/`y` 是指针位置、`clicks` 是连击数（2 = 双击）；`LIST_SELECT` 的 `x` 是行号；`TIMER` 的 `x` 是定时器 id；`USER` 的 64 位负载拆在 `x`（低 32 位）和 `y`（高 32 位）；`WINDOW_MOVED` 是新的左上角（逻辑屏幕坐标），`WINDOW_RESIZED` 是新的可绘制宽/高（设备像素）；`FOCUS_CHANGED` 的 `node` 是新的焦点（NULL = 无焦点）。phase B 只追加 kind、复用字段（大小仍是 40 字节）：`MENU_ACTIVATE` 的 `x` = 项序号、`y` = 菜单 id、`node` = 锚点；`MENU_DISMISS` 的 `x` = -1、`y` = 菜单 id；`VALUE_CHANGED` 的 `node` = 下拉框、`x` = 新选项、`y` = 旧选项（-1 = 无）；`DIALOG_RESULT` 的 `x` = 按钮（-1 = 没有取消按钮时的 Escape）、`y` = 对话框 id、`node` 为 NULL；`TAB_SELECT` 的 `x` = 标签；`TREE_SELECT`/`_EXPAND`/`_COLLAPSE` 的 `x` = 条目；`TABLE_SELECT` 的 `x` = 行、指针选中时 `clicks` 为连击数；`TABLE_SORT` 的 `x` = 列；`SLIDER_CHANGED` 的 `node` = 滑块、`x`/`y` 为 0（新值用 `dg_slider_get_value()` 查询）；方向键选中 `RADIO` 产生的 `CLICK` 的 `clicks` 和 `x`/`y` 为 0 |
 | `dg_theme_err` | `dg_theme_load_dir`/`_memory` 失败时的机读原因（`DG_THEME_ERR_*`） |
 
 ## 4. 常量组
 
 | 组 | 前缀 | 数量 | 说明 |
 |---|---|---|---|
-| `node_type` | `DG_NODE_TYPE_` | 14 | phase B 追加 `DROPDOWN`(10)、`PROGRESS`(11)、`TABS`(12)、`TREE`(13)、`TABLE`(14)，见第 5 节「组件」；0.2 起追加 `SCROLL_VIEW`(7)、`LIST`(8)、`IMAGE`(9)，见第 5 节「滚动、列表与图片」；`BOX`(1)、`BUTTON`(2)、`LABEL`(3)、`CHECKBOX`(4)、`TEXT_FIELD`(5)；0.2 起 `TEXT_AREA`(6)：多行编辑框，默认 320×160，文字距边框 10px，和 `TEXT_FIELD` 共用一套颜色和焦点边框（都取自当前主题：底色 `color.surface`、文字 `color.on-surface`、边框 `color.border`、获得焦点时的边框和光标 `color.primary`、选中底色是半透明的 `color.primary`；切换主题或明暗后立即生效）；Enter 换行、Up/Down 保持列、Home/End 按视觉行、Ctrl+Home/End 到全文首尾、PageUp/PageDown 翻页、按住拖动选择；滚轮和自带滚动条（主题 token `color.scrollbar-*`/`size.scrollbar`）只滚动视口；Tab 仍切焦点——见第 1 节 |
+| `node_type` | `DG_NODE_TYPE_` | 16 | 0.2 追加 `SLIDER`(15)、`RADIO`(16)，见第 5 节「滑块与单选」；phase B 追加 `DROPDOWN`(10)、`PROGRESS`(11)、`TABS`(12)、`TREE`(13)、`TABLE`(14)，见第 5 节「组件」；0.2 起追加 `SCROLL_VIEW`(7)、`LIST`(8)、`IMAGE`(9)，见第 5 节「滚动、列表与图片」；`BOX`(1)、`BUTTON`(2)、`LABEL`(3)、`CHECKBOX`(4)、`TEXT_FIELD`(5)；0.2 起 `TEXT_AREA`(6)：多行编辑框，默认 320×160，文字距边框 10px，和 `TEXT_FIELD` 共用一套颜色和焦点边框（都取自当前主题：底色 `color.surface`、文字 `color.on-surface`、边框 `color.border`、获得焦点时的边框和光标 `color.primary`、选中底色是半透明的 `color.primary`；切换主题或明暗后立即生效）；Enter 换行、Up/Down 保持列、Home/End 按视觉行、Ctrl+Home/End 到全文首尾、PageUp/PageDown 翻页、按住拖动选择；滚轮和自带滚动条（主题 token `color.scrollbar-*`/`size.scrollbar`）只滚动视口；Tab 仍切焦点——见第 1 节 |
 | `value_type` | `DG_VALUE_` | 6 | `FLOAT`/`LENGTH`/`COLOR`/`ENUM`/`TOKEN`/`BOOL`（`TOKEN` 是 7-6 加入的主题绑定值类型；`BOOL` 的 `bits` 只能是 0/1，否则 `DG_ERR_VALUE_OUT_OF_RANGE`，首个使用者是 `DG_PROP_DISABLED`） |
-| `event_kind` | `DG_EVENT_` | 28 | phase B 追加 `MENU_ACTIVATE`(19)、`MENU_DISMISS`(20)、`VALUE_CHANGED`(21)、`DIALOG_RESULT`(22)、`TAB_SELECT`(23)、`TREE_SELECT`(24)、`TREE_EXPAND`(25)、`TREE_COLLAPSE`(26)、`TABLE_SELECT`(27)、`TABLE_SORT`(28)；0.2 起再追加 `FOCUS_CHANGED`(14)、`TIMER`(15)、`USER`(16)、`CONTEXT_CLICK`(17，右键按下)、`LIST_SELECT`(18)，字段含义见第 3 节 `dg_event`； `WINDOW_CLOSED`/`CLICK`/`ACTION`/`TEXT_CHANGED`（`TEXT_FIELD`/`TEXT_AREA` 文字被用户编辑，只带 `window`/`node`，新文字用 `dg_node_get_text()` 取）；0.2 起追加窗口状态事件 `WINDOW_RESIZED`(5)、`WINDOW_MOVED`(6)、`WINDOW_MINIMIZED`(7)、`WINDOW_MAXIMIZED`(8)、`WINDOW_RESTORED`(9)、`WINDOW_FOCUS_GAINED`(10)、`WINDOW_FOCUS_LOST`(11)、`WINDOW_FULLSCREEN_ENTERED`(12)、`WINDOW_FULLSCREEN_LEFT`(13)。`RESIZED` 只在尺寸真的变了时才报；多数平台（包括 dummy 驱动）在窗口创建后会先报一次 `FOCUS_GAINED` |
+| `event_kind` | `DG_EVENT_` | 29 | 0.2 追加 `SLIDER_CHANGED`(29)；phase B 追加 `MENU_ACTIVATE`(19)、`MENU_DISMISS`(20)、`VALUE_CHANGED`(21)、`DIALOG_RESULT`(22)、`TAB_SELECT`(23)、`TREE_SELECT`(24)、`TREE_EXPAND`(25)、`TREE_COLLAPSE`(26)、`TABLE_SELECT`(27)、`TABLE_SORT`(28)；0.2 起再追加 `FOCUS_CHANGED`(14)、`TIMER`(15)、`USER`(16)、`CONTEXT_CLICK`(17，右键按下)、`LIST_SELECT`(18)，字段含义见第 3 节 `dg_event`； `WINDOW_CLOSED`/`CLICK`/`ACTION`/`TEXT_CHANGED`（`TEXT_FIELD`/`TEXT_AREA` 文字被用户编辑，只带 `window`/`node`，新文字用 `dg_node_get_text()` 取）；0.2 起追加窗口状态事件 `WINDOW_RESIZED`(5)、`WINDOW_MOVED`(6)、`WINDOW_MINIMIZED`(7)、`WINDOW_MAXIMIZED`(8)、`WINDOW_RESTORED`(9)、`WINDOW_FOCUS_GAINED`(10)、`WINDOW_FOCUS_LOST`(11)、`WINDOW_FULLSCREEN_ENTERED`(12)、`WINDOW_FULLSCREEN_LEFT`(13)。`RESIZED` 只在尺寸真的变了时才报；多数平台（包括 dummy 驱动）在窗口创建后会先报一次 `FOCUS_GAINED` |
 | `length_unit` | `DG_LENGTH_UNIT_` | 2 | 0.2：`DG_VALUE_LENGTH` 的 `bits` 指明单位：`PX`(0，以前 `bits` 总是 0，含义不变)、`PERCENT`(1，父节点可用内容盒的百分比，50 = 一半，只有 `WIDTH`/`HEIGHT`/`MIN_*`/`MAX_*` 接受；其它值返回 `DG_ERR_VALUE_OUT_OF_RANGE`) |
 | `pointer_button` | `DG_POINTER_BUTTON_` | 3 | 0.2：`PRIMARY`(1)、`SECONDARY`(2)、`MIDDLE`(3)，`dg_debug_post_pointer_button_ex()` 用 |
 | `pixel_format` | `DG_PIXEL_FORMAT_` | 2 | 0.2：`BGRA8888`(1)、`RGBA8888`(2)，`dg_window_set_icon()` 的像素字节序 |
@@ -107,7 +107,7 @@
 `VALUE_OUT_OF_RANGE`(-7)、`NOT_APPLICABLE`(-8)、`UNSUPPORTED`(-9)、
 `ALREADY_ATTACHED`(-10)、`NO_WINDOW`(-11)、`NO_ACTIVE_THEME`(-12)。
 
-## 5. 导出函数（共 85 个）
+## 5. 导出函数（共 87 个）
 
 按用途分组；每个函数一句话说明。
 
@@ -145,7 +145,7 @@
 | `dg_node_create(app, type_id)` | 分配一个 pending 节点；`type_id` 只能是 `DG_NODE_TYPE_*` 的九个值之一 |
 | `dg_node_set_prop(node, prop_id, value)` | 标量属性写入，`dg::set_prop()` 的 ABI 映射；对 pending 或 live 节点都有效。写 `DG_PROP_DISABLED`（`DG_VALUE_BOOL`）成功后会自动取消该子树上的按压/hover（不产生 `DG_EVENT_CLICK`）、让落在其中的焦点失焦并重绘子树；禁用的 button/checkbox/text field 用主题 token `color.disabled`/`color.on-disabled` 着色。0.2：`DG_PROP_CURSOR`（`DG_VALUE_ENUM`，值为 `DG_CURSOR_*`）设置指针形状，事件泵在每次指针移动/按下/抬起后自动解析并切换光标（只在形状变化时才调用平台）；改了属性但指针没动时，要等下一次指针事件才生效。0.2：`DG_PROP_SCROLLBAR`（`DG_VALUE_ENUM`，`DG_SCROLLBAR_AUTO/ALWAYS/NEVER`）可以写入并会被校验；`TEXT_AREA`/`SCROLL_VIEW`/`LIST` 自带滚动条，写在它们上面决定滚动条何时显示（C++ 场景见 `doc/guide/widgets.md`「滚动条」）。0.2 phase A：`DG_PROP_DIRECTION` 让 `BOX` 变成容器（见第 1 节）；`DG_PROP_TAB_INDEX`（`DG_VALUE_FLOAT` 整数：正数按升序先走，0 按树序，负数退出 Tab 序列但仍可点击；只对可聚焦节点）和 `DG_PROP_MAX_LENGTH`（`DG_VALUE_FLOAT` 非负整数，按字素簇计，0 = 不限；只对编辑框，已有文字不截断）是控件状态，C++ 的 `dg::set_prop()` 对它们返回 `kUnsupported`，只有 C ABI 能写 |
 | `dg_node_set_text(node, prop_id, utf8, len)` | 专用 setter 通道（`prop_id` 必须是 `DG_PROP_TEXT`）：UTF-8 字符串装不进 `dg_value` 的定长联合，形状与 `dg::set_gradient/_shadow/_image` 一致；只对 live 节点有效（pending 返回 `DG_ERR_NO_WINDOW`）。0.2：对 `TEXT_FIELD`/`TEXT_AREA` 写的是**编辑框的文字模型**（光标移到末尾、清掉选区、组字和撤销历史，TextField 丢弃换行），不会产生 `DG_EVENT_TEXT_CHANGED` |
-| `dg_node_get_checked(node)` | 查询 live `CHECKBOX` 的勾选状态：返回 1/0，负数为 `DG_ERR_*`（非 checkbox 为 `DG_ERR_UNSUPPORTED`）；"收到 CLICK 再查询"的形状 |
+| `dg_node_get_checked(node)` | 查询 live `CHECKBOX`（0.2 起也包括 `RADIO`）的勾选状态：返回 1/0，负数为 `DG_ERR_*`（其它类型为 `DG_ERR_UNSUPPORTED`）；"收到 CLICK 再查询"的形状 |
 | `dg_node_get_text(node, buf, cap, out_len)` | 读取 live `TEXT_FIELD`/`TEXT_AREA` 的当前文字：两趟调用（先 `cap=0` 取 `out_len` 全长，再分配缓冲读取）；按字节截断 |
 | `dg_node_insert_before(parent, child, ref)` | 0.2：`parent` 是 `SCROLL_VIEW` 时插进它的内容节点；`parent` 是 `LIST` 返回 `DG_ERR_UNSUPPORTED`。把 `child` 插到 live 的 `parent` 下、紧挨在 `ref` 之前（`ref` 为 NULL 时追加到末尾）。`ref` 必须是 `parent` 的直接子节点且不是 `child` 本身，否则 `DG_ERR_INVALID_ARGUMENT`。pending 的 `child` 变成 live；已在**同一窗口** live 的 `child` 被**移动**（身份、控件状态、句柄都保留）——keyed reconciler 靠它重排。把节点移到它自己或它的后代下面是环，返回 `DG_ERR_INVALID_ARGUMENT`；`child` 在另一个窗口里 live 时返回 `DG_ERR_ALREADY_ATTACHED` |
 | `dg_node_remove(node)` | 使句柄失效（此后任何调用返回 `DG_ERR_INVALID_HANDLE`）。对 LIVE 节点，还会把整棵子树从树上摘除：子树里每个节点的控件/主题/焦点/动画/action/交互状态都被清理（`dg::remove_subtree`），腾出的区域重绘、原父节点重新布局，子树里**所有**有句柄的后代句柄也一并失效。删除窗口根节点会清空该窗口的根，之后可以再 `dg_window_set_root()`。pending 节点只失效句柄 |
@@ -211,6 +211,17 @@
 - `TABLE`：360×240，虚拟化，带表头；点击行或 Up/Down/Home/End/PageUp/PageDown 选中（`TABLE_SELECT`），按可排序表头产生 `TABLE_SORT`——调用方排好数据、重新 `dg_table_set_cells()`、再 `dg_table_set_sort_indicator()`。
 - `TREE`/`TABLE`/`PROGRESS` 的高度用像素 `DG_PROP_HEIGHT` 设置（会重建内部节点），宽度随节点。组件节点不接受 `dg_node_insert_before()` 子节点。
 - 纯 C 示例：`examples/28_c_components`（`--verify` 在 CTest 里跑）。
+
+### 滑块与单选（0.2）
+
+| 函数 | 用途 |
+|---|---|
+| `dg_slider_get_value(node, &value)` | 读 live `SLIDER` 的当前值；`value` 为 NULL 返回 `DG_ERR_INVALID_ARGUMENT`，其它类型 `DG_ERR_UNSUPPORTED` |
+| `dg_radio_select(node)` | 选中 live `RADIO`、清掉同组其它项并重绘；不产生事件 |
+
+- `SLIDER`：200×20，圆角轨道（`color.border`）+ 与轨道等高的圆点（`color.primary`），切主题重涂。`DG_PROP_VALUE`（`DG_VALUE_FLOAT`）写值，夹进 `[DG_PROP_MIN_VALUE, DG_PROP_MAX_VALUE]`（默认 0..100）并对齐到 `min + k*DG_PROP_STEP`（默认 0 = 连续）；`min ≥ max`、`max ≤ min`、负 `step`、非有限数返回 `DG_ERR_VALUE_OUT_OF_RANGE`，改范围后当前值重新夹取。主键按下：圆点跳到指针处、获得焦点、开始拖动直到松开；聚焦时 Left/Down、Right/Up 一个 step（连续时范围的 1/100），PageDown/PageUp 范围的 1/10，Home/End 到两端。每次用户改变值产生 `DG_EVENT_SLIDER_CHANGED`（写属性不产生）。`DG_PROP_DISABLED` 后不响应且用禁用色。`DG_PROP_HEIGHT` 让圆点同步变大。不接受子节点。
+- `RADIO`：32×32 圆形、20×20 圆点，配色同 `CHECKBOX`；`DG_PROP_RADIO_GROUP`（`DG_VALUE_FLOAT` 整数，±2^24，默认 0）决定它在本窗口里的组。点击先选中（已选中时不取消）再排队 `DG_EVENT_CLICK`，之后 `dg_node_get_checked()` 查询——和 `CHECKBOX` 同一个形状。聚焦时 Left/Up、Right/Down 把焦点和选中移到同组上一个/下一个未禁用的 `RADIO`（创建顺序、循环），并在新节点上产生 `clicks = 0` 的 `DG_EVENT_CLICK`。每个单选是独立的 Tab 停靠点。
+- `DG_PROP_MIN_VALUE`/`MAX_VALUE`/`STEP`/`RADIO_GROUP` 是控件状态：写到别的节点类型返回 `DG_ERR_UNSUPPORTED`，C++ 的 `dg::set_prop()` 同样返回 `kUnsupported`（运行时 `dg::Window::set_prop()` 会处理）。
 
 ### 定时器与跨线程唤醒（0.2）
 
@@ -327,7 +338,7 @@ try {
 | 版本 | 内容 |
 |---|---|
 | 0.1 | 初始接口（94d53af），到 `dg_node_get_text()` 为止 |
-| 0.2 | `dg_node_insert_before()` 按位置插入/移动、`dg_node_remove()` 删除整棵子树（5f3917b）；`DG_PROP_DISABLED` + `DG_VALUE_BOOL`（e8bdea9）；禁用控件跟随主题切换（c488360）；窗口操作 `dg_window_set_title()` … `dg_window_get_state()`、`DG_EVENT_WINDOW_*` 状态事件、`DG_PIXEL_FORMAT_*`、`DG_WINDOW_STATE_*`、`dg_window_opts` 追加的 `resizable`/最小/最大尺寸字段；`DG_PROP_CURSOR`（事件泵自动切换光标）、C 侧的枚举属性值常量（`DG_CURSOR_*` 及其它 `DG_<PROP>_<VALUE>`）、`dg_debug_get_cursor()`；`DG_PROP_SCROLLBAR` + `DG_SCROLLBAR_*`，以及滚动条主题 token `DG_TOKEN_COLOR_SCROLLBAR_*`/`DG_TOKEN_SIZE_SCROLLBAR`；`DG_NODE_TYPE_TEXT_AREA`（复用 `dg_node_set_text()`/`dg_node_get_text()`/`DG_EVENT_TEXT_CHANGED`），`dg_debug_post_text_field_key()` 追加 `Up`/`Down`/`Enter`/`PageUp`/`PageDown`；编辑框撤销/重做（`DG_ACTION_UNDO`/`REDO`/`REDO_ALT`，Mod+Z / Mod+Shift+Z / Mod+Y，事件泵直接作用于获得焦点的 `TEXT_FIELD`/`TEXT_AREA`）、获得焦点的编辑框自行处理复制/剪切/粘贴/全选（Mod+C/X/V/A，剪切/粘贴发出 `DG_EVENT_TEXT_CHANGED`，不再产生 `DG_EVENT_ACTION`）、Ctrl+Left/Right 按词移动、Ctrl+Backspace/Delete 删词、双击选词/三击选行（或全选），`dg_debug_post_key()` 可注入带修饰键的组合键；**phase A**：`BOX` 写 `DG_PROP_DIRECTION` 变成行/列容器、`DG_PROP_WRAP`；`DG_PROP_FONT_SIZE`/`DG_PROP_TEXT_ALIGN`；百分比长度（`DG_LENGTH_UNIT_*`）；焦点 API（`dg_node_focus()`/`dg_window_get_focus()`/`dg_window_clear_focus()`、Tab/Shift+Tab、`DG_PROP_TAB_INDEX`、`DG_EVENT_FOCUS_CHANGED`）；`DG_NODE_TYPE_SCROLL_VIEW`、`DG_NODE_TYPE_LIST`（`dg_list_*`、`DG_EVENT_LIST_SELECT`）、`dg_node_get_scroll_offset()`；`DG_PROP_MAX_LENGTH`，编辑框改用平台连击数；`dg_event::clicks`、`DG_EVENT_CONTEXT_CLICK`；`dg_timer_add()`/`dg_timer_cancel()`（`DG_EVENT_TIMER`）、`dg_wake()`/`dg_post_user_event()`（`DG_EVENT_USER`）；`DG_NODE_TYPE_IMAGE` + `dg_node_set_image_data()`/`_file()`；主题 token `color.scrim`（`DG_TOKEN_COLOR_SCRIM`，`PopupStyle::scrim` 取自它）；`dg_debug_post_wheel()`、`dg_debug_post_pointer_button_ex()`；**phase B**（组件层，轮询）：`dg_menu_open()`/`dg_menu_close()`（`DG_EVENT_MENU_ACTIVATE`/`_DISMISS`、`DG_MENU_ITEM_*`）、`DG_NODE_TYPE_DROPDOWN`（`dg_dropdown_*`、`DG_EVENT_VALUE_CHANGED`）、`dg_node_set_tooltip()`/`dg_app_set_tooltip_delay()`、`dg_dialog_open()`/`dg_dialog_close()`（`DG_EVENT_DIALOG_RESULT`）、`DG_NODE_TYPE_PROGRESS`（`DG_PROP_VALUE`、`DG_PROP_INDETERMINATE`）、`DG_NODE_TYPE_TABS`（`dg_tabs_*`、`DG_EVENT_TAB_SELECT`）、`DG_NODE_TYPE_TREE`（`dg_tree_*`、`DG_EVENT_TREE_*`、`DG_TREE_ITEM_*`）、`DG_NODE_TYPE_TABLE`（`dg_table_*`、`DG_EVENT_TABLE_*`、`DG_TABLE_COLUMN_*`）、`dg_debug_node_count()`，`dg_debug_post_text_field_key()` 追加 `Escape` |
+| 0.2 | `dg_node_insert_before()` 按位置插入/移动、`dg_node_remove()` 删除整棵子树（5f3917b）；`DG_PROP_DISABLED` + `DG_VALUE_BOOL`（e8bdea9）；禁用控件跟随主题切换（c488360）；窗口操作 `dg_window_set_title()` … `dg_window_get_state()`、`DG_EVENT_WINDOW_*` 状态事件、`DG_PIXEL_FORMAT_*`、`DG_WINDOW_STATE_*`、`dg_window_opts` 追加的 `resizable`/最小/最大尺寸字段；`DG_PROP_CURSOR`（事件泵自动切换光标）、C 侧的枚举属性值常量（`DG_CURSOR_*` 及其它 `DG_<PROP>_<VALUE>`）、`dg_debug_get_cursor()`；`DG_PROP_SCROLLBAR` + `DG_SCROLLBAR_*`，以及滚动条主题 token `DG_TOKEN_COLOR_SCROLLBAR_*`/`DG_TOKEN_SIZE_SCROLLBAR`；`DG_NODE_TYPE_TEXT_AREA`（复用 `dg_node_set_text()`/`dg_node_get_text()`/`DG_EVENT_TEXT_CHANGED`），`dg_debug_post_text_field_key()` 追加 `Up`/`Down`/`Enter`/`PageUp`/`PageDown`；编辑框撤销/重做（`DG_ACTION_UNDO`/`REDO`/`REDO_ALT`，Mod+Z / Mod+Shift+Z / Mod+Y，事件泵直接作用于获得焦点的 `TEXT_FIELD`/`TEXT_AREA`）、获得焦点的编辑框自行处理复制/剪切/粘贴/全选（Mod+C/X/V/A，剪切/粘贴发出 `DG_EVENT_TEXT_CHANGED`，不再产生 `DG_EVENT_ACTION`）、Ctrl+Left/Right 按词移动、Ctrl+Backspace/Delete 删词、双击选词/三击选行（或全选），`dg_debug_post_key()` 可注入带修饰键的组合键；**phase A**：`BOX` 写 `DG_PROP_DIRECTION` 变成行/列容器、`DG_PROP_WRAP`；`DG_PROP_FONT_SIZE`/`DG_PROP_TEXT_ALIGN`；百分比长度（`DG_LENGTH_UNIT_*`）；焦点 API（`dg_node_focus()`/`dg_window_get_focus()`/`dg_window_clear_focus()`、Tab/Shift+Tab、`DG_PROP_TAB_INDEX`、`DG_EVENT_FOCUS_CHANGED`）；`DG_NODE_TYPE_SCROLL_VIEW`、`DG_NODE_TYPE_LIST`（`dg_list_*`、`DG_EVENT_LIST_SELECT`）、`dg_node_get_scroll_offset()`；`DG_PROP_MAX_LENGTH`，编辑框改用平台连击数；`dg_event::clicks`、`DG_EVENT_CONTEXT_CLICK`；`dg_timer_add()`/`dg_timer_cancel()`（`DG_EVENT_TIMER`）、`dg_wake()`/`dg_post_user_event()`（`DG_EVENT_USER`）；`DG_NODE_TYPE_IMAGE` + `dg_node_set_image_data()`/`_file()`；主题 token `color.scrim`（`DG_TOKEN_COLOR_SCRIM`，`PopupStyle::scrim` 取自它）；`dg_debug_post_wheel()`、`dg_debug_post_pointer_button_ex()`；**phase B**（组件层，轮询）：`dg_menu_open()`/`dg_menu_close()`（`DG_EVENT_MENU_ACTIVATE`/`_DISMISS`、`DG_MENU_ITEM_*`）、`DG_NODE_TYPE_DROPDOWN`（`dg_dropdown_*`、`DG_EVENT_VALUE_CHANGED`）、`dg_node_set_tooltip()`/`dg_app_set_tooltip_delay()`、`dg_dialog_open()`/`dg_dialog_close()`（`DG_EVENT_DIALOG_RESULT`）、`DG_NODE_TYPE_PROGRESS`（`DG_PROP_VALUE`、`DG_PROP_INDETERMINATE`）、`DG_NODE_TYPE_TABS`（`dg_tabs_*`、`DG_EVENT_TAB_SELECT`）、`DG_NODE_TYPE_TREE`（`dg_tree_*`、`DG_EVENT_TREE_*`、`DG_TREE_ITEM_*`）、`DG_NODE_TYPE_TABLE`（`dg_table_*`、`DG_EVENT_TABLE_*`、`DG_TABLE_COLUMN_*`）、`dg_debug_node_count()`，`dg_debug_post_text_field_key()` 追加 `Escape`；**表单控件**：`DG_NODE_TYPE_SLIDER`（`DG_PROP_VALUE` + `DG_PROP_MIN_VALUE`/`MAX_VALUE`/`STEP`、`dg_slider_get_value()`、`DG_EVENT_SLIDER_CHANGED`）、`DG_NODE_TYPE_RADIO`（`DG_PROP_RADIO_GROUP`、`dg_radio_select()`、`dg_node_get_checked()` 支持单选、方向键选中时 `clicks = 0` 的 `DG_EVENT_CLICK`） |
 
 ## 8. 相关文档
 

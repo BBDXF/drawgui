@@ -146,6 +146,14 @@ void capture_tree(TreeState& state);
 void build_table(WinState& window, NodeRecord& record,
                  std::optional<int> select = std::nullopt);
 void paint_dropdown(WinState& window, NodeRecord& record);
+// slider_radio.cpp.
+inline constexpr int kRadioGroupLimit = 1 << 24;
+void slider_radio_defaults(NodeKind kind, dg::BoxStyle& box, dg::NodeStyle& style);
+void compose_slider(WinState& window, NodeRecord& record);
+void compose_radio(WinState& window, NodeRecord& record);
+// Selects radio `id`, repainting it and the group members it cleared;
+// whether it was not selected before.
+bool select_radio(WinState& window, dg::NodeId id);
 
 // Per-state hooks, picked by std::visit; the templates are the defaults.
 template <class S>
@@ -159,6 +167,8 @@ bool control_pointer(WinState& window, NodeRecord& record, TreeState& state,
                      const dg::PointerEvent& event);
 bool control_pointer(WinState& window, NodeRecord& record, TableState& state,
                      const dg::PointerEvent& event);
+bool control_pointer(WinState& window, NodeRecord& record, SliderState& state,
+                     const dg::PointerEvent& event);
 
 template <class S>
 bool control_key(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
@@ -170,6 +180,10 @@ bool control_key(WinState& window, NodeRecord& record, TabsState& state,
 bool control_key(WinState& window, NodeRecord& record, TreeState& state,
                  const dg::KeyEvent& event);
 bool control_key(WinState& window, NodeRecord& record, TableState& state,
+                 const dg::KeyEvent& event);
+bool control_key(WinState& window, NodeRecord& record, SliderState& state,
+                 const dg::KeyEvent& event);
+bool control_key(WinState& window, NodeRecord& record, RadioState& state,
                  const dg::KeyEvent& event);
 
 template <class S>
@@ -186,6 +200,7 @@ void restyle_state(WinState& window, NodeRecord& record, ProgressState& state);
 void restyle_state(WinState& window, NodeRecord& record, TabsState& state);
 void restyle_state(WinState& window, NodeRecord& record, TreeState& state);
 void restyle_state(WinState& window, NodeRecord& record, TableState& state);
+void restyle_state(WinState& window, NodeRecord& record, SliderState& state);
 
 template <class S>
 void tick_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
@@ -208,6 +223,12 @@ std::optional<dg::Status> set_prop_state(WinState& /*window*/, NodeRecord& /*rec
 std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
                                          ProgressState& state, std::uint16_t prop_id,
                                          const dg::PropValue& value);
+std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
+                                         SliderState& state, std::uint16_t prop_id,
+                                         const dg::PropValue& value);
+std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
+                                         RadioState& state, std::uint16_t prop_id,
+                                         const dg::PropValue& value);
 
 template <class S>
 void after_prop_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
@@ -217,6 +238,8 @@ void after_prop_state(WinState& window, NodeRecord& record, ProgressState& state
 void after_prop_state(WinState& window, NodeRecord& record, TreeState& state,
                       std::uint16_t prop_id);
 void after_prop_state(WinState& window, NodeRecord& record, TableState& state,
+                      std::uint16_t prop_id);
+void after_prop_state(WinState& window, NodeRecord& record, SliderState& state,
                       std::uint16_t prop_id);
 
 template <class S>

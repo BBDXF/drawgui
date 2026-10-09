@@ -162,6 +162,31 @@ std::int32_t dropdown_set_selected(dg_node_t* node_h, std::int32_t index) {
   return to_error_code(r.window->dropdown(r.slot->node_id).value().select(index));
 }
 
+std::int32_t slider_get_value(dg_node_t* node_h, float* out_value) {
+  if (out_value == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  const Resolved r = resolve(node_h, DG_NODE_TYPE_SLIDER);
+  if (r.status != DG_ERR_OK) {
+    return r.status;
+  }
+  const dg::Expected<float, dg::Status> value =
+      r.window->slider(r.slot->node_id).value().value();
+  if (!value) {
+    return to_error_code(value.error());
+  }
+  *out_value = value.value();
+  return DG_ERR_OK;
+}
+
+std::int32_t radio_select(dg_node_t* node_h) {
+  const Resolved r = resolve(node_h, DG_NODE_TYPE_RADIO);
+  if (r.status != DG_ERR_OK) {
+    return r.status;
+  }
+  return to_error_code(r.window->radio(r.slot->node_id).value().select());
+}
+
 std::int32_t node_set_tooltip(dg_node_t* node_h, const char* utf8) {
   NodeSlot* slot = slot_of(node_h);
   if (slot == nullptr) {

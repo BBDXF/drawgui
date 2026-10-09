@@ -235,6 +235,18 @@ switch (prop_id) {
   case DG_PROP_INDETERMINATE:
     DG_PROP_ASSIGN(indeterminate, bool);
     break;
+  case DG_PROP_MIN_VALUE:
+    DG_PROP_ASSIGN(min_value, float);
+    break;
+  case DG_PROP_MAX_VALUE:
+    DG_PROP_ASSIGN(max_value, float);
+    break;
+  case DG_PROP_STEP:
+    DG_PROP_ASSIGN(step, float);
+    break;
+  case DG_PROP_RADIO_GROUP:
+    DG_PROP_ASSIGN(radio_group, float);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

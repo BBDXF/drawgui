@@ -74,7 +74,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 62
+next_id = 66
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -788,3 +788,48 @@ group = "interaction"
 field = "indeterminate"
 applies_to = ["box"]
 summary = "Whether a progress bar shows an endless sweep instead of its value."
+
+# ---------------------------------------------------------------------------
+# Component state the C ABI sets through dg_node_set_prop() (ABI 0.2,
+# DG_NODE_TYPE_SLIDER / DG_NODE_TYPE_RADIO). A slider's value is
+# DG_PROP_VALUE (id 60) again; its range and step, and a radio button's
+# group, live in the widget layer (dg::Widget::min_value/max_value/step/
+# group), not in BoxStyle/NodeStyle, so the C++ dg::set_prop() reports them
+# kUnsupported.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "min_value"
+id = 62
+type = "float"
+group = "interaction"
+field = "min_value"
+applies_to = ["box"]
+summary = "A slider's minimum value; must stay below max_value."
+
+[[property]]
+name = "max_value"
+id = 63
+type = "float"
+group = "interaction"
+field = "max_value"
+applies_to = ["box"]
+summary = "A slider's maximum value; must stay above min_value."
+
+[[property]]
+name = "step"
+id = 64
+type = "float"
+group = "interaction"
+field = "step"
+applies_to = ["box"]
+summary = "A slider's step: values snap to min_value + k * step; 0 means continuous."
+
+[[property]]
+name = "radio_group"
+id = 65
+type = "float"
+group = "interaction"
+field = "radio_group"
+applies_to = ["box"]
+summary = "Which group (an integer) a radio button belongs to; selecting one clears the others in its window's group."

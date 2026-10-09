@@ -1,8 +1,8 @@
 /*
  * examples/28_c_components - the ABI 0.2 phase B component layer from pure
- * C11: a context menu, a dropdown, tooltips, a modal dialog, a progress bar,
- * tabs holding a tree, and a sortable table, all driven by the poll-based
- * event loop (no callbacks).
+ * C11: a context menu, a dropdown, tooltips, a modal dialog, a slider, a radio
+ * group, a progress bar, tabs holding a tree, and a sortable table, all
+ * driven by the poll-based event loop (no callbacks).
  *
  *   drawgui_c_components            an interactive window
  *   drawgui_c_components --verify   the headless CTest oracle (SDL dummy
@@ -121,6 +121,8 @@ typedef struct {
   dg_node_t* menu_button;
   dg_node_t* dialog_button;
   dg_node_t* dropdown;
+  dg_node_t* slider;
+  dg_node_t* radios[2];
   dg_node_t* progress;
   dg_node_t* tabs;
   dg_node_t* tree;
@@ -188,6 +190,14 @@ static int build(Scene* s, const char* font_dir) {
   s->dropdown = add(s->app, row, DG_NODE_TYPE_DROPDOWN);
   (void)dg_dropdown_set_items(s->dropdown, fruits, 3);
   (void)dg_node_set_text(s->dropdown, DG_PROP_TEXT, "Pick a fruit", 12);
+  /* The slider drives the progress bar; the two radios share group 0. */
+  s->slider = add(s->app, row, DG_NODE_TYPE_SLIDER);
+  set(s->slider, DG_PROP_WIDTH, length(120));
+  set(s->slider, DG_PROP_VALUE, float_value(25.0F));
+  for (i = 0; i < 2; ++i) {
+    s->radios[i] = add(s->app, row, DG_NODE_TYPE_RADIO);
+  }
+  (void)dg_radio_select(s->radios[0]);
 
   s->progress = add(s->app, s->root, DG_NODE_TYPE_PROGRESS);
   set(s->progress, DG_PROP_WIDTH, length(740));
@@ -247,6 +257,13 @@ static int react(Scene* s, const dg_event* e, int verbose) {
     case DG_EVENT_VALUE_CHANGED:
       set(s->progress, DG_PROP_VALUE, float_value((float)(e->x + 1) / 3.0F));
       break;
+    case DG_EVENT_SLIDER_CHANGED: {
+      float value = 0.0F;
+      if (dg_slider_get_value(e->node, &value) == DG_ERR_OK) {
+        set(s->progress, DG_PROP_VALUE, float_value(value / 100.0F));
+      }
+      break;
+    }
     default:
       break;
   }
@@ -337,6 +354,32 @@ static int run_verify(const char* font_dir) {
   check(pump(&s, DG_EVENT_DIALOG_RESULT, &e) == 1 && e.x == 2,
         "Escape reports the cancel button");
   check(dg_debug_node_count(s.window) == baseline, "every popup is gone again");
+
+  /* The slider (x 510..630): a press near its end reports SLIDER_CHANGED;
+   * dg_slider_get_value() reads the value the app copies to the progress
+   * bar. */
+  press(&s, 625, 10, DG_POINTER_BUTTON_PRIMARY);
+  check(pump(&s, DG_EVENT_SLIDER_CHANGED, &e) == 1 && e.node == s.slider,
+        "a press on the slider reports SLIDER_CHANGED");
+  {
+    float value = 0.0F;
+    check(dg_slider_get_value(s.slider, &value) == DG_ERR_OK && value > 90.0F,
+          "dg_slider_get_value reads the new value");
+  }
+  key(&s, "Home");
+  check(pump(&s, DG_EVENT_SLIDER_CHANGED, NULL) == 1, "Home on the focused slider moves it");
+
+  /* The radios (x 640 and 682): a click selects one and clears the other;
+   * Left moves the selection back, reported as a CLICK with clicks = 0. */
+  check(dg_node_get_checked(s.radios[0]) == 1, "dg_radio_select chose the first radio");
+  press(&s, 708, 16, DG_POINTER_BUTTON_PRIMARY);
+  check(pump(&s, DG_EVENT_CLICK, &e) == 1 && e.node == s.radios[1] &&
+            dg_node_get_checked(s.radios[1]) == 1 && dg_node_get_checked(s.radios[0]) == 0,
+        "a click selects the second radio and clears the first");
+  key(&s, "Left");
+  check(pump(&s, DG_EVENT_CLICK, &e) == 1 && e.node == s.radios[0] && e.clicks == 0 &&
+            dg_node_get_checked(s.radios[0]) == 1,
+        "Left moves the selection back to the first radio");
 
   /* Tabs: Right from the first tab skips the disabled one. */
   (void)dg_node_focus(s.tabs);

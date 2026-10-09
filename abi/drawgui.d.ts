@@ -90,6 +90,8 @@ export const node_type = {
   TABS: 12,
   TREE: 13,
   TABLE: 14,
+  SLIDER: 15,
+  RADIO: 16,
 } as const;
 
 // dg_value::type.
@@ -132,6 +134,7 @@ export const event_kind = {
   TREE_COLLAPSE: 26,
   TABLE_SELECT: 27,
   TABLE_SORT: 28,
+  SLIDER_CHANGED: 29,
 } as const;
 
 // ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()).
@@ -359,6 +362,10 @@ export const prop = {
   wrap: 59,
   value: 60,
   indeterminate: 61,
+  min_value: 62,
+  max_value: 63,
+  step: 64,
+  radio_group: 65,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -442,7 +449,8 @@ export declare namespace DrawguiAbi {
   // DG_ERR_INVALID_HANDLE for a stale/unknown node, DG_ERR_NO_WINDOW for a
   // still-pending one (matching dg_node_set_prop()'s own requirement),
   // DG_ERR_UNSUPPORTED for a live node whose type_id is not
-  // DG_NODE_TYPE_CHECKBOX.
+  // DG_NODE_TYPE_CHECKBOX. ABI 0.2: a DG_NODE_TYPE_RADIO answers too (1 =
+  // selected).
   function dg_node_get_checked(node: dg_node_t | null): number;
   // P6 sub-step a2 (second half): dg::WidgetSet::text_field_text() at the ABI
   // boundary, for a LIVE DG_NODE_TYPE_TEXT_FIELD node - the two-trip shape (ask
@@ -882,4 +890,12 @@ export declare namespace DrawguiAbi {
   // lifetimes (open/close a menu, remove a component: the count returns to its
   // baseline). Negative DG_ERR_* on failure.
   function dg_debug_node_count(window: dg_window_t | null): number;
+  // ABI 0.2: writes a LIVE DG_NODE_TYPE_SLIDER's current value to `out_value`.
+  // DG_ERR_INVALID_ARGUMENT for a null `out_value`; DG_ERR_UNSUPPORTED for
+  // another node type.
+  function dg_slider_get_value(node: dg_node_t | null, out_value: Float32Array | null): number;
+  // ABI 0.2: selects a LIVE DG_NODE_TYPE_RADIO, clearing the other radios of its
+  // group, and repaints them. Queues no event. DG_ERR_UNSUPPORTED for another
+  // node type.
+  function dg_radio_select(node: dg_node_t | null): number;
 }

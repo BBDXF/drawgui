@@ -264,6 +264,18 @@ inline constexpr dg_prop_id DG_PROP_VALUE = 60;
 // Whether a progress bar shows an endless sweep instead of its value.
 // type=bool; applies_to=box
 inline constexpr dg_prop_id DG_PROP_INDETERMINATE = 61;
+// A slider's minimum value; must stay below max_value.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_MIN_VALUE = 62;
+// A slider's maximum value; must stay above min_value.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_MAX_VALUE = 63;
+// A slider's step: values snap to min_value + k * step; 0 means continuous.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_STEP = 64;
+// Which group (an integer) a radio button belongs to; selecting one clears the others in its window's group.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_RADIO_GROUP = 65;
 
 // -- enum property values ----------------------------------------------
 //
@@ -351,8 +363,8 @@ inline constexpr std::uint32_t DG_TEXT_ALIGN_RIGHT = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 61;
+inline constexpr std::uint16_t kDgPropMaxId = 65;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 61;
+inline constexpr std::uint16_t kDgPropCount = 65;

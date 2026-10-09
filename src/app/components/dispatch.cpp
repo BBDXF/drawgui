@@ -72,6 +72,10 @@ void defaults(const WinState& window, NodeKind kind, dg::BoxStyle& box, dg::Node
     case NodeKind::kTable:
       control_defaults(kind, box);
       return;
+    case NodeKind::kSlider:
+    case NodeKind::kRadio:
+      slider_radio_defaults(kind, box, style);
+      return;
     case NodeKind::kBox:
     case NodeKind::kButton:
     case NodeKind::kLabel:
@@ -112,6 +116,12 @@ void compose(WinState& window, NodeRecord& record) {
     case NodeKind::kTable:
       record.state.emplace<TableState>();
       build_table(window, record);
+      return;
+    case NodeKind::kSlider:
+      compose_slider(window, record);
+      return;
+    case NodeKind::kRadio:
+      compose_radio(window, record);
       return;
     case NodeKind::kBox:
     case NodeKind::kButton:

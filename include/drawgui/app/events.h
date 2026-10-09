@@ -22,6 +22,9 @@ namespace events {
 
 // A completed primary click. `node` = the clicked node when it was created
 // through Window::create(). `clicks` = the multi-click count of the press.
+// A checkbox or radio button has already changed when this is queued (ask
+// Window::checked()). A radio button selected with the arrow keys reports
+// one too, with clicks = 0 and x/y = 0.
 struct ClickEvent {
   WindowId window;
   std::optional<NodeId> node;
@@ -145,6 +148,15 @@ struct UserEvent {
   std::uint64_t payload = 0;
 };
 
+// The user moved a slider (a drag, a track press or a key) to a different
+// value; Window::slider() writes report none.
+struct SliderEvent {
+  WindowId window;
+  NodeId node;
+  float value = 0.0F;
+  float previous = 0.0F;
+};
+
 }  // namespace events
 
 using Event = std::variant<events::ClickEvent, events::ContextClickEvent, events::ActionEvent,
@@ -152,7 +164,8 @@ using Event = std::variant<events::ClickEvent, events::ContextClickEvent, events
                            events::ListSelectEvent, events::ValueChangedEvent,
                            events::MenuEvent, events::DialogResultEvent, events::TabSelectEvent,
                            events::TreeEvent, events::TableEvent, events::WindowStateEvent,
-                           events::WindowClosedEvent, events::TimerEvent, events::UserEvent>;
+                           events::WindowClosedEvent, events::TimerEvent, events::UserEvent,
+                           events::SliderEvent>;
 
 // std::visit(Overloaded{[](const events::ClickEvent& e) {...}, [](const auto&) {}}, event)
 template <class... F>

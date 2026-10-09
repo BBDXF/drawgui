@@ -86,8 +86,20 @@ struct TableState {
   bool sort_ascending = true;
 };
 
+// NodeKind::kSlider: the WidgetSet kSlider widget holds the value and range;
+// this only remembers a pointer drag in progress (kSlider is not
+// accepts_pointer(), so dg::Interaction never captures a press on it).
+struct SliderState {
+  bool dragging = false;
+};
+
+// NodeKind::kRadio: a WidgetSet kCheckbox with Widget::group set; the state
+// alternative only routes the arrow keys to it.
+struct RadioState {};
+
 using ComponentState = std::variant<std::monostate, ListState, DropdownState, TabsState,
-                                    TreeState, TableState, ProgressState>;
+                                    TreeState, TableState, ProgressState, SliderState,
+                                    RadioState>;
 
 struct NodeRecord {
   NodeKind kind = NodeKind::kBox;

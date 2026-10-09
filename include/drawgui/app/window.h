@@ -98,6 +98,7 @@ class Window {
   Status set_text(NodeId node, std::uint16_t prop_id, std::string_view text);
   // An editor's committed text.
   [[nodiscard]] Expected<std::string, Status> text(NodeId node) const;
+  // A checkbox's or radio button's checked mark.
   [[nodiscard]] Expected<bool, Status> checked(NodeId node) const;
   // DG_PROP_DISABLED: a disabled node and its subtree take no pointer or
   // key input (a press in progress produces no ClickEvent) and lose focus.
@@ -121,6 +122,8 @@ class Window {
   [[nodiscard]] Expected<TreeRef, Status> tree(NodeId node);
   [[nodiscard]] Expected<TableRef, Status> table(NodeId node);
   [[nodiscard]] Expected<ProgressRef, Status> progress(NodeId node);
+  [[nodiscard]] Expected<SliderRef, Status> slider(NodeId node);
+  [[nodiscard]] Expected<RadioRef, Status> radio(NodeId node);
 
   // -- Popups ------------------------------------------------------------
   // Opens a menu below `anchor`'s bounds (or at `at`); returns its id, which

@@ -257,6 +257,7 @@ if(DRAWGUI_HAVE_SDL3)
     src/app/components/list.cpp
     src/app/components/popups.cpp
     src/app/components/progress.cpp
+    src/app/components/slider_radio.cpp
     src/app/components/scroll_view.cpp
     src/app/components/table.cpp
     src/app/components/tabs.cpp

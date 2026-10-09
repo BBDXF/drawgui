@@ -25,10 +25,12 @@ enum class NodeKind : std::uint8_t {
   kTabs = 12,
   kTree = 13,
   kTable = 14,
+  kSlider = 15,
+  kRadio = 16,
 };
 
 inline constexpr std::uint16_t kNodeKindMin = 1;
-inline constexpr std::uint16_t kNodeKindMax = 14;
+inline constexpr std::uint16_t kNodeKindMax = 16;
 
 [[nodiscard]] constexpr bool is_node_kind(std::uint16_t value) {
   return value >= kNodeKindMin && value <= kNodeKindMax;
@@ -41,10 +43,11 @@ inline constexpr std::uint16_t kNodeKindMax = 14;
 }
 
 // Whether Window::create()/move() accept `kind` as a parent: a list's rows
-// come from Window::list_set_items(), and a component composes its own
-// children (tabs take content through Window::tabs_add()'s panels).
+// come from Window::list_set_items(), a slider's only child is its thumb,
+// and a component composes its own children (tabs take content through
+// Window::tabs_add()'s panels).
 [[nodiscard]] constexpr bool accepts_children(NodeKind kind) {
-  return kind != NodeKind::kList && !is_component_kind(kind);
+  return kind != NodeKind::kList && kind != NodeKind::kSlider && !is_component_kind(kind);
 }
 
 [[nodiscard]] constexpr bool is_editor_kind(NodeKind kind) {

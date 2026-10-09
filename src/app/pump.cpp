@@ -139,6 +139,8 @@ void resync_widgets(WinState& window) {
     }
   }
   if (relaid) {
+    // A layout pass puts every slider thumb back at its track's origin.
+    window.widgets.resync_sliders(tree);
     components::sync(window);
   }
 }

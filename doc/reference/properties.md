@@ -168,7 +168,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 |---|---|---|---|---|
 | 42-45 | `left`/`top`/`right`/`bottom` | float | 完整 | 相对 stack 内容盒的偏移；写入任一个即视为定位该子节点 |
 
-### 5.7 interaction（id 52-53, 57-58, 60-61）
+### 5.7 interaction（id 52-53, 57-58, 60-65）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -178,11 +178,16 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 58 | `max_length` | float(整数) | **仅 C ABI** | 编辑框最多多少个字素簇，0 = 不限；同上，C++ 用 `WidgetSet::editor_set_max_length()` |
 | 60 | `value` | float | **仅 C ABI** | `DG_NODE_TYPE_PROGRESS` 的进度 0..1（0.2 phase B）；组件状态，C++ 用 `dg::ProgressBar::set_value()` |
 | 61 | `indeterminate` | bool | **仅 C ABI** | `DG_NODE_TYPE_PROGRESS` 显示不确定动画；C++ 用 `dg::ProgressBar::set_indeterminate()` |
+| 60 | `value`（滑块） | float | **运行时/C ABI** | 0.2：也是 `DG_NODE_TYPE_SLIDER` 的值，夹进范围并对齐 step |
+| 62 | `min_value` | float | **运行时/C ABI** | 0.2：`SLIDER` 最小值（默认 0），须小于 `max_value`；C++ `dg::set_prop()` 返回 `kUnsupported`，用 `Window::set_prop()`/`SliderRef::set_range()` |
+| 63 | `max_value` | float | **运行时/C ABI** | 0.2：`SLIDER` 最大值（默认 100），须大于 `min_value` |
+| 64 | `step` | float | **运行时/C ABI** | 0.2：`SLIDER` 步长，≥0，0 = 连续 |
+| 65 | `radio_group` | float | **运行时/C ABI** | 0.2：`RADIO` 所属组（整数，±2^24，默认 0）；`RadioRef::set_group()` |
 
 ## 6. 状态汇总（自查结果）
 
-- 46 项完整、10 项部分实现、4 项只在 C ABI 生效（`tab_index`/`max_length`/
-  `value`/`indeterminate`）、1 项未实现（`transform`），共 61 项（含 P6 a1 新增的 `text`/`text_color`，
+- 46 项完整、10 项部分实现、8 项只在 C ABI / 运行时生效（`tab_index`/`max_length`/
+  `value`/`indeterminate`/`min_value`/`max_value`/`step`/`radio_group`）、1 项未实现（`transform`），共 65 项（含 P6 a1 新增的 `text`/`text_color`，
   以及 `disabled`、`cursor`、`scrollbar`、`font_size`、`text_align`、`wrap`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明

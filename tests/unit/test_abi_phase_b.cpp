@@ -577,4 +577,91 @@ TEST_SUITE("abi phase b") {
     CHECK(dg_dropdown_get_selected(dropdown) == 1);
     CHECK(dg_tree_set_selected(child, 0) == DG_ERR_OK);  // the handles survive
   }
+
+  TEST_CASE("slider: props, a press, keys, SLIDER_CHANGED, get_value, validation") {
+    App a;
+    const int baseline = a.count();
+    dg_node_t* slider = a.add(DG_NODE_TYPE_SLIDER);
+    float value = -1.0F;
+    REQUIRE(dg_slider_get_value(slider, &value) == DG_ERR_OK);
+    CHECK(value == 0.0F);
+    CHECK(dg_slider_get_value(slider, nullptr) == DG_ERR_INVALID_ARGUMENT);
+    App::set(slider, DG_PROP_MAX_VALUE, number(10.0F));
+    App::set(slider, DG_PROP_STEP, number(1.0F));
+    App::set(slider, DG_PROP_VALUE, number(3.4F));
+    REQUIRE(dg_slider_get_value(slider, &value) == DG_ERR_OK);
+    CHECK(value == 3.0F);
+    const dg_value bad_min = number(10.0F);
+    CHECK(dg_node_set_prop(slider, DG_PROP_MIN_VALUE, &bad_min) == DG_ERR_VALUE_OUT_OF_RANGE);
+    const dg_value wrong = option(1, DG_VALUE_BOOL);
+    CHECK(dg_node_set_prop(slider, DG_PROP_VALUE, &wrong) == DG_ERR_TYPE_MISMATCH);
+    CHECK(dg_node_set_prop(slider, DG_PROP_STEP, &wrong) == DG_ERR_TYPE_MISMATCH);
+    CHECK(of_kind(a.pump(1), DG_EVENT_SLIDER_CHANGED).empty());
+    CHECK(child_field(a.root, 0, "w") == 200);
+    CHECK(child_field(a.root, 0, "h") == 20);
+    CHECK(dg_node_get_checked(slider) == DG_ERR_UNSUPPORTED);
+    dg_node_t* stray = dg_node_create(a.app, DG_NODE_TYPE_BOX);
+    CHECK(dg_node_insert_before(slider, stray, nullptr) == DG_ERR_UNSUPPORTED);
+
+    a.press(195, 10);  // the track's right end
+    std::vector<dg_event> events = of_kind(a.pump(), DG_EVENT_SLIDER_CHANGED);
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].node == slider);
+    CHECK(events[0].x == 0);
+    REQUIRE(dg_slider_get_value(slider, &value) == DG_ERR_OK);
+    CHECK(value == 10.0F);
+    CHECK(dg_window_get_focus(a.window) == slider);
+    a.key("Left");
+    a.key("Home");
+    events = of_kind(a.pump(), DG_EVENT_SLIDER_CHANGED);
+    CHECK(events.size() == 2);
+    REQUIRE(dg_slider_get_value(slider, &value) == DG_ERR_OK);
+    CHECK(value == 0.0F);
+
+    dg_node_t* box = a.add(DG_NODE_TYPE_BOX);
+    CHECK(dg_slider_get_value(box, &value) == DG_ERR_UNSUPPORTED);
+    REQUIRE(dg_node_remove(slider) == DG_ERR_OK);
+    REQUIRE(dg_node_remove(box) == DG_ERR_OK);
+    (void)a.pump(1);
+    CHECK(a.count() == baseline);
+    CHECK(dg_slider_get_value(slider, &value) == DG_ERR_INVALID_HANDLE);
+  }
+
+  TEST_CASE("radio: groups, CLICK then get_checked, arrow keys, dg_radio_select") {
+    App a;
+    dg_node_t* first = a.add(DG_NODE_TYPE_RADIO);
+    dg_node_t* second = a.add(DG_NODE_TYPE_RADIO);
+    dg_node_t* other = a.add(DG_NODE_TYPE_RADIO);
+    App::set(other, DG_PROP_RADIO_GROUP, number(2.0F));
+    const dg_value half = number(0.5F);
+    CHECK(dg_node_set_prop(other, DG_PROP_RADIO_GROUP, &half) == DG_ERR_VALUE_OUT_OF_RANGE);
+    dg_node_t* checkbox = a.add(DG_NODE_TYPE_CHECKBOX);
+    CHECK(dg_node_set_prop(checkbox, DG_PROP_RADIO_GROUP, &half) == DG_ERR_UNSUPPORTED);
+    CHECK(dg_radio_select(checkbox) == DG_ERR_UNSUPPORTED);
+    (void)a.pump(1);
+    CHECK(dg_node_get_checked(first) == 0);
+
+    a.press(child_field(a.root, 1, "x") + 16, child_field(a.root, 1, "y") + 16);
+    std::vector<dg_event> clicks = of_kind(a.pump(), DG_EVENT_CLICK);
+    REQUIRE(clicks.size() == 1);
+    CHECK(clicks[0].node == second);
+    CHECK(clicks[0].clicks == 1);
+    CHECK(dg_node_get_checked(second) == 1);
+
+    a.key("Up");
+    clicks = of_kind(a.pump(), DG_EVENT_CLICK);
+    REQUIRE(clicks.size() == 1);
+    CHECK(clicks[0].node == first);
+    CHECK(clicks[0].clicks == 0);
+    CHECK(dg_node_get_checked(first) == 1);
+    CHECK(dg_node_get_checked(second) == 0);
+    CHECK(dg_window_get_focus(a.window) == first);
+
+    CHECK(dg_radio_select(other) == DG_ERR_OK);
+    CHECK(dg_radio_select(second) == DG_ERR_OK);
+    CHECK(of_kind(a.pump(1), DG_EVENT_CLICK).empty());
+    CHECK(dg_node_get_checked(first) == 0);
+    CHECK(dg_node_get_checked(second) == 1);
+    CHECK(dg_node_get_checked(other) == 1);
+  }
 }

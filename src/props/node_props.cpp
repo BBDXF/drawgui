@@ -985,6 +985,32 @@ PropWrite apply_indeterminate(Target& target, const PropValue& /*value*/) {
                      "ABI's dg_node_set_prop() does for DG_NODE_TYPE_PROGRESS)");
 }
 
+// Slider/radio state (ABI 0.2, see the TOML's comment): dg::Widget holds
+// it, not the node.
+PropWrite apply_min_value(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "min_value",
+                     "it is widget state - set dg::Widget::min_value (the C ABI's "
+                     "dg_node_set_prop() does for DG_NODE_TYPE_SLIDER)");
+}
+
+PropWrite apply_max_value(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "max_value",
+                     "it is widget state - set dg::Widget::max_value (the C ABI's "
+                     "dg_node_set_prop() does for DG_NODE_TYPE_SLIDER)");
+}
+
+PropWrite apply_step(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "step",
+                     "it is widget state - set dg::Widget::step (the C ABI's "
+                     "dg_node_set_prop() does for DG_NODE_TYPE_SLIDER)");
+}
+
+PropWrite apply_radio_group(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "radio_group",
+                     "it is widget state - set dg::Widget::group (the C ABI's "
+                     "dg_node_set_prop() does for DG_NODE_TYPE_RADIO)");
+}
+
 PropWrite apply_wrap(Target& target, const PropValue& value) {
   const std::optional<PropWrite> gate = self_must_arrange(target, "wrap");
   if (gate.has_value()) {

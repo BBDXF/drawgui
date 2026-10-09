@@ -1331,3 +1331,33 @@ extern "C" DG_EXPORT int32_t dg_debug_node_count(dg_window_t* window) {
     return DG_ERR_INTERNAL;
   }
 }
+
+extern "C" DG_EXPORT int32_t dg_slider_get_value(dg_node_t* node, float* out_value) {
+  try {
+    return dg::abi::slider_get_value(node, out_value);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_slider_get_value: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_slider_get_value: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_slider_get_value: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_radio_select(dg_node_t* node) {
+  try {
+    return dg::abi::radio_select(node);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_radio_select: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_radio_select: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_radio_select: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}

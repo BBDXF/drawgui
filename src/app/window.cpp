@@ -474,6 +474,22 @@ Expected<ProgressRef, Status> Window::progress(NodeId node) {
   return ProgressRef(state_.get(), node);
 }
 
+Expected<SliderRef, Status> Window::slider(NodeId node) {
+  if (const Status status = kind_status<app_detail::SliderState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return SliderRef(state_.get(), node);
+}
+
+Expected<RadioRef, Status> Window::radio(NodeId node) {
+  if (const Status status = kind_status<app_detail::RadioState>(*state_, node);
+      status != Status::kOk) {
+    return Unexpected(status);
+  }
+  return RadioRef(state_.get(), node);
+}
+
 Status Window::set_prop(NodeId node, std::uint16_t prop_id, const PropValue& value) {
   WinState& window = *state_;
   NodeRecord* record = app_detail::record_of(window, node);
@@ -561,7 +577,7 @@ Expected<bool, Status> Window::checked(NodeId node) const {
   if (record == nullptr) {
     return Unexpected(Status::kInvalidNode);
   }
-  if (record->kind != NodeKind::kCheckbox) {
+  if (record->kind != NodeKind::kCheckbox && record->kind != NodeKind::kRadio) {
     return Unexpected(Status::kUnsupported);
   }
   return state_->widgets.is_checked(record->id);

@@ -57,19 +57,19 @@ backend, with no platform-abstraction layer ahead of a second one.
   `WindowManager`.
 - **Theming**: 20 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI** (version 0.2): 85 exported functions (12 of them `dg_debug_*`
+- **C ABI** (version 0.2): 87 exported functions (12 of them `dg_debug_*`
   test-only hooks) - still a smaller surface than the C++ engine. It can
   open and operate windows (title, size, position, min/max size,
   minimize/maximize/restore, fullscreen, resizable, icon, state query);
-  create fourteen node types (`BOX`, which `DG_PROP_DIRECTION` turns into a
+  create sixteen node types (`BOX`, which `DG_PROP_DIRECTION` turns into a
   row/column container, `BUTTON`, `LABEL`, `CHECKBOX`, `TEXT_FIELD`,
   `TEXT_AREA`, `SCROLL_VIEW`, a virtualized text `LIST` and `IMAGE` with
   PNG/JPEG/WebP/SVG decoding, plus the components `DROPDOWN`, `PROGRESS`,
-  `TABS`, `TREE` and `TABLE`); open menus, modal dialogs and tooltips; set
-  61 properties including font size, text
+  `TABS`, `TREE` and `TABLE`, and the form controls `SLIDER` and `RADIO`); open menus, modal dialogs and tooltips; set
+  65 properties including font size, text
   alignment, percentage sizes, tab order and an editor's max length; move
-  keyboard focus (`dg_node_focus()`, Tab/Shift+Tab); read back checkbox
-  state, editor text, list selection and scroll offsets; receive click
+  keyboard focus (`dg_node_focus()`, Tab/Shift+Tab); read back checkbox/radio
+  state, slider values, editor text, list selection and scroll offsets; receive click
   (with click count), context-click, focus, list-select, text-changed,
   action, timer, cross-thread user and window-state events; and load a
   theme. Nodes can be inserted before a sibling, moved within a window and
@@ -137,7 +137,7 @@ project's cross-feature regression bed.
 | 08 | `opacity` | Per-object alpha vs. group `opacity` (saveLayer) side by side | `--verify-opacity` |
 | 09 | `sizing` | `basis`/`shrink`/`main_size`/`aspect_ratio` under a resizing window | `--verify-sizing` |
 | 10 | `scrolling` | Two independent scroll viewports, wheel and drag, clamped at content edges | `--verify-scrolling` |
-| 11 | `form_controls` | Checkbox, two radio groups, two sliders | `--verify-form-controls` |
+| 11 | `form_controls` | Checkbox, two radio groups, two sliders, a disable switch (on `dg::App`) | `--verify-form-controls` |
 | 12 | `text_input` | Single-line editing, selection, ellipsis/scroll, IME composition preview | `--verify-text-input` |
 | 13 | `image` | Decode + four fit modes (`fill`/`contain`/`cover`/`none`) plus a placeholder colour | `--verify-image` |
 | 14 | `popup` | Overlay popup placement/dismissal (`PopupHost` is overlay-only, `doc/guide/popups.md`) | `--verify-popup` |

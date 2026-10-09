@@ -40,6 +40,8 @@ node_type.PROGRESS=11
 node_type.TABS=12
 node_type.TREE=13
 node_type.TABLE=14
+node_type.SLIDER=15
+node_type.RADIO=16
 value_type.FLOAT=1
 value_type.LENGTH=2
 value_type.COLOR=3
@@ -74,6 +76,7 @@ event_kind.TREE_EXPAND=25
 event_kind.TREE_COLLAPSE=26
 event_kind.TABLE_SELECT=27
 event_kind.TABLE_SORT=28
+event_kind.SLIDER_CHANGED=29
 pixel_format.BGRA8888=1
 pixel_format.RGBA8888=2
 length_unit.PX=0
@@ -201,4 +204,6 @@ dg_table_get_selected: int32_t(dg_node_t*)
 dg_table_set_selected: int32_t(dg_node_t*,int32_t)
 dg_table_set_sort_indicator: int32_t(dg_node_t*,int32_t,int32_t)
 dg_debug_node_count: int32_t(dg_window_t*)
+dg_slider_get_value: int32_t(dg_node_t*,float*)
+dg_radio_select: int32_t(dg_node_t*)
 

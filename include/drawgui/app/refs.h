@@ -1,5 +1,6 @@
 // Typed handles to one component node of a dg::Window: Window::list(id),
-// dropdown(id), tabs(id), tree(id), table(id) and progress(id) check the
+// dropdown(id), tabs(id), tree(id), table(id), progress(id), slider(id) and
+// radio(id) check the
 // node's kind once and hand back the matching ref.
 //
 // A ref is a cheap value ({window, node}); copy it freely. It never keeps the
@@ -129,6 +130,50 @@ class ProgressRef : public ComponentRef {
   [[nodiscard]] Expected<float, Status> value() const;
   Status set_indeterminate(bool indeterminate);
   [[nodiscard]] Expected<bool, Status> indeterminate() const;
+
+ private:
+  friend class Window;
+  using ComponentRef::ComponentRef;
+};
+
+// NodeKind::kSlider: a horizontal track whose thumb a drag, a press on the
+// track or the keys (Left/Right/Up/Down a step, PageUp/PageDown a tenth of
+// the range, Home/End the ends) move. User changes report a SliderEvent;
+// these calls report none. The same values as DG_PROP_VALUE/MIN_VALUE/
+// MAX_VALUE/STEP. Defaults: 0..100, step 0 (continuous), value 0.
+class SliderRef : public ComponentRef {
+ public:
+  // Clamped to the range and snapped to the step. kValueOutOfRange for a
+  // non-finite value.
+  Status set_value(float value);
+  [[nodiscard]] Expected<float, Status> value() const;
+  // kValueOutOfRange unless min < max (both finite) and step >= 0. The value
+  // is re-clamped and re-snapped.
+  Status set_range(float min_value, float max_value, float step = 0.0F);
+  [[nodiscard]] Expected<float, Status> min_value() const;
+  [[nodiscard]] Expected<float, Status> max_value() const;
+  [[nodiscard]] Expected<float, Status> step() const;
+
+ private:
+  friend class Window;
+  using ComponentRef::ComponentRef;
+};
+
+// NodeKind::kRadio: a round checkbox in a group (DG_PROP_RADIO_GROUP,
+// default 0) of its window; selecting one clears the others in the group.
+// A click selects it (a ClickEvent follows); Left/Up and Right/Down on a
+// focused radio move focus and the selection to the previous/next enabled
+// radio of its group, in creation order, wrapping (a ClickEvent with
+// clicks = 0 follows). Window::checked() reads it.
+class RadioRef : public ComponentRef {
+ public:
+  // Selects it (clearing the rest of its group). Reports no event.
+  Status select();
+  [[nodiscard]] Expected<bool, Status> selected() const;
+  // Moves it to another group; kValueOutOfRange outside +-2^24. A selected
+  // radio joining a group with a selection is cleared.
+  Status set_group(int group);
+  [[nodiscard]] Expected<int, Status> group() const;
 
  private:
   friend class Window;

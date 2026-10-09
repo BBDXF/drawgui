@@ -16,13 +16,29 @@
 | `kTabs` | `tabs(node)` → `TabsRef::add()` 返回面板节点 | `TabSelectEvent` |
 | `kTree` | `tree(node)` → `TreeRef` | `TreeEvent` |
 | `kTable` | `table(node)` → `TableRef` | `TableEvent`（`kSort` 时由你排序后 `set_rows()`） |
+| `kSlider` | `slider(node)` → `SliderRef::set_value/value/set_range`；或 `DG_PROP_VALUE/MIN_VALUE/MAX_VALUE/STEP` | `SliderEvent`（`value`/`previous`，float） |
+| `kRadio` | `radio(node)` → `RadioRef::select/selected/set_group`；`checked(node)`；或 `DG_PROP_RADIO_GROUP` | `ClickEvent`（和 checkbox 一样；方向键选中时 `clicks == 0`） |
 
 - 列表只建固定数量的行节点并循环复用，1000 项和 10 项节点数相同；滚轮、
   滚动条拖动、点击选择都由运行时处理（`examples/15_list`）。
 - `set_disabled(node, true)`：整棵子树不再响应指针/键盘，进行中的按下不会产生
   `ClickEvent`，焦点会移走——不需要自己取消 hover/press 或模糊焦点。
 - 数据控件见 `examples/27_data_widgets`。
-- 单选组和滑块今天只有底层 `WidgetSet` 才有（`examples/11_form_controls`）。
+- 滑块（`kSlider`）：默认 200x20，范围 0..100、`step` 0（连续）、值 0。按下轨道
+  任意处，滑块圆点跳到指针下并获得焦点，按住拖动会一直跟随直到松开（拖出轨道两端会
+  夹住）；获得焦点后 Left/Down、Right/Up 移动一个 `step`（连续时为范围的 1/100），
+  PageDown/PageUp 移动范围的 1/10，Home/End 到两端。每次用户改变值产生一个
+  `SliderEvent`；`SliderRef::set_value()`/`DG_PROP_VALUE` 不产生事件。值总会被夹进
+  范围并对齐到 `min + k*step`；`set_range()` 要求 `min < max`、`step >= 0`，改范围后
+  当前值重新夹取。轨道/圆点颜色取主题的 `color.border` / `color.primary`，切主题自动
+  重涂；`DG_PROP_HEIGHT` 会让圆点跟着变成同高的圆。滑块不接受子节点。
+- 单选（`kRadio`）：圆形的 checkbox，属于本窗口里的一个组（`DG_PROP_RADIO_GROUP` /
+  `RadioRef::set_group()`，整数，默认 0）。点击选中它并清掉同组其它项（已选中时点击
+  不会取消），之后才排队 `ClickEvent`——和 checkbox 的「先切换、再发 CLICK、再查询
+  `checked()`」完全一致；被清掉的兄弟节点由运行时重绘。获得焦点的单选按 Left/Up、
+  Right/Down 会把焦点**和选中**移到同组上一个/下一个未禁用的单选（按创建顺序，循环），
+  并在新节点上产生 `clicks == 0`、`x/y == 0` 的 `ClickEvent`。每个单选都是独立的 Tab
+  停靠点。`RadioRef::select()` 不产生事件。完整示例：`examples/11_form_controls`。
 
 下面的「直接使用底层」讲 `WidgetSet` / `Interaction` 本身。
 
@@ -548,9 +564,9 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 ## 相关 example
 
 - `examples/05_widgets` —— 按钮/checkbox/radio/panel 的基本搭法
-- `examples/11_form_controls` —— slider、更完整的表单控件组合；底部一行演示禁用状态
-  （开关通过 `DG_PROP_DISABLED` 启用/禁用旁边的 checkbox 与 slider，`--verify-form-controls`
-  校验它）
+- `examples/11_form_controls` —— 运行时的 `kCheckbox`/`kRadio`/`kSlider` 表单：两个单选组、
+  一个随窗口变宽的滑块和一个带 `step` 的定宽滑块；底部一行演示禁用状态（开关通过
+  `set_disabled()` 启用/禁用旁边的 checkbox 与 slider，`--verify-form-controls` 校验它）
 - `examples/12_text_input` —— 文本框（另见 `doc/guide/text.md`）
 - `examples/26_text_area` —— 多行编辑框（C ABI 驱动）
 - `examples/13_image` —— 四种 `ImageFit` 对比

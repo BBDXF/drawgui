@@ -129,9 +129,8 @@ void compose_basic(WinState& window, NodeRecord& record) {
     widget.indicator_on = dg::Color::from_argb(kCheckboxOnArgb);
     widget.indicator_off = dg::Color::from_argb(kCheckboxOffArgb);
     widget.checked = false;
-    // widget.group left unset (std::nullopt): the C ABI never exports radio
-    // grouping - see abi/drawgui.def.toml's own "WHAT IS DELIBERATELY NOT
-    // HERE" entry on Widget::group for why.
+    // widget.group left unset (std::nullopt): a plain checkbox. A grouped
+    // one is NodeKind::kRadio (slider_radio.cpp).
     window.widgets.attach(new_id, widget);
     window.widgets.attach(indicator, dg::Widget{});
     window.widgets.refresh(window.tree.render(), new_id, dg::PointerState{});

@@ -166,6 +166,8 @@ C_PRIMITIVE_TYPES = frozenset(
         "const uint32_t*",
         "const int32_t*",
         "const float*",
+        # ABI 0.2: dg_slider_get_value()'s scalar out-param.
+        "float*",
     }
 )
 
@@ -768,6 +770,7 @@ _C_TO_TS = {
     "const uint32_t*": "Uint32Array | null",
     "const int32_t*": "Int32Array | null",
     "const float*": "Float32Array | null",
+    "float*": "Float32Array | null",
 }
 
 

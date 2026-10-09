@@ -124,8 +124,9 @@ typedef struct dg_event {
   /* DG_EVENT_CONTEXT_CLICK the nearest node with a handle under the pointer; */
   /* DG_EVENT_LIST_SELECT the list. Phase B: DG_EVENT_MENU_ACTIVATE/_DISMISS the */
   /* menu's anchor (or null); DG_EVENT_VALUE_CHANGED the dropdown; */
-  /* DG_EVENT_TAB_SELECT, DG_EVENT_TREE_* and DG_EVENT_TABLE_* the component. Null */
-  /* for every other kind (DG_EVENT_DIALOG_RESULT included). */
+  /* DG_EVENT_TAB_SELECT, DG_EVENT_TREE_* and DG_EVENT_TABLE_* the component; */
+  /* DG_EVENT_SLIDER_CHANGED the slider. Null for every other kind */
+  /* (DG_EVENT_DIALOG_RESULT included). */
   dg_node_t* node;
   /* DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: */
   /* the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the */
@@ -156,7 +157,8 @@ typedef struct dg_event {
   /* ABI 0.2: DG_EVENT_CLICK, DG_EVENT_CONTEXT_CLICK, DG_EVENT_LIST_SELECT and */
   /* (phase B) a pointer-made DG_EVENT_TABLE_SELECT - the press's click count (1 */
   /* single, 2 double, 3 triple...), from the platform or counted by drawgui with */
-  /* the same thresholds. 0 for every other kind. It sits in what used to be the */
+  /* the same thresholds; 0 for a DG_EVENT_CLICK an arrow key made by selecting a */
+  /* DG_NODE_TYPE_RADIO. 0 for every other kind. It sits in what used to be the */
   /* struct's tail padding, so sizeof(dg_event) is unchanged (40 bytes on a 64-bit */
   /* target). */
   uint16_t clicks;
@@ -199,9 +201,8 @@ typedef struct dg_theme_err {
 /* dg_node_t handle and cannot be reached, inserted into, or removed through */
 /* this ABI; this is a deliberate trade, not an oversight, because a reactive */
 /* framework built on this ABI (P6's own eventual c/d steps) cannot be made to */
-/* hand-compose a child for every checkbox it creates. Widget::group (radio) is */
-/* NOT exported - see this file's own "WHAT IS DELIBERATELY NOT HERE" entry for */
-/* why. */
+/* hand-compose a child for every checkbox it creates. Never grouped: a mutually */
+/* exclusive option is ABI 0.2's DG_NODE_TYPE_RADIO. */
 #define DG_NODE_TYPE_CHECKBOX 4u
 /* P6 sub-step a2 (second half): a single-line editable text field */
 /* (WidgetKind::kTextField), examples/12_text_input's own recipe copied */
@@ -326,6 +327,33 @@ typedef struct dg_theme_err {
 /* DG_EVENT_TABLE_SORT - the caller sorts its data, pushes it again and calls */
 /* dg_table_set_sort_indicator(). Focusable. DG_PROP_HEIGHT (pixels) sizes it. */
 #define DG_NODE_TYPE_TABLE 14u
+/* ABI 0.2: a horizontal slider (WidgetKind::kSlider), 200x20 by default: a */
+/* rounded track (theme color.border) and a round thumb as tall as the track */
+/* (color.primary), a caller-invisible composed child. DG_PROP_VALUE */
+/* (DG_VALUE_FLOAT) sets the value, clamped to [DG_PROP_MIN_VALUE, */
+/* DG_PROP_MAX_VALUE] (default 0..100) and snapped to min + k * DG_PROP_STEP */
+/* (default 0 = continuous); a min not below the max, a max not above the min, a */
+/* negative step or a non-finite number is DG_ERR_VALUE_OUT_OF_RANGE, and a */
+/* range or step change re-clamps the value. A primary press on it moves the */
+/* thumb under the pointer, focuses it and starts a drag that follows the */
+/* pointer until the release; while focused, Left/Down and Right/Up move it one */
+/* step (1/100 of the range when continuous), PageDown/PageUp a tenth of the */
+/* range, Home/End to the ends. Each user change queues DG_EVENT_SLIDER_CHANGED; */
+/* read the value with dg_slider_get_value(). DG_PROP_DISABLED stops all of it */
+/* and paints the theme's disabled colours. DG_PROP_HEIGHT resizes the thumb */
+/* with the track. Takes no children. */
+#define DG_NODE_TYPE_SLIDER 15u
+/* ABI 0.2: a radio button - a round DG_NODE_TYPE_CHECKBOX (32x32, a 20x20 dot, */
+/* the checkbox's colours) in group DG_PROP_RADIO_GROUP (an integer, default 0) */
+/* of its window: selecting one clears every other radio of that group. A */
+/* completed primary click selects it (a no-op when already selected) before */
+/* queuing DG_EVENT_CLICK, exactly like a checkbox; dg_node_get_checked() reads */
+/* it and dg_radio_select() selects it without an event. While a radio has */
+/* focus, Left/Up and Right/Down move focus AND the selection to the */
+/* previous/next enabled radio of its group in creation order, wrapping, and */
+/* queue DG_EVENT_CLICK on it with clicks = 0 and x/y = 0. Each radio is its own */
+/* Tab stop. */
+#define DG_NODE_TYPE_RADIO 16u
 
 /* dg_value::type. */
 /* PropType::k_float. */
@@ -446,6 +474,12 @@ typedef struct dg_theme_err {
 /* is the column index. drawgui does not sort: the caller reorders its rows, */
 /* calls dg_table_set_cells() and dg_table_set_sort_indicator(). */
 #define DG_EVENT_TABLE_SORT 28u
+/* ABI 0.2: the user moved a DG_NODE_TYPE_SLIDER to a different value (a press, */
+/* a drag or a key). `node` is the slider; x/y are 0 - read the new value with */
+/* dg_slider_get_value() (the 'CLICK then ask' shape DG_EVENT_TEXT_CHANGED uses: */
+/* dg_event carries no float). One per change; not queued for DG_PROP_VALUE */
+/* writes. */
+#define DG_EVENT_SLIDER_CHANGED 29u
 
 /* ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()). */
 /* Bytes blue, green, red, alpha - a drawgui-rasterized frame's own order. */
@@ -718,6 +752,14 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_VALUE 60
 /* Whether a progress bar shows an endless sweep instead of its value. */
 #define DG_PROP_INDETERMINATE 61
+/* A slider's minimum value; must stay below max_value. */
+#define DG_PROP_MIN_VALUE 62
+/* A slider's maximum value; must stay above min_value. */
+#define DG_PROP_MAX_VALUE 63
+/* A slider's step: values snap to min_value + k * step; 0 means continuous. */
+#define DG_PROP_STEP 64
+/* Which group (an integer) a radio button belongs to; selecting one clears the others in its window's group. */
+#define DG_PROP_RADIO_GROUP 65
 
 /* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for
  * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names
@@ -975,7 +1017,8 @@ DG_EXPORT int32_t dg_node_set_text(dg_node_t* node, uint16_t prop_id, const char
 /* DG_ERR_INVALID_HANDLE for a stale/unknown node, DG_ERR_NO_WINDOW for a */
 /* still-pending one (matching dg_node_set_prop()'s own requirement), */
 /* DG_ERR_UNSUPPORTED for a live node whose type_id is not */
-/* DG_NODE_TYPE_CHECKBOX. */
+/* DG_NODE_TYPE_CHECKBOX. ABI 0.2: a DG_NODE_TYPE_RADIO answers too (1 = */
+/* selected). */
 DG_EXPORT int32_t dg_node_get_checked(dg_node_t* node);
 
 /* P6 sub-step a2 (second half): dg::WidgetSet::text_field_text() at the ABI */
@@ -1511,6 +1554,16 @@ DG_EXPORT int32_t dg_table_set_sort_indicator(dg_node_t* node, int32_t column,
 /* lifetimes (open/close a menu, remove a component: the count returns to its */
 /* baseline). Negative DG_ERR_* on failure. */
 DG_EXPORT int32_t dg_debug_node_count(dg_window_t* window);
+
+/* ABI 0.2: writes a LIVE DG_NODE_TYPE_SLIDER's current value to `out_value`. */
+/* DG_ERR_INVALID_ARGUMENT for a null `out_value`; DG_ERR_UNSUPPORTED for */
+/* another node type. */
+DG_EXPORT int32_t dg_slider_get_value(dg_node_t* node, float* out_value);
+
+/* ABI 0.2: selects a LIVE DG_NODE_TYPE_RADIO, clearing the other radios of its */
+/* group, and repaints them. Queues no event. DG_ERR_UNSUPPORTED for another */
+/* node type. */
+DG_EXPORT int32_t dg_radio_select(dg_node_t* node);
 
 #ifdef __cplusplus
 } /* extern "C" */

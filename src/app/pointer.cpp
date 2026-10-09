@@ -270,6 +270,11 @@ void process_pointer_event(WinState& window, const dg::PointerEvent& event) {
     window.widgets.toggle(*change.clicked);
     window.widgets.refresh(window.tree.render(), *change.clicked,
                            window.interaction.state_of(*change.clicked));
+    // A radio button (NodeKind::kRadio, a grouped checkbox): toggle() cleared
+    // the rest of its group but cannot repaint them.
+    for (const dg::NodeId other : window.widgets.group_members(*change.clicked)) {
+      window.widgets.refresh(window.tree.render(), other, window.interaction.state_of(other));
+    }
   }
   if (change.clicked.has_value()) {
     // The release carries no count of its own; the press that started this

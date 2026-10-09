@@ -4,13 +4,13 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
 公开头文件都在 `include/drawgui/app/`。本页是 API 参考；`doc/guide/` 里
 每篇都先讲 `dg::App` 的用法，再在「直接使用底层」一节讲不用运行时时要自己
 承担的义务。建在运行时上的示例：`examples/12_text_input`、`15_list`、
-`22_dropdown_menu`、`23_menu_tooltip_dialog`、`27_data_widgets`。
+`11_form_controls`、`22_dropdown_menu`、`23_menu_tooltip_dialog`、`27_data_widgets`。
 
 | 头文件 | 内容 |
 |---|---|
 | `app.h` | `dg::App`、`AppOptions`、`WindowOptions`、`Waker` |
 | `window.h` | `dg::Window`：节点树、属性、焦点、弹层、OS 窗口操作、逃生舱 |
-| `refs.h` | 组件引用：`ListRef`、`DropdownRef`、`TabsRef`、`TreeRef`、`TableRef`、`ProgressRef` |
+| `refs.h` | 组件引用：`ListRef`、`DropdownRef`、`TabsRef`、`TreeRef`、`TableRef`、`ProgressRef`、`SliderRef`、`RadioRef` |
 | `items.h` | 值类型：`MenuEntry`、`TreeEntry`、`TableColumnSpec`、`DialogOptions` |
 | `events.h` | `dg::Event`（`std::variant`）及 `Overloaded`、`event_as<E>()`、`window_of()` |
 | `limits.h` | 数组上限 `dg::limits::kListMaxItems` 等（C ABI 用同一组常量） |
@@ -51,7 +51,7 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
 
 - 树：`create`、`move`、`remove`（`set_on_removed` 回调对随之移除的每个节点
   触发一次）、`kind_of`、`child_container`。
-- 属性：`set_prop`、`set(node, {dg::prop::width(120), dg::prop::row()})`（逐个应用，返回第一个失败）、`bind_token`、`set_text` / `text`、`checked`、
+- 属性：`set_prop`、`set(node, {dg::prop::width(120), dg::prop::row()})`（逐个应用，返回第一个失败）、`bind_token`、`set_text` / `text`、`checked`（checkbox 与 radio）、
   `set_disabled`（被禁用的子树不再接收指针/键盘；进行中的按下不会产生
   `ClickEvent`，焦点会移走）、`set_tooltip`、`set_image`、`scope_action`。
 - 焦点：`focus`、`clear_focus`、`focused`；变化以 `FocusChangedEvent` 报告。
@@ -72,12 +72,16 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
 dg::Expected<dg::ListRef, dg::Status> list = window->list(node);
 ```
 
-`list()/dropdown()/tabs()/tree()/table()/progress()` 检查一次节点种类：
+`list()/dropdown()/tabs()/tree()/table()/progress()/slider()/radio()` 检查一次节点种类：
 不存在为 `kInvalidNode`，种类不对为 `kUnsupported`。ref 是 `{窗口, 节点}`
 的廉价值，可随意复制；它不保活节点，每次调用都会重新检查，节点被移除后
 返回 `kInvalidNode`。ref 不得比它的 `Window` 活得更久。
 
-用 ref 的 `select()` 改选择不会产生事件；只有用户操作才产生事件。
+用 ref 的 `select()`/`set_value()` 改选择或值不会产生事件；只有用户操作才产生事件。
+`SliderRef`：`set_value()`（夹取并对齐 step；非有限数为 `kValueOutOfRange`）、
+`value()`、`set_range(min, max, step)`、`min_value()/max_value()/step()`。
+`RadioRef`：`select()`、`selected()`、`set_group(int)`、`group()`（默认 0；一个已选中的
+单选加入已有选中项的组时会放弃自己的选中）。
 表格表头点击只报告 `TableEvent::Kind::kSort` 请求，排序由调用方完成后
 `set_rows()` + `set_sort_indicator()`。
 
@@ -95,6 +99,12 @@ for (const dg::Event& e : app.pump(-1)) {
 
 `event_as<E>(e)` 返回指针或 null；`window_of(e)` 给出事件所属窗口
 （`TimerEvent`/`UserEvent` 没有）。
+
+- `SliderEvent{window, node, value, previous}`：用户（按下、拖动、按键）把滑块移到了
+  不同的值；`value`/`previous` 是 float。C ABI 对应 `DG_EVENT_SLIDER_CHANGED`（不带值，
+  用 `dg_slider_get_value()` 查询）。
+- 复选框和单选不新增事件：`ClickEvent` 到达时状态已经改好，用 `checked()` 查询；
+  方向键选中单选时 `ClickEvent::clicks == 0`。
 
 ## 逃生舱约定
 
