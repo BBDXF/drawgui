@@ -1,14 +1,15 @@
-// The showcase demo, on screen and headless.
+// examples/25_showcase: the one demo of every drawgui feature, on the public
+// runtime dg::App / dg::Window. Seven tabs (基础控件, 文本, 布局, 数据, 弹层,
+// 图片, 窗口), a header with a live light/dark switch and a status line that
+// names the last event.
 //
 //   (no arguments)              the demo window
-//   --branch overlay            popups/tooltip are overlay-only now (native removed)
+//   --theme light|dark          the starting theme (default light)
+//   --tab N                     the starting tab, 0..6
 //   --run-ms N                  close after N milliseconds
-//   --script                    drive a scripted sequence through real platform events
-//   --font-dir DIR              scan a different font directory
-//   --tooltip-delay-ms N        hover delay before a tooltip shows (default 400)
-//   --verify-showcase           the headless check. No display needed.
-//   --idle-probe-ms N           measure idle CPU with the hover timer present but idle
-//   --dump-png FILE             rasterize one frame and write it
+//   --font-dir DIR              where the UI fonts are looked for
+//   --verify-showcase           the headless check (CTest). No display needed.
+//   --dump-png FILE             one frame of --tab/--theme to PNG. No display needed.
 
 #include <cstdint>
 #include <iostream>
@@ -16,115 +17,124 @@
 #include <string>
 #include <vector>
 
+#include "drawgui/app/app.h"
+#include "drawgui/app/window.h"
+#include "example_app.h"
+#include "showcase.h"
 #include "showcase_check.h"
-#include "showcase_window.h"
 
 namespace {
 
-enum class Mode : std::uint8_t {
-  kWindow,
-  kVerify,
-  kDumpPng,
-  kIdleProbe,
-};
+enum class Mode : std::uint8_t { kWindow, kVerify, kDumpPng };
 
 struct Options {
   Mode mode = Mode::kWindow;
-  showcase_window::Settings settings;
+  std::string font_dir = "/usr/share/fonts";
   std::string png_path;
-  int idle_probe_ms = 0;
+  int tab = 0;
+  int run_ms = 0;
+  dg::ThemeVariant variant = dg::ThemeVariant::kLight;
 };
 
-// Whether `arg` was one of the recognised flags whose VALUE is another
-// argument entirely - factored out of parse_options() to keep its own
-// cognitive complexity within this project's clang-tidy budget, the
-// identical split examples/23_menu_tooltip_dialog/main.cpp already made.
-bool parse_value_flag(const std::string& arg, const std::vector<std::string>& args,
-                      std::size_t& i, Options& options) {
-  if (arg == "--dump-png" && i + 1 < args.size()) {
-    options.mode = Mode::kDumpPng;
-    options.png_path = args[++i];
-    return true;
-  }
-  if (arg == "--idle-probe-ms" && i + 1 < args.size()) {
-    options.mode = Mode::kIdleProbe;
-    options.idle_probe_ms = std::stoi(args[++i]);
-    return true;
-  }
-  if (arg == "--run-ms" && i + 1 < args.size()) {
-    options.settings.run_ms = std::stoi(args[++i]);
-    return true;
-  }
-  if (arg == "--font-dir" && i + 1 < args.size()) {
-    options.settings.font_dir = args[++i];
-    return true;
-  }
-  if (arg == "--tooltip-delay-ms" && i + 1 < args.size()) {
-    options.settings.tooltip_delay_ms = std::stoi(args[++i]);
-    return true;
-  }
-  return false;
-}
-
-// std::nullopt means "--branch was present but named something other than
-// overlay". Native popup windows were removed, so
-// "native" is now a loud, non-zero-exit-code failure rather than a silently
-// accepted no-op.
-std::optional<bool> parse_branch_value(const std::string& branch) {
-  if (branch == "overlay") {
-    return true;
-  }
-  if (branch == "native") {
-    std::cerr << "--branch native is no longer supported: native popup windows were removed; "
-                 "popups are overlay-only now.\n";
-  }
-  return std::nullopt;
-}
-
-std::optional<Options> parse_options(int argc, char** argv) {
+std::optional<Options> parse(int argc, char** argv) {
   Options options;
   const std::vector<std::string> args{argv + 1, argv + argc};
   for (std::size_t i = 0; i < args.size(); ++i) {
-    if (args[i] == "--verify-showcase") {
+    const std::string& arg = args[i];
+    const bool has_value = i + 1 < args.size();
+    if (arg == "--verify-showcase") {
       options.mode = Mode::kVerify;
-      continue;
-    }
-    if (args[i] == "--script") {
-      options.settings.script = true;
-      continue;
-    }
-    if (parse_value_flag(args[i], args, i, options)) {
-      continue;
-    }
-    if (args[i] == "--branch" && i + 1 < args.size()) {
-      const std::optional<bool> force_overlay = parse_branch_value(args[++i]);
-      if (!force_overlay.has_value()) {
+    } else if (arg == "--dump-png" && has_value) {
+      options.mode = Mode::kDumpPng;
+      options.png_path = args[++i];
+    } else if (arg == "--tab" && has_value) {
+      const std::optional<int> tab = example::parse_int(args[++i]);
+      if (!tab.has_value() || *tab < 0 || *tab >= showcase::kTabCount) {
         return std::nullopt;
       }
-      continue;
+      options.tab = *tab;
+    } else if (arg == "--theme" && has_value) {
+      const std::string& name = args[++i];
+      if (name != "light" && name != "dark") {
+        return std::nullopt;
+      }
+      options.variant = name == "dark" ? dg::ThemeVariant::kDark : dg::ThemeVariant::kLight;
+    } else if (arg == "--run-ms" && has_value) {
+      options.run_ms = example::parse_int(args[++i]).value_or(0);
+    } else if (arg == "--font-dir" && has_value) {
+      options.font_dir = args[++i];
+    } else {
+      std::cerr << "unrecognized argument: " << arg << "\n";
+      return std::nullopt;
     }
-    std::cerr << "unrecognized argument: " << args[i] << "\n";
-    return std::nullopt;
   }
   return options;
+}
+
+int dump_png(dg::App& app, const Options& options) {
+  dg::Window* window = showcase::open_window(app);
+  if (window == nullptr) {
+    return 1;
+  }
+  showcase::Showcase demo(app, *window, showcase::make_theme(), options.variant);
+  demo.select_tab(options.tab);
+  // A little life in the data page: a selection and a half-full bar.
+  (void)window->list(demo.nodes().list).value().select(2);
+  (void)window->tree(demo.nodes().tree).value().select(1);
+  demo.set_progress(0.62F);
+  example::Driver(app, *window).pump(4);
+  return example::write_png(*window, options.png_path, std::cout);
+}
+
+int run_window(dg::App& app, const Options& options) {
+  dg::Window* window = showcase::open_window(app);
+  if (window == nullptr) {
+    return 1;
+  }
+  showcase::Showcase demo(app, *window, showcase::make_theme(), options.variant);
+  demo.select_tab(options.tab);
+  demo.start_timers();
+  const dg::TimerId quit_timer =
+      options.run_ms > 0 ? app.add_timer(options.run_ms, false) : dg::TimerId{};
+  app.run([&](const dg::Event& event) {
+    if (const auto* timer = dg::event_as<dg::events::TimerEvent>(event)) {
+      if (options.run_ms > 0 && timer->timer == quit_timer) {
+        app.quit();
+        return;
+      }
+    }
+    demo.on_event(event);
+  });
+  return 0;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  const std::optional<Options> options = parse_options(argc, argv);
+  const std::optional<Options> options = parse(argc, argv);
   if (!options.has_value()) {
+    std::cerr
+        << "usage: drawgui_showcase [--theme light|dark] [--tab N] [--run-ms N]\n"
+           "                        [--font-dir DIR] [--dump-png FILE] [--verify-showcase]\n";
     return 2;
   }
+  if (options->mode != Mode::kWindow) {
+    example::use_headless_driver();
+  }
+  dg::Expected<dg::App, dg::AppError> app =
+      example::make_app(options->font_dir, "DejaVu Sans", std::cout);
+  if (!app) {
+    return 1;
+  }
+  (void)app.value().add_font(options->font_dir, "WenQuanYi Micro Hei");
+  (void)app.value().add_font(options->font_dir, "Noto Color Emoji");
   switch (options->mode) {
     case Mode::kVerify:
-      return showcase_check::run(std::cout);
+      return showcase::verify(app.value(), std::cout);
     case Mode::kDumpPng:
-      return showcase_window::dump_png(options->settings, options->png_path, std::cout);
-    case Mode::kIdleProbe:
-      return showcase_window::idle_probe(options->settings, options->idle_probe_ms, std::cout);
+      return dump_png(app.value(), *options);
     case Mode::kWindow:
       break;
   }
-  return showcase_window::run(options->settings, std::cout);
+  return run_window(app.value(), *options);
 }

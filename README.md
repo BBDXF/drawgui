@@ -120,9 +120,10 @@ per-frame call order, see **`doc/getting-started.md`**.
 29 examples, `examples/00_*` through `examples/28_*`. Most support
 `--dump-png out.png` (headless render) and a `--verify-*` flag (headless
 assertion, used in CTest); run any binary with `--help` for its full flag
-list. **Start with `examples/25_showcase`** - it is the only example that
-combines features in one scene rather than isolating one, and is the
-project's cross-feature regression bed.
+list. **Start with `examples/25_showcase`** - one window, built on the public
+`dg::App` / `dg::Window` runtime, with a tab for every area (controls,
+text, layout, data, popups, images, window) and a live light/dark switch;
+`--verify-showcase` drives every tab with injected input.
 
 | # | Example | What it demonstrates | Verify flag |
 | --- | --- | --- | --- |
@@ -151,7 +152,7 @@ project's cross-feature regression bed.
 | 22 | `dropdown_menu` | Keyboard/mouse dropdown selection between two real siblings | `--verify-dropdown` |
 | 23 | `menu_tooltip_dialog` | Context menu and tooltip built on the overlay popup host, plus a modal `Dialog` that is a real, separate OS window (`--branch native\|overlay` compares two ways of opening it) | `--verify-menus` |
 | 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
-| 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
+| 25 | `showcase` | **Start here.** Every feature in one `dg::App` window: seven tabs (buttons/checkbox/radio/slider/disabled group/cursors/tooltips; text field, CJK+emoji text area, font sizes, wrapping; row/column, all `justify` modes, % widths, wrap; 1000-item list, tree, sortable table, timer-driven progress; dropdown, context menu, dialogs; PNG/JPEG/WebP + tinted SVG icons; window title/maximize/fullscreen, timer, `Waker`), live light/dark switch, last-event status line. `--dump-png FILE --tab N --theme light\|dark` | `--verify-showcase` |
 | 26 | `text_area` | A heading row (a `BOX` made a row) over a multi-line `TEXT_AREA`, all through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
 | 27 | `data_widgets` | `ProgressBar` (determinate + indeterminate), `Tabs` with a disabled tab, a 10,000-item `TreeView` and a 10,000-row sortable `Table` on fixed node pools | `--verify` |
 | 28 | `c_components` | Pure C: anchored and context menus, a dropdown, tooltips, a modal dialog, a progress bar, tabs holding a tree, and a table the app sorts on request - all through the poll-based C ABI | `--verify` |

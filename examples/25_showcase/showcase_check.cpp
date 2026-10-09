@@ -1,448 +1,414 @@
-// The headless oracle for examples/25_showcase - `--verify-showcase`.
-//
-// THIS IS THE DELIVERABLE THAT MATTERS (task's own words). Every assertion
-// below is a hand-derived exact value, not a loose predicate - 4-9's own
-// "assertion too weak" failure mode (`.ends_with("...")` on ellipsize())
-// is what this file is built against: a wrong scene, a wrong theme colour,
-// or a wrong focus target must fail a SPECIFIC comparison, never merely
-// "did something non-empty happen".
+// --verify-showcase: every tab of the showcase driven with injected input
+// (pointer, keys, text, clipboard chords) on SDL's dummy video driver, the
+// app reacting to the events exactly as in the window mode.
 
 #include "showcase_check.h"
 
-#include <cstdlib>
+#include <chrono>
+#include <cmath>
+#include <cstddef>
 #include <optional>
-#include <ostream>
 #include <string>
 #include <vector>
 
-#include "drawgui/anim/animation_engine.h"
+#include "drawgui/app/window.h"
+#include "drawgui/base/cursor.h"
+#include "drawgui/graphics/raster_surface.h"
+#include "drawgui/layout/layout_tree.h"
+#include "drawgui/render/image_catalog.h"
 #include "drawgui/render/render_tree.h"
-#include "drawgui/shortcuts/action_scopes.h"
-#include "drawgui/theme/token_ids.generated.h"
-#include "drawgui/ui/dropdown.h"
-#include "drawgui/widget/focus.h"
-#include "drawgui/window/popup_host.h"
-#include "drawgui/window/window_manager.h"
+#include "drawgui/shortcuts/chord.h"
+#include "drawgui/shortcuts/logical_key.generated.h"
+#include "drawgui/widget/widget_set.h"
+#include "example_app.h"
+#include "showcase.h"
 
-#include "profile_dialog.h"
-#include "showcase_scene.h"
-#include "showcase_window.h"
-
-namespace showcase_check {
+namespace showcase {
 namespace {
 
 using dg::NodeId;
-using dg::PixelRect;
-using dg::PixelSize;
+using Clock = std::chrono::steady_clock;
 
-bool check(bool condition, const std::string& what, std::ostream& out, bool& ok) {
-  out << "  " << (condition ? "PASS" : "FAIL") << " " << what << "\n";
-  ok = ok && condition;
-  return condition;
-}
-
-constexpr PixelSize kSize{900, 560};
-
-showcase_scene::Options options_for(PixelSize size) {
-  showcase_scene::Options options;
-  options.spec.viewport = size;
-  return options;
-}
-
-// --------------------------------------------------------------------------
-// Claim 1: all 9 WidgetKind values are actually attached in this one scene,
-// plus a context menu/tooltip/dialog exist as reachable code paths - the
-// "05_widgets names all 9 in a switch but only builds 3" gap this slice
-// exists to close.
-// --------------------------------------------------------------------------
-
-void check_all_kinds_present(std::ostream& out, bool& ok) {
-  out << "all 9 WidgetKind values attached in one scene\n";
-  showcase_scene::Scene scene = showcase_scene::build(options_for(kSize));
-
-  bool saw[9] = {false, false, false, false, false, false, false, false, false};
-  auto mark = [&](dg::WidgetKind kind) { saw[static_cast<int>(kind)] = true; };
-  const dg::NodeId ids[] = {scene.handles.sidebar,          scene.handles.title_label,
-                            scene.handles.theme_toggle,     scene.handles.anim_checkbox,
-                            scene.handles.volume_slider,    scene.handles.search_field,
-                            scene.handles.recent_list,      scene.handles.sort_dropdown,
-                            scene.handles.description_panel};
-  for (NodeId id : ids) {
-    if (scene.widgets.has(id)) {
-      mark(scene.widgets.at(id).kind);
+std::size_t utf8_length(const std::string& text) {
+  std::size_t n = 0;
+  for (const char c : text) {
+    if ((static_cast<unsigned char>(c) & 0xC0U) != 0x80U) {
+      ++n;
     }
   }
-  const char* names[] = {"kPanel",  "kLabel",     "kButton", "kCheckbox", "kScrollView",
-                         "kSlider", "kTextField", "kList",   "kDropdown"};
-  // kScrollView is deliberately never attached anywhere in this scene (see
-  // showcase_scene.h's own header comment: kList already IS a clipping
-  // viewport, so a second wrapping kScrollView tests nothing new) - this is
-  // named honestly rather than papered over by attaching a decorative,
-  // functionally inert kScrollView somewhere just to tick a box.
-  for (int i = 0; i < 9; ++i) {
-    const bool expected = i != static_cast<int>(dg::WidgetKind::kScrollView);
-    check(saw[i] == expected,
-          std::string("WidgetKind::") + names[i] +
-              (expected ? " is attached" : " deliberately absent"),
-          out, ok);
-  }
+  return n;
 }
 
-// --------------------------------------------------------------------------
-// Claim 2: the CJK description panel actually wraps to more than one line
-// AND carries a shadow - a combination each system
-// documents alone but never together.
-// --------------------------------------------------------------------------
+class Check {
+ public:
+  Check(dg::App& app, Showcase& demo, std::ostream& out)
+      : app_(app), demo_(demo), w_(demo.window()), drive_(app, w_), out_(out) {}
 
-void check_cjk_shadow_panel(std::ostream& out, bool& ok) {
-  out << "wrapped CJK text + shadow on the SAME node\n";
-  showcase_scene::Scene scene = showcase_scene::build(options_for(kSize));
-  const dg::RenderTree& tree = scene.tree.render();
-  const dg::NodeStyle& panel_style = tree.style(scene.handles.description_panel);
-  check(panel_style.shadow.has_value(), "description panel has a shadow set", out, ok);
-
-  const std::vector<NodeId> children = tree.children(scene.handles.description_panel);
-  check(!children.empty(), "description panel has a text child", out, ok);
-  if (!children.empty()) {
-    const int text_height = tree.local_bounds(children.front()).height;
-    // A single line at 16px is roughly 20-24px tall; the panel's own
-    // kCjkText-shaped string (20+ unspaced Han characters at
-    // kMainWidth-2*14 px) must wrap past that - a hand-derived FLOOR, not a
-    // loose ">0" check, so a regression that collapses wrapping back to one
-    // line fails a SPECIFIC comparison.
-    check(text_height > 40,
-          "wrapped text child is taller than one line (height=" + std::to_string(text_height) +
-              ")",
-          out, ok);
-  }
-  // The shadow paints OUTSIDE the node's declared bounds (doc/complex-
-  // properties.md) - repainting the panel full must not crash or corrupt
-  // neighbouring content; a real raster proves the combination does not
-  // hang/crash (the 7-1 hang precedent this project already found once for
-  // malformed UTF-8 feeding SkParagraph).
-  std::optional<dg::RasterSurface> surface =
-      dg::RasterSurface::create(kSize.width, kSize.height);
-  check(surface.has_value(), "surface allocated", out, ok);
-  if (surface.has_value()) {
-    scene.tree.render().repaint_full(*surface);
-    check(!surface->encode_png().empty(),
-          "full repaint with wrapped+shadowed CJK encodes a PNG", out, ok);
-  }
-}
-
-// --------------------------------------------------------------------------
-// Claim 3: dropdown popup placement is unaffected by the list's own scroll
-// offset, and the popup's overlay content lands at RenderTree::root() -
-// NEVER inside an ancestor's opacity/clip subtree - structurally, not by
-// coincidence (the popup's own attach point).
-// --------------------------------------------------------------------------
-
-void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
-  out << "dropdown popup placement vs. list scroll offset vs. clipping\n";
-  showcase_scene::Scene scene = showcase_scene::build(options_for(kSize));
-
-  const PixelRect anchor_before =
-      scene.tree.render().absolute_bounds(scene.handles.sort_dropdown);
-
-  // Scroll the "recent files" list so several of its pool nodes recycle.
-  const dg::LayoutStats before_scroll_stats = scene.tree.layout();
-  (void)showcase_scene::list_scroll_to(scene, 30);
-  const dg::LayoutStats after_scroll_stats = scene.tree.layout();
-  check(after_scroll_stats.nodes_relaid_out == 0,
-        "scrolling the list costs zero relayout (nodes_relaid_out=" +
-            std::to_string(after_scroll_stats.nodes_relaid_out) + ")",
-        out, ok);
-  (void)before_scroll_stats;
-
-  const PixelRect anchor_after_scroll =
-      scene.tree.render().absolute_bounds(scene.handles.sort_dropdown);
-  check(anchor_before.left() == anchor_after_scroll.left() &&
-            anchor_before.top() == anchor_after_scroll.top(),
-        "dropdown anchor position is unaffected by the list's own scroll offset", out, ok);
-
-  // Now actually open the dropdown's popup through the real PopupHost -
-  // overlay-only (native popup windows were removed), so
-  // this runs deterministically on any headless machine with no caps to
-  // force.
-  dg::Expected<dg::WindowManager, dg::WindowError> made = dg::WindowManager::create();
-  if (!made) {
-    out << "  SKIP (no window system: " << made.error().message << ")\n";
-    return;
-  }
-  dg::WindowManager manager = std::move(made.value());
-  dg::WindowSpec spec;
-  spec.title = "showcase dropdown check";
-  spec.width = kSize.width;
-  spec.height = kSize.height;
-  const dg::Expected<dg::WindowId, dg::WindowError> window = manager.open(spec);
-  if (!window) {
-    out << "  SKIP (no window: " << window.error().message << ")\n";
-    return;
+  int run() {
+    feed(drive_.pump());
+    theme();
+    basics();
+    text();
+    layout();
+    data();
+    popups();
+    images();
+    window();
+    out_ << "\n" << (ok_ ? "ALL CHECKS PASSED" : "SOME CHECKS FAILED") << "\n";
+    return ok_ ? 0 : 1;
   }
 
-  // Runner's own first-frame viewport must be the window's real
-  // drawable_size(), never Settings::size - see
-  // examples/22_dropdown_menu/dropdown_check.cpp's own assertion of the
-  // same shape for the full argument on why this pins the real function
-  // Runner's constructor calls rather than a duplicate.
-  showcase_window::Settings runner_settings;
-  runner_settings.size = kSize;
-  const dg::PixelSize drawable =
-      manager.drawable_size(window.value()).value_or(dg::PixelSize{});
-  check(showcase_window::initial_viewport(manager, window.value(), runner_settings) == drawable,
-        "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
+ private:
+  void check(bool pass, const std::string& what) { example::check(pass, what, out_, ok_); }
 
-  dg::PopupHost host{manager};
-  const dg::LayoutStats before_popup = scene.tree.layout();
-  (void)before_popup;
-  dg::AnimationEngine animation;
-  dg::ActionScopes action_scopes;
-  dg::UiContext ctx{
-      host,
-      window.value(),
-      scene.tree.render(),
-      {scene.widgets, scene.bindings, scene.focus, animation, action_scopes, scene.interaction},
-      scene.fonts.has_value() ? &*scene.fonts : nullptr,
-      scene.ui_font,
-      dg::popup_style_from_theme(scene.theme, scene.variant)};
-  dg::Dropdown dropdown{scene.handles.sort_dropdown};
-  const dg::DropdownResult opened = dropdown.open(ctx);
-  check(opened.event == dg::DropdownEvent::kOpened,
-        "dg::Dropdown opens the sort dropdown through PopupHost::show()", out, ok);
-  if (!dropdown.menu().handle().has_value()) {
-    return;
+  std::vector<dg::Event> feed(std::vector<dg::Event> events) {
+    for (const dg::Event& e : events) {
+      demo_.on_event(e);
+    }
+    return events;
   }
-  const dg::PopupHandle handle = *dropdown.menu().handle();
-  check(handle.content_bounds.top() == anchor_after_scroll.bottom(),
-        "popup opens directly below the anchor, not shifted by the list's scroll offset", out,
-        ok);
-
-  // Structural finding: the overlay container's PARENT is RenderTree::root()
-  // regardless of which node the anchor rect came from - an ancestor's
-  // opacity/clip on the sidebar or main column can therefore never affect
-  // this popup's own paint/clip state, because the popup is never a
-  // descendant of either. This is the answer to the "opacity/clip subtree
-  // containing an open popup" hypothesis: it does not apply to the overlay
-  // branch AT ALL, by construction, not because it was tested and happened
-  // to pass.
-  check(scene.tree.render().parent(handle.content_root) == dg::LayoutTree::root(),
-        "overlay popup's container is a DIRECT CHILD OF ROOT, never of the anchor's own "
-        "ancestor chain - opacity/clip on the sidebar/list cannot reach it structurally",
-        out, ok);
-
-  const dg::LayoutStats layout_after_popup = scene.tree.layout();
-  check(layout_after_popup.nodes_relaid_out == 0,
-        "opening the popup (RenderTree::add_child, never through LayoutTree) costs zero "
-        "relayout - the formal regression test for popup_host.h's verified layout-safety "
-        "claim (overlay containers never enter any LayoutNode::children list, so no dirty "
-        "walk ever reaches them), not merely an assertion that happens to pass while under "
-        "a since-removed caller obligation not to call layout() at all",
-        out, ok);
-
-  dropdown.close(ctx);
-}
-
-// --------------------------------------------------------------------------
-// Claim 4: modal dialog + TextField mid-IME-composition + focus trap - the
-// exact meeting point 7-3 (composition crash risk) and 7-4 (double
-// Focus::set() skipping side effects) each found separately.
-// --------------------------------------------------------------------------
-
-void check_modal_dialog_ime(std::ostream& out, bool& ok) {
-  out << "modal dialog + TextField mid-IME-composition + focus trap\n";
-  showcase_scene::Scene scene = showcase_scene::build(options_for(kSize));
-  if (!scene.fonts.has_value()) {
-    out << "  SKIP (no fonts scanned)\n";
-    return;
+  std::vector<dg::Event> click(NodeId node) { return feed(drive_.click(node)); }
+  std::vector<dg::Event> key(dg::Key k) { return feed(drive_.key(k)); }
+  std::vector<dg::Event> chord(dg::LogicalKey k) {
+    app_.window_manager().post_logical_key(w_.id(), true, k, dg::Modifier::kMod);
+    app_.window_manager().post_logical_key(w_.id(), false, k, dg::Modifier::kMod);
+    return feed(drive_.pump());
   }
-  const dg::FontCatalog& fonts = *scene.fonts;
+  std::vector<dg::Event> type(const std::string& text) {
+    app_.window_manager().post_text_input(w_.id(), text);
+    return feed(drive_.pump());
+  }
+  void tab(int index) {
+    demo_.select_tab(index);
+    feed(drive_.pump());
+  }
+  // Pumps (with real waiting) until `done` or `ms` pass.
+  template <class F>
+  bool wait_for(F done, int ms) {
+    const Clock::time_point end = Clock::now() + std::chrono::milliseconds(ms);
+    while (!done() && Clock::now() < end) {
+      feed(app_.pump(20));
+    }
+    return done();
+  }
+  [[nodiscard]] std::string label_text(NodeId node) const {
+    return w_.layout().render().style(node).text.text;
+  }
+  [[nodiscard]] dg::PixelRect bounds(NodeId node) const { return drive_.bounds(node); }
+  [[nodiscard]] dg::Cursor cursor_over(NodeId node) {
+    const dg::PixelRect r = bounds(node);
+    feed(drive_.move(r.x + (r.width / 2), r.y + (r.height / 2)));
+    return app_.window_manager().current_cursor(w_.id()).value_or(dg::Cursor::kAuto);
+  }
 
-  const profile_dialog::Handles dialog =
-      profile_dialog::build(scene.tree.render(), scene.widgets, dg::LayoutTree::root(), kSize,
-                            dg::PixelSize{320, 150}, scene.ui_font, scene.theme, scene.variant);
+  void theme() {
+    out_ << "header: the theme switch re-colours the whole app live\n";
+    const Nodes& n = demo_.nodes();
+    const dg::RenderTree& tree = w_.layout().render();
+    const dg::Color page_before = tree.style(n.root).fill;
+    const dg::Color text_before = tree.style(n.click_count).text.color;
+    const dg::Color card_before = tree.style(w_.layout().render().parent(n.click_count)).fill;
+    click(n.theme_button);
+    check(demo_.variant() == dg::ThemeVariant::kDark, "one click switches to dark");
+    check(tree.style(n.root).fill == demo_.color_of(Role::kPage) &&
+              tree.style(n.root).fill != page_before,
+          "the page background takes the dark palette");
+    check(tree.style(w_.layout().render().parent(n.click_count)).fill != card_before,
+          "a theme-token-bound card surface changes too");
+    check(tree.style(n.click_count).text.color != text_before, "muted text changes colour");
+    check(w_.widgets().at(n.primary_button).fill_normal !=
+              w_.widgets().at(n.secondary_button).fill_normal,
+          "buttons are re-coloured from the new theme (primary differs from secondary)");
+    check(demo_.status_text() == "主题：深色", "the status line names the event");
+    click(n.theme_button);
+    check(demo_.variant() == dg::ThemeVariant::kLight && tree.style(n.root).fill == page_before,
+          "a second click returns to light");
+  }
 
-  scene.focus.enter_scope(dialog.panel, /*modal=*/true);
-  const dg::FocusChange focused =
-      scene.focus.set_guarded(scene.tree.render(), dialog.name_field);
-  check(focused.focused == dialog.name_field, "modal scope entry focuses the name field", out,
-        ok);
+  void basics() {
+    out_ << "\n基础控件: buttons, radios, disabled group, slider, cursors\n";
+    tab(kBasics);
+    const Nodes& n = demo_.nodes();
+    const std::vector<dg::Event> clicked = click(n.primary_button);
+    check(example::events_of<dg::events::ClickEvent>(clicked).size() == 1 &&
+              demo_.clicks() == 1 && label_text(n.click_count) == "已点击 1 次",
+          "a click on 主要操作 counts and updates the label");
+    check(demo_.status_text() == "点击：主要操作", "the status line shows the click");
+    check(example::events_of<dg::events::ClickEvent>(click(n.disabled_button)).empty(),
+          "the disabled button reports no click");
+    click(n.size_radios[2]);
+    check(w_.checked(n.size_radios[2]).value() && !w_.checked(n.size_radios[1]).value() &&
+              label_text(n.size_label) == "字号：大",
+          "radio 大 selects and clears 中 (one group)");
+    click(n.group_check);
+    check(!w_.checked(n.group_check).value(), "the disabled group ignores a click");
+    click(n.enable_switch);
+    click(n.group_check);
+    check(w_.checked(n.group_check).value(), "after 允许编辑 the group takes clicks");
+    click(n.enable_switch);
+    check(w_.focused() != n.group_check,
+          "switching it off again leaves nothing focused inside");
+    const dg::PixelRect track = bounds(n.volume);
+    const std::vector<dg::events::SliderEvent> moved =
+        example::events_of<dg::events::SliderEvent>(
+            feed(drive_.click(track.x + track.width - 2, track.y + (track.height / 2))));
+    check(!moved.empty() && label_text(n.volume_label) == "100",
+          "a press at the slider's end moves it to 100 and the label follows");
+    check(cursor_over(n.cursor_tiles[0]) == dg::Cursor::kPointer &&
+              cursor_over(n.cursor_tiles[1]) == dg::Cursor::kText &&
+              cursor_over(n.cursor_tiles[2]) == dg::Cursor::kCrosshair &&
+              cursor_over(n.cursor_tiles[6]) == dg::Cursor::kResizeEw,
+          "hovering the tiles sets pointer / text / crosshair / resize cursors");
+  }
 
-  // Start a composition (as 7-3's synthetic-injection precedent does),
-  // insert a code point mid-string, then attempt to insert MORE text while
-  // still composing - this is the exact crash 7-3's own defect-injection
-  // campaign found (composition_replace_start/_end going stale once the
-  // underlying text is edited underneath an active preview). The window
-  // driver's own suppression of Backspace/Delete while composing is what
-  // prevents this; this check exercises it directly rather than trusting
-  // the driver never calls the unsafe path.
-  scene.widgets.text_field_composition_update(scene.tree.render(), fonts, dialog.name_field,
-                                              "\u4f60\u597d", 0, 2);
-  check(scene.widgets.text_field_is_composing(dialog.name_field), "composition is active", out,
-        ok);
+  void text() {
+    out_ << "\n文本: placeholder, typing, max length, clipboard, undo, wrapping\n";
+    tab(kText);
+    const Nodes& n = demo_.nodes();
+    click(n.name_field);
+    check(w_.focused() == n.name_field,
+          "a click on the placeholder focuses the field under it");
+    type("小明 Ming");
+    check(
+        w_.text(n.name_field).value() == "小明 Ming" && label_text(n.name_placeholder).empty(),
+        "typed text arrives and the placeholder hides");
+    chord(dg::LogicalKey::kA);
+    chord(dg::LogicalKey::kC);
+    check(app_.window_manager().get_clipboard_text() == "小明 Ming", "Mod+A, Mod+C copies it");
+    click(n.code_field);
+    key(dg::Key::kEnd);
+    chord(dg::LogicalKey::kV);
+    check(w_.text(n.code_field).value() == "DG-2026小明 Mi",
+          "Mod+V pastes, cut off at the 12-character limit");
+    type("XYZ");
+    check(utf8_length(w_.text(n.code_field).value()) == kFieldMaxLength,
+          "typing past the limit is refused");
+    check(label_text(n.code_counter) ==
+              std::to_string(w_.text(n.code_field).value().size()) + " / 12",
+          "the counter label follows each edit");
+    chord(dg::LogicalKey::kZ);
+    check(w_.text(n.code_field).value() == "DG-2026", "Mod+Z undoes the paste");
+    const std::string area = w_.text(n.text_area).value();
+    check(area.find("🎨") != std::string::npos && area.find("English") != std::string::npos,
+          "the text area holds CJK, Latin and emoji");
+    check(w_.layout().render().style(n.paragraph).text.wrap, "the paragraph label wraps");
+  }
 
-  // A DIRECT Focus::set_guarded() escape attempt while composing, targeting
-  // a node OUTSIDE the modal scope (the host's own theme_toggle button) -
-  // must be refused, and the composition must be UNAFFECTED by the refusal
-  // (no side effect ran, because nothing changed).
-  const dg::FocusChange escape_attempt =
-      scene.focus.set_guarded(scene.tree.render(), scene.handles.theme_toggle);
-  check(!escape_attempt.any(), "set_guarded() refuses escaping the modal scope while composing",
-        out, ok);
-  check(scene.focus.is_focused(dialog.name_field),
-        "focus is still the name field after the "
-        "refused escape attempt",
-        out, ok);
-  check(scene.widgets.text_field_is_composing(dialog.name_field),
-        "composition survives the refused escape attempt unchanged", out, ok);
+  void layout() {
+    out_ << "\n布局: justify modes, percentage widths, wrapping\n";
+    tab(kLayout);
+    const Nodes& n = demo_.nodes();
+    const dg::RenderTree& tree = w_.layout().render();
+    const auto chips = [&](NodeId strip) {
+      std::vector<dg::PixelRect> out;
+      for (const NodeId c : tree.children(strip)) {
+        out.push_back(bounds(c));
+      }
+      return out;
+    };
+    const dg::PixelRect between_strip = bounds(n.justify_rows[3]);
+    const std::vector<dg::PixelRect> between = chips(n.justify_rows[3]);
+    check(between.size() == 3 && between.front().x == between_strip.x &&
+              between.back().x + between.back().width == between_strip.x + between_strip.width,
+          "space_between: first chip flush left, last flush right");
+    const dg::PixelRect evenly_strip = bounds(n.justify_rows[5]);
+    const std::vector<dg::PixelRect> evenly = chips(n.justify_rows[5]);
+    const int g0 = evenly[0].x - evenly_strip.x;
+    const int g1 = evenly[1].x - (evenly[0].x + evenly[0].width);
+    const int g3 = evenly_strip.x + evenly_strip.width - (evenly[2].x + evenly[2].width);
+    check(std::abs(g0 - g1) <= 1 && std::abs(g1 - g3) <= 1 && g0 > 0,
+          "space_evenly: equal space before, between and after");
+    const std::vector<dg::PixelRect> start = chips(n.justify_rows[0]);
+    const std::vector<dg::PixelRect> end = chips(n.justify_rows[2]);
+    check(start[0].x == bounds(n.justify_rows[0]).x &&
+              end[2].x + end[2].width ==
+                  bounds(n.justify_rows[2]).x + bounds(n.justify_rows[2]).width,
+          "start hugs the left edge, end the right");
+    const int row_width = bounds(n.percent_row).width;
+    check(std::abs(bounds(n.percent_cells[1]).width - (row_width / 2)) <= 1 &&
+              std::abs(bounds(n.percent_cells[0]).width - (row_width / 4)) <= 1,
+          "50% / 25% cells measure half / a quarter of the row");
+    const std::vector<NodeId> tags = tree.children(n.wrap_box);
+    check(!tags.empty() && bounds(tags.back()).y > bounds(tags.front()).y,
+          "the wrap container moves the overflowing tags to a second line");
+  }
 
-  // Escape #1: cancels composition, does NOT close the dialog (matching
-  // 23_menu_tooltip_dialog's own precedent, and the exact ordering the
-  // task names: "Escape cancels composition first, then closes the
-  // dialog").
-  scene.widgets.text_field_cancel_composition(scene.tree.render(), fonts, dialog.name_field);
-  check(!scene.widgets.text_field_is_composing(dialog.name_field),
-        "Escape #1 cancels composition (model untouched)", out, ok);
-  check(scene.widgets.text_field_text(dialog.name_field).empty(),
-        "the committed model was never touched by the cancelled composition", out, ok);
-  check(scene.focus.current_scope() == dialog.panel, "modal scope still active after Escape #1",
-        out, ok);
+  void data() {
+    out_ << "\n数据: 1000-item list, tree, sortable table, timer-driven progress\n";
+    tab(kData);
+    const Nodes& n = demo_.nodes();
+    const dg::RenderTree& tree = w_.layout().render();
+    check(tree.children(n.list).size() < 40,
+          "the 1000-item list builds only a viewport of rows (" +
+              std::to_string(tree.children(n.list).size()) + " children)");
+    const dg::PixelRect list = bounds(n.list);
+    const std::vector<dg::events::ListSelectEvent> picked =
+        example::events_of<dg::events::ListSelectEvent>(
+            feed(drive_.click(list.x + 40, list.y + 45)));
+    check(picked.size() == 1 && picked[0].index == 1 &&
+              demo_.status_text() == "列表：选中第 2 项",
+          "a click on the second row selects it");
+    feed(drive_.wheel(list.x + 40, list.y + 45, -30.0F));
+    check(tree.children(n.list).size() < 40, "scrolling adds no rows");
+    (void)w_.focus(n.tree);
+    feed(drive_.pump());
+    key(dg::Key::kDown);
+    key(dg::Key::kHome);
+    const std::vector<dg::events::TreeEvent> collapsed =
+        example::events_of<dg::events::TreeEvent>(key(dg::Key::kLeft));
+    check(!collapsed.empty() && collapsed.back().kind == dg::events::TreeEvent::Kind::kCollapse,
+          "Left on the first folder collapses it");
+    const dg::PixelRect table = bounds(n.table);
+    const int price_x = table.x + (table.width * 30 / 100) + 20;
+    const std::vector<dg::events::TableEvent> sort =
+        example::events_of<dg::events::TableEvent>(feed(drive_.click(price_x, table.y + 10)));
+    check(!sort.empty() && sort.back().kind == dg::events::TableEvent::Kind::kSort &&
+              sort.back().index == 1 && demo_.rows().front()[1] == "3",
+          "a click on 单价 asks for a sort; the app sorts ascending");
+    feed(drive_.click(price_x, table.y + 10));
+    check(std::stoi(demo_.rows().front()[1]) > std::stoi(demo_.rows().back()[1]) &&
+              demo_.rows().back()[1] == "3",
+          "a second click sorts descending");
+    demo_.start_timers();
+    const float before = demo_.progress_value();
+    check(wait_for([&] { return demo_.progress_value() > before + 0.02F; }, 3000),
+          "the repeating timer advances the progress bar");
+    check(label_text(n.progress_label) != "0%", "...and its percentage label");
+    check(w_.progress(n.spinner).value().indeterminate().value(),
+          "the second bar is indeterminate");
+  }
 
-  // Escape #2: now closes the dialog (exits the scope).
-  const dg::FocusChange closed = scene.focus.exit_scope(scene.tree.render());
-  check(!scene.focus.current_scope().has_value(), "Escape #2 exits the modal scope", out, ok);
-  check(closed.blurred == dialog.name_field,
-        "exiting the scope blurs the name field that was "
-        "still focused inside it",
-        out, ok);
-}
+  void popups() {
+    out_ << "\n弹层: context menu, dialogs, dropdown, tooltip - node count stays bounded\n";
+    tab(kPopups);
+    (void)app_.set_tooltip_delay(0);
+    const Nodes& n = demo_.nodes();
+    feed(drive_.move(5, 5));
+    const int baseline = w_.node_count();
+    const dg::PixelRect area = bounds(n.menu_area);
+    const auto right_click = [&] {
+      dg::WindowManager& wm = app_.window_manager();
+      const int x = area.x + 30;
+      const int y = area.y + 20;
+      wm.warp_pointer(w_.id(), x, y);
+      wm.post_pointer_button(w_.id(), true, x, y, dg::PointerButton::kSecondary);
+      wm.post_pointer_button(w_.id(), false, x, y, dg::PointerButton::kSecondary);
+      feed(drive_.pump());
+      feed(drive_.pump());
+    };
+    right_click();
+    check(demo_.last_menu().has_value() && w_.node_count() > baseline,
+          "a right-click opens the context menu");
+    const std::vector<dg::events::MenuEvent> dismissed =
+        example::events_of<dg::events::MenuEvent>(key(dg::Key::kEscape));
+    check(dismissed.size() == 1 && !dismissed[0].item.has_value(), "Escape dismisses it");
+    right_click();
+    key(dg::Key::kDown);
+    key(dg::Key::kEnter);
+    check(label_text(n.menu_label) == "选择了「粘贴」",
+          "Down + Enter picks the second entry (粘贴)");
 
-// --------------------------------------------------------------------------
-// Claim 5: Tab traversal into/out of a virtualized kList whose rows carry
-// REAL attached Widgets, and Focus::blur_if_any_of() on recycle - a
-// combination unit-tested only, never exercised by
-// a running scene before this slice.
-// --------------------------------------------------------------------------
+    click(n.delete_button);
+    check(w_.has_dialog(), "删除文件… opens a modal dialog");
+    std::vector<dg::events::DialogResultEvent> result =
+        example::events_of<dg::events::DialogResultEvent>(key(dg::Key::kEnter));
+    check(result.size() == 1 && result[0].button == 0 && !w_.has_dialog(),
+          "Enter reports the default button 0");
+    click(n.delete_button);
+    result = example::events_of<dg::events::DialogResultEvent>(key(dg::Key::kEscape));
+    check(result.size() == 1 && result[0].button == 1, "Escape reports the cancel button 1");
 
-void check_list_focus_recycle(std::ostream& out, bool& ok) {
-  out << "Tab into an interactive kList row + Focus::blur_if_any_of() on recycle\n";
-  showcase_scene::Scene scene = showcase_scene::build(options_for(kSize));
+    click(n.dropdown);
+    check(w_.node_count() > baseline, "a click opens the dropdown");
+    key(dg::Key::kDown);
+    const std::vector<dg::events::ValueChangedEvent> chosen =
+        example::events_of<dg::events::ValueChangedEvent>(key(dg::Key::kEnter));
+    check(!chosen.empty() && label_text(n.dropdown_label).rfind("已选择：", 0) == 0,
+          "Down + Enter chooses a city and the label shows it");
 
-  const std::vector<NodeId> order =
-      dg::focus_order(scene.tree.render(), scene.widgets, showcase_scene::Handles{}.body);
-  (void)order;
+    const dg::PixelRect tip = bounds(n.tooltip_buttons[0]);
+    feed(drive_.move(tip.x + 10, tip.y + 10));
+    wait_for([&] { return w_.node_count() > baseline; }, 1000);
+    check(w_.node_count() > baseline, "hovering 保存 shows its tooltip");
+    feed(drive_.move(5, 5));
+    wait_for([&] { return w_.node_count() == baseline; }, 1000);
 
-  const dg::Widget& list_widget = scene.widgets.at(scene.handles.recent_list);
-  check(list_widget.list_pool.size() == static_cast<std::size_t>(showcase_scene::kListPoolSize),
-        "the list's pool is the fixed size the scene declared (no per-item node)", out, ok);
+    for (int round = 0; round < 5; ++round) {
+      right_click();
+      key(dg::Key::kEscape);
+      click(n.info_button);
+      key(dg::Key::kEscape);
+      click(n.dropdown);
+      key(dg::Key::kEscape);
+    }
+    feed(drive_.move(5, 5));
+    check(w_.node_count() == baseline,
+          "after 5 rounds of menu/dialog/dropdown the node count is back at " +
+              std::to_string(baseline) + " (now " + std::to_string(w_.node_count()) + ")");
+    (void)app_.set_tooltip_delay(400);
+  }
 
-  // Focus the pool node currently showing logical item 2 (top_index==0 was
-  // set by build(), so pool slot 2 shows item 2 verbatim).
-  const NodeId row_showing_item_2 = list_widget.list_pool[2];
-  scene.focus.set(row_showing_item_2);
-  check(scene.focus.is_focused(row_showing_item_2),
-        "focus lands on the pool node showing item 2", out, ok);
+  void images() {
+    out_ << "\n图片: PNG / JPEG / WebP decoded, SVG icons tinted\n";
+    tab(kImages);
+    const Nodes& n = demo_.nodes();
+    bool decoded = true;
+    for (const dg::ImageId id : n.bitmap_ids) {
+      const std::optional<dg::PixelSize> size = app_.images().pixel_size(id);
+      decoded = decoded && id.is_valid() && size.has_value() && size->width == 240 &&
+                size->height == 150;
+    }
+    check(decoded, "all three formats decode to 240x150");
+    const dg::RasterSurface* frame = w_.frame();
+    const dg::PixelRect jpeg = bounds(n.bitmaps[1]);
+    bool painted = frame != nullptr;
+    if (painted) {
+      const dg::PixelView view = frame->peek_pixels();
+      const std::size_t at = (static_cast<std::size_t>(jpeg.y + 20) * view.row_bytes) +
+                             (static_cast<std::size_t>(jpeg.x + 20) * 4);
+      // Sky blue: more blue than red.
+      painted = view.pixels[at] > view.pixels[at + 2] + 40;
+    }
+    check(painted, "the JPEG is painted (sky-blue pixel inside it)");
+  }
 
-  // Scroll far enough that every pool slot recycles to a different logical
-  // item - kListPoolSize items' worth is guaranteed to touch slot 2.
-  const dg::FocusChange change =
-      showcase_scene::list_scroll_to(scene, showcase_scene::kListPoolSize);
-  check(change.blurred == row_showing_item_2,
-        "blur_if_any_of() blurs the focus that pointed at the now-recycled pool slot", out, ok);
-  check(!scene.focus.current().has_value(),
-        "focus is not left pointing at the pool node's NEW (wrong) logical item", out, ok);
+  void window() {
+    out_ << "\n窗口: title, timer ticks, waker\n";
+    tab(kWindow);
+    const Nodes& n = demo_.nodes();
+    click(n.title_button);
+    check(w_.title().value_or("") == "标题改好了 ✓" &&
+              label_text(n.log_lines[0]).find("标题改为") == 0,
+          "改标题 sets the OS title and logs it");
+    check(wait_for([&] { return demo_.ticks() >= 1; }, 2500) &&
+              label_text(n.tick_label) != "已运行 0 秒",
+          "the 1 s timer ticks the counter");
+    click(n.waker_button);
+    check(wait_for([&] { return demo_.woken_payload() == kWakerPayload; }, 2000) &&
+              label_text(n.waker_label).find("payload = 42") != std::string::npos,
+          "a background thread's Waker::post_user_event() arrives as a UserEvent");
+    click(n.maximize_button);
+    click(n.restore_button);
+    check(!demo_.status_text().empty(), "maximize/restore requests go through without error");
+  }
 
-  // Tab still reaches the recycled pool node (it is a real, focusable
-  // Widget - unlike 15_list's plain pool nodes and the dropdown-row finding,
-  // this scene's list rows DO carry attached Widgets by construction).
-  check(dg::is_focusable(scene.widgets.at(row_showing_item_2).kind),
-        "a recycled list-row pool node is still focusable (it is an ordinary kButton Widget)",
-        out, ok);
-}
-
-// --------------------------------------------------------------------------
-// Claim 6: a theme switch mid-flight of an active AnimationEngine
-// transition on the SAME bound property - genuinely untested anywhere in
-// this project before this slice (neither animation nor theme handling
-// combine the two). The result is reported plainly, whichever way it goes.
-// --------------------------------------------------------------------------
-
-void check_theme_switch_mid_animation(std::ostream& out, bool& ok) {
-  out << "theme switch mid-flight of an active AnimationEngine transition (finding, not a "
-         "pass/fail regression gate)\n";
-  showcase_scene::Scene scene = showcase_scene::build(options_for(kSize));
-
-  const NodeId node = scene.handles.theme_toggle;
-  (void)dg::bind_token(scene.tree, scene.bindings, node, DG_PROP_BACKGROUND_COLOR, scene.theme,
-                       scene.variant, DG_TOKEN_COLOR_SURFACE);
-
-  dg::AnimationEngine engine;
-  engine.set_transition(node, DG_PROP_BACKGROUND_COLOR, 200, dg::kCurveLinear);
-  const dg::Color hover_target =
-      scene.theme.color_value(DG_TOKEN_COLOR_PRIMARY_HOVER, scene.variant)
-          .value_or(dg::Color::from_argb(0xFF3B4A5E));
-  (void)engine.set_value(scene.tree, node, DG_PROP_BACKGROUND_COLOR,
-                         dg::PropValue::color(hover_target));
-  engine.tick(scene.tree, dg::AnimTime{100});  // halfway through the 200ms transition
-
-  const dg::Color mid_flight = scene.tree.render().style(node).fill;
-
-  // Switch the theme's variant - ThemeBindings::apply() writes background_
-  // color for this node through the ordinary dg::set_prop() door,
-  // UNCONDITIONALLY, per its own header (theme_bindings.h).
-  (void)showcase_scene::switch_theme_variant(scene);
-  const dg::Color right_after_switch = scene.tree.render().style(node).fill;
-  const dg::Color expected_after_switch =
-      scene.theme.color_value(DG_TOKEN_COLOR_SURFACE, scene.variant)
-          .value_or(dg::Color::from_argb(0));
-  check(right_after_switch == expected_after_switch,
-        "the theme switch's own write is visible immediately after apply()", out, ok);
-  check(right_after_switch != mid_flight,
-        "...and it is a DIFFERENT colour from what the animation had just painted "
-        "(the switch really took effect, transiently)",
-        out, ok);
-
-  // The very next tick() recomputes the SAME slot's interpolated value from
-  // its own from/to (captured as literal colours at animate()/set_value()
-  // time, never re-read from the theme) and overwrites the node again.
-  engine.tick(scene.tree, dg::AnimTime{110});
-  const dg::Color after_next_tick = scene.tree.render().style(node).fill;
-  const bool tick_overwrote_the_theme_switch = after_next_tick != expected_after_switch;
-  check(tick_overwrote_the_theme_switch,
-        "FINDING: the next AnimationEngine::tick() overwrites the theme switch's effect on "
-        "this node - a running transition on a themed property makes a theme switch's "
-        "effect on THAT property transient, erased within one frame. Not a memory-safety "
-        "bug and not a spec violation (both systems behave exactly as their own headers "
-        "document in isolation); a genuine, previously-"
-        "unobserved cross-feature interaction.",
-        out, ok);
-}
-
-int run_all(std::ostream& out) {
-  bool ok = true;
-  check_all_kinds_present(out, ok);
-  check_cjk_shadow_panel(out, ok);
-  check_dropdown_over_scrolled_list(out, ok);
-  check_modal_dialog_ime(out, ok);
-  check_list_focus_recycle(out, ok);
-  check_theme_switch_mid_animation(out, ok);
-
-  // line-622: this whole slice adds zero new RenderObject/node/WidgetKind
-  // kinds - re-verified the same way every prior slice's own audit did.
-  out << "design.md section 5.6 line 622 acceptance bar\n";
-  check(sizeof(dg::WidgetKind) == sizeof(std::uint8_t) &&
-            static_cast<int>(dg::WidgetKind::kDropdown) == 8,
-        "WidgetKind still has exactly 9 enumerators (kPanel..kDropdown), none added by this "
-        "slice",
-        out, ok);
-
-  out << (ok ? "\nALL CLAIMS PASSED\n" : "\nAT LEAST ONE CLAIM FAILED\n");
-  return ok ? 0 : 1;
-}
+  dg::App& app_;
+  Showcase& demo_;
+  dg::Window& w_;
+  example::Driver drive_;
+  std::ostream& out_;
+  bool ok_ = true;
+};
 
 }  // namespace
 
-int run(std::ostream& out) {
-  return run_all(out);
+int verify(dg::App& app, std::ostream& out) {
+  dg::Window* window = open_window(app);
+  if (window == nullptr) {
+    return 1;
+  }
+  Showcase demo(app, *window, make_theme(), dg::ThemeVariant::kLight);
+  return Check(app, demo, out).run();
 }
 
-}  // namespace showcase_check
+}  // namespace showcase

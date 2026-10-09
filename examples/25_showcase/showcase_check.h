@@ -1,9 +1,13 @@
+// --verify-showcase: drives every tab of the showcase with injected input.
+
 #pragma once
 
-#include <iosfwd>
+#include <ostream>
 
-namespace showcase_check {
+#include "drawgui/app/app.h"
 
-int run(std::ostream& out);
+namespace showcase {
 
-}  // namespace showcase_check
+int verify(dg::App& app, std::ostream& out);
+
+}  // namespace showcase

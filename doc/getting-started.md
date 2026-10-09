@@ -38,9 +38,11 @@ ctest --test-dir build --output-on-failure
 ./build/examples/drawgui_render_png out.png
 ```
 
-想看引擎能做到什么，直接跑 `./build/examples/25_showcase/drawgui_showcase`
-——这是唯一一个把所有功能组合在一个场景里的 example，其余 25 个都只演示
-一个切面。`examples/` 目录下每个子目录都有对应可执行文件，用 `--help`
+想看引擎能做到什么，直接跑 `./build/examples/drawgui_showcase`
+——它用公开的 `dg::App` / `dg::Window` 运行时搭成一个窗口，按页签展示全部功能
+（基础控件、文本、布局、数据、弹层、图片、窗口），右上角可实时切换浅色 / 深色，
+底部状态栏显示最近一个事件；`--tab N --theme dark --dump-png out.png` 可直接截图。
+其余 example 各演示一个切面。`examples/` 目录下每个子目录都有对应可执行文件，用 `--help`
 看参数。
 
 ## 2. 最小 C++ 程序：`dg::App`
