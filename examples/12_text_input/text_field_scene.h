@@ -87,4 +87,9 @@ Scene build(const Options& options);
 // transitions.
 void set_focus(Scene& scene, std::optional<dg::NodeId> target);
 
+// The focused field's key handling: Mod+C/X/V/A (dg::apply_clipboard_key),
+// caret moves, Backspace/Delete, Escape-cancels-composition.
+void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
+                  const dg::KeyEvent& event);
+
 }  // namespace text_field_scene

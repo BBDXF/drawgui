@@ -7,6 +7,7 @@
 
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/box.h"
+#include "drawgui/shortcuts/clipboard_actions.h"
 #include "drawgui/theme/theme_loader.h"
 #include "drawgui/theme/token_ids.generated.h"
 
@@ -377,6 +378,10 @@ void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
   const dg::FontCatalog& fonts = *scene.fonts;
   dg::RenderTree& tree = scene.tree.render();
   const NodeId field = scene.handles.textfield;
+  if (dg::apply_clipboard_key(event, field,
+                              dg::TextFieldEditContext{tree, fonts, scene.widgets, manager})) {
+    return;
+  }
   switch (event.key) {
     case dg::Key::kLeft:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft,

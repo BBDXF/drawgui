@@ -575,7 +575,6 @@ bool check_clipboard_copy_cut_paste_end_to_end(std::ostream& out) {
   const dg::FontCatalog& fonts = *scene.fonts;
   const NodeId field = scene.handles.field_b;
   dg::RenderTree& tree = scene.tree.render();
-  const dg::TextFieldEditContext ctx{tree, fonts, scene.widgets, manager};
 
   text_field_scene::set_focus(scene, field);
   scene.widgets.text_field_insert(tree, fonts, field, "hello world");
@@ -595,20 +594,14 @@ bool check_clipboard_copy_cut_paste_end_to_end(std::ostream& out) {
         continue;
       }
       saw_key = true;
-      const dg::RoutingContext route_ctx{scene.tree.render(), scene.widgets,
-                                         scene.action_scopes, dg::all_shortcut_bindings()};
-      const dg::KeyRouteResult routed =
-          dg::route_key_event(event, window.value(), field, route_ctx);
-      if (routed.outcome != dg::KeyRouteOutcome::kRouted || !routed.action.has_value() ||
-          routed.action->action_id != expected_action_id) {
-        out << "  FAIL: the real posted " << label << " did not route to the expected action\n";
-        ok = false;
-        continue;
-      }
-      if (!dg::apply_clipboard_action(routed.action->action_id, field, ctx)) {
-        out << "  FAIL: apply_clipboard_action reported nothing happened for " << label << "\n";
+      // The interactive loop's own handler (Runner::handle_key delegates
+      // here), not a hand-built route: before this was wired the loop
+      // dropped every Key::kOther, so Mod+C/V never reached a field.
+      if (dg::clipboard_action_for(event) != expected_action_id) {
+        out << "  FAIL: the real posted " << label << " is not its clipboard chord\n";
         ok = false;
       }
+      text_field_scene::dispatch_key(scene, manager, window.value(), event);
     }
     if (!saw_key) {
       out << "  FAIL: a posted " << label

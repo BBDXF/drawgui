@@ -262,4 +262,44 @@ TEST_SUITE("clipboard (8-4)") {
     CHECK_FALSE(dg::apply_clipboard_action(DG_ACTION_SELECT_ALL, scene.field, ctx));
     CHECK_FALSE(scene.widgets.text_field_selection(scene.field).has_value());
   }
+
+  TEST_CASE("apply_clipboard_key: REAL posted SDL Ctrl+C / Ctrl+V key events copy and paste") {
+    WindowManager manager = make_headless_manager();
+    dg::WindowSpec spec;
+    spec.title = "clipboard keys";
+    spec.width = 200;
+    spec.height = 60;
+    const Expected<dg::WindowId, WindowError> window = manager.open(spec);
+    REQUIRE(window.has_value());
+    FieldScene scene = build_field("hello world");
+    select_prefix(scene, 5);
+    const TextFieldEditContext ctx{scene.tree, scene.fonts, scene.widgets, manager};
+
+    const auto press = [&](dg::LogicalKey key, dg::Modifier mods) {
+      manager.post_logical_key(window.value(), /*down=*/true, key, mods);
+      manager.post_logical_key(window.value(), /*down=*/false, key, mods);
+      const dg::PumpResult pumped = manager.pump(200);
+      int consumed = 0;
+      int seen = 0;
+      for (const dg::KeyEvent& event : pumped.key) {
+        if (event.logical_key != key) {
+          continue;
+        }
+        ++seen;
+        consumed += dg::apply_clipboard_key(event, scene.field, ctx) ? 1 : 0;
+      }
+      CHECK(seen == 2);
+      return consumed;
+    };
+
+    CHECK(press(dg::LogicalKey::kC, dg::Modifier::kMod) == 1);  // key-down only
+    CHECK(manager.get_clipboard_text() == "hello");
+    scene.widgets.text_field_move(scene.tree, scene.fonts, scene.field, TextFieldMove::kLineEnd,
+                                  false);
+    CHECK(press(dg::LogicalKey::kV, dg::Modifier::kMod) == 1);
+    CHECK(scene.widgets.text_field_text(scene.field) == "hello worldhello");
+    // A plain (un-modified) C is typing, never a clipboard chord.
+    CHECK(press(dg::LogicalKey::kC, dg::Modifier::kNone) == 0);
+    CHECK(scene.widgets.text_field_text(scene.field) == "hello worldhello");
+  }
 }

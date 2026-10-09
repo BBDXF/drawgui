@@ -196,63 +196,7 @@ void Runner::handle_up() {
 }
 
 void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& event) {
-  if (event.action != dg::KeyAction::kDown || !scene.fonts.has_value()) {
-    return;
-  }
-  const std::optional<dg::NodeId> focused = scene.focus.current();
-  if (!focused.has_value()) {
-    return;
-  }
-  const dg::NodeId field = *focused;
-  const dg::FontCatalog& fonts = *scene.fonts;
-  dg::RenderTree& tree = scene.tree.render();
-  switch (event.key) {
-    case dg::Key::kLeft:
-      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft,
-                                    dg::has(event.mods, dg::Modifier::kShift));
-      break;
-    case dg::Key::kRight:
-      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight,
-                                    dg::has(event.mods, dg::Modifier::kShift));
-      break;
-    case dg::Key::kHome:
-      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart,
-                                    dg::has(event.mods, dg::Modifier::kShift));
-      break;
-    case dg::Key::kEnd:
-      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd,
-                                    dg::has(event.mods, dg::Modifier::kShift));
-      break;
-    case dg::Key::kBackspace:
-      scene.widgets.text_field_backspace(tree, fonts, field);
-      break;
-    case dg::Key::kDelete:
-      scene.widgets.text_field_delete_forward(tree, fonts, field);
-      break;
-    case dg::Key::kEscape:
-      // 7-3: Escape cancels an in-progress
-      // composition without committing it - both halves, this engine's own
-      // model AND the platform's real IME state, so neither is left ahead
-      // of the other.
-      if (scene.widgets.text_field_is_composing(field)) {
-        scene.widgets.text_field_cancel_composition(tree, fonts, field);
-        manager_->clear_composition(window_);
-      }
-      break;
-    case dg::Key::kTab:
-      // Tab/Shift-Tab moving focus is 7-4's own job (examples/21_focus) -
-      // this demo predates dg::Focus::focus_next()/focus_previous() and has
-      // exactly two tab stops with no non-text-field widget between them,
-      // so it is left as a plain field-to-field click-to-focus demo rather
-      // than retrofitted here.
-    case dg::Key::kUp:
-    case dg::Key::kDown:
-    case dg::Key::kEnter:
-    case dg::Key::kPageUp:
-    case dg::Key::kPageDown:
-    case dg::Key::kOther:
-      break;
-  }
+  text_field_scene::dispatch_key(scene, *manager_, window_, event);
 }
 
 void Runner::handle_text(text_field_scene::Scene& scene, const dg::TextInputEvent& event) {

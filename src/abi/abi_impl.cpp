@@ -24,6 +24,7 @@
 #include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/chord.h"
+#include "drawgui/shortcuts/clipboard_actions.h"
 #include "drawgui/shortcuts/router.h"
 #include "drawgui/theme/theme_loader.h"
 #include "drawgui/widget/click_counter.h"
@@ -31,7 +32,6 @@
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
-#include "drawgui/shortcuts/clipboard_actions.h"
 #include "drawgui/window/window_manager.h"
 
 #include "abi_types.h"
@@ -1140,32 +1140,24 @@ bool apply_editor_clipboard_key(AppImpl& impl, WindowImpl& window, dg::NodeId ed
       dg::is_disabled(window.tree.render(), editor)) {
     return false;
   }
-  const dg::Chord chord{event.mods, event.logical_key};
-  for (const dg::ShortcutBinding& binding : dg::all_shortcut_bindings()) {
-    if (binding.chord != chord) {
-      continue;
-    }
-    const dg_action_id id = binding.action_id;
-    if (id != DG_ACTION_COPY && id != DG_ACTION_CUT && id != DG_ACTION_PASTE &&
-        id != DG_ACTION_SELECT_ALL) {
-      continue;
-    }
-    const dg::TextFieldEditContext ctx{window.tree.render(), *impl.fonts, window.widgets, impl.wm};
-    const bool done = dg::apply_clipboard_action(id, editor, ctx);
-    if (done && (id == DG_ACTION_CUT || id == DG_ACTION_PASTE)) {
-      dg_event out{};
-      out.size = sizeof(dg_event);
-      out.kind = DG_EVENT_TEXT_CHANGED;
-      out.window = window.self_handle;
-      out.node = find_node_handle(impl, window.self_index, editor);
-      impl.pending_events.push_back(out);
-    }
-    if (is_text_area(window, editor)) {
-      follow_caret(impl, window, editor);
-    }
-    return true;
+  const dg::TextFieldEditContext ctx{window.tree.render(), *impl.fonts, window.widgets,
+                                     impl.wm};
+  bool changed = false;
+  if (!dg::apply_clipboard_key(event, editor, ctx, &changed)) {
+    return false;
   }
-  return false;
+  if (changed) {
+    dg_event out{};
+    out.size = sizeof(dg_event);
+    out.kind = DG_EVENT_TEXT_CHANGED;
+    out.window = window.self_handle;
+    out.node = find_node_handle(impl, window.self_index, editor);
+    impl.pending_events.push_back(out);
+  }
+  if (is_text_area(window, editor)) {
+    follow_caret(impl, window, editor);
+  }
+  return true;
 }
 
 bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg::NodeId field,

@@ -9,6 +9,7 @@
 #include "drawgui/props/node_props.h"
 #include "drawgui/render/paragraph.h"
 #include "drawgui/render/prop_ids.generated.h"
+#include "drawgui/shortcuts/clipboard_actions.h"
 #include "drawgui/theme/theme_loader.h"
 #include "drawgui/theme/token_ids.generated.h"
 
@@ -827,6 +828,10 @@ void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
   const dg::FontCatalog& fonts = *scene.fonts;
   dg::RenderTree& tree = scene.tree.render();
   const NodeId field = scene.handles.search_field;
+  if (dg::apply_clipboard_key(event, field,
+                              dg::TextFieldEditContext{tree, fonts, scene.widgets, manager})) {
+    return;
+  }
   switch (event.key) {
     case dg::Key::kLeft:
       scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft,

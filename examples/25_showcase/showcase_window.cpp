@@ -17,6 +17,7 @@
 #include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/shortcuts/clipboard_actions.h"
 #include "drawgui/theme/token_ids.generated.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/tooltip.h"
@@ -402,6 +403,10 @@ void Runner::handle_key_dialog(const dg::KeyEvent& event) {
   const dg::FontCatalog& fonts = *scene_.fonts;
   dg::RenderTree& tree = scene_.tree.render();
   const dg::NodeId field = dialog_handles_->name_field;
+  if (dg::apply_clipboard_key(
+          event, field, dg::TextFieldEditContext{tree, fonts, scene_.widgets, *manager_})) {
+    return;
+  }
   switch (event.key) {
     case dg::Key::kBackspace:
       scene_.widgets.text_field_backspace(tree, fonts, field);

@@ -8,6 +8,7 @@
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/box.h"
 #include "drawgui/shortcuts/action_ids.generated.h"
+#include "drawgui/shortcuts/clipboard_actions.h"
 
 namespace text_field_scene {
 namespace {
@@ -197,6 +198,61 @@ void set_focus(Scene& scene, std::optional<dg::NodeId> target) {
   }
   if (change.focused.has_value()) {
     scene.tree.render().set_style(*change.focused, field_style(true));
+  }
+}
+
+void dispatch_key(Scene& scene, dg::WindowManager& manager, dg::WindowId window,
+                  const dg::KeyEvent& event) {
+  if (event.action != dg::KeyAction::kDown || !scene.fonts.has_value()) {
+    return;
+  }
+  const std::optional<dg::NodeId> focused = scene.focus.current();
+  if (!focused.has_value()) {
+    return;
+  }
+  const dg::NodeId field = *focused;
+  const dg::FontCatalog& fonts = *scene.fonts;
+  dg::RenderTree& tree = scene.tree.render();
+  if (dg::apply_clipboard_key(event, field,
+                              dg::TextFieldEditContext{tree, fonts, scene.widgets, manager})) {
+    return;
+  }
+  const bool shift = dg::has(event.mods, dg::Modifier::kShift);
+  switch (event.key) {
+    case dg::Key::kLeft:
+      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharLeft, shift);
+      break;
+    case dg::Key::kRight:
+      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kCharRight, shift);
+      break;
+    case dg::Key::kHome:
+      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineStart, shift);
+      break;
+    case dg::Key::kEnd:
+      scene.widgets.text_field_move(tree, fonts, field, dg::TextFieldMove::kLineEnd, shift);
+      break;
+    case dg::Key::kBackspace:
+      scene.widgets.text_field_backspace(tree, fonts, field);
+      break;
+    case dg::Key::kDelete:
+      scene.widgets.text_field_delete_forward(tree, fonts, field);
+      break;
+    case dg::Key::kEscape:
+      // 7-3: Escape cancels an in-progress composition without committing
+      // it - both this engine's own model AND the platform's real IME state.
+      if (scene.widgets.text_field_is_composing(field)) {
+        scene.widgets.text_field_cancel_composition(tree, fonts, field);
+        manager.clear_composition(window);
+      }
+      break;
+    case dg::Key::kTab:
+    case dg::Key::kUp:
+    case dg::Key::kDown:
+    case dg::Key::kEnter:
+    case dg::Key::kPageUp:
+    case dg::Key::kPageDown:
+    case dg::Key::kOther:
+      break;
   }
 }
 

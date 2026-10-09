@@ -1,6 +1,10 @@
 #include "drawgui/shortcuts/clipboard_actions.h"
 
+#include <optional>
 #include <string>
+
+#include "drawgui/shortcuts/chord.h"
+#include "drawgui/widget/interaction.h"
 
 namespace dg {
 
@@ -56,6 +60,38 @@ bool apply_clipboard_action(dg_action_id action_id, NodeId field,
   }
 
   return false;
+}
+
+std::optional<dg_action_id> clipboard_action_for(const KeyEvent& event) {
+  if (event.action != KeyAction::kDown) {
+    return std::nullopt;
+  }
+  const Chord chord{event.mods, event.logical_key};
+  for (const ShortcutBinding& binding : all_shortcut_bindings()) {
+    const dg_action_id id = binding.action_id;
+    if (binding.chord == chord && (id == DG_ACTION_COPY || id == DG_ACTION_CUT ||
+                                   id == DG_ACTION_PASTE || id == DG_ACTION_SELECT_ALL)) {
+      return id;
+    }
+  }
+  return std::nullopt;
+}
+
+bool apply_clipboard_key(const KeyEvent& event, NodeId editor, const TextFieldEditContext& ctx,
+                         bool* changed) {
+  if (changed != nullptr) {
+    *changed = false;
+  }
+  const std::optional<dg_action_id> id = clipboard_action_for(event);
+  if (!id.has_value() || !ctx.widgets.has(editor) ||
+      !is_editable_text(ctx.widgets.at(editor).kind) || is_disabled(ctx.tree, editor)) {
+    return false;
+  }
+  const bool done = apply_clipboard_action(*id, editor, ctx);
+  if (changed != nullptr) {
+    *changed = done && (*id == DG_ACTION_CUT || *id == DG_ACTION_PASTE);
+  }
+  return true;
 }
 
 }  // namespace dg

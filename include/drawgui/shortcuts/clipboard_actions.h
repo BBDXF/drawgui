@@ -87,4 +87,16 @@ struct TextFieldEditContext {
 [[nodiscard]] bool apply_clipboard_action(dg_action_id action_id, NodeId field,
                                           const TextFieldEditContext& ctx);
 
+// DG_ACTION_COPY/CUT/PASTE/SELECT_ALL when `event` is a key-down whose chord
+// input/shortcuts.toml binds to one of them (Mod+C/X/V/A), else nullopt.
+[[nodiscard]] std::optional<dg_action_id> clipboard_action_for(const KeyEvent& event);
+
+// The one call a host key loop makes for editor clipboard keys: when `event`
+// is one of clipboard_action_for()'s chords and `editor` is an enabled
+// kTextField/kTextArea, applies it and returns true (the key is consumed
+// even when nothing changed, e.g. copy without a selection). `changed`, when
+// given, reports whether the editor's committed text changed (cut/paste).
+bool apply_clipboard_key(const KeyEvent& event, NodeId editor, const TextFieldEditContext& ctx,
+                         bool* changed = nullptr);
+
 }  // namespace dg
