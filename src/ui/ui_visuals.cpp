@@ -1,6 +1,7 @@
 #include "ui/ui_visuals.h"
 
 #include <algorithm>
+#include <cstdint>
 
 #include "drawgui/render/paragraph.h"
 #include "drawgui/widget/widget_set.h"
@@ -8,12 +9,29 @@
 namespace dg::ui_visuals {
 namespace {
 
-constexpr int kFrame = 1;      // menu/tooltip border width, rows sit inside it
-constexpr int kCheckSize = 8;  // the square check indicator
+constexpr int kFrame = 1;        // menu border width
+constexpr int kMenuInset = 4;    // gap between the menu frame and its rows, all sides
 constexpr int kTooltipHeight = 26;
+constexpr int kTooltipPadX = 10;
 constexpr int kTitleHeight = 24;
-constexpr int kButtonHeight = 30;
-constexpr int kButtonMinWidth = 80;
+constexpr int kTitleGap = 6;     // title baseline area -> body
+constexpr int kButtonHeight = 32;
+constexpr int kButtonMinWidth = 84;
+constexpr float kTitleGrow = 3.0F;  // title is this much larger than body text
+constexpr const char* kCheckGlyph = "\u2713";
+
+// `base` with `over` laid on top at `amount` (0..1).
+Color mix(Color base, Color over, float amount) {
+  const auto channel = [amount](std::uint8_t a, std::uint8_t b) {
+    return static_cast<std::uint8_t>(static_cast<float>(a) +
+                                     ((static_cast<float>(b) - static_cast<float>(a)) * amount) +
+                                     0.5F);
+  };
+  return Color::rgba(channel(base.red(), over.red()), channel(base.green(), over.green()),
+                     channel(base.blue(), over.blue()), base.alpha());
+}
+
+int row_radius(const PopupStyle& style) { return std::max(2, style.radius / 2); }
 
 bool has_check_column(const MenuSpec& spec) {
   return std::any_of(spec.items.begin(), spec.items.end(), [](const MenuItem& item) {
@@ -65,7 +83,7 @@ PixelSize menu_size(const UiContext& ctx, const MenuSpec& spec) {
   const PopupStyle& style = ctx.style;
   const int check_column = has_check_column(spec) ? style.item_height : 0;
   int widest = 0;
-  int height = 2 * kFrame;
+  int height = 2 * (kFrame + kMenuInset);
   for (const MenuItem& item : spec.items) {
     height += row_height(style, item);
     if (!item.separator) {
@@ -74,7 +92,8 @@ PixelSize menu_size(const UiContext& ctx, const MenuSpec& spec) {
     }
   }
   const int width =
-      std::max(spec.min_width, widest + check_column + (3 * style.padding) + (2 * kFrame));
+      std::max(spec.min_width, widest + check_column + (check_column > 0 ? 1 : 2) * style.padding +
+                                   (2 * style.padding) + (2 * (kFrame + kMenuInset)));
   return PixelSize{width, height};
 }
 
@@ -87,18 +106,20 @@ std::vector<NodeId> build_menu(UiContext& ctx, NodeId parent, const MenuSpec& sp
   background.fill = style.surface;
   background.border_color = style.border;
   background.border_width = BorderWidths::all(static_cast<float>(kFrame));
+  background.radii = Radii::all(static_cast<float>(style.radius));
   ctx.tree.add_child(parent, PixelRect{0, 0, width, size.height}, background);
 
   std::vector<NodeId> rows;
   rows.reserve(spec.items.size());
-  const int row_width = width - (2 * kFrame);
-  int y = kFrame;
+  const int row_x = kFrame + kMenuInset;
+  const int row_width = width - (2 * row_x);
+  int y = row_x;
   for (const MenuItem& item : spec.items) {
     const int h = row_height(style, item);
     NodeStyle row_style;
     if (item.separator) {
       const NodeId row =
-          ctx.tree.add_child(parent, PixelRect{kFrame, y, row_width, h}, row_style);
+          ctx.tree.add_child(parent, PixelRect{row_x, y, row_width, h}, row_style);
       NodeStyle line;
       line.fill = style.border;
       ctx.tree.add_child(row, PixelRect{style.padding / 2, h / 2, row_width - style.padding, 1},
@@ -109,8 +130,9 @@ std::vector<NodeId> build_menu(UiContext& ctx, NodeId parent, const MenuSpec& sp
     }
     row_style.fill = style.surface;
     row_style.disabled = item.disabled;
+    row_style.radii = Radii::all(static_cast<float>(row_radius(style)));
     const NodeId row =
-        ctx.tree.add_child(parent, PixelRect{kFrame, y, row_width, h}, row_style);
+        ctx.tree.add_child(parent, PixelRect{row_x, y, row_width, h}, row_style);
 
     Widget widget;
     widget.kind = WidgetKind::kButton;
@@ -122,18 +144,15 @@ std::vector<NodeId> build_menu(UiContext& ctx, NodeId parent, const MenuSpec& sp
 
     if (check_column > 0 && item.checked.value_or(false)) {
       NodeStyle mark;
-      mark.fill = item.disabled ? style.on_disabled : style.accent;
-      mark.radii = Radii::all(2.0F);
-      ctx.tree.add_child(row,
-                         PixelRect{(check_column - kCheckSize) / 2, (h - kCheckSize) / 2,
-                                   kCheckSize, kCheckSize},
-                         mark);
+      mark.text = text_style(ctx, kCheckGlyph, style.font_size,
+                             item.disabled ? style.on_disabled : style.accent, TextAlign::kCenter);
+      ctx.tree.add_child(row, PixelRect{0, 0, check_column, h}, mark);
     }
 
     NodeStyle label;
     label.text = text_style(ctx, item.text, style.font_size,
                             item_text_color(style, item, false), TextAlign::kLeft);
-    label.text.inset = style.padding;
+    label.text.inset = check_column > 0 ? 0 : style.padding;
     ctx.tree.add_child(row, PixelRect{check_column, 0, row_width - check_column, h}, label);
     rows.push_back(row);
     y += h;
@@ -161,28 +180,29 @@ void paint_menu_item(UiContext& ctx, NodeId row, const MenuItem& item, bool high
 
 PixelSize tooltip_size(const UiContext& ctx, const std::string& text) {
   const int width = measure_text_width(ctx.fonts, ctx.font, ctx.style.small_font_size, text);
-  return PixelSize{width + (2 * ctx.style.padding) + (2 * kFrame), kTooltipHeight};
+  return PixelSize{width + (2 * kTooltipPadX), kTooltipHeight};
 }
 
 void build_tooltip(UiContext& ctx, NodeId parent, const std::string& text, PixelSize size) {
   const PopupStyle& style = ctx.style;
+  // Inverted (on_surface fill, surface text): a tooltip must read as
+  // transient chrome, distinct from the menus and panels around it, in
+  // either variant - so it needs no border.
   NodeStyle box;
-  box.fill = style.surface;
-  box.border_color = style.border;
-  box.border_width = BorderWidths::all(static_cast<float>(kFrame));
-  box.radii = Radii::all(static_cast<float>(style.radius) / 2.0F);
+  box.fill = style.on_surface;
+  box.radii = Radii::all(static_cast<float>(row_radius(style)) + 1.0F);
   const NodeId node = ctx.tree.add_child(parent, PixelRect{0, 0, size.width, size.height}, box);
 
   NodeStyle label;
   label.text =
-      text_style(ctx, text, style.small_font_size, style.on_surface, TextAlign::kCenter);
+      text_style(ctx, text, style.small_font_size, style.surface, TextAlign::kCenter);
   ctx.tree.add_child(node, PixelRect{0, 0, size.width, size.height}, label);
 }
 
 DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
                          const DialogSpec& spec) {
   const PopupStyle& style = ctx.style;
-  const int pad = 2 * style.padding;
+  const int pad = 3 * style.padding;
   DialogNodes nodes;
 
   NodeStyle scrim;
@@ -192,13 +212,15 @@ DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
   const int width = std::min(spec.panel_size.width, std::max(0, window.width - pad));
   const int inner = std::max(0, width - (2 * pad));
 
-  TextStyle body_text =
-      text_style(ctx, spec.body, style.font_size, style.on_surface, TextAlign::kLeft);
+  // Body text sits a step below the title: the same hue, pulled toward the
+  // surface.
+  TextStyle body_text = text_style(ctx, spec.body, style.font_size,
+                                   mix(style.on_surface, style.surface, 0.22F), TextAlign::kLeft);
   body_text.wrap = true;
   const int body_text_height = wrapped_height(ctx, body_text, inner);
   const int body_area = body_text_height + spec.body_height;
 
-  const int needed = pad + kTitleHeight + style.padding + body_area + pad + kButtonHeight + pad;
+  const int needed = pad + kTitleHeight + kTitleGap + body_area + pad + kButtonHeight + pad;
   const int height = std::max(spec.panel_size.height, needed);
   const int x = (window.width - width) / 2;
   const int y = std::max(0, (window.height - height) / 2);
@@ -207,21 +229,21 @@ DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
   panel.fill = style.surface;
   panel.border_color = style.border;
   panel.border_width = BorderWidths::all(1.0F);
-  panel.radii = Radii::all(static_cast<float>(style.radius));
+  panel.radii = Radii::all(static_cast<float>(style.radius + 4));
   panel.shadow = ShadowStyle{};
-  panel.shadow->color = Color::from_argb(0x66000000);
-  panel.shadow->blur_radius = 8.0F;
-  panel.shadow->offset_y = 4.0F;
+  panel.shadow->color = Color::from_argb(0x59000000);
+  panel.shadow->blur_radius = 14.0F;
+  panel.shadow->offset_y = 8.0F;
   nodes.panel = ctx.tree.add_child(parent, PixelRect{x, y, width, height}, panel);
 
   NodeStyle title;
   title.text =
-      text_style(ctx, spec.title, style.font_size + 2.0F, style.on_surface, TextAlign::kLeft);
+      text_style(ctx, spec.title, style.font_size + kTitleGrow, style.on_surface, TextAlign::kLeft);
   ctx.tree.add_child(nodes.panel, PixelRect{pad, pad, inner, kTitleHeight}, title);
 
   NodeStyle body;
   nodes.body = ctx.tree.add_child(
-      nodes.panel, PixelRect{pad, pad + kTitleHeight + style.padding, inner, body_area}, body);
+      nodes.panel, PixelRect{pad, pad + kTitleHeight + kTitleGap, inner, body_area}, body);
   nodes.body_content_top = body_text_height;
   if (body_text_height > 0) {
     NodeStyle body_label;
@@ -233,7 +255,8 @@ DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
   int total = 0;
   for (const std::string& label : spec.buttons) {
     const int w = std::max(
-        kButtonMinWidth, measure_text_width(ctx.fonts, ctx.font, style.font_size, label) + pad);
+        kButtonMinWidth,
+        measure_text_width(ctx.fonts, ctx.font, style.font_size, label) + (4 * style.padding));
     widths.push_back(w);
     total += w;
   }

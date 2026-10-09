@@ -39,18 +39,18 @@ struct PopupStyle {
   Color surface = Color::from_argb(0xFF2B303B);
   Color on_surface = Color::from_argb(0xFFE6E9F0);
   Color border = Color::from_argb(0xFF3A4152);
-  Color item_hover = Color::from_argb(0xFF3A4152);     // highlighted menu item / button hover
-  Color on_item_hover = Color::from_argb(0xFFFFFFFF);  // text on a highlighted item
-  Color item_pressed = Color::from_argb(0xFF23272F);
+  Color item_hover = Color::from_argb(0xFF35415A);     // highlighted menu item / button hover
+  Color on_item_hover = Color::from_argb(0xFFE6E9F0);  // text on a highlighted item
+  Color item_pressed = Color::from_argb(0xFF3B4C6E);
   Color accent = Color::from_argb(0xFF6699FF);  // check marks, the default button
   Color on_accent = Color::from_argb(0xFF0D1117);
   Color accent_hover = Color::from_argb(0xFF7FAAFF);
   Color accent_pressed = Color::from_argb(0xFF5580D9);
   Color on_disabled = Color::from_argb(0xFF6E757D);
   Color focus_ring = Color::from_argb(0xFFFFA733);
-  Color scrim = Color::from_argb(0x80000000);
+  Color scrim = Color::from_argb(0x99000000);  // dims the window behind a dialog
 
-  int item_height = 28;      // one menu item row
+  int item_height = 30;      // one menu item row
   int separator_height = 9;  // one menu separator row (a 1px line, centred)
   int padding = 8;           // inner padding of menus, tooltips, dialog panels
   int radius = 6;
@@ -61,6 +61,8 @@ struct PopupStyle {
 // surface/on-surface/border/primary-hover/on-primary/primary-pressed/
 // primary/on-primary/on-disabled/focus-ring colours for `variant`, and
 // radius.md/space.md - every token missing from `theme` keeps its default.
+// item_hover/item_pressed are then re-derived as a primary tint of the
+// surface (on_item_hover = on_surface), and scrim is picked per variant.
 [[nodiscard]] PopupStyle popup_style_from_theme(const Theme& theme, ThemeVariant variant);
 
 // The references a component call needs. `tables` carries WidgetSet/Focus/

@@ -1,5 +1,7 @@
 #include "drawgui/ui/ui_context.h"
 
+#include <cstdint>
+
 #include "drawgui/render/paragraph.h"
 #include "drawgui/theme/token_ids.generated.h"
 
@@ -16,6 +18,19 @@ void read_int(const Theme& theme, dg_token_id id, int& out) {
   if (const std::optional<int> value = theme.int_value(id)) {
     out = *value;
   }
+}
+
+// `base` with `over` laid on top at `amount` (0..1) - the tinted highlight
+// and the dimmed body text are derived from existing tokens this way rather
+// than needing tokens of their own.
+Color mix(Color base, Color over, float amount) {
+  const auto channel = [amount](std::uint8_t a, std::uint8_t b) {
+    return static_cast<std::uint8_t>(static_cast<float>(a) +
+                                     ((static_cast<float>(b) - static_cast<float>(a)) * amount) +
+                                     0.5F);
+  };
+  return Color::rgba(channel(base.red(), over.red()), channel(base.green(), over.green()),
+                     channel(base.blue(), over.blue()), base.alpha());
 }
 
 }  // namespace
@@ -35,6 +50,16 @@ PopupStyle popup_style_from_theme(const Theme& theme, ThemeVariant variant) {
   read_color(theme, variant, DG_TOKEN_COLOR_ON_DISABLED, style.on_disabled);
   read_color(theme, variant, DG_TOKEN_COLOR_FOCUS_RING, style.focus_ring);
   read_int(theme, DG_TOKEN_RADIUS_MD, style.radius);
+
+  // A highlighted menu row / hovered secondary button is a soft primary
+  // tint of the surface, not a solid primary block: the text keeps its
+  // normal colour, and a menu's highlight never competes with a dialog's
+  // default button. Dark surfaces need a stronger tint to read.
+  const bool dark = variant == ThemeVariant::kDark;
+  style.item_hover = mix(style.surface, style.accent, dark ? 0.24F : 0.12F);
+  style.item_pressed = mix(style.surface, style.accent, dark ? 0.34F : 0.22F);
+  style.on_item_hover = style.on_surface;
+  style.scrim = dark ? Color::from_argb(0x99000000) : Color::from_argb(0x660F141A);
   read_int(theme, DG_TOKEN_SPACE_MD, style.padding);
   return style;
 }
