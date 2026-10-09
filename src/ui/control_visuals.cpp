@@ -1,6 +1,7 @@
 #include "ui/control_visuals.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 
 #include "drawgui/render/paragraph.h"
@@ -43,7 +44,35 @@ namespace dg::control_visuals {
 namespace {
 
 constexpr int kFrame = 1;      // tree/table outer border
-constexpr int kIndicator = 2;  // active-tab underline thickness
+constexpr int kIndicator = 3;  // active-tab underline thickness
+constexpr int kIndicatorInset = 8;  // underline is narrower than the tab
+
+// `base` with `over` laid on top at `amount` (0..1); alpha from `base`.
+// Same computation as popup_style_from_theme's soft tint.
+Color mix(Color base, Color over, float amount) {
+  const auto channel = [amount](std::uint8_t a, std::uint8_t b) {
+    return static_cast<std::uint8_t>(static_cast<float>(a) +
+                                     ((static_cast<float>(b) - static_cast<float>(a)) * amount) +
+                                     0.5F);
+  };
+  return Color::rgba(channel(base.red(), over.red()), channel(base.green(), over.green()),
+                     channel(base.blue(), over.blue()), base.alpha());
+}
+
+bool is_dark(const ControlStyle& style) {
+  const Color c = style.surface;
+  return (299 * c.red()) + (587 * c.green()) + (114 * c.blue()) < 128000;
+}
+
+// A selected row: soft primary tint of the surface, text stays on-surface.
+Color selection_fill(const ControlStyle& style) {
+  return mix(style.surface, style.accent, is_dark(style) ? 0.30F : 0.16F);
+}
+// Neutral hover / header / track shades derived from surface + on-surface.
+Color neutral(const ControlStyle& style, float light, float dark) {
+  return mix(style.surface, style.on_surface, is_dark(style) ? dark : light);
+}
+Color muted_text(const ControlStyle& style) { return mix(style.on_surface, style.surface, 0.30F); }
 
 TextStyle text_style(const ControlContext& ctx, const std::string& text, Color color,
                      TextAlign align) {
@@ -171,8 +200,12 @@ ProgressNodes build_progress(ControlContext& ctx, NodeId parent, const BoxStyle&
   BoxStyle track_box = box;
   track_box.kind = LayoutKind::kLeaf;
   NodeStyle track;
-  track.fill = style.border;
-  track.radii = Radii::all(static_cast<float>(style.radius));
+  // Fully rounded capsule when the height is known.
+  const float pill =
+      box.height.has_value() ? static_cast<float>(*box.height) / 2.0F
+                             : static_cast<float>(style.radius);
+  track.fill = neutral(style, 0.12F, 0.14F);
+  track.radii = Radii::all(pill);
   track.overflow = Overflow::kClip;
   ProgressNodes nodes;
   nodes.track = ctx.layout.add_child(parent, track_box, track);
@@ -181,7 +214,7 @@ ProgressNodes build_progress(ControlContext& ctx, NodeId parent, const BoxStyle&
   fill_box.percent.height = 100.0F;
   NodeStyle fill;
   fill.fill = style.accent;
-  fill.radii = Radii::all(static_cast<float>(style.radius));
+  fill.radii = Radii::all(pill);
   nodes.fill = ctx.layout.add_child(nodes.track, fill_box, fill);
   return nodes;
 }
@@ -216,8 +249,8 @@ TabsNodes build_tabs(ControlContext& ctx, NodeId parent, const TabsSpec& spec) {
     Widget widget;
     widget.kind = WidgetKind::kButton;
     widget.fill_normal = style.surface;
-    widget.fill_hover = style.border;
-    widget.fill_pressed = style.border;
+    widget.fill_hover = neutral(style, 0.05F, 0.07F);
+    widget.fill_pressed = neutral(style, 0.09F, 0.12F);
     widget.fill_disabled = style.surface;
     ctx.tables.widgets.attach(node, widget);
 
@@ -229,7 +262,12 @@ TabsNodes build_tabs(ControlContext& ctx, NodeId parent, const TabsSpec& spec) {
 
     BoxStyle bar_box;
     bar_box.height = kIndicator;
-    nodes.indicators.push_back(ctx.layout.add_child(node, bar_box, NodeStyle{}));
+    bar_box.margin.left = kIndicatorInset;
+    bar_box.margin.right = kIndicatorInset;
+    NodeStyle bar;
+    const auto top = static_cast<float>(kIndicator);
+    bar.radii = Radii{top, top, 0.0F, 0.0F};
+    nodes.indicators.push_back(ctx.layout.add_child(node, bar_box, bar));
     nodes.tabs.push_back(node);
   }
 
@@ -252,7 +290,7 @@ TabsNodes build_tabs(ControlContext& ctx, NodeId parent, const TabsSpec& spec) {
 void paint_tab(ControlContext& ctx, NodeId label, NodeId indicator, const TabItem& item,
                bool selected) {
   const ControlStyle& style = ctx.style;
-  Color text = selected ? style.accent : style.on_surface;
+  Color text = selected ? style.accent : muted_text(style);
   if (item.disabled) {
     text = style.on_disabled;
   }
@@ -272,7 +310,9 @@ RowListNodes build_tree(ControlContext& ctx, NodeId parent, const TreeViewSpec& 
     row_box.kind = LayoutKind::kLeaf;
     row_box.percent.width = 100.0F;
     row_box.height = style.row_height;
-    const NodeId row = ctx.layout.add_child(nodes.list, row_box, NodeStyle{});
+    NodeStyle row_style;
+    row_style.radii = Radii::all(static_cast<float>(style.radius));
+    const NodeId row = ctx.layout.add_child(nodes.list, row_box, row_style);
     BoxStyle part_box;
     part_box.width = style.indent;
     part_box.height = style.row_height;
@@ -299,14 +339,15 @@ void paint_tree_row(ControlContext& ctx, NodeId row, const TreeItem& item, bool 
   const PixelRect bounds = tree.local_bounds(row);
   const int x = tree_disclosure_x(ctx, item.depth);
   set_bounds_if(tree, kids[0], PixelRect{x, 0, style.indent, bounds.height});
+
   const int label_x = x + style.indent;
   set_bounds_if(tree, kids[1],
                 PixelRect{label_x, 0, std::max(0, bounds.width - label_x), bounds.height});
-  const Color text = selected ? style.on_accent : style.on_surface;
-  set_fill_if(tree, row, selected ? style.accent : Color{});
+  set_fill_if(tree, row, selected ? selection_fill(style) : Color{});
   const char* disclosure = expanded ? "\u25BE" : "\u25B8";
-  set_text_if(tree, kids[0], has_children ? disclosure : "", text);
-  set_text_if(tree, kids[1], item.label, text);
+  set_text_if(tree, kids[0], has_children ? disclosure : "",
+              selected ? style.accent : muted_text(style));
+  set_text_if(tree, kids[1], item.label, style.on_surface);
 }
 
 int tree_disclosure_x(const ControlContext& ctx, int depth) {
@@ -323,23 +364,33 @@ RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& sp
   header_box.kind = LayoutKind::kRow;
   header_box.height = style.row_height;
   header_box.padding.right = gutter;
+  const Color header_fill = neutral(style, 0.05F, 0.07F);
   NodeStyle header;
-  header.fill = style.border;
+  header.fill = header_fill;
+  header_box.border.bottom = 1;
+  header.border_color = style.border;
+  header.border_width.bottom = 1.0F;
   nodes.header = ctx.layout.add_child(nodes.root, header_box, header);
   for (const TableColumn& column : spec.columns) {
     NodeStyle cell;
-    cell.fill = style.border;
-    cell.text = text_style(ctx, column.title, style.on_surface, TextAlign::kLeft);
+    cell.fill = header_fill;
+    cell.text = text_style(ctx, column.title, muted_text(style), TextAlign::kLeft);
     cell.text.inset = style.padding;
-    const NodeId node =
-        ctx.layout.add_child(nodes.header, column_box(column, style.row_height), cell);
+    BoxStyle cell_box = column_box(column, style.row_height - 1);
+    if (&column != &spec.columns.back()) {
+      // Column separator.
+      cell_box.border.right = 1;
+      cell.border_color = style.border;
+      cell.border_width.right = 1.0F;
+    }
+    const NodeId node = ctx.layout.add_child(nodes.header, cell_box, cell);
     if (column.sortable) {
       Widget widget;
       widget.kind = WidgetKind::kButton;
       widget.tab_index = -1;
-      widget.fill_normal = style.border;
-      widget.fill_hover = style.surface;
-      widget.fill_pressed = style.surface;
+      widget.fill_normal = header_fill;
+      widget.fill_hover = neutral(style, 0.10F, 0.13F);
+      widget.fill_pressed = neutral(style, 0.14F, 0.18F);
       ctx.tables.widgets.attach(node, widget);
     }
     nodes.header_cells.push_back(node);
@@ -369,8 +420,8 @@ void paint_table_row(ControlContext& ctx, NodeId row, const std::vector<std::str
                      bool selected) {
   const ControlStyle& style = ctx.style;
   RenderTree& tree = ctx.tree();
-  set_fill_if(tree, row, selected ? style.accent : Color{});
-  const Color text = selected ? style.on_accent : style.on_surface;
+  set_fill_if(tree, row, selected ? selection_fill(style) : Color{});
+  const Color text = style.on_surface;
   const std::vector<NodeId> kids = tree.children(row);
   static const std::string kEmpty;
   for (std::size_t i = 0; i < kids.size(); ++i) {
@@ -380,7 +431,10 @@ void paint_table_row(ControlContext& ctx, NodeId row, const std::vector<std::str
 }
 
 void paint_table_header(ControlContext& ctx, NodeId cell, const std::string& title) {
-  set_text_if(ctx.tree(), cell, title, ctx.tree().style(cell).text.color);
+  // A sorted column's title reads at full strength; others stay muted.
+  const bool sorted = title.size() >= 4 && (title.compare(title.size() - 4, 4, " \u25B2") == 0 ||
+                                            title.compare(title.size() - 4, 4, " \u25BC") == 0);
+  set_text_if(ctx.tree(), cell, title, sorted ? ctx.style.on_surface : muted_text(ctx.style));
 }
 
 }  // namespace dg::control_visuals

@@ -96,7 +96,7 @@ void Table::set_sort_indicator(ControlContext& ctx, std::optional<int> column, b
   for (std::size_t i = 0; i < headers_.size(); ++i) {
     std::string title = columns_[i].title;
     if (column == static_cast<int>(i)) {
-      title += ascending ? " ^" : " v";
+      title += ascending ? " \u25B2" : " \u25BC";
     }
     control_visuals::paint_table_header(ctx, headers_[i], title);
   }

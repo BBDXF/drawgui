@@ -372,7 +372,7 @@ TEST_CASE("Table: 10k rows on a fixed pool, selection, sort requests, column wid
   bool found = false;
   for (const NodeId row : table.pool()) {
     if (f.tree().style(f.tree().children(row)[0]).text.text == "file 9999") {
-      found = f.tree().style(row).fill == ctx.style.accent;
+      found = f.tree().style(row).fill != dg::Color{};  // soft selection tint
     }
   }
   CHECK(found);
@@ -391,7 +391,7 @@ TEST_CASE("Table: 10k rows on a fixed pool, selection, sort requests, column wid
   // App-side sort: new data, fewer rows, the offset clamps.
   table.set_rows(ctx, {{"b", "1", ""}, {"a", "2", ""}});
   table.set_sort_indicator(ctx, 0, true);
-  CHECK(f.tree().style(table.header_cells()[0]).text.text == "Name ^");
+  CHECK(f.tree().style(table.header_cells()[0]).text.text == "Name \u25B2");
   CHECK(f.tree().scroll_offset(table.list()).y == 0);
   CHECK_FALSE(table.selected().has_value());
 
