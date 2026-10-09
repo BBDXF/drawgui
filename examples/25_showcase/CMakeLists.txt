@@ -1,13 +1,10 @@
 if(DRAWGUI_HAVE_SDL3)
   add_executable(drawgui_showcase
-    context_menu.cpp
     main.cpp
     profile_dialog.cpp
     showcase_check.cpp
     showcase_scene.cpp
-    showcase_window.cpp
-    sort_options.cpp
-    tooltip_content.cpp)
+    showcase_window.cpp)
 
   target_link_libraries(drawgui_showcase PRIVATE
     drawgui::drawgui

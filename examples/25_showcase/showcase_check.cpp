@@ -17,7 +17,9 @@
 
 #include "drawgui/anim/animation_engine.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/theme/token_ids.generated.h"
+#include "drawgui/ui/dropdown.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/window/popup_host.h"
 #include "drawgui/window/window_manager.h"
@@ -25,7 +27,6 @@
 #include "profile_dialog.h"
 #include "showcase_scene.h"
 #include "showcase_window.h"
-#include "sort_options.h"
 
 namespace showcase_check {
 namespace {
@@ -186,23 +187,32 @@ void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
   // Runner's constructor calls rather than a duplicate.
   showcase_window::Settings runner_settings;
   runner_settings.size = kSize;
-  const dg::PixelSize drawable = manager.drawable_size(window.value()).value_or(dg::PixelSize{});
+  const dg::PixelSize drawable =
+      manager.drawable_size(window.value()).value_or(dg::PixelSize{});
   check(showcase_window::initial_viewport(manager, window.value(), runner_settings) == drawable,
-       "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
+        "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
 
   dg::PopupHost host{manager};
   const dg::LayoutStats before_popup = scene.tree.layout();
   (void)before_popup;
-  const dg::PixelSize popup_size = sort_options::size_for(
-      static_cast<int>(showcase_scene::kSortOptions.size()), anchor_after_scroll.width);
-  const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      host.show(window.value(), scene.tree.render(), anchor_after_scroll, popup_size,
-                dg::PopupPlacement::kBelow, dg::PopupFlags{});
-  check(shown.has_value(), "PopupHost::show() succeeds for the sort dropdown", out, ok);
-  if (!shown.has_value()) {
+  dg::AnimationEngine animation;
+  dg::ActionScopes action_scopes;
+  dg::UiContext ctx{
+      host,
+      window.value(),
+      scene.tree.render(),
+      {scene.widgets, scene.bindings, scene.focus, animation, action_scopes, scene.interaction},
+      scene.fonts.has_value() ? &*scene.fonts : nullptr,
+      scene.ui_font,
+      dg::popup_style_from_theme(scene.theme, scene.variant)};
+  dg::Dropdown dropdown{scene.handles.sort_dropdown};
+  const dg::DropdownResult opened = dropdown.open(ctx);
+  check(opened.event == dg::DropdownEvent::kOpened,
+        "dg::Dropdown opens the sort dropdown through PopupHost::show()", out, ok);
+  if (!dropdown.menu().handle().has_value()) {
     return;
   }
-  const dg::PopupHandle handle = shown.value();
+  const dg::PopupHandle handle = *dropdown.menu().handle();
   check(handle.content_bounds.top() == anchor_after_scroll.bottom(),
         "popup opens directly below the anchor, not shifted by the list's scroll offset", out,
         ok);
@@ -229,8 +239,7 @@ void check_dropdown_over_scrolled_list(std::ostream& out, bool& ok) {
         "a since-removed caller obligation not to call layout() at all",
         out, ok);
 
-  dg::PopupHandle mutable_handle = handle;
-  host.close(mutable_handle);
+  dropdown.close(ctx);
 }
 
 // --------------------------------------------------------------------------

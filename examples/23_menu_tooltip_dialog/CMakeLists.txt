@@ -1,12 +1,9 @@
 if(DRAWGUI_HAVE_SDL3)
   add_executable(drawgui_menu_tooltip_dialog
     main.cpp
-    dialog_panel.cpp
     menu_check.cpp
-    menu_rows.cpp
     menu_scene.cpp
-    menu_window.cpp
-    tooltip_content.cpp)
+    menu_window.cpp)
 
   target_link_libraries(drawgui_menu_tooltip_dialog PRIVATE
     drawgui::drawgui

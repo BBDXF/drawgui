@@ -71,7 +71,7 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 | `kTextField` | 是 | 是 | 单行可编辑文本框，详见 `doc/guide/text.md` |
 | `kTextArea` | 是 | 是 | 多行可编辑文本框，自带垂直滚动，见下方「多行编辑框」 |
 | `kList` | 是（用于滚轮）| **否** | 固定回收池的虚拟化列表（见下） |
-| `kDropdown` | 是 | 是 | 只是「锚点 + 选项 + 已选索引」，弹出层要自己搭（见下方「配方」一节） |
+| `kDropdown` | 是 | 是 | 只是「锚点 + 选项 + 已选索引」，弹出层由 `dg::Dropdown` 组件负责（见下方★一节） |
 | `kScrollbar` | 是 | **否** | 滚动条的轨道或滑块，由 `attach_scrollbar()` 挂上，不要手动 attach（见下方「滚动条」） |
 
 ### radio 不是独立的 kind
@@ -342,15 +342,28 @@ SVG 的处理方式：**绘制时按节点尺寸直接画矢量**（`SkSVGDOM::r
 
 **没有九宫格（nine-patch）拉伸**。所有解码都是同步的，没有异步/线程池。参考：`examples/13_image`（第六个面板是着色的 SVG 图标）、`tests/unit/test_image_formats.cpp`。
 
-### ★ dropdown / 右键菜单 / tooltip / 对话框 —— 这些是「配方」，不是「控件」
+### ★ dropdown / 右键菜单 / tooltip / 对话框 —— 库组件层（`include/drawgui/ui/`）
 
-这是本文档最重要的一条边界。`kDropdown` 这个 `WidgetKind` 本身极其单薄——`widget_set.h` 里 `Widget` 结构体末尾的 kDropdown 字段能看到，它只持有一个锚点（本节点）、一个显示当前选项的 `label` 子节点、一份 `options` 字符串列表和一个 `selected_index`。**弹出的那个选项列表，是应用层自己用 `PopupHost` 现搭出来的一组普通 `kButton`**，不是 `kDropdown` 内部管理的东西——参见 `examples/22_dropdown_menu/dropdown_options.cpp`：每一行都是手写的 `NodeId row = tree.add_child(...)` 加 `widgets.attach(row, Widget{.kind = WidgetKind::kButton, ...})`，和普通按钮没有任何区别。
+这四样**不是新的 `WidgetKind`**，而是建在 `PopupHost` + 现有控件之上的**组件层**：
+`dg::Menu`、`dg::Dropdown`、`dg::Tooltip`、`dg::Dialog`。之所以需要单独一层：
+`WidgetSet` 从不创建节点（它只给调用方建好的节点挂行为），`PopupHost` 从不知道
+容器里放什么；组件层是第一处"既建节点、又注册控件、又负责开关浮层"的库代码。
+没有新的绘制原语、没有回调——宿主循环调用 `handle_pointer()`/`handle_key()`/
+`tick()`，读回一个带类型的结果（`MenuResult`/`DropdownResult`/`TooltipEvent`/
+`DialogResult`），和其它控件 API 的驱动方式一致。
 
-`src/widget/tooltip.cpp` 更加极简——整个「tooltip」能力**只有一个 hover 计时器**（`HoverTimer`/`update_hover_timer()`/`hover_ready()`），负责回答「鼠标在这个节点上停留够久了吗」。真正把提示框画出来、定位、加个背景色，这些全部在 `examples/23_menu_tooltip_dialog/tooltip_content.cpp` 里手写。
+- `kDropdown` 本身仍然只持有锚点、`label`、`options`、`selected_index`
+  （这些状态要比弹层活得久）。`dg::Dropdown` 把它和一个 `dg::Menu` 接起来：
+  打开时从 `dropdown_options()` 建菜单、给当前选中项打勾并高亮；选中时调用
+  `dropdown_select()` 并报告 `kChanged{selected, previous}`。
+- `src/widget/tooltip.cpp` 仍然只是 hover 计时器；`dg::Tooltip` 用它决定何时
+  弹出文字气泡、何时销毁。
+- 菜单项、对话框按钮都是普通 `kButton`，注册进宿主自己的 `WidgetSet`；高亮就是
+  `dg::Focus` 的当前焦点，模态陷阱就是 `Focus::enter_scope(panel, true)`。
 
-右键菜单、模态对话框同理：`examples/23_menu_tooltip_dialog/` 里的 `menu_rows.cpp`/`dialog_panel.cpp` 都是应用层代码，用的都是已经存在的原语（`PopupHost` 弹出定位、`kButton` 做菜单项、`Focus::enter_scope(root, /*modal=*/true)` 做模态焦点陷阱），没有一行是库内部实现的「菜单控件」。
-
-**如果你要做下拉菜单/右键菜单/tooltip/对话框，正确的做法是把 `examples/22_dropdown_menu/` 和 `examples/23_menu_tooltip_dialog/` 当模板抄**，而不是去 `widget_set.h` 里找一个现成的 API——它不存在。
+完整 API、事件路由和示例见 [`popups.md`](popups.md) 的"库组件"一节；
+`examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog`、`examples/25_showcase`
+都已改用这些组件。
 
 ### 多行编辑框（`kTextArea`）
 
@@ -429,7 +442,7 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 ## 边界与坑
 
 - **没有 widget 树、没有 `createXxx()` 工厂函数**——上文已经讲透。
-- **dropdown/菜单/tooltip/对话框是应用层配方，不是库能力**——见上文★。
+- **dropdown/菜单/tooltip/对话框是组件层（`include/drawgui/ui/`），不是 `WidgetKind`**——由宿主循环驱动、不支持嵌套，见上文★和 `doc/limitations.md` B 节。
 - **`kScrollView`/`kList` 不能获得键盘焦点**，它们的滚动条也不能。
 - **滚动条的节点由调用方创建**，布局之后要 `sync_scrollbar()`；视口要自己留出槽，见上文「滚动条」。
 - **禁用是节点属性，写完要同步**：C++ 侧写 `DG_PROP_DISABLED` 后要调用
@@ -447,5 +460,5 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - `examples/13_image` —— 四种 `ImageFit` 对比
 - `examples/15_list` —— 虚拟化列表的回收池
 - `examples/21_focus` —— Tab 顺序、focus ring
-- `examples/22_dropdown_menu` —— **下拉菜单的完整配方**（必抄模板）
-- `examples/23_menu_tooltip_dialog` —— **右键菜单/tooltip/模态对话框的完整配方**（必抄模板）
+- `examples/22_dropdown_menu` —— `dg::Dropdown` 的完整用法
+- `examples/23_menu_tooltip_dialog` —— `dg::Menu`（右键菜单）/`dg::Tooltip`/`dg::Dialog` 的用法

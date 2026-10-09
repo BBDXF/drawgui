@@ -16,11 +16,11 @@
 #include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/token_ids.generated.h"
+#include "drawgui/ui/dropdown.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/window/popup_host.h"
 #include "drawgui/window/window_manager.h"
 
-#include "dropdown_options.h"
 #include "dropdown_scene.h"
 
 namespace dropdown_window {
@@ -35,15 +35,6 @@ double ms_since(Clock::time_point started) {
 dg::Color ring_color(const dg::Theme& theme) {
   return theme.color_value(DG_TOKEN_COLOR_FOCUS_RING, dg::ThemeVariant::kDark)
       .value_or(dg::Color::from_argb(0xFFFF8800));
-}
-
-// The selected row's own label colour (dropdown_options::build()'s
-// `selected_text_color`) - resolved from the theme the same way
-// ring_color() resolves the focus ring's, with the same "just a colour,
-// not a whole node" cost this slice's decision settled on.
-dg::Color selected_row_color(const dg::Theme& theme) {
-  return theme.color_value(DG_TOKEN_COLOR_PRIMARY, dg::ThemeVariant::kDark)
-      .value_or(dg::Color::from_argb(0xFF6699FF));
 }
 
 }  // namespace
@@ -143,12 +134,11 @@ class Runner {
 
   void handle_pointer(const dg::PointerEvent& event);
   void handle_key(const dg::KeyEvent& event);
-  void open_dropdown();
-  void close_dropdown(std::optional<int> select_index);
+  void after_dropdown(const dg::DropdownResult& result);
   void refresh_ring();
   void resize_if_needed();
-  std::optional<int> row_index_of(dg::NodeId id) const;
   dg::NodeSideTables side_tables();
+  dg::UiContext ui();
 
   Settings settings_;
   std::ostream* out_;
@@ -165,19 +155,9 @@ class Runner {
   dg::ActionScopes action_scopes_;
 
   dg::PopupHost popup_host_;
-  std::optional<dg::PopupHandle> popup_;
-  std::vector<dg::NodeId> rows_;
-  // The popup's own focus ring, distinct from scene_.ring (the host
-  // window's). scene_.ring's four strip nodes are already children of
-  // LayoutTree::root() by the time a popup ever opens - RenderTree is
-  // append-only, so they can never be reparented under
-  // popup_->content_root. A fresh dg::FocusRing{} is created in
-  // open_dropdown() instead, growing its own four nodes under the new
-  // content_root the same way scene_.ring grew its own under the host
-  // root - the overlay-era analogue of a `popup_native_ring_` member that
-  // did the same job for the same reason (a second root the host's ring
-  // could not reach) in the now-deleted native-popup branch (48c9cd3).
-  dg::FocusRing popup_ring_;
+  // The library component: builds the option Menu over PopupHost on open,
+  // destroys it on close, and commits through WidgetSet::dropdown_select().
+  dg::Dropdown dropdown_{scene_.handles.dropdown};
 };
 
 dg::NodeSideTables Runner::side_tables() {
@@ -185,13 +165,14 @@ dg::NodeSideTables Runner::side_tables() {
           animation_,     action_scopes_,  scene_.interaction};
 }
 
-std::optional<int> Runner::row_index_of(dg::NodeId id) const {
-  for (std::size_t i = 0; i < rows_.size(); ++i) {
-    if (rows_[i] == id) {
-      return static_cast<int>(i);
-    }
-  }
-  return std::nullopt;
+dg::UiContext Runner::ui() {
+  return dg::UiContext{popup_host_,
+                       host_window_,
+                       scene_.tree.render(),
+                       side_tables(),
+                       scene_.fonts.has_value() ? &*scene_.fonts : nullptr,
+                       scene_.ui_font,
+                       dg::popup_style_from_theme(scene_.theme, dg::ThemeVariant::kDark)};
 }
 
 // Runs on the SAME needs_repaint trigger examples/15_list/list_window.cpp's
@@ -225,142 +206,40 @@ void Runner::resize_if_needed() {
 }
 
 void Runner::refresh_ring() {
-  // The ring lives wherever the currently-focused node lives: the host
-  // root while no popup is open, popup_->content_root while one is - see
-  // popup_ring_'s own declaration comment for why this cannot be a single
-  // shared FocusRing.
-  if (popup_.has_value() && popup_->open) {
-    dg::update_focus_ring(scene_.tree.render(), popup_->content_root, popup_ring_,
-                          scene_.focus.current(), ring_color(scene_.theme));
-    return;
-  }
+  // While the option list is open the highlight is the Menu's own row fill;
+  // the host ring is collapsed rather than drawn under the overlay.
   dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
-                        scene_.focus.current(), ring_color(scene_.theme));
+                        dropdown_.is_open() ? std::nullopt : scene_.focus.current(),
+                        ring_color(scene_.theme));
 }
 
-void Runner::open_dropdown() {
-  const dg::PixelRect anchor = scene_.tree.render().absolute_bounds(scene_.handles.dropdown);
-  const dg::PixelSize size = dropdown_options::size_for(
-      static_cast<int>(dropdown_scene::kOptions.size()), anchor.width);
-  const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      popup_host_.show(host_window_, scene_.tree.render(), anchor, size,
-                       dg::PopupPlacement::kBelow, dg::PopupFlags{});
-  if (!shown) {
-    *out_ << "could not open the dropdown: " << shown.error().message << "\n";
-    return;
+void Runner::after_dropdown(const dg::DropdownResult& result) {
+  if (result.event == dg::DropdownEvent::kChanged && result.selected.has_value()) {
+    *out_ << "selected \""
+          << dropdown_scene::kOptions[static_cast<std::size_t>(*result.selected)] << "\"\n";
   }
-  popup_ = shown.value();
-  // Reset rather than reuse: the previous popup_ring_ (if any) named four
-  // strip nodes under a content_root close_dropdown() has since destroyed
-  // (PopupHost::destroy()), so its ids are invalid. A fresh dg::FocusRing{}
-  // grows four new nodes under the fresh content_root this show() call
-  // just created.
-  popup_ring_ = dg::FocusRing{};
-  const std::optional<int> selected =
-      scene_.widgets.dropdown_selected_index(scene_.handles.dropdown);
-
-  rows_ =
-      dropdown_options::build(scene_.tree.render(), scene_.widgets, popup_->content_root,
-                              dropdown_scene::kOptions, size.width, scene_.ui_font, 15.0F,
-                              selected, selected_row_color(scene_.theme));
-  scene_.focus.enter_scope(popup_->content_root);
-
-  const int start = selected.value_or(0);
-  if (start >= 0 && static_cast<std::size_t>(start) < rows_.size()) {
-    scene_.focus.set(rows_[static_cast<std::size_t>(start)]);
+  if (result.event != dg::DropdownEvent::kIgnored) {
+    refresh_ring();
   }
-  refresh_ring();
-}
-
-void Runner::close_dropdown(std::optional<int> select_index) {
-  if (!popup_.has_value()) {
-    return;
-  }
-  if (select_index.has_value() && scene_.fonts.has_value()) {
-    scene_.widgets.dropdown_select(scene_.tree.render(), *scene_.fonts, scene_.handles.dropdown,
-                                   *select_index);
-  }
-  scene_.focus.exit_scope(scene_.tree.render());
-  // destroy(), not close(): every reopen builds fresh rows, so the old
-  // overlay is freed rather than left hidden. Nothing keeps its ids.
-  popup_host_.destroy(*popup_, side_tables());
-  popup_.reset();
-  rows_.clear();
-  // Conventional dropdown behaviour: closing (by selection, Escape, or a
-  // click outside) returns focus to the anchor that opened it, never
-  // leaves the window with nothing focused.
-  dropdown_scene::apply_focus_change(scene_, scene_.handles.dropdown);
 }
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
-  if (popup_.has_value() && popup_->open) {
-    dg::PopupHandle& handle = *popup_;
-    if (popup_host_.handle_pointer(handle, event.window, event)) {
-      close_dropdown(std::nullopt);
-      return;
-    }
-    if (event.action != dg::PointerAction::kDown) {
-      return;
-    }
-    if (event.window != host_window_) {
-      return;
-    }
-    const dg::PixelPoint at{event.x, event.y};
-    const std::optional<dg::NodeId> hit = scene_.widgets.widget_at(scene_.tree.render(), at);
-    if (!hit.has_value()) {
-      return;
-    }
-    const std::optional<int> index = row_index_of(*hit);
-    if (index.has_value()) {
-      close_dropdown(index);
-      return;
-    }
-    scene_.focus.set(hit);
-    refresh_ring();
+  dg::UiContext ctx = ui();
+  if (dropdown_.is_open()) {
+    after_dropdown(dropdown_.handle_pointer(ctx, event));
     return;
   }
   const bool open_requested = dropdown_scene::dispatch_pointer(scene_, event);
   if (open_requested) {
-    open_dropdown();
+    after_dropdown(dropdown_.open(ctx));
   }
 }
 
 void Runner::handle_key(const dg::KeyEvent& event) {
-  if (popup_.has_value() && popup_->open) {
-    dg::PopupHandle& handle = *popup_;
-    if (popup_host_.handle_key(handle, event.window, event)) {
-      close_dropdown(std::nullopt);
-      return;
-    }
-    if (event.action != dg::KeyAction::kDown) {
-      return;
-    }
-    if (event.key == dg::Key::kUp) {
-      scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets, handle.content_root);
-      refresh_ring();
-      return;
-    }
-    if (event.key == dg::Key::kDown) {
-      scene_.focus.focus_next(scene_.tree.render(), scene_.widgets, handle.content_root);
-      refresh_ring();
-      return;
-    }
-    if (event.key == dg::Key::kEnter) {
-      const std::optional<dg::NodeId> highlighted = scene_.focus.current();
-      const std::optional<int> index =
-          highlighted.has_value() ? row_index_of(*highlighted) : std::nullopt;
-      close_dropdown(index);
-      return;
-    }
-    return;
-  }
-  if (event.action != dg::KeyAction::kDown || event.window != host_window_) {
-    dropdown_scene::dispatch_key(scene_, event);
-    return;
-  }
-  if ((event.key == dg::Key::kDown || event.key == dg::Key::kEnter) &&
-      scene_.focus.is_focused(scene_.handles.dropdown)) {
-    open_dropdown();
+  dg::UiContext ctx = ui();
+  const dg::DropdownResult result = dropdown_.handle_key(ctx, event);
+  if (result.event != dg::DropdownEvent::kIgnored || dropdown_.is_open()) {
+    after_dropdown(result);
     return;
   }
   dropdown_scene::dispatch_key(scene_, event);

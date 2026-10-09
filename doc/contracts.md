@@ -81,9 +81,9 @@ tree.set_local_bounds(node, {x, y, max_width, measured.height});      // 再定�
 
 **不做会怎样**：`dg::focus_order()` 只遍历一棵 `RenderTree` 对应的一个 `WidgetSet`。浮层里的行如果进了另一个 `WidgetSet`，Tab/上下键的焦点遍历根本看不到它们——键盘完全按不进浮层，只能用鼠标点。
 
-**依据**：`examples/22_dropdown_menu/dropdown_options.h:22-26`（“the overlay appends into the HOST's own RenderTree, and dg::focus_order() walks that tree against ONE WidgetSet, so rows must land in the host's own table or Tab/Up/Down would never see them”）。
+**依据**：`src/ui/ui_visuals.cpp` 的 `build_menu()`/`build_dialog()` 都把行/按钮 attach 进 `UiContext::tables.widgets`——也就是宿主的那个 `WidgetSet`（原先 `examples/22_dropdown_menu/dropdown_options.h` 的说明：“the overlay appends into the HOST's own RenderTree, and dg::focus_order() walks that tree against ONE WidgetSet, so rows must land in the host's own table or Tab/Up/Down would never see them”）。
 
-**正确写法**：`build()` 一类的浮层构造函数把宿主的 `WidgetSet&` 作为显式参数传入，不要在浮层内部 `WidgetSet{}`。
+**正确写法**：用库组件（`dg::Menu`/`dg::Dropdown`/`dg::Dialog`）时，`UiContext` 里传宿主的侧表即可；自己搭浮层时，把宿主的 `WidgetSet&` 作为显式参数传入，不要在浮层内部 `WidgetSet{}`。
 
 ---
 

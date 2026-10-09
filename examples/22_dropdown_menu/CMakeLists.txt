@@ -2,7 +2,6 @@ if(DRAWGUI_HAVE_SDL3)
   add_executable(drawgui_dropdown_menu
     main.cpp
     dropdown_check.cpp
-    dropdown_options.cpp
     dropdown_scene.cpp
     dropdown_window.cpp)
 

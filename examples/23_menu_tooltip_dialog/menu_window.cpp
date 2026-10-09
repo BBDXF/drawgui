@@ -18,15 +18,15 @@
 #include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/token_ids.generated.h"
+#include "drawgui/ui/dialog.h"
+#include "drawgui/ui/menu.h"
+#include "drawgui/ui/tooltip_popup.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/tooltip.h"
 #include "drawgui/window/popup_host.h"
 #include "drawgui/window/window_manager.h"
 
-#include "dialog_panel.h"
-#include "menu_rows.h"
 #include "menu_scene.h"
-#include "tooltip_content.h"
 
 namespace menu_window {
 namespace {
@@ -128,7 +128,9 @@ class Runner {
         host_window_(host_window),
         scene_(menu_scene::build(
             scene_options(settings, initial_viewport(manager, host_window, settings)))),
-        popup_host_(manager) {
+        popup_host_(manager),
+        tooltip_(settings.tooltip_delay_ms) {
+    tooltip_.bind(scene_.handles.hover_target, "This button opens a tooltip");
     const dg::PixelSize pixels = initial_viewport(manager, host_window, settings);
     host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
   }
@@ -144,12 +146,8 @@ class Runner {
   }
 
   void handle_pointer(const dg::PointerEvent& event);
-  void handle_pointer_menu(const dg::PointerEvent& event);
-  void handle_pointer_dialog_overlay(const dg::PointerEvent& event);
   bool handle_pointer_dialog_native(const dg::PointerEvent& event);
   void handle_key(const dg::KeyEvent& event);
-  void handle_key_menu(const dg::KeyEvent& event);
-  void handle_key_dialog_overlay(const dg::KeyEvent& event);
   bool menu_target_secondary_click(const dg::PointerEvent& event);
   int next_pump_timeout_ms(Clock::time_point started) const;
   void process_close_requests(const dg::PumpResult& pumped);
@@ -158,20 +156,15 @@ class Runner {
   void resize_host_if_needed();
 
   void open_context_menu(dg::PixelPoint at);
-  void close_context_menu(std::optional<int> select_index);
-  dg::WidgetSet& menu_active_widgets();
-  dg::Focus& menu_active_focus();
-  dg::RenderTree& menu_active_tree();
+  void after_menu(const dg::MenuResult& result);
   void refresh_menu_ring();
-  std::optional<int> menu_row_index_of(dg::NodeId id) const;
   dg::NodeSideTables side_tables();
+  dg::UiContext ui();
 
   void update_tooltip();
-  void open_tooltip();
-  void close_tooltip();
 
   void open_dialog();
-  void close_dialog_overlay();
+  void after_dialog(const dg::DialogResult& result);
   void open_dialog_native();
   void close_dialog_native();
 
@@ -191,32 +184,12 @@ class Runner {
 
   dg::PopupHost popup_host_;
 
-  // --- Context menu (overlay-only, shares the host's own tree/Focus) ---
-  std::optional<dg::PopupHandle> menu_popup_;
-  std::vector<dg::NodeId> menu_rows_;
-  // The context menu's own focus ring, distinct from scene_.ring: its four
-  // strip nodes must be children of menu_popup_->content_root (a clipping
-  // container appended to the host tree only once the menu opens), not of
-  // LayoutTree::root() where scene_.ring's own nodes already live - see
-  // examples/22_dropdown_menu/dropdown_window.cpp's popup_ring_ for the
-  // identical reasoning (RenderTree is append-only, so scene_.ring's nodes
-  // can never be reparented under a container that did not exist yet when
-  // they were created).
-  dg::FocusRing menu_ring_;
-
-  // --- Tooltip (overlay-only, shares the host's own tree) ---
-  std::optional<dg::PopupHandle> tooltip_popup_;
-
-  // --- Dialog, overlay branch: shares the host's own tree/Focus ---
-  bool dialog_overlay_open_ = false;
-  std::optional<dialog_panel::Handles> dialog_handles_;
-  // Its own focus ring too, for the same reason menu_ring_ above is not
-  // scene_.ring: dialog_handles_->panel is appended to the host tree
-  // AFTER scene_.ring's four nodes already exist under LayoutTree::root(),
-  // so painting scene_.ring's nodes there would put them UNDER the panel
-  // (and its backdrop) in paint order rather than on top of the close
-  // button they are meant to outline.
-  dg::FocusRing dialog_overlay_ring_;
+  // --- The library popup components (include/drawgui/ui/): each builds
+  // its overlay through popup_host_ on open and destroy()s it on close,
+  // sharing the host's own tree, WidgetSet and Focus.
+  dg::Menu menu_;
+  dg::Tooltip tooltip_;
+  dg::Dialog dialog_;
 
   // --- Dialog, native branch: a genuine second OS window, its own
   // RenderTree/WidgetSet/Focus - built directly on WindowManager rather
@@ -233,174 +206,80 @@ class Runner {
   bool dialog_veto_ = false;
 };
 
-dg::WidgetSet& Runner::menu_active_widgets() { return scene_.widgets; }
-
-dg::Focus& Runner::menu_active_focus() { return scene_.focus; }
-
-dg::RenderTree& Runner::menu_active_tree() { return scene_.tree.render(); }
-
 dg::NodeSideTables Runner::side_tables() {
   return {scene_.widgets, theme_bindings_, scene_.focus,
           animation_,     action_scopes_,  scene_.interaction};
 }
 
-std::optional<int> Runner::menu_row_index_of(dg::NodeId id) const {
-  for (std::size_t i = 0; i < menu_rows_.size(); ++i) {
-    if (menu_rows_[i] == id) {
-      return static_cast<int>(i);
-    }
-  }
-  return std::nullopt;
+dg::UiContext Runner::ui() {
+  return dg::UiContext{popup_host_,
+                       host_window_,
+                       scene_.tree.render(),
+                       side_tables(),
+                       scene_.fonts.has_value() ? &*scene_.fonts : nullptr,
+                       scene_.ui_font,
+                       dg::popup_style_from_theme(scene_.theme, dg::ThemeVariant::kDark)};
 }
 
 void Runner::refresh_menu_ring() {
-  const dg::Color color = ring_color(scene_.theme);
-  // Ring parent/instance follow whichever scope is currently active - see
-  // menu_ring_/dialog_overlay_ring_'s own declaration comments for why
-  // neither can be scene_.ring while its scope is open.
-  if (menu_popup_.has_value() && menu_popup_->open) {
-    dg::update_focus_ring(scene_.tree.render(), menu_popup_->content_root, menu_ring_,
-                          scene_.focus.current(), color);
-    return;
-  }
-  if (dialog_overlay_open_ && dialog_handles_.has_value()) {
-    dg::update_focus_ring(scene_.tree.render(), dialog_handles_->panel, dialog_overlay_ring_,
-                          scene_.focus.current(), color);
-    return;
-  }
+  // While a menu or the dialog is open the host ring is collapsed: the menu
+  // paints its own highlight, the dialog its own ring (dg::Dialog).
+  const bool overlay = menu_.is_open() || dialog_.is_open();
   dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
-                        scene_.focus.current(), color);
+                        overlay ? std::nullopt : scene_.focus.current(),
+                        ring_color(scene_.theme));
 }
 
 void Runner::open_context_menu(dg::PixelPoint at) {
-  const dg::PixelRect anchor{at.x, at.y, 0, 0};
-  const dg::PixelSize size = menu_rows::size_for(static_cast<int>(kMenuItems.size()), 140);
-  const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      popup_host_.show(host_window_, scene_.tree.render(), anchor, size,
-                       dg::PopupPlacement::kBelow, dg::PopupFlags{});
-  if (!shown) {
-    *out_ << "could not open the context menu: " << shown.error().message << "\n";
+  dg::MenuSpec spec;
+  for (const std::string& item : kMenuItems) {
+    spec.items.push_back(dg::menu_item(item));
+  }
+  spec.min_width = 140;
+  dg::UiContext ctx = ui();
+  if (!menu_.open(ctx, dg::PixelRect{at.x, at.y, 0, 0}, spec, scene_.focus.current())) {
+    *out_ << "could not open the context menu\n";
     return;
   }
-  menu_popup_ = shown.value();
-  // Reset rather than reuse: a previous menu_ring_ (if any) named strip
-  // nodes under a content_root close_context_menu() has since destroyed -
-  // see popup_ring_'s reset comment in
-  // examples/22_dropdown_menu/dropdown_window.cpp.
-  menu_ring_ = dg::FocusRing{};
-
-  menu_rows_ = menu_rows::build(scene_.tree.render(), scene_.widgets, menu_popup_->content_root,
-                                kMenuItems, size.width, scene_.ui_font, 14.0F);
-  scene_.focus.enter_scope(menu_popup_->content_root);
-  menu_active_focus().set(menu_rows_.front());
   refresh_menu_ring();
 }
 
-void Runner::close_context_menu(std::optional<int> select_index) {
-  if (!menu_popup_.has_value()) {
-    return;
-  }
-  if (select_index.has_value()) {
-    *out_ << "context menu: \"" << kMenuItems[static_cast<std::size_t>(*select_index)]
+void Runner::after_menu(const dg::MenuResult& result) {
+  if (result.event == dg::MenuEvent::kActivated) {
+    *out_ << "context menu: \"" << kMenuItems[static_cast<std::size_t>(result.index)]
           << "\" selected\n";
   }
-  scene_.focus.exit_scope(scene_.tree.render());
-  popup_host_.destroy(*menu_popup_, side_tables());
-  menu_popup_.reset();
-  menu_rows_.clear();
+  if (result.closed()) {
+    refresh_menu_ring();
+  }
 }
 
 void Runner::update_tooltip() {
-  const std::optional<dg::NodeId> hovered = scene_.interaction.hovered();
-  const dg::AnimTime now = dg::steady_anim_time();
-  dg::update_hover_timer(scene_.hover_timer, hovered, now);
-
-  const bool over_target = hovered == scene_.handles.hover_target;
-  if (tooltip_popup_.has_value() && !over_target) {
-    close_tooltip();
-    return;
-  }
-  if (!tooltip_popup_.has_value() && over_target &&
-      dg::hover_ready(scene_.hover_timer, now, settings_.tooltip_delay_ms)) {
-    open_tooltip();
-  }
-}
-
-void Runner::open_tooltip() {
-  const dg::PixelRect anchor =
-      scene_.tree.render().absolute_bounds(scene_.handles.hover_target);
-  const std::string text = "This button opens a tooltip";
-  const dg::PixelSize size = tooltip_content::size_for(text, 13);
-  // dismiss_on_click_outside/dismiss_on_escape are both irrelevant to a
-  // tooltip - it accepts no PopupHost pointer/key routing at all
-  // (PopupHost::handle_pointer()/handle_key() are never called for
-  // tooltip_popup_ below); dismissal here is driven entirely by
-  // update_tooltip()'s own hover-timer state.
-  const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      popup_host_.show(host_window_, scene_.tree.render(), anchor, size,
-                       dg::PopupPlacement::kBelow, dg::PopupFlags{});
-  if (!shown) {
-    *out_ << "could not open the tooltip: " << shown.error().message << "\n";
-    return;
-  }
-  tooltip_popup_ = shown.value();
-  tooltip_content::build(scene_.tree.render(), tooltip_popup_->content_root, text,
-                         scene_.ui_font, 13.0F, size);
-}
-
-void Runner::close_tooltip() {
-  if (!tooltip_popup_.has_value()) {
-    return;
-  }
-  popup_host_.destroy(*tooltip_popup_, side_tables());
-  tooltip_popup_.reset();
+  dg::UiContext ctx = ui();
+  (void)tooltip_.tick(ctx, scene_.interaction.hovered(), dg::steady_anim_time());
 }
 
 void Runner::open_dialog() {
   if (settings_.force_overlay) {
-    if (dialog_overlay_open_) {
-      return;
+    dg::DialogSpec spec;
+    spec.title = "Modal dialog - Tab/click cannot escape";
+    spec.buttons = {"Close"};
+    spec.cancel_button = 0;
+    spec.panel_size = dg::PixelSize{280, 120};
+    dg::UiContext ctx = ui();
+    if (!dialog_.is_open() && !dialog_.open(ctx, spec, scene_.focus.current())) {
+      *out_ << "could not open the dialog\n";
     }
-    const dg::Expected<dg::PixelSize, dg::WindowError> size =
-        manager_->drawable_size(host_window_);
-    if (!size) {
-      *out_ << "could not open the dialog: " << size.error().message << "\n";
-      return;
-    }
-    dialog_handles_ =
-        dialog_panel::build(scene_.tree.render(), scene_.widgets, dg::LayoutTree::root(),
-                            size.value(), dg::PixelSize{280, 120}, scene_.ui_font);
-    // Reset before enter_scope/refresh_menu_ring() below: a previous
-    // dialog_overlay_ring_ (if any) has its four strip nodes under a
-    // now-orphaned earlier panel (dialog_handles_ is never cleared -
-    // RenderTree is append-only, matching menu_ring_'s own reasoning
-    // above), and dialog_overlay_open_ must already be true by the time
-    // refresh_menu_ring() runs or it falls through to scene_.ring/root
-    // instead of this branch's own ring.
-    dialog_overlay_ring_ = dg::FocusRing{};
-    dialog_overlay_open_ = true;
-    scene_.focus.enter_scope(dialog_handles_->panel, /*modal=*/true);
-    scene_.focus.set_guarded(scene_.tree.render(), dialog_handles_->close_button);
     refresh_menu_ring();
     return;
   }
   open_dialog_native();
 }
 
-void Runner::close_dialog_overlay() {
-  if (!dialog_overlay_open_) {
-    return;
+void Runner::after_dialog(const dg::DialogResult& result) {
+  if (result.event == dg::DialogEvent::kClosed) {
+    refresh_menu_ring();
   }
-  scene_.focus.exit_scope(scene_.tree.render());
-  // The panel/backdrop are never removed - RenderTree is append-only;
-  // a real "Dialog" would clip them to empty the same
-  // way PopupHost's own overlay branch closes.
-  // Left visible-but-inert here is out of this demo's scope (this branch's
-  // whole point is the FOCUS trap, not a second clip-to-close mechanism
-  // that would just re-derive PopupHost's own).
-  dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
-                        scene_.focus.current(), ring_color(scene_.theme));
-  dialog_overlay_open_ = false;
 }
 
 void Runner::open_dialog_native() {
@@ -470,12 +349,14 @@ void Runner::close_dialog_native() {
 }
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
-  if (menu_popup_.has_value() && menu_popup_->open) {
-    handle_pointer_menu(event);
+  dg::UiContext ctx = ui();
+  (void)tooltip_.handle_pointer(ctx, event);
+  if (menu_.is_open()) {
+    after_menu(menu_.handle_pointer(ctx, event));
     return;
   }
-  if (dialog_overlay_open_) {
-    handle_pointer_dialog_overlay(event);
+  if (dialog_.is_open()) {
+    after_dialog(dialog_.handle_pointer(ctx, event));
     return;
   }
   if (handle_pointer_dialog_native(event)) {
@@ -493,49 +374,6 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
     open_dialog();
   }
   update_tooltip();
-}
-
-void Runner::handle_pointer_menu(const dg::PointerEvent& event) {
-  if (!menu_popup_.has_value()) {
-    return;
-  }
-  dg::PopupHandle& handle = *menu_popup_;
-  if (popup_host_.handle_pointer(handle, event.window, event)) {
-    close_context_menu(std::nullopt);
-    return;
-  }
-  if (event.action != dg::PointerAction::kDown) {
-    return;
-  }
-  if (event.window != host_window_) {
-    return;
-  }
-  const dg::PixelPoint at{event.x, event.y};
-  const std::optional<dg::NodeId> hit = menu_active_widgets().widget_at(menu_active_tree(), at);
-  const std::optional<int> index = hit.has_value() ? menu_row_index_of(*hit) : std::nullopt;
-  close_context_menu(index);
-}
-
-void Runner::handle_pointer_dialog_overlay(const dg::PointerEvent& event) {
-  if (!dialog_handles_.has_value()) {
-    return;
-  }
-  if (event.window != host_window_ || event.action != dg::PointerAction::kDown) {
-    return;
-  }
-  const dg::PixelPoint at{event.x, event.y};
-  const std::optional<dg::NodeId> hit = scene_.widgets.widget_at(scene_.tree.render(), at);
-  if (hit.has_value() && *hit == dialog_handles_->close_button) {
-    close_dialog_overlay();
-    return;
-  }
-  // Anything else (the backdrop, the panel background, or - were it
-  // somehow reachable - `before`/`after` behind it) is REFUSED: the
-  // backdrop's own non-interactive climb already stops a click from
-  // resolving to a host widget (dialog_panel.h's own argument), and
-  // set_guarded() is what stops a DIRECT Focus target the same way -
-  // exercised explicitly, not merely relied upon, immediately below.
-  scene_.focus.set_guarded(scene_.tree.render(), hit);
 }
 
 bool Runner::handle_pointer_dialog_native(const dg::PointerEvent& event) {
@@ -590,68 +428,16 @@ bool Runner::menu_target_secondary_click(const dg::PointerEvent& event) {
 }
 
 void Runner::handle_key(const dg::KeyEvent& event) {
-  if (menu_popup_.has_value() && menu_popup_->open) {
-    handle_key_menu(event);
+  dg::UiContext ctx = ui();
+  if (menu_.is_open()) {
+    after_menu(menu_.handle_key(ctx, event));
     return;
   }
-  if (dialog_overlay_open_) {
-    handle_key_dialog_overlay(event);
+  if (dialog_.is_open()) {
+    after_dialog(dialog_.handle_key(ctx, event));
     return;
   }
   menu_scene::dispatch_key(scene_, event);
-}
-
-void Runner::handle_key_menu(const dg::KeyEvent& event) {
-  if (!menu_popup_.has_value()) {
-    return;
-  }
-  dg::PopupHandle& handle = *menu_popup_;
-  if (popup_host_.handle_key(handle, event.window, event)) {
-    close_context_menu(std::nullopt);
-    return;
-  }
-  if (event.action != dg::KeyAction::kDown) {
-    return;
-  }
-  if (event.key == dg::Key::kUp) {
-    menu_active_focus().focus_previous(menu_active_tree(), menu_active_widgets(),
-                                       handle.content_root);
-    refresh_menu_ring();
-    return;
-  }
-  if (event.key == dg::Key::kDown) {
-    menu_active_focus().focus_next(menu_active_tree(), menu_active_widgets(),
-                                   handle.content_root);
-    refresh_menu_ring();
-    return;
-  }
-  if (event.key == dg::Key::kEnter) {
-    const std::optional<dg::NodeId> highlighted = menu_active_focus().current();
-    const std::optional<int> index =
-        highlighted.has_value() ? menu_row_index_of(*highlighted) : std::nullopt;
-    close_context_menu(index);
-  }
-}
-
-void Runner::handle_key_dialog_overlay(const dg::KeyEvent& event) {
-  if (!dialog_handles_.has_value() || event.action != dg::KeyAction::kDown) {
-    return;
-  }
-  if (event.key == dg::Key::kTab) {
-    const dg::FocusChange change =
-        dg::has(event.mods, dg::Modifier::kShift)
-            ? scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets,
-                                          dialog_handles_->panel)
-            : scene_.focus.focus_next(scene_.tree.render(), scene_.widgets,
-                                      dialog_handles_->panel);
-    if (change.any()) {
-      refresh_menu_ring();
-    }
-    return;
-  }
-  if (event.key == dg::Key::kEscape) {
-    close_dialog_overlay();
-  }
 }
 
 int Runner::run() {
@@ -688,7 +474,7 @@ int Runner::run() {
     // and update_hover_timer()/hover_ready() are cheap, idempotent reads -
     // there is no cost to paying for this every iteration.
     //
-    // Deliberately unconditional on menu_popup_ too: this does not check
+    // Deliberately unconditional on menu_ too: this does not check
     // whether a context menu is currently open before also opening a
     // tooltip. With PopupHost's per-handle fix, that is no longer a
     // correctness bug (each PopupHandle is self-contained and closes
@@ -710,15 +496,14 @@ int Runner::next_pump_timeout_ms(Clock::time_point started) const {
   // delay for the first time (examples/17_animation's own kFramePacerMs
   // reused verbatim, section 6.2's own argument): -1 (block indefinitely)
   // whenever nothing needs to be timed, a short poll only while
-  // scene_.hover_timer names a widget still waiting out its delay.
+  // tooltip_ names a widget still waiting out its delay.
   // `--run-ms`'s own deadline needs an upper bound on the -1 case too -
   // unlike examples/17_animation, this demo does not always have
   // something animating to keep the loop naturally bounded, so the
   // deadline itself caps the wait exactly the way examples/
   // 01_sdl3_multi_window's own `--auto-close-ms` already polls at a fixed
   // interval rather than blocking indefinitely.
-  const bool hover_pending =
-      scene_.hover_timer.target.has_value() && !tooltip_popup_.has_value();
+  const bool hover_pending = tooltip_.next_deadline().has_value();
   if (hover_pending) {
     return kHoverPollMs;
   }
@@ -729,7 +514,8 @@ int Runner::next_pump_timeout_ms(Clock::time_point started) const {
   return -1;
 }
 
-void Runner::process_close_requests(const dg::PumpResult& pumped) {  for (const dg::WindowId id : pumped.close_requested) {
+void Runner::process_close_requests(const dg::PumpResult& pumped) {
+  for (const dg::WindowId id : pumped.close_requested) {
     if (dialog_window_.has_value() && id == *dialog_window_) {
       if (dialog_veto_) {
         *out_ << "dialog close request VETOED (on_close_request handler declined)\n";

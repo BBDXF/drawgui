@@ -215,6 +215,15 @@ if(DRAWGUI_HAVE_SDL3)
     src/platform/sdl3/window_manager.cpp
     src/window/popup_host.cpp
 
+    # The popup components (Menu/Dropdown/Tooltip/Dialog) are built on
+    # PopupHost, so they need the same WindowManager-backed build.
+    src/ui/dialog.cpp
+    src/ui/dropdown.cpp
+    src/ui/menu.cpp
+    src/ui/tooltip_popup.cpp
+    src/ui/ui_context.cpp
+    src/ui/ui_visuals.cpp
+
     # 8-4's clipboard consumer: apply_clipboard_action() calls
     # WindowManager::set_clipboard_text()/get_clipboard_text() directly,
     # the same WindowManager-dependency reason popup_host.cpp sits in this

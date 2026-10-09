@@ -19,16 +19,16 @@
 #include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/shortcuts/clipboard_actions.h"
 #include "drawgui/theme/token_ids.generated.h"
+#include "drawgui/ui/dropdown.h"
+#include "drawgui/ui/menu.h"
+#include "drawgui/ui/tooltip_popup.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/tooltip.h"
 #include "drawgui/window/popup_host.h"
 #include "drawgui/window/window_manager.h"
 
-#include "context_menu.h"
 #include "profile_dialog.h"
 #include "showcase_scene.h"
-#include "sort_options.h"
-#include "tooltip_content.h"
 
 namespace showcase_window {
 namespace {
@@ -98,8 +98,6 @@ void present_painted(dg::WindowManager& manager, dg::WindowId window, dg::Render
   }
 }
 
-enum class PopupKind : std::uint8_t { kNone, kDropdown, kContextMenu };
-
 }  // namespace
 
 // The pixel size Runner uses for its own first scene/tree/surface build and
@@ -125,7 +123,10 @@ class Runner {
         host_window_(host_window),
         scene_(showcase_scene::build(
             scene_options(settings, initial_viewport(manager, host_window, settings)))),
-        popup_host_(manager) {
+        popup_host_(manager),
+        tooltip_(settings.tooltip_delay_ms) {
+    tooltip_.bind(scene_.handles.help_button,
+                  "\u9f9f\u5751\u63d0\u793a\uff1a\u53f3\u952e\u6587\u4ef6\u4fe1\u606f");
     const dg::PixelSize pixels = initial_viewport(manager, host_window, settings);
     host_surface_ = dg::RasterSurface::create(pixels.width, pixels.height);
   }
@@ -143,15 +144,11 @@ class Runner {
   void handle_pointer(const dg::PointerEvent& event);
   void handle_key(const dg::KeyEvent& event);
   void update_tooltip();
-  void open_tooltip();
-  void close_tooltip();
-
-  void open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSize size);
-  void close_popup(std::optional<int> select_index);
+  void after_popup();
   void refresh_ring();
   void resize_host_if_needed();
-  std::optional<int> row_index_of(dg::NodeId id) const;
   dg::NodeSideTables side_tables();
+  dg::UiContext ui();
 
   void open_dialog();
   void close_dialog();
@@ -178,20 +175,15 @@ class Runner {
   dg::ActionScopes action_scopes_;
 
   dg::PopupHost popup_host_;
-  std::optional<dg::PopupHandle> popup_;
-  PopupKind popup_kind_ = PopupKind::kNone;
-  std::vector<dg::NodeId> popup_rows_;
-  // The popup's own focus ring, distinct from scene_.ring - see
-  // examples/22_dropdown_menu/dropdown_window.cpp's popup_ring_ for why
-  // (RenderTree is append-only, so scene_.ring's nodes, already children of
-  // LayoutTree::root(), can never be reparented under popup_->content_root).
-  dg::FocusRing popup_ring_;
-
-  std::optional<dg::PopupHandle> tooltip_popup_;
+  // The library popup components (include/drawgui/ui/): each builds its
+  // overlay through popup_host_ and destroy()s it on close.
+  dg::Dropdown sort_dropdown_{scene_.handles.sort_dropdown};
+  dg::Menu context_menu_;
+  dg::Tooltip tooltip_;
 
   bool dialog_open_ = false;
   std::optional<profile_dialog::Handles> dialog_handles_;
-  // Same reasoning as popup_ring_ above: dialog_handles_->panel is appended
+  // The dialog panel's own ring: dialog_handles_->panel is appended
   // to the host tree AFTER scene_.ring's nodes already exist, so reusing
   // scene_.ring here would put the ring under the panel in paint order.
   dg::FocusRing dialog_ring_;
@@ -202,23 +194,24 @@ dg::NodeSideTables Runner::side_tables() {
           animation_,     action_scopes_,  scene_.interaction};
 }
 
-std::optional<int> Runner::row_index_of(dg::NodeId id) const {
-  for (std::size_t i = 0; i < popup_rows_.size(); ++i) {
-    if (popup_rows_[i] == id) {
-      return static_cast<int>(i);
-    }
-  }
-  return std::nullopt;
+dg::UiContext Runner::ui() {
+  return dg::UiContext{popup_host_,
+                       host_window_,
+                       scene_.tree.render(),
+                       side_tables(),
+                       scene_.fonts.has_value() ? &*scene_.fonts : nullptr,
+                       scene_.ui_font,
+                       dg::popup_style_from_theme(scene_.theme, scene_.variant)};
 }
 
 void Runner::refresh_ring() {
   const dg::Color color = ring_color(scene_.theme);
-  // Ring parent/instance follow whichever scope is currently active - see
-  // popup_ring_/dialog_ring_'s own declaration comments for why neither
-  // can be scene_.ring while its scope is open.
-  if (popup_.has_value() && popup_->open) {
-    dg::update_focus_ring(scene_.tree.render(), popup_->content_root, popup_ring_,
-                          scene_.focus.current(), color);
+  // A dropdown/context menu paints its own highlight row; the host ring is
+  // collapsed while one is open. The dialog panel keeps its own ring - see
+  // dialog_ring_'s declaration comment.
+  if (sort_dropdown_.is_open() || context_menu_.is_open()) {
+    dg::update_focus_ring(scene_.tree.render(), dg::LayoutTree::root(), scene_.ring,
+                          std::nullopt, color);
     return;
   }
   if (dialog_open_ && dialog_handles_.has_value()) {
@@ -230,96 +223,13 @@ void Runner::refresh_ring() {
                         scene_.focus.current(), color);
 }
 
-void Runner::open_popup(PopupKind kind, const dg::PixelRect& anchor, dg::PixelSize size) {
-  const dg::Expected<dg::PopupHandle, dg::WindowError> shown =
-      popup_host_.show(host_window_, scene_.tree.render(), anchor, size,
-                       dg::PopupPlacement::kBelow, dg::PopupFlags{});
-  if (!shown) {
-    *out_ << "could not open the popup: " << shown.error().message << "\n";
-    return;
-  }
-  popup_ = shown.value();
-  popup_kind_ = kind;
-  // Reset rather than reuse: a previous popup_ring_ (if any) named strip
-  // nodes under a content_root close_popup() has since destroyed.
-  popup_ring_ = dg::FocusRing{};
-  const std::vector<std::string>& items =
-      kind == PopupKind::kDropdown ? showcase_scene::kSortOptions : kContextMenuItems;
-
-  popup_rows_ = kind == PopupKind::kDropdown
-                    ? sort_options::build(scene_.tree.render(), scene_.widgets,
-                                          popup_->content_root, items, size.width,
-                                          scene_.ui_font, scene_.theme, scene_.variant)
-                    : context_menu::build(scene_.tree.render(), scene_.widgets,
-                                          popup_->content_root, items, size.width,
-                                          scene_.ui_font, scene_.theme, scene_.variant);
-  scene_.focus.enter_scope(popup_->content_root);
-  scene_.focus.set(popup_rows_.front());
+void Runner::after_popup() {
   refresh_ring();
 }
 
-void Runner::close_popup(std::optional<int> select_index) {
-  if (!popup_.has_value()) {
-    return;
-  }
-  if (select_index.has_value() && popup_kind_ == PopupKind::kDropdown &&
-      scene_.fonts.has_value()) {
-    scene_.widgets.dropdown_select(scene_.tree.render(), *scene_.fonts,
-                                   scene_.handles.sort_dropdown, *select_index);
-  } else if (select_index.has_value() && popup_kind_ == PopupKind::kContextMenu) {
-    *out_ << "context menu: \"" << kContextMenuItems[static_cast<std::size_t>(*select_index)]
-          << "\" selected\n";
-  }
-  scene_.focus.exit_scope(scene_.tree.render());
-  popup_host_.destroy(*popup_, side_tables());
-  popup_.reset();
-  popup_rows_.clear();
-  const PopupKind kind = popup_kind_;
-  popup_kind_ = PopupKind::kNone;
-  if (kind == PopupKind::kDropdown) {
-    showcase_scene::apply_focus_change(scene_, *manager_, host_window_,
-                                       scene_.handles.sort_dropdown);
-  }
-}
-
 void Runner::update_tooltip() {
-  const std::optional<dg::NodeId> hovered = scene_.interaction.hovered();
-  const dg::AnimTime now = dg::steady_anim_time();
-  dg::update_hover_timer(scene_.hover_timer, hovered, now);
-
-  const bool over_target = hovered == scene_.handles.help_button;
-  if (tooltip_popup_.has_value() && !over_target) {
-    close_tooltip();
-    return;
-  }
-  if (!tooltip_popup_.has_value() && over_target &&
-      dg::hover_ready(scene_.hover_timer, now, settings_.tooltip_delay_ms)) {
-    open_tooltip();
-  }
-}
-
-void Runner::open_tooltip() {
-  const dg::PixelRect anchor = scene_.tree.render().absolute_bounds(scene_.handles.help_button);
-  const std::string text = "\u9f9f\u5751\u63d0\u793a\uff1a\u53f3\u952e\u6587\u4ef6\u4fe1\u606f";
-  const dg::PixelSize size = tooltip_content::size_for(text, 13);
-  const dg::Expected<dg::PopupHandle, dg::WindowError> shown = popup_host_.show(
-      host_window_, scene_.tree.render(), anchor, size, dg::PopupPlacement::kBelow,
-      dg::PopupFlags{});
-  if (!shown) {
-    *out_ << "could not open the tooltip: " << shown.error().message << "\n";
-    return;
-  }
-  tooltip_popup_ = shown.value();
-  tooltip_content::build(scene_.tree.render(), tooltip_popup_->content_root, text,
-                         scene_.ui_font, 13.0F, size, scene_.theme, scene_.variant);
-}
-
-void Runner::close_tooltip() {
-  if (!tooltip_popup_.has_value()) {
-    return;
-  }
-  popup_host_.destroy(*tooltip_popup_, side_tables());
-  tooltip_popup_.reset();
+  dg::UiContext ctx = ui();
+  (void)tooltip_.tick(ctx, scene_.interaction.hovered(), dg::steady_anim_time());
 }
 
 void Runner::open_dialog() {
@@ -428,26 +338,24 @@ void Runner::handle_key_dialog(const dg::KeyEvent& event) {
 }
 
 void Runner::handle_pointer(const dg::PointerEvent& event) {
-  if (popup_.has_value() && popup_->open) {
-    if (popup_host_.handle_pointer(*popup_, event.window, event)) {
-      close_popup(std::nullopt);
-      return;
+  dg::UiContext ctx = ui();
+  (void)tooltip_.handle_pointer(ctx, event);
+  if (sort_dropdown_.is_open()) {
+    const dg::DropdownResult result = sort_dropdown_.handle_pointer(ctx, event);
+    if (result.event != dg::DropdownEvent::kHandled) {
+      after_popup();
     }
-    if (event.action != dg::PointerAction::kDown) {
-      return;
+    return;
+  }
+  if (context_menu_.is_open()) {
+    const dg::MenuResult result = context_menu_.handle_pointer(ctx, event);
+    if (result.event == dg::MenuEvent::kActivated) {
+      *out_ << "context menu: \"" << kContextMenuItems[static_cast<std::size_t>(result.index)]
+            << "\" selected\n";
     }
-    if (event.window != host_window_) {
-      return;
+    if (result.closed()) {
+      after_popup();
     }
-    const dg::PixelPoint at{event.x, event.y};
-    const std::optional<dg::NodeId> hit = scene_.widgets.widget_at(scene_.tree.render(), at);
-    const std::optional<int> index = hit.has_value() ? row_index_of(*hit) : std::nullopt;
-    if (index.has_value()) {
-      close_popup(index);
-      return;
-    }
-    scene_.focus.set(hit);
-    refresh_ring();
     return;
   }
   if (dialog_open_) {
@@ -460,16 +368,18 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
   showcase_scene::dispatch_pointer(scene_, *manager_, host_window_, event, &wants_context_menu,
                                    &wants_dropdown);
   if (wants_context_menu) {
-    const dg::PixelPoint at{event.x, event.y};
-    open_popup(PopupKind::kContextMenu, dg::PixelRect{at.x, at.y, 0, 0},
-               context_menu::size_for(static_cast<int>(kContextMenuItems.size()), 140));
+    dg::MenuSpec spec;
+    for (const std::string& item : kContextMenuItems) {
+      spec.items.push_back(dg::menu_item(item));
+    }
+    spec.min_width = 140;
+    (void)context_menu_.open(ctx, dg::PixelRect{event.x, event.y, 0, 0}, spec,
+                             scene_.focus.current());
+    after_popup();
   }
   if (wants_dropdown) {
-    const dg::PixelRect anchor =
-        scene_.tree.render().absolute_bounds(scene_.handles.sort_dropdown);
-    open_popup(PopupKind::kDropdown, anchor,
-               sort_options::size_for(static_cast<int>(showcase_scene::kSortOptions.size()),
-                                      anchor.width));
+    (void)sort_dropdown_.open(ctx);
+    after_popup();
   }
   if (event.action == dg::PointerAction::kUp &&
       scene_.widgets.widget_at(scene_.tree.render(), dg::PixelPoint{event.x, event.y}) ==
@@ -485,52 +395,34 @@ void Runner::handle_pointer(const dg::PointerEvent& event) {
 }
 
 void Runner::handle_key(const dg::KeyEvent& event) {
-  if (popup_.has_value() && popup_->open) {
-    dg::PopupHandle& handle = *popup_;
-    if (popup_host_.handle_key(handle, event.window, event)) {
-      close_popup(std::nullopt);
-      return;
+  dg::UiContext ctx = ui();
+  if (sort_dropdown_.is_open()) {
+    (void)sort_dropdown_.handle_key(ctx, event);
+    after_popup();
+    return;
+  }
+  if (context_menu_.is_open()) {
+    const dg::MenuResult result = context_menu_.handle_key(ctx, event);
+    if (result.event == dg::MenuEvent::kActivated) {
+      *out_ << "context menu: \"" << kContextMenuItems[static_cast<std::size_t>(result.index)]
+            << "\" selected\n";
     }
-    if (event.action != dg::KeyAction::kDown) {
-      return;
-    }
-    if (event.key == dg::Key::kUp) {
-      scene_.focus.focus_previous(scene_.tree.render(), scene_.widgets, handle.content_root);
-      refresh_ring();
-      return;
-    }
-    if (event.key == dg::Key::kDown) {
-      scene_.focus.focus_next(scene_.tree.render(), scene_.widgets, handle.content_root);
-      refresh_ring();
-      return;
-    }
-    if (event.key == dg::Key::kEnter) {
-      const std::optional<dg::NodeId> highlighted = scene_.focus.current();
-      close_popup(highlighted.has_value() ? row_index_of(*highlighted) : std::nullopt);
-      return;
-    }
+    after_popup();
     return;
   }
   if (dialog_open_) {
     handle_key_dialog(event);
     return;
   }
-  if (event.action == dg::KeyAction::kDown &&
-      (event.key == dg::Key::kDown || event.key == dg::Key::kEnter) &&
-      scene_.focus.is_focused(scene_.handles.sort_dropdown)) {
-    const dg::PixelRect anchor =
-        scene_.tree.render().absolute_bounds(scene_.handles.sort_dropdown);
-    open_popup(PopupKind::kDropdown, anchor,
-               sort_options::size_for(static_cast<int>(showcase_scene::kSortOptions.size()),
-                                      anchor.width));
+  if (sort_dropdown_.handle_key(ctx, event).event != dg::DropdownEvent::kIgnored) {
+    after_popup();
     return;
   }
   showcase_scene::dispatch_key(scene_, *manager_, host_window_, event);
 }
 
 int Runner::next_pump_timeout_ms(Clock::time_point started) const {
-  const bool hover_pending =
-      scene_.hover_timer.target.has_value() && !tooltip_popup_.has_value();
+  const bool hover_pending = tooltip_.next_deadline().has_value();
   if (hover_pending) {
     return kHoverPollMs;
   }

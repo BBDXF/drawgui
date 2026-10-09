@@ -7,8 +7,10 @@
 
 下拉菜单、右键菜单、tooltip、对话框都需要"在某个 widget 附近浮现一块内容，
 点击外部或按 Escape 时消失"这套通用行为。`PopupHost` 只提供**容器和摆放**
-这两件事——它不知道你的下拉菜单有几个选项、菜单该长什么样，那些都是调用方
-自己在 `PopupHandle::content_root` 下面搭建的普通 widget 树。
+这两件事——它不知道你的下拉菜单有几个选项、菜单该长什么样。往容器里放什么，
+由它上面一层的**库组件**（`include/drawgui/ui/`：`dg::Menu`、`dg::Dropdown`、
+`dg::Tooltip`、`dg::Dialog`）负责；需要组件做不到的形态时，也仍然可以直接在
+`PopupHandle::content_root` 下面自己搭普通 widget 树。
 
 ## 当前真相：overlay-only
 
@@ -70,81 +72,124 @@ class PopupHost {
 结果第二个弹层打开时覆盖了第一个 handle 的 tree 指针，第一个 handle 的
 `close()` 就悄悄变成 no-op）。
 
-## 打开一个下拉菜单：完整流程
+## 库组件：Menu / Dropdown / Tooltip / Dialog
 
-以下改编自 `examples/22_dropdown_menu/dropdown_window.cpp`。
+头文件在 `include/drawgui/ui/`，实现在 `src/ui/`（所有绘制/节点形状集中在
+`src/ui/ui_visuals.cpp`）。它们**不是新的 `WidgetKind`**：组件自己调用
+`PopupHost::show()`、在 `content_root` 下建节点、把行/按钮作为普通 `kButton`
+注册进宿主的 `WidgetSet`，关闭时 `PopupHost::destroy()`——节点数回到基线。
+没有回调：宿主循环把事件交给组件，读回带类型的结果。
 
-### 1. 打开
-
-```cpp
-void Runner::open_dropdown() {
-  const dg::PixelRect anchor = scene_.tree.render().absolute_bounds(scene_.handles.dropdown);
-  const dg::PixelSize size = dropdown_options::size_for(option_count, anchor.width);
-
-  const auto shown = popup_host_.show(host_window_, scene_.tree.render(), anchor, size,
-                                      dg::PopupPlacement::kBelow, dg::PopupFlags{});
-  if (!shown) { /* 打开失败，比如父窗口尺寸查询失败 */ return; }
-  popup_ = shown.value();
-
-  // 每次开弹层都要一个全新的 FocusRing —— 见 doc/guide/input.md 的
-  // "焦点环:内缩,且每个弹层需要自己的实例"一节。
-  popup_ring_ = dg::FocusRing{};
-
-  // 选项列表是应用层自己搭的普通 widget 树,PopupHost 从不知道"下拉菜单"
-  // 这个概念 —— 见 dropdown_options.cpp。
-  rows_ = dropdown_options::build(scene_.tree.render(), scene_.widgets,
-                                  popup_->content_root, kOptions, size.width,
-                                  ui_font, 15.0F, selected_index, row_color);
-
-  // 把 Tab 限制在弹层内部,焦点挂到弹层自己的 content_root 子树上
-  scene_.focus.enter_scope(popup_->content_root);
-  scene_.focus.set(rows_[start_index]);
-  refresh_ring();
-}
-```
-
-（`dropdown_window.cpp:224-256`）
-
-### 2. 事件路由：谁先看到指针/键盘事件
+### `UiContext`：每次调用传入的引用包
 
 ```cpp
-void Runner::handle_pointer(const dg::PointerEvent& event) {
-  if (popup_.has_value() && popup_->open) {
-    if (popup_host_.handle_pointer(*popup_, event.window, event)) {
-      close_dropdown(std::nullopt);   // 点击外部/其它 dismissal 关闭了它
-      return;
-    }
-    // 没被关闭,说明点在弹层内部 —— 应用层自己算命中了哪一行
-    ...
-    return;
-  }
-  // 弹层没打开时,走宿主窗口自己的普通指针分发
-}
+struct UiContext {
+  PopupHost& popups;
+  WindowId window;
+  RenderTree& tree;
+  NodeSideTables tables;           // widgets/theme_bindings/focus/animation/action_scopes/interaction
+  const FontCatalog* fonts = nullptr;  // 文字实测宽度；Dropdown 提交选择也需要它
+  FontId font;
+  PopupStyle style;                // 颜色/尺寸
+};
+PopupStyle popup_style_from_theme(const Theme& theme, ThemeVariant variant);
 ```
 
-（`dropdown_window.cpp:276-307`）
+组件**从不保存** `UiContext`——每次 `handle_*()` 都要传。通常在宿主里写一个
+`dg::UiContext ui()` 现组装（见 `examples/22_dropdown_menu/dropdown_window.cpp`）。
+`PopupStyle` 由已有 token 填充（surface/on-surface/border/primary*/on-disabled/
+focus-ring、`radius.md`、`space.md`）；遮罩色 `scrim` 目前没有 token，直接改字段。
 
-`handle_pointer()`/`handle_key()` **只负责判断这次事件是否触发了 dismissal**
-（点击外部、Escape），返回 `true` 表示已经把 `handle` 关掉了。如果事件落
-在弹层内部但不是 dismissal，函数返回 `false`，调用方需要自己接着处理——
-比如判断点在哪一行、要不要选中它。**`PopupHost` 完全不知道你的内容里有
-"行"这个概念**。
-
-### 3. 关闭
+### `dg::Menu`：右键菜单 / 选项列表
 
 ```cpp
-void Runner::close_dropdown(std::optional<int> select_index) {
-  if (select_index.has_value()) { /* 应用层自己的选中逻辑 */ }
-  scene_.focus.exit_scope(scene_.tree.render());   // 先退出焦点作用域
-  popup_host_.close(*popup_);                       // 再关闭弹层容器
-  popup_.reset();
-  rows_.clear();
-  // 关闭后把焦点还给触发它的 anchor,不留下"什么都没聚焦"的状态
-  apply_focus_change(scene_, scene_.handles.dropdown);
-}
+MenuSpec spec;
+spec.items = {menu_item("复制"), menu_item("粘贴", /*disabled=*/true), menu_separator(),
+              menu_check_item("自动换行", true)};
+spec.min_width = 140;
+menu.open(ctx, PixelRect{x, y, 0, 0}, spec, /*restore_focus=*/focus.current());
+
+MenuResult r = menu.handle_pointer(ctx, event);   // 或 handle_key / handle_text
+if (r.event == MenuEvent::kActivated) { use(r.index); }
+if (r.closed()) { refresh_host_focus_ring(); }
 ```
 
-（`dropdown_window.cpp:258-274`）
+- 高亮项就是 `Focus::current()`（菜单自己的焦点作用域里）；高亮行用
+  `PopupStyle::item_hover` 填充，菜单不画焦点环。
+- 键盘：Up/Down（环绕）、Home/End、Enter 激活、Escape 关闭、Tab 被吞掉；
+  `handle_text()` 做首字母 type-ahead。分隔线没有控件、禁用项带
+  `NodeStyle::disabled`，`focus_order()` 本来就跳过它们。
+- 指针：移动到可用项上即高亮；在可用项上 kDown 即激活；点外部（或其它窗口）关闭；
+  点禁用项/分隔线什么也不做。
+- 关闭（激活、Escape、点外部、`close()`）时：退出作用域、`destroy()` 浮层、
+  焦点还给 `restore_focus`。结果 `kActivated`/`kDismissed` 时菜单已经关好了。
+
+### `dg::Dropdown`：`kDropdown` + `Menu`
+
+```cpp
+dg::Dropdown dropdown{anchor_node};             // anchor 是已经 attach 好的 kDropdown
+DropdownResult r = dropdown.handle_key(ctx, event);   // 关闭时：锚点有焦点 + Down/Enter 打开
+DropdownResult r = dropdown.handle_pointer(ctx, event); // 关闭时：主键点锚点打开
+if (r.event == DropdownEvent::kChanged) { on_change(*r.selected, r.previous); }
+```
+
+打开时：选项来自 `WidgetSet::dropdown_options()`，菜单至少和锚点一样宽，当前
+选中项打勾并作为初始高亮。选中不同项时调用 `dropdown_select()`（刷新锚点标签）
+并返回 `kChanged`；Escape/点外部/选中同一项返回 `kClosed`。焦点总是回到锚点。
+宿主也可以自己判断触发条件后直接调用 `open(ctx)`。
+
+### `dg::Tooltip`：悬停延迟气泡
+
+```cpp
+dg::Tooltip tooltip{/*delay_ms=*/400};
+tooltip.bind(help_button, "提示文字");
+// 每次 pump 之后：
+tooltip.tick(ctx, interaction.hovered(), steady_anim_time());   // 测试里传任意 AnimTime
+// 每个指针事件（不消费事件，宿主照常分发）：
+tooltip.handle_pointer(ctx, event);
+// pump 超时：tooltip.next_deadline() 有值时短轮询
+```
+
+计时就是 `HoverTimer`；目标被连续悬停 `delay_ms` 后在其下方弹出（放不下就翻到
+上方/夹紧）。离开目标即销毁；按下/松开/滚轮/离开窗口也销毁，并且在指针离开该
+目标之前**不会再弹出**。绑定是组件自己持有的 `(NodeId, text)` 列表，不是侧表——
+节点被删后 NodeId 的 generation 不同，永远不会再匹配。
+
+### `dg::Dialog`：模态对话框
+
+```cpp
+DialogSpec spec;
+spec.title = "删除文件？";
+spec.body = "此操作不能撤销。";
+spec.buttons = {"取消", "删除"};
+spec.default_button = 1;   // Enter（焦点不在按钮上时）激活它，打开时聚焦它，强调色
+spec.cancel_button = 0;    // Escape 报告它
+dialog.open(ctx, spec, /*restore_focus=*/focus.current());
+
+DialogResult r = dialog.handle_key(ctx, event);
+if (r.event == DialogEvent::kClosed) { act_on(r.button); }   // nullopt = 无取消按钮时的 Escape
+if (r.event == DialogEvent::kIgnored && dialog.is_open()) { /* 交给 body 里聚焦的控件 */ }
+```
+
+- 覆盖整个窗口（`tree.viewport()`）：遮罩吞掉所有点击，面板居中。
+- 焦点陷阱就是现成的模态作用域：`enter_scope(panel, true)` + `set_guarded()`；
+  Tab/Shift-Tab 在面板内循环；对话框自带一个挂在面板下的焦点环。
+- `body()` 是留给调用方的区域（`DialogSpec::body_height` 预留高度，
+  `body_content_top()` 是正文文字下方的起点）：自己在里面加控件后，用
+  `focus.set_guarded()` + `dialog.refresh_ring(ctx)` 聚焦它。指针 kDown 的
+  结果带 `target`，方便把点击转发给 body 里的控件（比如文本框定位光标）。
+
+### 组件打开期间的事件路由
+
+示例的约定：菜单/下拉/对话框打开时，**所有**指针和键盘事件先交给它，宿主场景
+不再分发；tooltip 例外，它只旁听。组件返回 `closed()`/`kClosed` 后刷新宿主自己
+的焦点环（焦点已被还给锚点）。
+
+### 自己搭浮层（组件覆盖不到的形态）
+
+直接用 `PopupHost::show()` 拿 `content_root`，在下面 `RenderTree::add_child()`
++ `WidgetSet::attach()`；`enter_scope(content_root)` 限制 Tab；关闭时先
+`exit_scope()` 再 `destroy()`。`src/ui/menu.cpp` 本身就是这套流程最短的参考实现。
 
 ## `resolve_popup_placement()`：双轴 flip + clamp
 
@@ -233,33 +278,28 @@ walk 到达，下一次 `layout()`/`layout_full()` 就会悄悄覆盖掉 `PopupH
   （同样，旧实现曾经对任意窗口的 Escape 都关闭弹层，现已修正）。
 - 两者都遵守 `handle.flags` 里的 `dismiss_on_click_outside`/`dismiss_on_escape`。
 
-## 必须知道的两条组装规则
+## 必须知道的两条组装规则（自己搭浮层时；库组件已经遵守）
 
-1. **焦点环必须挂在 `content_root` 下**，不是宿主窗口的根——见上文
-   "打开一个下拉菜单"第 1 步和 `doc/guide/input.md` 的焦点环一节。
+1. **焦点环必须挂在 `content_root` 下**，不是宿主窗口的根——见
+   `doc/guide/input.md` 的焦点环一节（`dg::Dialog` 的环挂在面板下；`dg::Menu`
+   不画环，用高亮行）。
 2. **弹层内容必须 attach 进宿主的 `WidgetSet`**（同一个 `scene_.widgets`
    实例），否则 Tab 遍历（`focus_order()` 读的是 `WidgetSet`）根本看不到
    这些内容——它们会存在于 `RenderTree` 里、可以被点击命中，但永远不会
    被 Tab 到达。
 
-## 选项列表是应用层自己搭的
+## 组件之外的东西仍是应用层的
 
-**`PopupHost` 只提供容器和摆放，不提供"菜单/下拉框/tooltip"这些概念。**
-每一行、每一个选项、hover 高亮、选中态——全部是调用方在 `content_root`
-下用普通 `LayoutTree::add_child()` + `WidgetSet::attach()` 搭出来的，和
-搭宿主窗口的其它 UI 没有任何区别。
-
-必抄模板：
-- `examples/22_dropdown_menu` — 单个下拉菜单：选项行、上下键高亮、Enter
-  选中、点击外部/Escape 取消。
-- `examples/23_menu_tooltip_dialog` — 同一套机制搭菜单、tooltip、对话框
-  三种不同形态，能看出"容器相同、内容不同"这条边界具体落在哪里。
+组件只覆盖"文字行菜单 / 文字气泡 / 标题+正文+按钮对话框"这几种形态。图标菜单项、
+子菜单、富内容 tooltip、非模态面板等，仍然在 `content_root` 下自己搭（见上文
+"自己搭浮层"）。`examples/23_menu_tooltip_dialog` 的原生（第二个 OS 窗口）对话框
+分支、`examples/25_showcase` 带输入框的资料对话框也仍是手搭的。
 
 ## 边界与坑
 
 - overlay-only：不存在跑出父窗口边界的能力，也不存在第二个 OS 窗口。
 - `close()` 不回收节点，反复开关有累积成本。
-- 不支持嵌套 popup。
+- 不支持嵌套 popup（组件也一样：菜单里不能开子菜单，对话框里不能再开下拉）。
 - 焦点环必须每个弹层单独一份实例。
 - 弹层内容必须 attach 进宿主的 `WidgetSet` 才能被 Tab 到达。
 - 更多边界见 `doc/limitations.md`。
@@ -267,5 +307,7 @@ walk 到达，下一次 `layout()`/`layout_full()` 就会悄悄覆盖掉 `PopupH
 ## 相关 example
 
 - `examples/14_popup` — 最基础的 overlay 弹层：摆放、dismissal。
-- `examples/22_dropdown_menu` — 下拉菜单的完整流程。
-- `examples/23_menu_tooltip_dialog` — 菜单/tooltip/对话框三种形态。
+- `examples/22_dropdown_menu` — `dg::Dropdown`。
+- `examples/23_menu_tooltip_dialog` — `dg::Menu`（右键菜单）、`dg::Tooltip`、`dg::Dialog`（overlay 分支）。
+- `examples/25_showcase` — 排序下拉、右键菜单、CJK tooltip 都用组件。
+- `tests/unit/test_ui_components.cpp` — 组件行为的单测。

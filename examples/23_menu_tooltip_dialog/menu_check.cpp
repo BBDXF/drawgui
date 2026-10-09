@@ -3,9 +3,11 @@
 // its own top comment for why: SDL_VIDEODRIVER=dummy opens an ordinary
 // window and drives the OVERLAY branch for real. PopupHost (context menu,
 // tooltip) is overlay-only now - there is
-// no second branch left to attempt for either. Dialog is a genuinely
-// separate window-layer addition, NOT built on PopupHost, and keeps its own real SDL_SetWindowParent()/
-// SDL_SetWindowModal() native attempt below, unaffected by this.
+// no second branch left to attempt for either. The context menu, tooltip and
+// overlay dialog are the library components (dg::Menu, dg::Tooltip,
+// dg::Dialog - include/drawgui/ui/). The NATIVE dialog is a genuinely
+// separate window-layer addition, NOT built on PopupHost, and keeps its own
+// real SDL_SetWindowParent()/SDL_SetWindowModal() native attempt below.
 
 #include "menu_check.h"
 
@@ -16,19 +18,23 @@
 #include <utility>
 #include <vector>
 
+#include "drawgui/anim/animation_engine.h"
 #include "drawgui/anim/clock.h"
 #include "drawgui/base/expected.h"
+#include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
+#include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/theme/theme_bindings.h"
+#include "drawgui/ui/dialog.h"
+#include "drawgui/ui/menu.h"
+#include "drawgui/ui/tooltip_popup.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/tooltip.h"
 #include "drawgui/window/popup_host.h"
 #include "drawgui/window/window_manager.h"
 
-#include "dialog_panel.h"
-#include "menu_rows.h"
 #include "menu_scene.h"
 #include "menu_window.h"
-#include "tooltip_content.h"
 
 namespace menu_check {
 namespace {
@@ -36,10 +42,7 @@ namespace {
 using dg::NodeId;
 using dg::PixelRect;
 using dg::PixelSize;
-using dg::PopupFlags;
-using dg::PopupHandle;
 using dg::PopupHost;
-using dg::PopupPlacement;
 
 bool check(bool condition, const char* what, std::ostream& out, bool& ok) {
   out << "  " << (condition ? "PASS" : "FAIL") << " " << what << "\n";
@@ -54,6 +57,35 @@ menu_scene::Options options_for(PixelSize size) {
   menu_scene::Options options;
   options.spec.viewport = size;
   return options;
+}
+
+// The three side tables this example's scene does not keep itself, but
+// PopupHost::destroy() (through dg::NodeSideTables) needs by reference.
+struct SpareTables {
+  dg::ThemeBindings theme_bindings;
+  dg::AnimationEngine animation;
+  dg::ActionScopes action_scopes;
+};
+
+dg::UiContext ui_for(PopupHost& host, dg::WindowId window, menu_scene::Scene& scene,
+                     SpareTables& spare) {
+  return dg::UiContext{host,
+                       window,
+                       scene.tree.render(),
+                       {scene.widgets, spare.theme_bindings, scene.focus, spare.animation,
+                        spare.action_scopes, scene.interaction},
+                       scene.fonts.has_value() ? &*scene.fonts : nullptr,
+                       scene.ui_font,
+                       dg::PopupStyle{}};
+}
+
+std::vector<dg::MenuItem> menu_items() {
+  std::vector<dg::MenuItem> items;
+  items.reserve(kMenuItems.size());
+  for (const std::string& text : kMenuItems) {
+    items.push_back(dg::menu_item(text));
+  }
+  return items;
 }
 
 // --------------------------------------------------------------------------
@@ -95,9 +127,10 @@ void check_button_identity(std::ostream& out, bool& ok) {
   // Runner's constructor calls rather than a duplicate.
   menu_window::Settings runner_settings;
   runner_settings.size = kSize;
-  const dg::PixelSize drawable = manager.drawable_size(window.value()).value_or(dg::PixelSize{});
+  const dg::PixelSize drawable =
+      manager.drawable_size(window.value()).value_or(dg::PixelSize{});
   check(menu_window::initial_viewport(manager, window.value(), runner_settings) == drawable,
-       "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
+        "Runner's initial viewport is manager.drawable_size(), not Settings::size", out, ok);
 
   manager.post_pointer_button(window.value(), /*down=*/true, 40, 40,
                               dg::PointerButton::kPrimary);
@@ -175,17 +208,17 @@ void check_context_menu(std::ostream& out, bool& ok) {
     return;
   }
   PopupHost host{manager};
+  SpareTables spare;
+  dg::UiContext ctx = ui_for(host, window.value(), scene, spare);
   const PixelRect anchor_target =
       scene.tree.render().absolute_bounds(scene.handles.menu_target);
   const dg::PixelPoint pointer_at{anchor_target.left() + 12, anchor_target.top() + 8};
   // A zero-size anchor rect: resolve_popup_placement()'s own "below" case
   // sets content_bounds.top() to anchor.bottom(), which is exactly the
-  // pointer's own y for a zero-height rect (PixelRect::bottom() ==
-  // y + height) - the same reason a dropdown's own anchor is the WIDGET's
-  // full bounds and its content lands just past the bottom edge, not
-  // exactly ON it.
+  // pointer's own y for a zero-height rect.
   const PixelRect anchor{pointer_at.x, pointer_at.y, 0, 0};
-  const PixelSize menu_size = menu_rows::size_for(static_cast<int>(kMenuItems.size()), 140);
+  const std::size_t live_baseline =
+      dg::subtree_of(scene.tree.render(), dg::RenderTree::root()).size();
 
   // The routing decision this slice made: a
   // secondary-button kDown on menu_target does NOT touch dg::Interaction -
@@ -211,75 +244,65 @@ void check_context_menu(std::ostream& out, bool& ok) {
         "the routing decision named",
         out, ok);
 
-  const dg::Expected<PopupHandle, dg::WindowError> shown =
-      host.show(window.value(), scene.tree.render(), anchor, menu_size, PopupPlacement::kBelow,
-                PopupFlags{});
-  if (!shown) {
-    out << "  FAIL: overlay show() failed: " << shown.error().message << "\n";
+  dg::Menu menu;
+  dg::MenuSpec menu_spec;
+  menu_spec.items = menu_items();
+  menu_spec.min_width = 140;
+  const std::optional<dg::PopupHandle> menu_handle =
+      menu.open(ctx, anchor, menu_spec, std::nullopt) ? menu.handle() : std::nullopt;
+  if (!menu_handle.has_value()) {
+    out << "  FAIL: dg::Menu::open() failed\n";
     ok = false;
     return;
   }
-  PopupHandle handle = shown.value();
-  check(handle.content_bounds.left() == pointer_at.x &&
-            handle.content_bounds.top() == pointer_at.y,
+  check(menu_handle->content_bounds.left() == pointer_at.x &&
+            menu_handle->content_bounds.top() == pointer_at.y,
         "the menu opens anchored at the POINTER position, not menu_target's own bounds", out,
         ok);
 
-  std::vector<NodeId> rows =
-      menu_rows::build(scene.tree.render(), scene.widgets, handle.content_root, kMenuItems,
-                       menu_size.width, scene.ui_font, 14.0F);
-  scene.focus.enter_scope(handle.content_root);
-  scene.focus.set(rows.front());
+  auto key = [&](dg::Key k) {
+    const dg::KeyEvent event{window.value(), dg::KeyAction::kDown, k};
+    return menu.handle_key(ctx, event);
+  };
+  check(menu.highlighted(ctx) == 0, "opening seeds the highlight at the first item", out, ok);
+  key(dg::Key::kDown);
+  check(menu.highlighted(ctx) == 1, "Down moves the highlight to the second item", out, ok);
+  key(dg::Key::kDown);
+  check(menu.highlighted(ctx) == 2, "Down again reaches the LAST item", out, ok);
+  key(dg::Key::kDown);
+  check(menu.highlighted(ctx) == 0, "Down from the last item WRAPS to the first", out, ok);
+  key(dg::Key::kUp);
+  check(menu.highlighted(ctx) == 2, "Up from the first item WRAPS to the last", out, ok);
 
-  check(scene.focus.current() == rows[0], "opening seeds the highlight at the first item", out,
-        ok);
-  scene.focus.focus_next(scene.tree.render(), scene.widgets, handle.content_root);
-  check(scene.focus.current() == rows[1], "Down moves the highlight to the second item", out,
-        ok);
-  scene.focus.focus_next(scene.tree.render(), scene.widgets, handle.content_root);
-  check(scene.focus.current() == rows[2], "Down again reaches the LAST item", out, ok);
-  scene.focus.focus_next(scene.tree.render(), scene.widgets, handle.content_root);
-  check(scene.focus.current() == rows[0], "Down from the last item WRAPS to the first", out,
-        ok);
-  scene.focus.focus_previous(scene.tree.render(), scene.widgets, handle.content_root);
-  check(scene.focus.current() == rows[2], "Up from the first item WRAPS to the last", out, ok);
+  // Escape closes without a selection - PopupHost's own dismissal, routed
+  // through dg::Menu.
+  const dg::MenuResult escaped = key(dg::Key::kEscape);
+  check(escaped.event == dg::MenuEvent::kDismissed && !menu.is_open(),
+        "Escape closes the menu without a selection", out, ok);
 
-  // Escape closes without a selection - PopupHost's own dismissal, unchanged.
-  const dg::KeyEvent escape{window.value(), dg::KeyAction::kDown, dg::Key::kEscape};
-  const bool escape_closed = host.handle_key(handle, window.value(), escape);
-  check(escape_closed, "Escape closes the menu (PopupHost's own dismissal, unmodified)", out,
-        ok);
-  if (escape_closed) {
-    scene.focus.exit_scope(scene.tree.render());
-    host.close(handle);
-  }
-
-  // Reopen and close by a click OUTSIDE - the same PopupHost mechanism a
-  // dropdown already relies on, now exercised by a context menu instead.
-  const dg::Expected<PopupHandle, dg::WindowError> reopened =
-      host.show(window.value(), scene.tree.render(), anchor, menu_size, PopupPlacement::kBelow,
-                PopupFlags{});
-  handle = reopened.value();
-  rows = menu_rows::build(scene.tree.render(), scene.widgets, handle.content_root, kMenuItems,
-                          menu_size.width, scene.ui_font, 14.0F);
-  scene.focus.enter_scope(handle.content_root);
+  // Reopen and close by a click OUTSIDE.
+  menu.open(ctx, anchor, menu_spec, std::nullopt);
   const dg::PointerEvent outside_click{window.value(), dg::PointerAction::kDown, 5, 5};
-  const bool outside_closed =
-      host.handle_pointer(handle, window.value(), outside_click);
-  check(outside_closed, "a click OUTSIDE the menu's bounds closes it without a selection", out,
+  check(menu.handle_pointer(ctx, outside_click).event == dg::MenuEvent::kDismissed,
+        "a click OUTSIDE the menu's bounds closes it without a selection", out, ok);
+
+  // Reopen, Down, Enter: the highlighted item is activated.
+  menu.open(ctx, anchor, menu_spec, std::nullopt);
+  key(dg::Key::kDown);
+  const dg::MenuResult chosen = key(dg::Key::kEnter);
+  check(chosen.event == dg::MenuEvent::kActivated && chosen.index == 1,
+        "Enter activates the highlighted item (\"Paste\")", out, ok);
+  check(dg::subtree_of(scene.tree.render(), dg::RenderTree::root()).size() == live_baseline,
+        "every close destroyed the menu's nodes - the live node count is back at baseline", out,
         ok);
-  if (outside_closed) {
-    scene.focus.exit_scope(scene.tree.render());
-    host.close(handle);
-  }
 
   // Relayout cost: every operation above went through RenderTree alone
-  // (menu_rows::build()'s own direct add_child() calls, matching the
+  // (dg::Menu's own direct add_child() calls, matching the
   // overlay-branch precedent) - matching every prior slice's
   // own measurement discipline (the dropdown
   // figure).
   const dg::LayoutStats stats = scene.tree.layout();
-  out << "  LayoutStats after two open/close cycles and four keyboard-navigation moves: "
+  out << "  LayoutStats after three open/close cycles and five keyboard-navigation moves: "
          "nodes_visited="
       << stats.nodes_visited << " nodes_relaid_out=" << stats.nodes_relaid_out << "\n";
   check(stats.nodes_visited == 0 && stats.nodes_relaid_out == 0,
@@ -291,7 +314,8 @@ void check_context_menu(std::ostream& out, bool& ok) {
 // --------------------------------------------------------------------------
 // Claim 3: the tooltip - the hover-delay timer (HoverTimer/update_hover_
 // timer/hover_ready, tooltip.h) and PopupHost::show()'s overlay path built
-// for real. PopupHost is overlay-only - there is no native branch left to attempt against the dummy driver.
+// for real. PopupHost is overlay-only - there is no native branch left to attempt against the
+// dummy driver.
 // --------------------------------------------------------------------------
 
 void check_hover_timer(std::ostream& out, bool& ok) {
@@ -353,23 +377,30 @@ void check_tooltip_popup(std::ostream& out, bool& ok) {
   }
   menu_scene::Scene scene = menu_scene::build(options_for(kSize));
   PopupHost host{manager};
-  const PixelRect anchor = scene.tree.render().absolute_bounds(scene.handles.hover_target);
-  const std::string text = "This button opens a tooltip";
-  const PixelSize size = tooltip_content::size_for(text, 13);
-  const dg::Expected<PopupHandle, dg::WindowError> shown =
-      host.show(window.value(), scene.tree.render(), anchor, size, PopupPlacement::kBelow,
-                PopupFlags{});
-  check(shown.has_value(), "PopupHost::show() succeeds for the tooltip's overlay content", out,
-        ok);
-  if (shown.has_value()) {
-    PopupHandle handle = shown.value();
-    tooltip_content::build(scene.tree.render(), handle.content_root, text, scene.ui_font, 13.0F,
-                           size);
-    const dg::LayoutStats stats = scene.tree.layout();
-    check(stats.nodes_visited == 0 && stats.nodes_relaid_out == 0,
-          "showing a tooltip's content costs a repaint, never a relayout", out, ok);
-    host.close(handle);
-  }
+  SpareTables spare;
+  dg::UiContext ctx = ui_for(host, window.value(), scene, spare);
+  const std::size_t live_baseline =
+      dg::subtree_of(scene.tree.render(), dg::RenderTree::root()).size();
+  dg::Tooltip tooltip{400};
+  tooltip.bind(scene.handles.hover_target, "This button opens a tooltip");
+  const NodeId target = scene.handles.hover_target;
+
+  tooltip.tick(ctx, target, dg::AnimTime{1'000});
+  check(tooltip.tick(ctx, target, dg::AnimTime{1'399}) == dg::TooltipEvent::kNone,
+        "dg::Tooltip: one millisecond short of the delay, nothing is shown", out, ok);
+  check(tooltip.tick(ctx, target, dg::AnimTime{1'400}) == dg::TooltipEvent::kShown &&
+            tooltip.is_open(),
+        "AT the delay the bubble opens through PopupHost::show()'s overlay branch", out, ok);
+  const dg::LayoutStats stats = scene.tree.layout();
+  check(stats.nodes_visited == 0 && stats.nodes_relaid_out == 0,
+        "showing a tooltip's content costs a repaint, never a relayout", out, ok);
+  const dg::PointerEvent press{window.value(), dg::PointerAction::kDown, 0, 0};
+  check(tooltip.handle_pointer(ctx, press) == dg::TooltipEvent::kHidden, "a press hides it",
+        out, ok);
+  check(tooltip.tick(ctx, target, dg::AnimTime{9'000}) == dg::TooltipEvent::kNone,
+        "...and it stays hidden while the pointer is still over the target", out, ok);
+  check(dg::subtree_of(scene.tree.render(), dg::RenderTree::root()).size() == live_baseline,
+        "hiding destroyed its nodes - the live node count is back at baseline", out, ok);
 }
 
 // --------------------------------------------------------------------------
@@ -399,25 +430,35 @@ void check_modal_focus_refusal(std::ostream& out, bool& ok) {
     return;
   }
   menu_scene::Scene scene = menu_scene::build(options_for(kSize));
-  const dialog_panel::Handles handles =
-      dialog_panel::build(scene.tree.render(), scene.widgets, dg::LayoutTree::root(), kSize,
-                          PixelSize{280, 120}, scene.ui_font);
+  PopupHost host{manager};
+  SpareTables spare;
+  dg::UiContext ctx = ui_for(host, window.value(), scene, spare);
+  dg::Dialog dialog;
+  dg::DialogSpec dialog_spec;
+  dialog_spec.title = "Modal dialog - Tab/click cannot escape";
+  dialog_spec.buttons = {"Close"};
+  dialog_spec.cancel_button = 0;
+  dialog_spec.panel_size = PixelSize{280, 120};
+  if (!dialog.open(ctx, dialog_spec, std::nullopt)) {
+    out << "  FAIL: dg::Dialog::open() failed\n";
+    ok = false;
+    return;
+  }
+  struct {
+    NodeId panel;
+    NodeId close_button;
+  } const handles{dialog.panel(), dialog.buttons().front()};
 
-  scene.focus.enter_scope(handles.panel, /*modal=*/true);
-  check(scene.focus.scope_is_modal(), "enter_scope(root, true) records the scope as modal", out,
-        ok);
-  scene.focus.set(handles.close_button);
+  check(scene.focus.scope_is_modal(), "dg::Dialog enters a MODAL scope on its panel", out, ok);
   check(scene.focus.current() == handles.close_button,
-        "the dialog's own Close button can still be focused NORMALLY (inside the scope)", out,
-        ok);
+        "the dialog's own Close button is focused on open (inside the scope)", out, ok);
 
-  // Tab confinement: focus_next() over the panel's scope never leaves it -
-  // with exactly one focusable widget inside, it wraps to itself, which is
-  // still the correct confinement answer (never `before`/`after`).
-  const dg::FocusChange looped =
-      scene.focus.focus_next(scene.tree.render(), scene.widgets, handles.panel);
-  check(!looped.any() || scene.focus.current() == handles.close_button,
-        "Tab confinement: focus_next() over the modal's own scope never reaches `before`/"
+  // Tab confinement: with exactly one focusable widget inside, Tab wraps to
+  // itself, which is still the correct confinement answer (never `before`/`after`).
+  const dg::KeyEvent tab_key{window.value(), dg::KeyAction::kDown, dg::Key::kTab};
+  dialog.handle_key(ctx, tab_key);
+  check(scene.focus.current() == handles.close_button,
+        "Tab confinement: Tab inside the modal never reaches `before`/"
         "`menu_target`/`hover_target`/`open_dialog`/`after`",
         out, ok);
 
@@ -461,7 +502,12 @@ void check_modal_focus_refusal(std::ostream& out, bool& ok) {
         "...and set_guarded() does NOT refuse anything while the active scope is non-modal - a "
         "dropdown/context menu's own Tab confinement is completely unaffected by this slice",
         out, ok);
-  scene.focus.exit_scope(scene.tree.render());
+  scene.focus.enter_scope(handles.panel, /*modal=*/true);
+  const dg::KeyEvent escape{window.value(), dg::KeyAction::kDown, dg::Key::kEscape};
+  const dg::DialogResult escaped = dialog.handle_key(ctx, escape);
+  check(escaped.event == dg::DialogEvent::kClosed && escaped.button == 0 && !dialog.is_open() &&
+            !scene.focus.current_scope().has_value(),
+        "Escape closes the dialog, reporting its cancel button, and leaves the scope", out, ok);
 
   const dg::LayoutStats stats = scene.tree.layout();
   out << "  LayoutStats after building the modal panel and six focus-guard checks: "

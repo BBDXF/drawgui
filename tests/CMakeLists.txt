@@ -123,7 +123,8 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_abi_window_ops.cpp
     unit/test_text_area.cpp
     unit/test_cursor.cpp
-    unit/test_scrollbar_abi.cpp)
+    unit/test_scrollbar_abi.cpp
+    unit/test_ui_components.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

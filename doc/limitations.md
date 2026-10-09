@@ -1,6 +1,6 @@
 # 能力边界（Limitations）
 
-这份文档回答两个问题：这个库能用到什么程度、不能用到什么程度是可以确认的（不是猜测）。分五节：能用但有代价的坑、被误认为控件的配方、C ABI 的能力边界、测试真正证明了什么、尚未实现或明确不做的部分。
+这份文档回答两个问题：这个库能用到什么程度、不能用到什么程度是可以确认的（不是猜测）。分五节：能用但有代价的坑、弹层组件（菜单/下拉/tooltip/对话框）的边界、C ABI 的能力边界、测试真正证明了什么、尚未实现或明确不做的部分。
 
 ---
 
@@ -97,15 +97,21 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 ---
 
-## B.「配方」不是「控件」
+## B. 弹层组件：库提供了什么、没提供什么
 
-`dropdown`、`context menu`、`tooltip`、`dialog` 这几个名字，**在 `src/` 里没有对应的控件实现**：
+`dropdown`、`context menu`、`tooltip`、`dialog` 现在有**库组件**（`include/drawgui/ui/`，实现在 `src/ui/`）：`dg::Menu`、`dg::Dropdown`、`dg::Tooltip`、`dg::Dialog`。它们建在 `PopupHost` + 普通 `kButton` + `dg::Focus` 之上，**不是新的 `WidgetKind`，也没有新的绘制原语**；用法见 `doc/guide/popups.md` 的"库组件"一节。能确认的边界：
 
-- `kDropdown` 这个节点种类只持有 anchor 位置、options 列表、当前选中项索引（`include/drawgui/widget/widget_set.h:114-128`）。点开之后那一整块弹出的选项列表，是**应用层自己拿 `PopupHost` + 一堆 `kButton` 现搭出来的**，不是库内建的渲染/交互逻辑，见 `examples/22_dropdown_menu/dropdown_options.cpp`。
-- `src/widget/tooltip.cpp` 只提供一个 hover 计时器（多久悬停后触发“该显示了”的信号），气泡本身的形状、定位、内容全部在 `examples/23_menu_tooltip_dialog/tooltip_content.cpp` 里手写。
-- 右键菜单、模态对话框同理，都是 `examples/23_menu_tooltip_dialog/` 里用 `PopupHost` + 焦点 API + 若干普通控件手工拼出来的应用层代码。
-
-**如果你的项目需要下拉菜单、右键菜单、tooltip、对话框，正确的起点是把 `examples/22_dropdown_menu/` 和 `examples/23_menu_tooltip_dialog/` 当模板抄一份**，而不是去 `src/` 里找一个现成控件类。这些 example 是"这样搭是正确的"的参考代码，不是库承诺提供的能力。
+- **由宿主循环驱动，没有回调**：调用方自己把 `pump()` 出来的事件交给组件的 `handle_pointer()`/`handle_key()`/`handle_text()`/`tick()`，读回 `MenuResult`/`DropdownResult`/`TooltipEvent`/`DialogResult`。组件打开期间，事件该不该再分发给宿主场景由调用方决定（菜单/对话框打开时示例都是"组件吃掉全部事件"）。
+- **每次关闭都 `destroy()`**：节点和控件计数回到基线（单测 `tests/unit/test_ui_components.cpp` 验证）；关闭后组件给出的 NodeId（`item_nodes()`/`buttons()`/`body()`）全部失效。
+- **不支持嵌套**：菜单里开子菜单、对话框里再开下拉都不行——`Focus` 只有一个作用域，不是栈；后开的会替换前一个的作用域。
+- **菜单高亮就是焦点**：高亮项是 `Focus::current()`，没有单独的"高亮游标"；菜单不画焦点环，用 `PopupStyle::item_hover` 填充高亮行。分隔线不挂控件、禁用项带 `NodeStyle::disabled`，所以键盘导航跳过它们是 `focus_order()` 现成的规则。
+- **激活发生在按下（kDown）**，不是松开；Type-ahead 只看首字母、ASCII 大小写不敏感。
+- **文字宽度**：给了 `FontCatalog` 时用 `Paragraph` 实测，没给时按每字节 0.6em 估算；没给 `FontCatalog` 时 `Dropdown` 无法提交选择（`dropdown_select()` 需要它）。
+- **对话框覆盖整个窗口**，尺寸取 `RenderTree::viewport()`；窗口打开期间改尺寸不会重新居中（关掉重开即可）。面板/按钮布局是手算的固定几何，不走 `LayoutTree`。
+- **主题**：颜色/尺寸来自已有 token（`popup_style_from_theme()`）；遮罩色 `PopupStyle::scrim` 暂时没有 token（新增 token 会改动 C ABI 生成头，留给 ABI 那条线），是写死的半透明黑，可直接改 `PopupStyle`。
+- **视觉是最小可用版**：所有绘制/节点形状集中在 `src/ui/ui_visuals.cpp`，等设计侧打磨。
+- **C ABI 没有导出这些组件**（见 C 节）。
+- `examples/23_menu_tooltip_dialog` 的**原生（第二个 OS 窗口）对话框**分支、`examples/25_showcase` 的带输入框的资料对话框（依赖文本框的 IME/焦点钩子）仍是应用层手搭的，没有迁移到 `dg::Dialog`。
 
 ---
 
