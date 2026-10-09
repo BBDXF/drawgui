@@ -112,4 +112,37 @@ std::int32_t debug_post_pointer_button_ex(dg_window_t* window, std::int32_t down
                                           std::int32_t x, std::int32_t y, std::int32_t button,
                                           std::int32_t clicks);
 
+// ABI 0.2 phase B (src/abi/abi_components.cpp).
+std::int32_t menu_open(dg_window_t* window, dg_node_t* anchor, std::int32_t x, std::int32_t y,
+                       const char* const* labels, const std::uint32_t* flags,
+                       std::uint32_t count);
+std::int32_t menu_close(dg_window_t* window);
+std::int32_t dropdown_set_items(dg_node_t* node, const char* const* items, std::uint32_t count);
+std::int32_t dropdown_get_selected(dg_node_t* node);
+std::int32_t dropdown_set_selected(dg_node_t* node, std::int32_t index);
+std::int32_t node_set_tooltip(dg_node_t* node, const char* utf8);
+std::int32_t app_set_tooltip_delay(dg_app_t* app, std::int32_t delay_ms);
+std::int32_t dialog_open(dg_window_t* window, const char* title, const char* body,
+                         const char* const* buttons, std::uint32_t count,
+                         std::int32_t default_button, std::int32_t cancel_button);
+std::int32_t dialog_close(dg_window_t* window);
+dg_node_t* tabs_add(dg_node_t* node, const char* label, std::int32_t disabled);
+std::int32_t tabs_get_selected(dg_node_t* node);
+std::int32_t tabs_set_selected(dg_node_t* node, std::int32_t index);
+std::int32_t tree_set_items(dg_node_t* node, const char* const* labels,
+                            const std::int32_t* depths, const std::uint32_t* flags,
+                            std::uint32_t count);
+std::int32_t tree_get_selected(dg_node_t* node);
+std::int32_t tree_set_selected(dg_node_t* node, std::int32_t index);
+std::int32_t tree_set_expanded(dg_node_t* node, std::int32_t index, std::int32_t expanded);
+std::int32_t table_set_columns(dg_node_t* node, const char* const* titles, const float* widths,
+                               const std::uint32_t* units, const std::uint32_t* flags,
+                               std::uint32_t count);
+std::int32_t table_set_cells(dg_node_t* node, const char* const* cells, std::uint32_t rows);
+std::int32_t table_get_selected(dg_node_t* node);
+std::int32_t table_set_selected(dg_node_t* node, std::int32_t row);
+std::int32_t table_set_sort_indicator(dg_node_t* node, std::int32_t column,
+                                      std::int32_t ascending);
+std::int32_t debug_node_count(dg_window_t* window);
+
 }  // namespace dg::abi

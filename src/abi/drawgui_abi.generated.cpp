@@ -987,3 +987,347 @@ extern "C" DG_EXPORT int32_t dg_debug_post_pointer_button_ex(dg_window_t* window
     return DG_ERR_INTERNAL;
   }
 }
+
+extern "C" DG_EXPORT int32_t dg_menu_open(dg_window_t* window, dg_node_t* anchor, int32_t x,
+                                          int32_t y, const char* const* labels,
+                                          const uint32_t* flags, uint32_t count) {
+  try {
+    return dg::abi::menu_open(window, anchor, x, y, labels, flags, count);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_menu_open: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_menu_open: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_menu_open: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_menu_close(dg_window_t* window) {
+  try {
+    return dg::abi::menu_close(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_menu_close: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_menu_close: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_menu_close: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_dropdown_set_items(dg_node_t* node, const char* const* items,
+                                                   uint32_t count) {
+  try {
+    return dg::abi::dropdown_set_items(node, items, count);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_dropdown_set_items: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_dropdown_set_items: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_dropdown_set_items: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_dropdown_get_selected(dg_node_t* node) {
+  try {
+    return dg::abi::dropdown_get_selected(node);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_dropdown_get_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_dropdown_get_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_dropdown_get_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_dropdown_set_selected(dg_node_t* node, int32_t index) {
+  try {
+    return dg::abi::dropdown_set_selected(node, index);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_dropdown_set_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_dropdown_set_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_dropdown_set_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_node_set_tooltip(dg_node_t* node, const char* utf8) {
+  try {
+    return dg::abi::node_set_tooltip(node, utf8);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_set_tooltip: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_set_tooltip: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_set_tooltip: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_app_set_tooltip_delay(dg_app_t* app, int32_t delay_ms) {
+  try {
+    return dg::abi::app_set_tooltip_delay(app, delay_ms);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_app_set_tooltip_delay: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_app_set_tooltip_delay: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_app_set_tooltip_delay: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_dialog_open(dg_window_t* window, const char* title,
+                                            const char* body, const char* const* buttons,
+                                            uint32_t count, int32_t default_button,
+                                            int32_t cancel_button) {
+  try {
+    return dg::abi::dialog_open(window, title, body, buttons, count, default_button, cancel_button);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_dialog_open: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_dialog_open: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_dialog_open: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_dialog_close(dg_window_t* window) {
+  try {
+    return dg::abi::dialog_close(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_dialog_close: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_dialog_close: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_dialog_close: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT dg_node_t* dg_tabs_add(dg_node_t* node, const char* label,
+                                            int32_t disabled) {
+  try {
+    return dg::abi::tabs_add(node, label, disabled);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tabs_add: out of memory");
+    return nullptr;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tabs_add: ") + e.what());
+    return nullptr;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tabs_add: unknown exception");
+    return nullptr;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_tabs_get_selected(dg_node_t* node) {
+  try {
+    return dg::abi::tabs_get_selected(node);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tabs_get_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tabs_get_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tabs_get_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_tabs_set_selected(dg_node_t* node, int32_t index) {
+  try {
+    return dg::abi::tabs_set_selected(node, index);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tabs_set_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tabs_set_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tabs_set_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_tree_set_items(dg_node_t* node, const char* const* labels,
+                                               const int32_t* depths, const uint32_t* flags,
+                                               uint32_t count) {
+  try {
+    return dg::abi::tree_set_items(node, labels, depths, flags, count);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tree_set_items: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tree_set_items: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tree_set_items: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_tree_get_selected(dg_node_t* node) {
+  try {
+    return dg::abi::tree_get_selected(node);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tree_get_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tree_get_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tree_get_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_tree_set_selected(dg_node_t* node, int32_t index) {
+  try {
+    return dg::abi::tree_set_selected(node, index);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tree_set_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tree_set_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tree_set_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_tree_set_expanded(dg_node_t* node, int32_t index,
+                                                  int32_t expanded) {
+  try {
+    return dg::abi::tree_set_expanded(node, index, expanded);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tree_set_expanded: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tree_set_expanded: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tree_set_expanded: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_table_set_columns(dg_node_t* node, const char* const* titles,
+                                                  const float* widths, const uint32_t* units,
+                                                  const uint32_t* flags, uint32_t count) {
+  try {
+    return dg::abi::table_set_columns(node, titles, widths, units, flags, count);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_table_set_columns: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_table_set_columns: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_table_set_columns: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_table_set_cells(dg_node_t* node, const char* const* cells,
+                                                uint32_t rows) {
+  try {
+    return dg::abi::table_set_cells(node, cells, rows);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_table_set_cells: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_table_set_cells: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_table_set_cells: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_table_get_selected(dg_node_t* node) {
+  try {
+    return dg::abi::table_get_selected(node);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_table_get_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_table_get_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_table_get_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_table_set_selected(dg_node_t* node, int32_t row) {
+  try {
+    return dg::abi::table_set_selected(node, row);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_table_set_selected: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_table_set_selected: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_table_set_selected: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_table_set_sort_indicator(dg_node_t* node, int32_t column,
+                                                         int32_t ascending) {
+  try {
+    return dg::abi::table_set_sort_indicator(node, column, ascending);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_table_set_sort_indicator: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_table_set_sort_indicator: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_table_set_sort_indicator: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_debug_node_count(dg_window_t* window) {
+  try {
+    return dg::abi::debug_node_count(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_debug_node_count: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_debug_node_count: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_debug_node_count: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}

@@ -214,6 +214,16 @@ schema_version = 1
 #        dg_node_set_image_data()/dg_node_set_image_file(); the color.scrim
 #        theme token; dg_debug_post_wheel() and
 #        dg_debug_post_pointer_button_ex().
+#        Phase B, the component layer (src/ui), poll-based: menus
+#        (dg_menu_open()/dg_menu_close(), DG_EVENT_MENU_ACTIVATE/_DISMISS,
+#        DG_MENU_ITEM_*), DG_NODE_TYPE_DROPDOWN (dg_dropdown_*,
+#        DG_EVENT_VALUE_CHANGED), tooltips (dg_node_set_tooltip(),
+#        dg_app_set_tooltip_delay()), modal dialogs (dg_dialog_open()/
+#        dg_dialog_close(), DG_EVENT_DIALOG_RESULT), DG_NODE_TYPE_PROGRESS
+#        (DG_PROP_VALUE, DG_PROP_INDETERMINATE), DG_NODE_TYPE_TABS
+#        (dg_tabs_*, DG_EVENT_TAB_SELECT), DG_NODE_TYPE_TREE (dg_tree_*,
+#        DG_EVENT_TREE_*, DG_TREE_ITEM_*), DG_NODE_TYPE_TABLE (dg_table_*,
+#        DG_EVENT_TABLE_*, DG_TABLE_COLUMN_*) and dg_debug_node_count().
 [meta]
 abi_major = 0
 abi_minor = 2
@@ -293,11 +303,11 @@ fields = [
   { name = "size", type = "uint32_t", summary = "sizeof(dg_event)." },
   { name = "kind", type = "uint32_t", summary = "DG_EVENT_*." },
   { name = "window", type = "dg_window_t*", summary = "which window this event is about." },
-  { name = "node", type = "dg_node_t*", summary = "DG_EVENT_CLICK: the clicked node. DG_EVENT_ACTION: the resolved action's target node - design.md section 5.5.2 level 2, a focused node's own dg_node_scope_action() binding - or null for a level-4 app-wide action, which names no node. ABI 0.2: DG_EVENT_TEXT_CHANGED the editor; DG_EVENT_FOCUS_CHANGED the newly focused node (null = none); DG_EVENT_CONTEXT_CLICK the nearest node with a handle under the pointer; DG_EVENT_LIST_SELECT the list. Null for every other kind." },
-  { name = "x", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable WIDTH, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the pointer x; DG_EVENT_LIST_SELECT the row index; DG_EVENT_TIMER the timer id; DG_EVENT_USER the payload's low 32 bits. 0 for every other kind, including DG_EVENT_ACTION." },
-  { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable HEIGHT, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the pointer y; DG_EVENT_USER the payload's high 32 bits. 0 for every other kind, including DG_EVENT_ACTION." },
+  { name = "node", type = "dg_node_t*", summary = "DG_EVENT_CLICK: the clicked node. DG_EVENT_ACTION: the resolved action's target node - design.md section 5.5.2 level 2, a focused node's own dg_node_scope_action() binding - or null for a level-4 app-wide action, which names no node. ABI 0.2: DG_EVENT_TEXT_CHANGED the editor; DG_EVENT_FOCUS_CHANGED the newly focused node (null = none); DG_EVENT_CONTEXT_CLICK the nearest node with a handle under the pointer; DG_EVENT_LIST_SELECT the list. Phase B: DG_EVENT_MENU_ACTIVATE/_DISMISS the menu's anchor (or null); DG_EVENT_VALUE_CHANGED the dropdown; DG_EVENT_TAB_SELECT, DG_EVENT_TREE_* and DG_EVENT_TABLE_* the component. Null for every other kind (DG_EVENT_DIALOG_RESULT included)." },
+  { name = "x", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable WIDTH, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the pointer x; DG_EVENT_LIST_SELECT the row index; DG_EVENT_TIMER the timer id; DG_EVENT_USER the payload's low 32 bits. Phase B: DG_EVENT_MENU_ACTIVATE the item index (-1 for _DISMISS); DG_EVENT_VALUE_CHANGED the new option; DG_EVENT_DIALOG_RESULT the button (-1 = Escape without a cancel button); DG_EVENT_TAB_SELECT the tab; DG_EVENT_TREE_* the item; DG_EVENT_TABLE_SELECT the row; DG_EVENT_TABLE_SORT the column. 0 for every other kind, including DG_EVENT_ACTION." },
+  { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable HEIGHT, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the pointer y; DG_EVENT_USER the payload's high 32 bits. Phase B: DG_EVENT_MENU_ACTIVATE/_DISMISS the menu id; DG_EVENT_VALUE_CHANGED the previous option (-1 = none); DG_EVENT_DIALOG_RESULT the dialog id. 0 for every other kind, including DG_EVENT_ACTION." },
   { name = "action_id", type = "uint16_t", summary = "8-3d: DG_EVENT_ACTION only - the resolved dg_action_id (input/shortcuts.toml, design.md section 5.5.3). DG_ACTION_INVALID (0) for every other kind. Appended at the end of the struct, after `y` - dg_event's own `size` field (design.md section 5.8 decision 4) is exactly the mechanism that makes this an allowed MINOR addition rather than a break; see abi/drawgui_abi.lock's own append-only rule." },
-  { name = "clicks", type = "uint16_t", summary = "ABI 0.2: DG_EVENT_CLICK, DG_EVENT_CONTEXT_CLICK and DG_EVENT_LIST_SELECT - the press's click count (1 single, 2 double, 3 triple...), from the platform or counted by drawgui with the same thresholds. 0 for every other kind. It sits in what used to be the struct's tail padding, so sizeof(dg_event) is unchanged (40 bytes on a 64-bit target)." },
+  { name = "clicks", type = "uint16_t", summary = "ABI 0.2: DG_EVENT_CLICK, DG_EVENT_CONTEXT_CLICK, DG_EVENT_LIST_SELECT and (phase B) a pointer-made DG_EVENT_TABLE_SELECT - the press's click count (1 single, 2 double, 3 triple...), from the platform or counted by drawgui with the same thresholds. 0 for every other kind. It sits in what used to be the struct's tail padding, so sizeof(dg_event) is unchanged (40 bytes on a 64-bit target)." },
 ]
 
 [[struct]]
@@ -334,6 +344,11 @@ values = [
   { name = "SCROLL_VIEW", id = 7, summary = "ABI 0.2: a clipping viewport (WidgetKind::kScrollView), 240x160 by default, that scrolls ONE caller-invisible content child. dg_node_insert_before(scroll_view, child, ref) puts `child` into that content node, so a scroll view takes any number of children; the content is a column (vertical scrolling, the default) or a row (DG_PROP_SCROLL_AXIS = DG_SCROLL_AXIS_HORIZONTAL), sized to its children. DG_PROP_DIRECTION/JUSTIFY/ALIGN/GAP/MAIN_SIZE/WRAP/RUN_GAP/ALIGN_CONTENT written to the scroll view apply to the content node; every other property applies to the viewport. The wheel over it scrolls it, its scrollbar (DG_PROP_SCROLLBAR, theme tokens color.scrollbar-* and size.scrollbar, a reserved gutter on the trailing edge set through the viewport's padding) can be dragged or paged, and PageUp/PageDown/Home/End scroll it while a node inside it has focus (the bound DG_ACTION_SCROLL_* action is applied, then still reported as DG_EVENT_ACTION). dg_node_get_scroll_offset() reads the offset. Writing DG_PROP_PADDING_R/B on it replaces the gutter." },
   { name = "LIST", id = 8, summary = "ABI 0.2: a virtualized single-column list of text rows (WidgetKind::kList), 240x200 by default: a fixed pool of 32 row nodes is recycled while it scrolls, so its item count is unbounded, but at most 30 rows can be visible at once (taller lists show empty space). The data is pushed, not pulled: dg_list_set_items() copies an array of UTF-8 strings; rows are 28px tall unless dg_list_set_items() says otherwise. A primary press on a row selects it (dg_list_get_selected()/dg_list_set_selected(); the row is filled with color.primary at reduced opacity) and queues DG_EVENT_LIST_SELECT. The wheel and its scrollbar scroll it, as for DG_NODE_TYPE_SCROLL_VIEW. Rows draw with the default font in color.on-surface; DG_PROP_FONT_SIZE on the list sets their size. Not focusable and no keyboard navigation in this version." },
   { name = "IMAGE", id = 9, summary = "ABI 0.2: a box that paints a decoded image (no fill of its own), 64x64 by default. dg_node_set_image_data()/dg_node_set_image_file() set its picture (PNG, JPEG, WebP or SVG); DG_PROP_IMAGE_FIT (default DG_IMAGE_FIT_CONTAIN) and DG_PROP_IMAGE_PLACEHOLDER_COLOR apply. The image setters also work on a DG_NODE_TYPE_BOX." },
+  { name = "DROPDOWN", id = 10, summary = "ABI 0.2 phase B: a dropdown (WidgetKind::kDropdown, dg::Dropdown), 200x32 by default: a bordered button showing the selected option's text. A primary press (or Down/Enter while focused) opens the option menu as an overlay popup; choosing a different option queues DG_EVENT_VALUE_CHANGED. dg_dropdown_set_items() sets the options, dg_dropdown_get_selected()/dg_dropdown_set_selected() read/write the selection; dg_node_set_text(DG_PROP_TEXT) sets the placeholder shown while nothing is selected. Focusable. Colours come from the theme (color.surface/on-surface/border)." },
+  { name = "PROGRESS", id = 11, summary = "ABI 0.2 phase B: a progress bar (dg::ProgressBar), 200x8 by default; the track and fill fill the node. DG_PROP_VALUE (DG_VALUE_FLOAT, 0..1) sets the fraction; DG_PROP_INDETERMINATE (DG_VALUE_BOOL) switches to an endless sweep animated by dg_wait_events() (it wakes about every 16 ms while one is visible). Not focusable." },
+  { name = "TABS", id = 12, summary = "ABI 0.2 phase B: a tab strip with one panel per tab (dg::Tabs), 320x240 by default. dg_tabs_add() appends a tab and returns its panel - a live column DG_NODE_TYPE_BOX filling the panel area that takes children through dg_node_insert_before(). Only the selected panel is shown; hidden panels are disabled (they leave Tab order). A primary press on a tab, or Left/Right/Home/End/Enter while a tab has focus, selects it and queues DG_EVENT_TAB_SELECT. dg_tabs_get_selected()/dg_tabs_set_selected()." },
+  { name = "TREE", id = 13, summary = "ABI 0.2 phase B: a virtualized tree view (dg::TreeView), 240x240 by default. dg_tree_set_items() pushes a flattened, depth-annotated item list (copied). Clicks and Up/Down/Left/Right/Home/End/PageUp/PageDown/Enter select, expand and collapse (DG_EVENT_TREE_SELECT/_EXPAND/_COLLAPSE); the wheel and its scrollbar scroll it. Focusable. DG_PROP_HEIGHT (pixels) sizes it; percentage heights are not honoured." },
+  { name = "TABLE", id = 14, summary = "ABI 0.2 phase B: a virtualized table with a header row (dg::Table), 360x240 by default. dg_table_set_columns() defines columns (title, width, sortable), dg_table_set_cells() pushes the row-major cell strings (copied). A press on a row (or Up/Down/Home/End/PageUp/PageDown while focused) selects it - DG_EVENT_TABLE_SELECT; a press on a sortable header queues DG_EVENT_TABLE_SORT - the caller sorts its data, pushes it again and calls dg_table_set_sort_indicator(). Focusable. DG_PROP_HEIGHT (pixels) sizes it." },
 ]
 
 [[constant_group]]
@@ -374,6 +389,16 @@ values = [
   { name = "USER", id = 16, summary = "ABI 0.2: one dg_post_user_event() call; its 64-bit payload is split across `x` (low 32 bits) and `y` (high 32 bits): payload = ((uint64_t)(uint32_t)y << 32) | (uint32_t)x. `window` and `node` are null. dg_wake() queues no event." },
   { name = "CONTEXT_CLICK", id = 17, summary = "ABI 0.2: a secondary (right) button press. `node` is the nearest node under the pointer that has a handle (null over bare background), `x`/`y` the pointer position in device pixels, `clicks` the click count. Fires on the press, before any release; it does not focus or press anything." },
   { name = "LIST_SELECT", id = 18, summary = "ABI 0.2: a primary press selected a row of a DG_NODE_TYPE_LIST. `node` is the list, `x` the row index, `y` 0, `clicks` the click count (2 for a double-click - the usual 'activate' gesture)." },
+  { name = "MENU_ACTIVATE", id = 19, summary = "ABI 0.2 phase B: an item of a dg_menu_open() menu was chosen (click or Enter); the menu has closed. `x` is the item index, `y` the menu id dg_menu_open() returned, `node` the anchor node passed to it (or null)." },
+  { name = "MENU_DISMISS", id = 20, summary = "ABI 0.2 phase B: a dg_menu_open() menu closed without a choice (Escape, a click outside, or another dg_menu_open() replacing it). `y` is the menu id, `x` -1, `node` the anchor (or null). Not queued for dg_menu_close()." },
+  { name = "VALUE_CHANGED", id = 21, summary = "ABI 0.2 phase B: the user chose a different option of a DG_NODE_TYPE_DROPDOWN. `node` is the dropdown, `x` the new index, `y` the previous one (-1 = none). Not queued for dg_dropdown_set_selected()." },
+  { name = "DIALOG_RESULT", id = 22, summary = "ABI 0.2 phase B: a dg_dialog_open() dialog closed. `x` is the button index, or -1 for Escape without a cancel button; `y` the dialog id. Not queued for dg_dialog_close()." },
+  { name = "TAB_SELECT", id = 23, summary = "ABI 0.2 phase B: the user selected a tab of a DG_NODE_TYPE_TABS. `node` is the tabs node, `x` the tab index." },
+  { name = "TREE_SELECT", id = 24, summary = "ABI 0.2 phase B: the user selected an item of a DG_NODE_TYPE_TREE. `node` is the tree, `x` the item index (into dg_tree_set_items()' arrays)." },
+  { name = "TREE_EXPAND", id = 25, summary = "ABI 0.2 phase B: the user expanded a tree item; `x` the item index." },
+  { name = "TREE_COLLAPSE", id = 26, summary = "ABI 0.2 phase B: the user collapsed a tree item; `x` the item index." },
+  { name = "TABLE_SELECT", id = 27, summary = "ABI 0.2 phase B: the user selected a row of a DG_NODE_TYPE_TABLE. `node` is the table, `x` the row index, `clicks` the click count for a pointer press (0 for a key)." },
+  { name = "TABLE_SORT", id = 28, summary = "ABI 0.2 phase B: a sortable header of a DG_NODE_TYPE_TABLE was pressed. `x` is the column index. drawgui does not sort: the caller reorders its rows, calls dg_table_set_cells() and dg_table_set_sort_indicator()." },
 ]
 
 [[constant_group]]
@@ -405,6 +430,36 @@ values = [
   { name = "PRIMARY", id = 1, summary = "The primary (usually left) button." },
   { name = "SECONDARY", id = 2, summary = "The secondary (usually right) button." },
   { name = "MIDDLE", id = 3, summary = "The middle button." },
+]
+
+[[constant_group]]
+name = "menu_item_flag"
+prefix = "DG_MENU_ITEM_"
+c_type = "uint32_t"
+summary = "ABI 0.2 phase B: bits of dg_menu_open()'s per-item `flags`."
+values = [
+  { name = "DISABLED", id = 1, summary = "Shown dimmed; never highlighted or activated." },
+  { name = "CHECKED", id = 2, summary = "A check item, currently checked (implies CHECKABLE)." },
+  { name = "SEPARATOR", id = 4, summary = "A divider line; the label and other bits are ignored." },
+  { name = "CHECKABLE", id = 8, summary = "A check item (reserves the check column), unchecked unless CHECKED is also set." },
+]
+
+[[constant_group]]
+name = "tree_item_flag"
+prefix = "DG_TREE_ITEM_"
+c_type = "uint32_t"
+summary = "ABI 0.2 phase B: bits of dg_tree_set_items()' per-item `flags`."
+values = [
+  { name = "EXPANDED", id = 1, summary = "The item starts expanded (meaningful when it has children)." },
+]
+
+[[constant_group]]
+name = "table_column_flag"
+prefix = "DG_TABLE_COLUMN_"
+c_type = "uint32_t"
+summary = "ABI 0.2 phase B: bits of dg_table_set_columns()' per-column `flags`."
+values = [
+  { name = "SORTABLE", id = 1, summary = "Pressing the header queues DG_EVENT_TABLE_SORT." },
 ]
 
 [[constant_group]]
@@ -692,7 +747,7 @@ name = "dg_debug_post_text_field_key"
 ret = "int32_t"
 impl = "debug_post_text_field_key"
 params = [{ name = "window", type = "dg_window_t*" }, { name = "down", type = "int32_t" }, { name = "key_name", type = "const char*" }, { name = "shift", type = "int32_t" }]
-summary = "TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL key event through the real queue for one of the text-editing keys process_key_event() dispatches directly to a focused editor: Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown, and Tab (focus traversal; `shift` makes it Shift+Tab) - `key_name` is exactly one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No other modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE debug hook from dg_debug_post_key() rather than a second parameter on it: dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against input/shortcuts.toml's own generated binding-name table, and none of these six keys is a shortcut binding name at all (see this file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to parse. `shift` (nonzero extends a text field's selection, matching handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for Backspace/Delete, which ignore it exactly like dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do."
+summary = "TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL key event through the real queue for one of the text-editing keys process_key_event() dispatches directly to a focused editor: Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown, and Tab (focus traversal; `shift` makes it Shift+Tab), and (phase B) Escape (dismisses a menu, cancels a dialog) - `key_name` is exactly one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No other modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE debug hook from dg_debug_post_key() rather than a second parameter on it: dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against input/shortcuts.toml's own generated binding-name table, and none of these six keys is a shortcut binding name at all (see this file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to parse. `shift` (nonzero extends a text field's selection, matching handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for Backspace/Delete, which ignore it exactly like dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do."
 
 [[function]]
 name = "dg_window_set_title"
@@ -911,3 +966,157 @@ ret = "int32_t"
 impl = "debug_post_pointer_button_ex"
 params = [{ name = "window", type = "dg_window_t*" }, { name = "down", type = "int32_t" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }, { name = "button", type = "int32_t" }, { name = "clicks", type = "int32_t" }]
 summary = "TEST-ONLY. ABI 0.2: dg_debug_post_pointer_button() with a DG_POINTER_BUTTON_* `button` and the platform click count `clicks` the event carries (0 = let drawgui count). DG_ERR_INVALID_ARGUMENT for an unknown button or negative clicks."
+
+[[function]]
+name = "dg_menu_open"
+ret = "int32_t"
+impl = "menu_open"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "anchor", type = "dg_node_t*" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }, { name = "labels", type = "const char* const*" }, { name = "flags", type = "const uint32_t*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2 phase B: opens a popup menu (dg::Menu) over `window` - below the live node `anchor` (min width = its width), or, when `anchor` is null, at the point x/y (device pixels, e.g. a DG_EVENT_CONTEXT_CLICK's position). `labels`/`flags` are `count` parallel entries (copied; `flags` may be null = all 0; a null label is empty): DG_MENU_ITEM_*. Returns the menu id (positive) or a negative DG_ERR_*. While it is open the pump routes every pointer/key/text event of the window to it first (Up/Down/Home/End move, Enter or a click activates, Escape or a click outside dismisses, typing a letter jumps); it closes itself and queues DG_EVENT_MENU_ACTIVATE or DG_EVENT_MENU_DISMISS. One menu per window: opening another dismisses the first (DG_EVENT_MENU_DISMISS for it). DG_ERR_INVALID_ARGUMENT for count 0, a null `labels`, count above 4096 or a menu with no selectable item; DG_ERR_UNSUPPORTED while a dialog is open on the window."
+
+[[function]]
+name = "dg_menu_close"
+ret = "int32_t"
+impl = "menu_close"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2 phase B: closes the window's open dg_menu_open() menu without queuing an event (DG_ERR_OK even when none is open). Focus returns where it was."
+
+[[function]]
+name = "dg_dropdown_set_items"
+ret = "int32_t"
+impl = "dropdown_set_items"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "items", type = "const char* const*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2 phase B: replaces a LIVE DG_NODE_TYPE_DROPDOWN's options with `count` UTF-8 strings (copied; a null entry is empty) and clears the selection (the placeholder shows). Closes its menu if open. DG_ERR_INVALID_ARGUMENT for a null array with count > 0 or count above 4096; DG_ERR_UNSUPPORTED for another node type."
+
+[[function]]
+name = "dg_dropdown_get_selected"
+ret = "int32_t"
+impl = "dropdown_get_selected"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "ABI 0.2 phase B: the selected option index of a LIVE DG_NODE_TYPE_DROPDOWN, -1 when none, or a DG_ERR_* below -1."
+
+[[function]]
+name = "dg_dropdown_set_selected"
+ret = "int32_t"
+impl = "dropdown_set_selected"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "index", type = "int32_t" }]
+summary = "ABI 0.2 phase B: selects option `index` (-1 clears it, showing the placeholder). Queues no event. DG_ERR_VALUE_OUT_OF_RANGE outside -1..count-1."
+
+[[function]]
+name = "dg_node_set_tooltip"
+ret = "int32_t"
+impl = "node_set_tooltip"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "utf8", type = "const char*" }]
+summary = "ABI 0.2 phase B: gives a LIVE node a tooltip (dg::Tooltip; copied). Hovering the node - or any descendant without a tooltip of its own - for the tooltip delay shows a small popup below it; moving off, pressing, scrolling or leaving the window hides it. dg_wait_events() wakes for the delay by itself. Null or empty removes the tooltip. Removing the node removes its tooltip."
+
+[[function]]
+name = "dg_app_set_tooltip_delay"
+ret = "int32_t"
+impl = "app_set_tooltip_delay"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "delay_ms", type = "int32_t" }]
+summary = "ABI 0.2 phase B: the hover delay before any tooltip of this app shows, 0..60000 ms (default 500). Applies to every window, including ones already open. DG_ERR_VALUE_OUT_OF_RANGE outside that range."
+
+[[function]]
+name = "dg_dialog_open"
+ret = "int32_t"
+impl = "dialog_open"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "title", type = "const char*" }, { name = "body", type = "const char*" }, { name = "buttons", type = "const char* const*" }, { name = "count", type = "uint32_t" }, { name = "default_button", type = "int32_t" }, { name = "cancel_button", type = "int32_t" }]
+summary = "ABI 0.2 phase B: opens a modal dialog (dg::Dialog) over the whole window: a scrim, a panel with `title`, the wrapped `body` (may be null) and `count` buttons (copied; count 0 means one \"OK\" button). `default_button` gets initial focus and answers Enter (-1 = none), `cancel_button` answers Escape (-1 = Escape reports -1). Returns the dialog id (positive) or a negative DG_ERR_*. While it is open every pointer/key event of the window goes to it (Tab cycles its buttons, nothing behind it reacts); any open menu is dismissed first. Closing queues DG_EVENT_DIALOG_RESULT. DG_ERR_UNSUPPORTED if a dialog is already open on the window; DG_ERR_INVALID_ARGUMENT for a null title, null buttons with count > 0, count above 8, or a button index outside -1..buttons-1."
+
+[[function]]
+name = "dg_dialog_close"
+ret = "int32_t"
+impl = "dialog_close"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2 phase B: closes the window's open dialog without queuing an event (DG_ERR_OK even when none is open). Focus returns where it was."
+
+[[function]]
+name = "dg_tabs_add"
+ret = "dg_node_t*"
+impl = "tabs_add"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "label", type = "const char*" }, { name = "disabled", type = "int32_t" }]
+summary = "ABI 0.2 phase B: appends a tab labelled `label` (copied; nonzero `disabled` makes it unselectable) to a LIVE DG_NODE_TYPE_TABS and returns its panel: a live column DG_NODE_TYPE_BOX filling the panel area. Insert the tab's content into it with dg_node_insert_before(); removing the panel (dg_node_remove()) leaves the tab with an empty panel. The first selectable tab becomes selected. Null on failure (dg_last_error() says why); at most 64 tabs."
+
+[[function]]
+name = "dg_tabs_get_selected"
+ret = "int32_t"
+impl = "tabs_get_selected"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "ABI 0.2 phase B: the selected tab index of a LIVE DG_NODE_TYPE_TABS, -1 when none, or a DG_ERR_* below -1."
+
+[[function]]
+name = "dg_tabs_set_selected"
+ret = "int32_t"
+impl = "tabs_set_selected"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "index", type = "int32_t" }]
+summary = "ABI 0.2 phase B: selects tab `index`, showing its panel. Queues no event. DG_ERR_VALUE_OUT_OF_RANGE for an index outside the tabs or a disabled tab."
+
+[[function]]
+name = "dg_tree_set_items"
+ret = "int32_t"
+impl = "tree_set_items"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "labels", type = "const char* const*" }, { name = "depths", type = "const int32_t*" }, { name = "flags", type = "const uint32_t*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2 phase B: replaces a LIVE DG_NODE_TYPE_TREE's items with a flattened, pre-order list of `count` entries (copied): labels[i] (null = empty), depths[i] (0 = top level; the first item must be 0 and each item at most one deeper than the one before - an item has children when the next one is deeper), flags[i] (DG_TREE_ITEM_*; `flags` may be null). Clears the selection and scroll offset. DG_ERR_INVALID_ARGUMENT for null arrays with count > 0, bad depths or count above 2^24."
+
+[[function]]
+name = "dg_tree_get_selected"
+ret = "int32_t"
+impl = "tree_get_selected"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "ABI 0.2 phase B: the selected item index of a LIVE DG_NODE_TYPE_TREE, -1 when none, or a DG_ERR_* below -1."
+
+[[function]]
+name = "dg_tree_set_selected"
+ret = "int32_t"
+impl = "tree_set_selected"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "index", type = "int32_t" }]
+summary = "ABI 0.2 phase B: selects item `index`, expanding its ancestors and scrolling it into view (-1 clears the selection). Queues no event. DG_ERR_VALUE_OUT_OF_RANGE outside -1..count-1."
+
+[[function]]
+name = "dg_tree_set_expanded"
+ret = "int32_t"
+impl = "tree_set_expanded"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "index", type = "int32_t" }, { name = "expanded", type = "int32_t" }]
+summary = "ABI 0.2 phase B: expands (nonzero) or collapses item `index`. Queues no event. DG_ERR_VALUE_OUT_OF_RANGE for an index outside the items; an item without children is accepted and ignored."
+
+[[function]]
+name = "dg_table_set_columns"
+ret = "int32_t"
+impl = "table_set_columns"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "titles", type = "const char* const*" }, { name = "widths", type = "const float*" }, { name = "units", type = "const uint32_t*" }, { name = "flags", type = "const uint32_t*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2 phase B: defines a LIVE DG_NODE_TYPE_TABLE's `count` columns (1..64; copied): titles[i] (null = empty), widths[i] in units[i] (DG_LENGTH_UNIT_PX or _PERCENT of the row width; a width <= 0 - or a null `widths` - shares the remaining space), flags[i] (DG_TABLE_COLUMN_*; null `units`/`flags` mean pixels/0). Clears the rows (push them again with dg_table_set_cells()), the selection and the sort indicator. DG_ERR_INVALID_ARGUMENT for bad arrays, count 0 or above 64, a non-finite width or an unknown unit."
+
+[[function]]
+name = "dg_table_set_cells"
+ret = "int32_t"
+impl = "table_set_cells"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "cells", type = "const char* const*" }, { name = "rows", type = "uint32_t" }]
+summary = "ABI 0.2 phase B: replaces a LIVE DG_NODE_TYPE_TABLE's rows with `rows` rows of the current column count, read row-major from `cells` (rows x columns strings, copied; a null cell is empty). Clears the selection; the scroll offset is clamped. DG_ERR_INVALID_ARGUMENT for null cells with rows > 0, no columns yet with rows > 0, or rows x columns above 2^24."
+
+[[function]]
+name = "dg_table_get_selected"
+ret = "int32_t"
+impl = "table_get_selected"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "ABI 0.2 phase B: the selected row of a LIVE DG_NODE_TYPE_TABLE, -1 when none, or a DG_ERR_* below -1."
+
+[[function]]
+name = "dg_table_set_selected"
+ret = "int32_t"
+impl = "table_set_selected"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "row", type = "int32_t" }]
+summary = "ABI 0.2 phase B: selects `row`, scrolling it into view (-1 clears it). Queues no event. DG_ERR_VALUE_OUT_OF_RANGE outside -1..rows-1."
+
+[[function]]
+name = "dg_table_set_sort_indicator"
+ret = "int32_t"
+impl = "table_set_sort_indicator"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "column", type = "int32_t" }, { name = "ascending", type = "int32_t" }]
+summary = "ABI 0.2 phase B: shows an ascending (nonzero) or descending arrow on header `column` (-1 removes it). drawgui does not sort. DG_ERR_VALUE_OUT_OF_RANGE outside -1..columns-1."
+
+[[function]]
+name = "dg_debug_node_count"
+ret = "int32_t"
+impl = "debug_node_count"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "TEST-ONLY. ABI 0.2 phase B: how many nodes the window's tree holds right now, composed children and open popups included - the leak oracle for component lifetimes (open/close a menu, remove a component: the count returns to its baseline). Negative DG_ERR_* on failure."

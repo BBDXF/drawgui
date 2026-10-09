@@ -168,7 +168,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 |---|---|---|---|---|
 | 42-45 | `left`/`top`/`right`/`bottom` | float | 完整 | 相对 stack 内容盒的偏移；写入任一个即视为定位该子节点 |
 
-### 5.7 interaction（id 52-53, 57-58）
+### 5.7 interaction（id 52-53, 57-58, 60-61）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -176,11 +176,13 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 53 | `cursor` | enum | 完整 | `NodeStyle::cursor`，鼠标指针形状。取值（序号即 `DG_CURSOR_*`）：`auto`(0，默认)、`default`(1)、`pointer`(2，手形)、`text`(3，I 形)、`crosshair`(4)、`move`(5)、`not_allowed`(6)、`wait`(7)、`progress`(8)、`resize_ew`(9)、`resize_ns`(10)、`resize_nwse`(11)、`resize_nesw`(12)，一一对应 SDL 的系统光标。`auto` 表示继承：从指针下的节点沿父链找第一个非 `auto` 的值，途中遇到有自己默认值的控件（目前只有文本框 → `text`）就用它。不是绘制输入，写入不重排。解析规则见 `doc/guide/input.md`「鼠标指针形状」 |
 | 57 | `tab_index` | float(整数) | **仅 C ABI** | `Widget::tab_index`：正数按升序先走，0 按树序，负数退出 Tab 序列。是控件状态不是节点样式，`dg::set_prop()` 返回 `kUnsupported`（C++ 直接写 `Widget::tab_index`），C ABI 的 `dg_node_set_prop()` 自己处理 |
 | 58 | `max_length` | float(整数) | **仅 C ABI** | 编辑框最多多少个字素簇，0 = 不限；同上，C++ 用 `WidgetSet::editor_set_max_length()` |
+| 60 | `value` | float | **仅 C ABI** | `DG_NODE_TYPE_PROGRESS` 的进度 0..1（0.2 phase B）；组件状态，C++ 用 `dg::ProgressBar::set_value()` |
+| 61 | `indeterminate` | bool | **仅 C ABI** | `DG_NODE_TYPE_PROGRESS` 显示不确定动画；C++ 用 `dg::ProgressBar::set_indeterminate()` |
 
 ## 6. 状态汇总（自查结果）
 
-- 46 项完整、10 项部分实现、2 项只在 C ABI 生效（`tab_index`/`max_length`）、
-  1 项未实现（`transform`），共 59 项（含 P6 a1 新增的 `text`/`text_color`，
+- 46 项完整、10 项部分实现、4 项只在 C ABI 生效（`tab_index`/`max_length`/
+  `value`/`indeterminate`）、1 项未实现（`transform`），共 61 项（含 P6 a1 新增的 `text`/`text_color`，
   以及 `disabled`、`cursor`、`scrollbar`、`font_size`、`text_align`、`wrap`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明

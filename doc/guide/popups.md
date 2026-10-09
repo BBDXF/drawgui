@@ -311,3 +311,15 @@ walk 到达，下一次 `layout()`/`layout_full()` 就会悄悄覆盖掉 `PopupH
 - `examples/23_menu_tooltip_dialog` — `dg::Menu`（右键菜单）、`dg::Tooltip`、`dg::Dialog`（overlay 分支）。
 - `examples/25_showcase` — 排序下拉、右键菜单、CJK tooltip 都用组件。
 - `tests/unit/test_ui_components.cpp` — 组件行为的单测。
+- `examples/28_c_components` — 纯 C：`dg_menu_open()`（锚定与右键）、`DG_NODE_TYPE_DROPDOWN`、
+  `dg_node_set_tooltip()`、`dg_dialog_open()`，全部走轮询事件（`tests/unit/test_abi_phase_b.cpp` 是对应单测）。
+
+## 从 C 使用
+
+C ABI（0.2 phase B）把这四个组件包成了不需要回调的形状：事件泵（`dg_wait_events()`）
+替你调 `handle_pointer()`/`handle_key()`/`handle_text()`/`tick()`，组件给出的类型化结果变成
+`dg_event`——`DG_EVENT_MENU_ACTIVATE`（`x` = 项，`y` = 菜单 id）/`_DISMISS`、
+`DG_EVENT_VALUE_CHANGED`（下拉框，`x` 新、`y` 旧）、`DG_EVENT_DIALOG_RESULT`（`x` = 按钮，-1 =
+无取消按钮时的 Escape）。tooltip 的延迟（`dg_app_set_tooltip_delay()`）会缩短
+`dg_wait_events()` 的等待，所以 `-1` 永久等待也能按时弹出。完整说明见
+`doc/reference/c-abi.md` 第 5 节「组件」，边界见 `doc/limitations.md` C 节。

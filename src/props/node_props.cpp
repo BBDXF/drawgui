@@ -971,6 +971,20 @@ PropWrite apply_max_length(Target& target, const PropValue& /*value*/) {
                      "ABI's dg_node_set_prop() does)");
 }
 
+// Component state (ABI 0.2 phase B, see the TOML's comment): dg::ProgressBar
+// holds it, not the node.
+PropWrite apply_value(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "value",
+                     "it is component state - call dg::ProgressBar::set_value() (the C ABI's "
+                     "dg_node_set_prop() does for DG_NODE_TYPE_PROGRESS)");
+}
+
+PropWrite apply_indeterminate(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "indeterminate",
+                     "it is component state - call dg::ProgressBar::set_indeterminate() (the C "
+                     "ABI's dg_node_set_prop() does for DG_NODE_TYPE_PROGRESS)");
+}
+
 PropWrite apply_wrap(Target& target, const PropValue& value) {
   const std::optional<PropWrite> gate = self_must_arrange(target, "wrap");
   if (gate.has_value()) {

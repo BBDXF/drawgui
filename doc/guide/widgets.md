@@ -518,4 +518,6 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - `examples/21_focus` —— Tab 顺序、focus ring
 - `examples/22_dropdown_menu` —— `dg::Dropdown` 的完整用法
 - `examples/23_menu_tooltip_dialog` —— `dg::Menu`（右键菜单）/`dg::Tooltip`/`dg::Dialog` 的用法
+- `examples/28_c_components` —— 同一批组件从纯 C 使用：`DG_NODE_TYPE_PROGRESS`/`TABS`/
+  `TREE`/`TABLE`/`DROPDOWN`（`doc/reference/c-abi.md` 第 5 节「组件」）
 - `examples/27_data_widgets` —— `dg::ProgressBar`/`dg::Tabs`/`dg::TreeView`/`dg::Table`

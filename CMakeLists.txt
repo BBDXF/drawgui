@@ -240,6 +240,7 @@ if(DRAWGUI_HAVE_SDL3)
     # The C ABI (design.md section 5.8): dg_app_t wraps dg::WindowManager,
     # so nothing here can exist without a real windowing backend. A build
     # without SDL3 has no C ABI at all.
+    src/abi/abi_components.cpp
     src/abi/abi_impl.cpp
     src/abi/drawgui_abi.generated.cpp)
 

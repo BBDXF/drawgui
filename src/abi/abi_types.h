@@ -47,9 +47,18 @@
 #include "drawgui/theme/theme.h"
 #include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/theme_package.h"
+#include "drawgui/ui/dialog.h"
+#include "drawgui/ui/dropdown.h"
+#include "drawgui/ui/menu.h"
+#include "drawgui/ui/progress_bar.h"
+#include "drawgui/ui/table.h"
+#include "drawgui/ui/tabs.h"
+#include "drawgui/ui/tooltip_popup.h"
+#include "drawgui/ui/tree_view.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
+#include "drawgui/window/popup_host.h"
 #include "drawgui/window/window_manager.h"
 
 // The wrapper structs the opaque `typedef struct dg_xxx_s dg_xxx_t;` forward
@@ -79,6 +88,30 @@ struct dg_theme_s {
 };
 
 namespace dg::abi {
+
+// ABI 0.2 phase B: the src/ui component behind a DG_NODE_TYPE_DROPDOWN/
+// PROGRESS/TABS/TREE/TABLE node, plus the data needed to rebuild it (a theme
+// switch or a size change rebuilds the composed nodes from this). Dropped -
+// never destroy()ed, its nodes are already gone - when the node is removed.
+struct Component {
+  std::optional<dg::Dropdown> dropdown;
+  std::string placeholder;
+
+  dg::ProgressBar progress;
+
+  dg::Tabs tabs;
+  std::vector<dg::TabItem> tab_items;
+  std::vector<dg_node_t*> tab_panels;  // the caller-visible panel BOX of each tab
+
+  dg::TreeView tree;
+  std::vector<dg::TreeItem> tree_items;
+
+  dg::Table table;
+  std::vector<dg::TableColumn> columns;
+  std::vector<std::vector<std::string>> rows;
+  std::optional<int> sort_column;
+  bool sort_ascending = true;
+};
 
 // One dg_node_t's real state. PENDING until attached (dg_window_set_root()
 // or dg_node_insert_before() as a child), LIVE afterwards, REMOVED once
@@ -110,6 +143,11 @@ struct NodeSlot {
   // selected row - the data the recycled pool rows are painted from.
   std::vector<std::string> list_items;
   int list_selected = -1;
+
+  // ABI 0.2 phase B: the component of a component-typed node (shared so a
+  // NodeSlot stays copyable), and the text dg_node_set_tooltip() bound.
+  std::shared_ptr<Component> component;
+  std::string tooltip;
 };
 
 // One open window: the SDL-backed id window_manager.h already owns, and the
@@ -171,6 +209,22 @@ class WindowImpl {
   // this instance - it only ever receives cancel_all_for() calls, which
   // are no-ops against an engine with no slots.
   dg::AnimationEngine animation;
+
+  // ABI 0.2 phase B: the overlay popups (menus, dropdown menus, the
+  // dialog, tooltips) all share this host; at most one dg_menu_open() menu
+  // and one dialog are open at a time.
+  std::optional<dg::PopupHost> popups;
+  dg::Menu menu;
+  std::int32_t menu_id = 0;
+  dg_node_t* menu_anchor = nullptr;
+  dg::Dialog dialog;
+  std::int32_t dialog_id = 0;
+  dg::Tooltip tooltip;
+  // The last pointer position inside the window (tooltip hover), and the
+  // focus last reported through DG_EVENT_FOCUS_CHANGED - components move
+  // focus themselves, the pump reports the difference.
+  std::optional<dg::PixelPoint> pointer;
+  std::optional<dg::NodeId> reported_focus;
 
   dg_window_t* self_handle = nullptr;
   std::size_t self_index = 0;
@@ -234,6 +288,11 @@ class AppImpl {
   // ABI 0.2: every image dg_node_set_image_data()/_file() decoded, shared by
   // all of this app's windows (each TreeSpec gets a copy of this handle).
   dg::ImageCatalog images;
+
+  // ABI 0.2 phase B: dg_app_set_tooltip_delay(), and the ids handed out by
+  // dg_menu_open()/dg_dialog_open().
+  int tooltip_delay_ms = 500;
+  std::int32_t next_popup_id = 1;
 };
 
 }  // namespace dg::abi

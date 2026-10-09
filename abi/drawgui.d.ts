@@ -85,6 +85,11 @@ export const node_type = {
   SCROLL_VIEW: 7,
   LIST: 8,
   IMAGE: 9,
+  DROPDOWN: 10,
+  PROGRESS: 11,
+  TABS: 12,
+  TREE: 13,
+  TABLE: 14,
 } as const;
 
 // dg_value::type.
@@ -117,6 +122,16 @@ export const event_kind = {
   USER: 16,
   CONTEXT_CLICK: 17,
   LIST_SELECT: 18,
+  MENU_ACTIVATE: 19,
+  MENU_DISMISS: 20,
+  VALUE_CHANGED: 21,
+  DIALOG_RESULT: 22,
+  TAB_SELECT: 23,
+  TREE_SELECT: 24,
+  TREE_EXPAND: 25,
+  TREE_COLLAPSE: 26,
+  TABLE_SELECT: 27,
+  TABLE_SORT: 28,
 } as const;
 
 // ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()).
@@ -136,6 +151,24 @@ export const pointer_button = {
   PRIMARY: 1,
   SECONDARY: 2,
   MIDDLE: 3,
+} as const;
+
+// ABI 0.2 phase B: bits of dg_menu_open()'s per-item `flags`.
+export const menu_item_flag = {
+  DISABLED: 1,
+  CHECKED: 2,
+  SEPARATOR: 4,
+  CHECKABLE: 8,
+} as const;
+
+// ABI 0.2 phase B: bits of dg_tree_set_items()' per-item `flags`.
+export const tree_item_flag = {
+  EXPANDED: 1,
+} as const;
+
+// ABI 0.2 phase B: bits of dg_table_set_columns()' per-column `flags`.
+export const table_column_flag = {
+  SORTABLE: 1,
 } as const;
 
 // ABI 0.2: bits of dg_window_get_state()'s non-negative result.
@@ -324,6 +357,8 @@ export const prop = {
   tab_index: 57,
   max_length: 58,
   wrap: 59,
+  value: 60,
+  indeterminate: 61,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -549,10 +584,11 @@ export declare namespace DrawguiAbi {
   // process_key_event() dispatches directly to a focused editor:
   // Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for
   // DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown, and Tab (focus
-  // traversal; `shift` makes it Shift+Tab) - `key_name` is exactly one of these
-  // bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No
-  // other modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE
-  // debug hook from dg_debug_post_key() rather than a second parameter on it:
+  // traversal; `shift` makes it Shift+Tab), and (phase B) Escape (dismisses a
+  // menu, cancels a dialog) - `key_name` is exactly one of these bare names,
+  // case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No other
+  // modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE debug
+  // hook from dg_debug_post_key() rather than a second parameter on it:
   // dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against
   // input/shortcuts.toml's own generated binding-name table, and none of these
   // six keys is a shortcut binding name at all (see this file's own
@@ -731,4 +767,119 @@ export declare namespace DrawguiAbi {
   // drawgui count). DG_ERR_INVALID_ARGUMENT for an unknown button or negative
   // clicks.
   function dg_debug_post_pointer_button_ex(window: dg_window_t | null, down: number, x: number, y: number, button: number, clicks: number): number;
+  // ABI 0.2 phase B: opens a popup menu (dg::Menu) over `window` - below the live
+  // node `anchor` (min width = its width), or, when `anchor` is null, at the
+  // point x/y (device pixels, e.g. a DG_EVENT_CONTEXT_CLICK's position).
+  // `labels`/`flags` are `count` parallel entries (copied; `flags` may be null =
+  // all 0; a null label is empty): DG_MENU_ITEM_*. Returns the menu id (positive)
+  // or a negative DG_ERR_*. While it is open the pump routes every
+  // pointer/key/text event of the window to it first (Up/Down/Home/End move,
+  // Enter or a click activates, Escape or a click outside dismisses, typing a
+  // letter jumps); it closes itself and queues DG_EVENT_MENU_ACTIVATE or
+  // DG_EVENT_MENU_DISMISS. One menu per window: opening another dismisses the
+  // first (DG_EVENT_MENU_DISMISS for it). DG_ERR_INVALID_ARGUMENT for count 0, a
+  // null `labels`, count above 4096 or a menu with no selectable item;
+  // DG_ERR_UNSUPPORTED while a dialog is open on the window.
+  function dg_menu_open(window: dg_window_t | null, anchor: dg_node_t | null, x: number, y: number, labels: BigUint64Array | null, flags: Uint32Array | null, count: number): number;
+  // ABI 0.2 phase B: closes the window's open dg_menu_open() menu without queuing
+  // an event (DG_ERR_OK even when none is open). Focus returns where it was.
+  function dg_menu_close(window: dg_window_t | null): number;
+  // ABI 0.2 phase B: replaces a LIVE DG_NODE_TYPE_DROPDOWN's options with `count`
+  // UTF-8 strings (copied; a null entry is empty) and clears the selection (the
+  // placeholder shows). Closes its menu if open. DG_ERR_INVALID_ARGUMENT for a
+  // null array with count > 0 or count above 4096; DG_ERR_UNSUPPORTED for another
+  // node type.
+  function dg_dropdown_set_items(node: dg_node_t | null, items: BigUint64Array | null, count: number): number;
+  // ABI 0.2 phase B: the selected option index of a LIVE DG_NODE_TYPE_DROPDOWN,
+  // -1 when none, or a DG_ERR_* below -1.
+  function dg_dropdown_get_selected(node: dg_node_t | null): number;
+  // ABI 0.2 phase B: selects option `index` (-1 clears it, showing the
+  // placeholder). Queues no event. DG_ERR_VALUE_OUT_OF_RANGE outside -1..count-1.
+  function dg_dropdown_set_selected(node: dg_node_t | null, index: number): number;
+  // ABI 0.2 phase B: gives a LIVE node a tooltip (dg::Tooltip; copied). Hovering
+  // the node - or any descendant without a tooltip of its own - for the tooltip
+  // delay shows a small popup below it; moving off, pressing, scrolling or
+  // leaving the window hides it. dg_wait_events() wakes for the delay by itself.
+  // Null or empty removes the tooltip. Removing the node removes its tooltip.
+  function dg_node_set_tooltip(node: dg_node_t | null, utf8: string | null): number;
+  // ABI 0.2 phase B: the hover delay before any tooltip of this app shows,
+  // 0..60000 ms (default 500). Applies to every window, including ones already
+  // open. DG_ERR_VALUE_OUT_OF_RANGE outside that range.
+  function dg_app_set_tooltip_delay(app: dg_app_t | null, delay_ms: number): number;
+  // ABI 0.2 phase B: opens a modal dialog (dg::Dialog) over the whole window: a
+  // scrim, a panel with `title`, the wrapped `body` (may be null) and `count`
+  // buttons (copied; count 0 means one "OK" button). `default_button` gets
+  // initial focus and answers Enter (-1 = none), `cancel_button` answers Escape
+  // (-1 = Escape reports -1). Returns the dialog id (positive) or a negative
+  // DG_ERR_*. While it is open every pointer/key event of the window goes to it
+  // (Tab cycles its buttons, nothing behind it reacts); any open menu is
+  // dismissed first. Closing queues DG_EVENT_DIALOG_RESULT. DG_ERR_UNSUPPORTED if
+  // a dialog is already open on the window; DG_ERR_INVALID_ARGUMENT for a null
+  // title, null buttons with count > 0, count above 8, or a button index outside
+  // -1..buttons-1.
+  function dg_dialog_open(window: dg_window_t | null, title: string | null, body: string | null, buttons: BigUint64Array | null, count: number, default_button: number, cancel_button: number): number;
+  // ABI 0.2 phase B: closes the window's open dialog without queuing an event
+  // (DG_ERR_OK even when none is open). Focus returns where it was.
+  function dg_dialog_close(window: dg_window_t | null): number;
+  // ABI 0.2 phase B: appends a tab labelled `label` (copied; nonzero `disabled`
+  // makes it unselectable) to a LIVE DG_NODE_TYPE_TABS and returns its panel: a
+  // live column DG_NODE_TYPE_BOX filling the panel area. Insert the tab's content
+  // into it with dg_node_insert_before(); removing the panel (dg_node_remove())
+  // leaves the tab with an empty panel. The first selectable tab becomes
+  // selected. Null on failure (dg_last_error() says why); at most 64 tabs.
+  function dg_tabs_add(node: dg_node_t | null, label: string | null, disabled: number): dg_node_t | null;
+  // ABI 0.2 phase B: the selected tab index of a LIVE DG_NODE_TYPE_TABS, -1 when
+  // none, or a DG_ERR_* below -1.
+  function dg_tabs_get_selected(node: dg_node_t | null): number;
+  // ABI 0.2 phase B: selects tab `index`, showing its panel. Queues no event.
+  // DG_ERR_VALUE_OUT_OF_RANGE for an index outside the tabs or a disabled tab.
+  function dg_tabs_set_selected(node: dg_node_t | null, index: number): number;
+  // ABI 0.2 phase B: replaces a LIVE DG_NODE_TYPE_TREE's items with a flattened,
+  // pre-order list of `count` entries (copied): labels[i] (null = empty),
+  // depths[i] (0 = top level; the first item must be 0 and each item at most one
+  // deeper than the one before - an item has children when the next one is
+  // deeper), flags[i] (DG_TREE_ITEM_*; `flags` may be null). Clears the selection
+  // and scroll offset. DG_ERR_INVALID_ARGUMENT for null arrays with count > 0,
+  // bad depths or count above 2^24.
+  function dg_tree_set_items(node: dg_node_t | null, labels: BigUint64Array | null, depths: Int32Array | null, flags: Uint32Array | null, count: number): number;
+  // ABI 0.2 phase B: the selected item index of a LIVE DG_NODE_TYPE_TREE, -1 when
+  // none, or a DG_ERR_* below -1.
+  function dg_tree_get_selected(node: dg_node_t | null): number;
+  // ABI 0.2 phase B: selects item `index`, expanding its ancestors and scrolling
+  // it into view (-1 clears the selection). Queues no event.
+  // DG_ERR_VALUE_OUT_OF_RANGE outside -1..count-1.
+  function dg_tree_set_selected(node: dg_node_t | null, index: number): number;
+  // ABI 0.2 phase B: expands (nonzero) or collapses item `index`. Queues no
+  // event. DG_ERR_VALUE_OUT_OF_RANGE for an index outside the items; an item
+  // without children is accepted and ignored.
+  function dg_tree_set_expanded(node: dg_node_t | null, index: number, expanded: number): number;
+  // ABI 0.2 phase B: defines a LIVE DG_NODE_TYPE_TABLE's `count` columns (1..64;
+  // copied): titles[i] (null = empty), widths[i] in units[i] (DG_LENGTH_UNIT_PX
+  // or _PERCENT of the row width; a width <= 0 - or a null `widths` - shares the
+  // remaining space), flags[i] (DG_TABLE_COLUMN_*; null `units`/`flags` mean
+  // pixels/0). Clears the rows (push them again with dg_table_set_cells()), the
+  // selection and the sort indicator. DG_ERR_INVALID_ARGUMENT for bad arrays,
+  // count 0 or above 64, a non-finite width or an unknown unit.
+  function dg_table_set_columns(node: dg_node_t | null, titles: BigUint64Array | null, widths: Float32Array | null, units: Uint32Array | null, flags: Uint32Array | null, count: number): number;
+  // ABI 0.2 phase B: replaces a LIVE DG_NODE_TYPE_TABLE's rows with `rows` rows
+  // of the current column count, read row-major from `cells` (rows x columns
+  // strings, copied; a null cell is empty). Clears the selection; the scroll
+  // offset is clamped. DG_ERR_INVALID_ARGUMENT for null cells with rows > 0, no
+  // columns yet with rows > 0, or rows x columns above 2^24.
+  function dg_table_set_cells(node: dg_node_t | null, cells: BigUint64Array | null, rows: number): number;
+  // ABI 0.2 phase B: the selected row of a LIVE DG_NODE_TYPE_TABLE, -1 when none,
+  // or a DG_ERR_* below -1.
+  function dg_table_get_selected(node: dg_node_t | null): number;
+  // ABI 0.2 phase B: selects `row`, scrolling it into view (-1 clears it). Queues
+  // no event. DG_ERR_VALUE_OUT_OF_RANGE outside -1..rows-1.
+  function dg_table_set_selected(node: dg_node_t | null, row: number): number;
+  // ABI 0.2 phase B: shows an ascending (nonzero) or descending arrow on header
+  // `column` (-1 removes it). drawgui does not sort. DG_ERR_VALUE_OUT_OF_RANGE
+  // outside -1..columns-1.
+  function dg_table_set_sort_indicator(node: dg_node_t | null, column: number, ascending: number): number;
+  // TEST-ONLY. ABI 0.2 phase B: how many nodes the window's tree holds right now,
+  // composed children and open popups included - the leak oracle for component
+  // lifetimes (open/close a menu, remove a component: the count returns to its
+  // baseline). Negative DG_ERR_* on failure.
+  function dg_debug_node_count(window: dg_window_t | null): number;
 }

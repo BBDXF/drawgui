@@ -160,6 +160,12 @@ C_PRIMITIVE_TYPES = frozenset(
         # (every one copied before the call returns).
         "uint64_t",
         "const char* const*",
+        # ABI 0.2 phase B: borrowed per-item arrays parallel to a
+        # `const char* const*` (menu item flags, tree depths, table column
+        # widths), read before the call returns.
+        "const uint32_t*",
+        "const int32_t*",
+        "const float*",
     }
 )
 
@@ -759,6 +765,9 @@ _C_TO_TS = {
     "const void*": "ArrayBufferView | null",
     "uint64_t": "bigint",
     "const char* const*": "BigUint64Array | null",
+    "const uint32_t*": "Uint32Array | null",
+    "const int32_t*": "Int32Array | null",
+    "const float*": "Float32Array | null",
 }
 
 

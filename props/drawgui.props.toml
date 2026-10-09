@@ -74,7 +74,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 60
+next_id = 62
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -763,3 +763,28 @@ group = "container"
 field = "wrap"
 applies_to = ["flex", "wrap"]
 summary = "Whether a row/column starts a new run when a child does not fit (kWrapRow/kWrapColumn)."
+
+# ---------------------------------------------------------------------------
+# Component state the C ABI sets through dg_node_set_prop() (ABI 0.2 phase
+# B, DG_NODE_TYPE_PROGRESS). Like tab_index/max_length they live in the
+# component (dg::ProgressBar), not in BoxStyle/NodeStyle, so the C++
+# dg::set_prop() reports them kUnsupported.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "value"
+id = 60
+type = "float"
+group = "interaction"
+field = "value"
+applies_to = ["box"]
+summary = "A progress bar's fraction, 0..1."
+
+[[property]]
+name = "indeterminate"
+id = 61
+type = "bool"
+group = "interaction"
+field = "indeterminate"
+applies_to = ["box"]
+summary = "Whether a progress bar shows an endless sweep instead of its value."

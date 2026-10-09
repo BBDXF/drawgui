@@ -78,3 +78,5 @@
    57  tab_index
    58  max_length
    59  wrap
+   60  value
+   61  indeterminate

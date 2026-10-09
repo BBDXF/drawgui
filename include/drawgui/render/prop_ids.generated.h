@@ -257,6 +257,14 @@ inline constexpr dg_prop_id DG_PROP_MAX_LENGTH = 58;
 // type=bool; applies_to=flex,wrap
 inline constexpr dg_prop_id DG_PROP_WRAP = 59;
 
+// -- interaction -------------------------------------------------
+// A progress bar's fraction, 0..1.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_VALUE = 60;
+// Whether a progress bar shows an endless sweep instead of its value.
+// type=bool; applies_to=box
+inline constexpr dg_prop_id DG_PROP_INDETERMINATE = 61;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -343,8 +351,8 @@ inline constexpr std::uint32_t DG_TEXT_ALIGN_RIGHT = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 59;
+inline constexpr std::uint16_t kDgPropMaxId = 61;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 59;
+inline constexpr std::uint16_t kDgPropCount = 61;

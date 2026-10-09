@@ -57,24 +57,28 @@ backend, with no platform-abstraction layer ahead of a second one.
   `WindowManager`.
 - **Theming**: 20 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI** (version 0.2): 63 exported functions (11 of them `dg_debug_*`
+- **C ABI** (version 0.2): 85 exported functions (12 of them `dg_debug_*`
   test-only hooks) - still a smaller surface than the C++ engine. It can
   open and operate windows (title, size, position, min/max size,
   minimize/maximize/restore, fullscreen, resizable, icon, state query);
-  create nine node types (`BOX`, which `DG_PROP_DIRECTION` turns into a
+  create fourteen node types (`BOX`, which `DG_PROP_DIRECTION` turns into a
   row/column container, `BUTTON`, `LABEL`, `CHECKBOX`, `TEXT_FIELD`,
   `TEXT_AREA`, `SCROLL_VIEW`, a virtualized text `LIST` and `IMAGE` with
-  PNG/JPEG/WebP/SVG decoding); set 59 properties including font size, text
+  PNG/JPEG/WebP/SVG decoding, plus the components `DROPDOWN`, `PROGRESS`,
+  `TABS`, `TREE` and `TABLE`); open menus, modal dialogs and tooltips; set
+  61 properties including font size, text
   alignment, percentage sizes, tab order and an editor's max length; move
   keyboard focus (`dg_node_focus()`, Tab/Shift+Tab); read back checkbox
   state, editor text, list selection and scroll offsets; receive click
   (with click count), context-click, focus, list-select, text-changed,
   action, timer, cross-thread user and window-state events; and load a
   theme. Nodes can be inserted before a sibling, moved within a window and
-  removed as whole subtrees, so a keyed reconciler can drive the tree. Not
-  exported yet: menus, dropdowns, tooltips, dialogs, tabs, trees, tables,
-  progress bars, animation, and any IME composition surface.
-  `examples/19_c_client` is a pure C program built entirely on the ABI.
+  removed as whole subtrees, so a keyed reconciler can drive the tree. The
+  components are poll-based like everything else: a menu choice, a dropdown
+  change, a dialog answer, a tab/tree/table selection or a sort request each
+  arrive as one `dg_event`. Not exported: animation and any IME composition
+  surface. `examples/19_c_client` and `examples/28_c_components` are pure C
+  programs built entirely on the ABI.
 
 See `doc/limitations.md` for the full list of known gaps, costly corners
 and things that are deliberately out of scope.
@@ -113,7 +117,7 @@ per-frame call order, see **`doc/getting-started.md`**.
 
 ## Examples
 
-28 examples, `examples/00_*` through `examples/27_*`. Most support
+29 examples, `examples/00_*` through `examples/28_*`. Most support
 `--dump-png out.png` (headless render) and a `--verify-*` flag (headless
 assertion, used in CTest); run any binary with `--help` for its full flag
 list. **Start with `examples/25_showcase`** - it is the only example that
@@ -150,6 +154,7 @@ project's cross-feature regression bed.
 | 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
 | 26 | `text_area` | A heading row (a `BOX` made a row) over a multi-line `TEXT_AREA`, all through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
 | 27 | `data_widgets` | `ProgressBar` (determinate + indeterminate), `Tabs` with a disabled tab, a 10,000-item `TreeView` and a 10,000-row sortable `Table` on fixed node pools | `--verify` |
+| 28 | `c_components` | Pure C: anchored and context menus, a dropdown, tooltips, a modal dialog, a progress bar, tabs holding a tree, and a table the app sorts on request - all through the poll-based C ABI | `--verify` |
 
 ## Unit tests
 

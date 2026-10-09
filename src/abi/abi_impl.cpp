@@ -36,6 +36,7 @@
 #include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
 
+#include "abi_internal.h"
 #include "abi_types.h"
 
 namespace dg::abi {
@@ -586,6 +587,7 @@ ListPalette list_palette_for(const AppImpl& impl) {
 }
 
 void repaint_list(AppImpl& impl, WindowImpl& window, const NodeSlot& slot);
+dg_node_t* nearest_handle(AppImpl& impl, WindowImpl& window, dg::NodeId id);
 
 // Every focus change ends here: the editors' focus/blur side effects, then
 // one DG_EVENT_FOCUS_CHANGED naming the newly focused node (null = none).
@@ -599,13 +601,14 @@ void apply_focus_change(AppImpl& impl, WindowImpl& window, const dg::FocusChange
   if (!change.any()) {
     return;
   }
+  window.reported_focus = window.focus.current();
   dg_event out{};
   out.size = sizeof(dg_event);
   out.kind = DG_EVENT_FOCUS_CHANGED;
   out.window = window.self_handle;
-  out.node = change.focused.has_value()
-                 ? find_node_handle(impl, window.self_index, *change.focused)
-                 : nullptr;
+  // A component's composed node (a tab, a tree) reports the component.
+  out.node =
+      change.focused.has_value() ? nearest_handle(impl, window, *change.focused) : nullptr;
   impl.pending_events.push_back(out);
 }
 
@@ -634,6 +637,7 @@ void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
           repaint_list(impl, *window, slot);
         }
       }
+      components::restyle(impl, *window);
       window->widgets.refresh_subtree(window->tree.render(), dg::LayoutTree::root(),
                                       window->interaction);
     }
@@ -683,6 +687,21 @@ void scroller_or_image_defaults(const WindowImpl& window, std::uint16_t type_id,
   style.overflow = dg::Overflow::kClip;
 }
 
+// Scroll views, lists, images and the phase B components choose their own
+// default box.
+bool has_composed_defaults(std::uint16_t type_id) {
+  return is_scroller_or_image(type_id) || components::is_component_type(type_id);
+}
+
+void composed_defaults(const AppImpl& impl, const WindowImpl& window, std::uint16_t type_id,
+                       dg::BoxStyle& box, dg::NodeStyle& style) {
+  if (components::is_component_type(type_id)) {
+    components::defaults(impl, type_id, box, style);
+  } else {
+    scroller_or_image_defaults(window, type_id, box, style);
+  }
+}
+
 void compose_scroll_view(WindowImpl& window, NodeSlot& slot, dg::NodeId new_id) {
   // The content node every caller child goes into (dg_node_insert_before()),
   // then the scrollbar track + thumb, added last so they paint on top.
@@ -724,6 +743,17 @@ void compose_list(const AppImpl& impl, WindowImpl& window, dg::NodeId new_id) {
   const dg::NodeId thumb = window.tree.add_child(track, dg::BoxStyle{}, dg::NodeStyle{});
   window.widgets.attach_scrollbar(window.tree.render(), new_id, track, thumb);
   window.relaid = true;
+}
+
+// The composed children of a scroll view, a list or a phase B component.
+void compose_owned(AppImpl& impl, WindowImpl& window, NodeSlot& slot) {
+  if (components::is_component_type(slot.type_id)) {
+    components::compose(impl, window, slot);
+  } else if (slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
+    compose_scroll_view(window, slot, slot.node_id);
+  } else if (slot.type_id == DG_NODE_TYPE_LIST) {
+    compose_list(impl, window, slot.node_id);
+  }
 }
 
 // The one place a PENDING node becomes LIVE - shared by dg_window_set_root()
@@ -785,8 +815,8 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     box.width = kTextAreaWidth;
     box.height = kTextAreaHeight;
     style = text_field_box_style(editor_palette_for(impl), false);
-  } else if (is_scroller_or_image(slot.type_id)) {
-    scroller_or_image_defaults(window, slot.type_id, box, style);
+  } else if (has_composed_defaults(slot.type_id)) {
+    composed_defaults(impl, window, slot.type_id, box, style);
   } else {
     style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
     if (slot.type_id == DG_NODE_TYPE_BUTTON) {
@@ -808,11 +838,7 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
   slot.window_index = window_index;
   slot.node_id = new_id;
 
-  if (slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
-    compose_scroll_view(window, slot, new_id);
-  } else if (slot.type_id == DG_NODE_TYPE_LIST) {
-    compose_list(impl, window, new_id);
-  } else if (slot.type_id == DG_NODE_TYPE_BUTTON) {
+  if (slot.type_id == DG_NODE_TYPE_BUTTON) {
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kButton;
     widget.fill_normal = dg::Color::rgba(0x35, 0x6B, 0xC7);
@@ -957,6 +983,8 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     if (impl.fonts.has_value()) {
       window.widgets.text_area_set_focus(window.tree.render(), *impl.fonts, new_id, false);
     }
+  } else {
+    compose_owned(impl, window, slot);
   }
   return DG_ERR_OK;
 }
@@ -1303,6 +1331,11 @@ int effective_clicks(WindowImpl& window, int clicks) {
 }
 
 void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerEvent& event) {
+  // ABI 0.2 phase B: an open dialog/menu, dropdowns, tabs, trees and tables
+  // see the event first.
+  if (components::route_pointer(impl, window, event)) {
+    return;
+  }
   const dg::PixelPoint at{event.x, event.y};
   const bool is_button =
       event.action == dg::PointerAction::kDown || event.action == dg::PointerAction::kUp;
@@ -1592,6 +1625,9 @@ bool handle_tab(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& event) {
 // it), so gating here, once, is what keeps a single key press from firing
 // its resolved action twice - on press AND on release.
 void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& event) {
+  if (components::route_key(impl, window, event)) {
+    return;
+  }
   if (event.action != dg::KeyAction::kDown) {
     return;
   }
@@ -1769,6 +1805,9 @@ void resync_widgets(AppImpl& impl, WindowImpl& window) {
       window.widgets.sync_scrollbar(tree, slot.node_id, extent);
     }
   }
+  if (relaid) {
+    components::sync(impl, window);
+  }
 }
 
 bool insert_into_editor(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
@@ -1805,7 +1844,8 @@ void queue_timer_and_user_events(AppImpl& impl, const dg::PumpResult& pumped) {
 }
 
 void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
-  const dg::PumpResult pumped = impl.wm.pump(timeout_ms);
+  // Tooltip delays and indeterminate progress bars wake the wait by themselves.
+  const dg::PumpResult pumped = impl.wm.pump(components::clamp_timeout(impl, timeout_ms));
 
   // A node attached since the last pump (dg_window_set_root()/
   // dg_node_insert_before()) has all-zero bounds() until LayoutTree::
@@ -1865,7 +1905,8 @@ void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
   // has for DG_NODE_TYPE_LABEL).
   for (const dg::TextInputEvent& event : pumped.text_input) {
     WindowImpl* window = find_window_by_sdl_id(impl, event.window);
-    if (window == nullptr || !impl.fonts.has_value()) {
+    if (window == nullptr || components::route_text(impl, *window, event) ||
+        !impl.fonts.has_value()) {
       continue;
     }
     const std::optional<dg::NodeId> focused = window->focus.current();
@@ -1885,6 +1926,8 @@ void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
 
   for (const std::unique_ptr<WindowImpl>& window : impl.windows) {
     if (!window->closed) {
+      components::report_focus_drift(impl, *window);
+      components::tick(impl, *window);
       // A relayout re-places a text area's composed children at its content
       // origin (and may have resized it): re-derive them before painting.
       relayout(*window);
@@ -2135,6 +2178,7 @@ dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
   // (process_pump()'s pumped.text_input loop below only ever delivers to
   // window.focus.current(), and only when it names a DG_NODE_TYPE_TEXT_FIELD).
   impl->wm.start_text_input(window->sdl_window, dg::PixelRect{0, 0, 1, 1});
+  components::init_window(*impl, *window);
   impl->windows.push_back(std::move(window));
 
   all_window_handles().emplace_back(
@@ -2188,7 +2232,7 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
       type_id != DG_NODE_TYPE_LABEL && type_id != DG_NODE_TYPE_CHECKBOX &&
       type_id != DG_NODE_TYPE_TEXT_FIELD && type_id != DG_NODE_TYPE_TEXT_AREA &&
       type_id != DG_NODE_TYPE_SCROLL_VIEW && type_id != DG_NODE_TYPE_LIST &&
-      type_id != DG_NODE_TYPE_IMAGE) {
+      type_id != DG_NODE_TYPE_IMAGE && !components::is_component_type(type_id)) {
     set_last_error("dg_node_create: unknown type_id");
     return nullptr;
   }
@@ -2405,6 +2449,10 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
     return to_error_code(result.status);
   }
 
+  if (const std::optional<std::int32_t> handled =
+          components::set_prop(*impl, window, *slot, prop_id, *value)) {
+    return *handled;
+  }
   if (prop_id == DG_PROP_TAB_INDEX || prop_id == DG_PROP_MAX_LENGTH) {
     return set_widget_prop(window, *slot, prop_id, *value);
   }
@@ -2422,6 +2470,7 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
   const dg::PropWrite result = write_prop(window, *slot, target, prop_id, *prop_value);
   if (result.ok()) {
     after_prop_write(*impl, window, *slot, target, prop_id);
+    components::after_prop(*impl, window, *slot, prop_id);
   }
   return to_error_code(result.status);
 }
@@ -2443,6 +2492,12 @@ std::int32_t node_set_text(dg_node_t* node_h, std::uint16_t prop_id, const char*
   WindowImpl& window = *impl->windows[slot->window_index];
 
   const std::string_view text(utf8 == nullptr ? "" : utf8, len);
+  if (prop_id == DG_PROP_TEXT) {
+    if (const std::optional<std::int32_t> handled =
+            components::set_text(*impl, window, *slot, text)) {
+      return *handled;
+    }
+  }
   if (prop_id == DG_PROP_TEXT && is_text_editor(window, slot->node_id)) {
     // An editor's text is its MODEL, not its own node's TextStyle: replace
     // it (caret to the end). Not reported as DG_EVENT_TEXT_CHANGED - that
@@ -2480,8 +2535,12 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
     return DG_ERR_INVALID_HANDLE;
   }
   WindowImpl& window = *impl->windows[parent_slot->window_index];
-  if (parent_slot->type_id == DG_NODE_TYPE_LIST) {
-    return DG_ERR_UNSUPPORTED;  // a list's rows come from dg_list_set_items()
+  if (parent_slot->type_id == DG_NODE_TYPE_LIST ||
+      components::is_component_type(parent_slot->type_id)) {
+    // A list's rows come from dg_list_set_items(); a component composes its
+    // own children (a DG_NODE_TYPE_TABS takes content through dg_tabs_add()'s
+    // panels).
+    return DG_ERR_UNSUPPORTED;
   }
   // A scroll view's children live in its composed content node.
   const dg::NodeId container = parent_slot->type_id == DG_NODE_TYPE_SCROLL_VIEW
@@ -2552,6 +2611,7 @@ std::int32_t node_remove(dg_node_t* node_h) {
     // tombstoned and may be reused by the next add_child().
     const std::vector<dg::NodeId> subtree = dg::subtree_of(window.tree.render(), slot->node_id);
     const std::optional<dg::NodeId> focused_before = window.focus.current();
+    components::before_remove(*impl, window, subtree);
     if (!dg::remove_subtree(window.tree, slot->node_id,
                             {window.widgets, window.theme_bindings, window.focus,
                              window.animation, window.action_scopes, window.interaction})) {
@@ -2582,8 +2642,10 @@ std::int32_t node_remove(dg_node_t* node_h) {
         other.state = NodeSlot::State::kRemoved;
       }
     }
+    window.reported_focus = window.focus.current();
   }
   slot->state = NodeSlot::State::kRemoved;
+  components::after_remove(*resolve_app(node_h->app));
   return DG_ERR_OK;
 }
 
@@ -3255,6 +3317,8 @@ std::int32_t debug_post_text_field_key(dg_window_t* window_h, std::int32_t down,
     key = dg::Key::kPageDown;
   } else if (name == "Tab") {
     key = dg::Key::kTab;
+  } else if (name == "Escape") {
+    key = dg::Key::kEscape;  // phase B: dismisses menus and dialogs
   } else {
     return DG_ERR_INVALID_ARGUMENT;
   }
@@ -3338,7 +3402,7 @@ std::int32_t node_focus(dg_node_t* node_h) {
     return live.status;
   }
   WindowImpl& window = *live.window;
-  const dg::NodeId id = live.slot->node_id;
+  const dg::NodeId id = components::focus_target(window, *live.slot);
   if (!window.widgets.has(id) || !dg::is_focusable(window.widgets.at(id).kind) ||
       dg::is_disabled(window.tree.render(), id)) {
     set_last_error("dg_node_focus: this node cannot take keyboard focus");
@@ -3548,6 +3612,41 @@ std::int32_t debug_post_pointer_button_ex(dg_window_t* window_h, std::int32_t do
   resolve_app(window_h->app)
       ->wm.post_pointer_button(window->sdl_window, down != 0, x, y, which, clicks);
   return DG_ERR_OK;
+}
+
+// -- Seams for abi_components.cpp (abi_internal.h) -----------------------------
+
+AppImpl* app_of(dg_app_t* handle) {
+  return resolve_app(handle);
+}
+
+WindowImpl* window_of(dg_window_t* handle) {
+  return resolve_window(handle);
+}
+
+NodeSlot* slot_of(dg_node_t* handle) {
+  return resolve_node_slot(handle);
+}
+
+dg_node_t* handle_near(AppImpl& impl, WindowImpl& window, dg::NodeId id) {
+  return nearest_handle(impl, window, id);
+}
+
+void report_focus(AppImpl& impl, WindowImpl& window, const dg::FocusChange& change) {
+  apply_focus_change(impl, window, change);
+}
+
+std::pair<const dg::Theme*, dg::ThemeVariant> active_theme_of(const AppImpl& impl) {
+  return theme_for(impl);
+}
+
+std::int32_t attach_node(AppImpl& impl, std::size_t window_index, dg::NodeId parent_id,
+                         std::size_t child_index) {
+  return attach_pending_node(impl, window_index, parent_id, child_index);
+}
+
+float default_text_size() {
+  return kDefaultLabelTextSize;
 }
 
 }  // namespace dg::abi

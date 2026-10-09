@@ -119,6 +119,7 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_expose_repaint.cpp
     unit/test_event_loop.cpp
     unit/test_abi_phase_a.cpp
+    unit/test_abi_phase_b.cpp
     unit/test_abi_tree_ops.cpp
     unit/test_window_ops.cpp
     unit/test_abi_window_ops.cpp

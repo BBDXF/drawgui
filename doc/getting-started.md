@@ -48,12 +48,14 @@ ctest --test-dir build --output-on-failure
   `doc/guide/` 都是针对这条路径写的。
 - **C ABI 路径**：能力比 C++ 路径小，今天能做这些事：
   - 开窗并操作窗口（`dg_window_create`、`dg_window_set_size` 等）
-  - 建节点，九种类型：`BOX`（写 `DG_PROP_DIRECTION` 变成行/列容器）、
+  - 建节点，十四种类型：`BOX`（写 `DG_PROP_DIRECTION` 变成行/列容器）、
     `BUTTON`、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、
     `SCROLL_VIEW`、`LIST`（虚拟化文本列表，`dg_list_set_items`）、
-    `IMAGE`（`dg_node_set_image_data`/`_file`，PNG/JPEG/WebP/SVG）——见
+    `IMAGE`（`dg_node_set_image_data`/`_file`，PNG/JPEG/WebP/SVG），以及组件
+    `DROPDOWN`/`PROGRESS`/`TABS`/`TREE`/`TABLE`（另有菜单、对话框、tooltip 函数，
+    示例 `examples/28_c_components`）——见
     `include/drawgui/abi/drawgui.h`
-  - 设置属性，59 个 `dg_prop_id` 里的任意一个（`dg_node_set_prop`；
+  - 设置属性，61 个 `dg_prop_id` 里的任意一个（`dg_node_set_prop`；
     `DG_PROP_TEXT` 这种字符串属性走 `dg_node_set_text`），包括字号、对齐、
     百分比尺寸（`DG_LENGTH_UNIT_PERCENT`）
   - 按位置插入、在同一窗口内移动、整棵子树删除节点（`dg_node_insert_before`

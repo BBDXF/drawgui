@@ -228,6 +228,13 @@ switch (prop_id) {
   case DG_PROP_WRAP:
     DG_PROP_ASSIGN(wrap, bool);
     break;
+  // -- interaction -----------------------------------------------
+  case DG_PROP_VALUE:
+    DG_PROP_ASSIGN(value, float);
+    break;
+  case DG_PROP_INDETERMINATE:
+    DG_PROP_ASSIGN(indeterminate, bool);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

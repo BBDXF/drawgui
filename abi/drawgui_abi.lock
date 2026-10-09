@@ -35,6 +35,11 @@ node_type.TEXT_AREA=6
 node_type.SCROLL_VIEW=7
 node_type.LIST=8
 node_type.IMAGE=9
+node_type.DROPDOWN=10
+node_type.PROGRESS=11
+node_type.TABS=12
+node_type.TREE=13
+node_type.TABLE=14
 value_type.FLOAT=1
 value_type.LENGTH=2
 value_type.COLOR=3
@@ -59,6 +64,16 @@ event_kind.TIMER=15
 event_kind.USER=16
 event_kind.CONTEXT_CLICK=17
 event_kind.LIST_SELECT=18
+event_kind.MENU_ACTIVATE=19
+event_kind.MENU_DISMISS=20
+event_kind.VALUE_CHANGED=21
+event_kind.DIALOG_RESULT=22
+event_kind.TAB_SELECT=23
+event_kind.TREE_SELECT=24
+event_kind.TREE_EXPAND=25
+event_kind.TREE_COLLAPSE=26
+event_kind.TABLE_SELECT=27
+event_kind.TABLE_SORT=28
 pixel_format.BGRA8888=1
 pixel_format.RGBA8888=2
 length_unit.PX=0
@@ -66,6 +81,12 @@ length_unit.PERCENT=1
 pointer_button.PRIMARY=1
 pointer_button.SECONDARY=2
 pointer_button.MIDDLE=3
+menu_item_flag.DISABLED=1
+menu_item_flag.CHECKED=2
+menu_item_flag.SEPARATOR=4
+menu_item_flag.CHECKABLE=8
+tree_item_flag.EXPANDED=1
+table_column_flag.SORTABLE=1
 window_state.MINIMIZED=1
 window_state.MAXIMIZED=2
 window_state.FULLSCREEN=4
@@ -158,4 +179,26 @@ dg_wake: int32_t(dg_app_t*)
 dg_post_user_event: int32_t(dg_app_t*,uint64_t)
 dg_debug_post_wheel: int32_t(dg_window_t*,float,float)
 dg_debug_post_pointer_button_ex: int32_t(dg_window_t*,int32_t,int32_t,int32_t,int32_t,int32_t)
+dg_menu_open: int32_t(dg_window_t*,dg_node_t*,int32_t,int32_t,const char* const*,const uint32_t*,uint32_t)
+dg_menu_close: int32_t(dg_window_t*)
+dg_dropdown_set_items: int32_t(dg_node_t*,const char* const*,uint32_t)
+dg_dropdown_get_selected: int32_t(dg_node_t*)
+dg_dropdown_set_selected: int32_t(dg_node_t*,int32_t)
+dg_node_set_tooltip: int32_t(dg_node_t*,const char*)
+dg_app_set_tooltip_delay: int32_t(dg_app_t*,int32_t)
+dg_dialog_open: int32_t(dg_window_t*,const char*,const char*,const char* const*,uint32_t,int32_t,int32_t)
+dg_dialog_close: int32_t(dg_window_t*)
+dg_tabs_add: dg_node_t*(dg_node_t*,const char*,int32_t)
+dg_tabs_get_selected: int32_t(dg_node_t*)
+dg_tabs_set_selected: int32_t(dg_node_t*,int32_t)
+dg_tree_set_items: int32_t(dg_node_t*,const char* const*,const int32_t*,const uint32_t*,uint32_t)
+dg_tree_get_selected: int32_t(dg_node_t*)
+dg_tree_set_selected: int32_t(dg_node_t*,int32_t)
+dg_tree_set_expanded: int32_t(dg_node_t*,int32_t,int32_t)
+dg_table_set_columns: int32_t(dg_node_t*,const char* const*,const float*,const uint32_t*,const uint32_t*,uint32_t)
+dg_table_set_cells: int32_t(dg_node_t*,const char* const*,uint32_t)
+dg_table_get_selected: int32_t(dg_node_t*)
+dg_table_set_selected: int32_t(dg_node_t*,int32_t)
+dg_table_set_sort_indicator: int32_t(dg_node_t*,int32_t,int32_t)
+dg_debug_node_count: int32_t(dg_window_t*)
 
