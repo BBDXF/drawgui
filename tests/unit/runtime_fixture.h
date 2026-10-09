@@ -13,12 +13,14 @@
 
 #include "drawgui/app/app.h"
 #include "drawgui/app/window.h"
+#include "drawgui/graphics/raster_surface.h"
 #include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/prop_ids.generated.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/logical_key.generated.h"
+#include "drawgui/widget/widget_set.h"
 #include "drawgui/window/window_manager.h"
 
 namespace runtime_test {

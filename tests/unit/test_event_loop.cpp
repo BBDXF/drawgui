@@ -281,3 +281,42 @@ TEST_CASE("wake: post_user_event and wake from another thread end a blocking pum
   CHECK(woken.woken);
   CHECK(woken.user_events.empty());
 }
+
+// Moved from examples/23_menu_tooltip_dialog's --verify-menus when that
+// example moved to dg::App: the WindowManager-level close-request veto.
+TEST_CASE("close request: a cancellable window can veto, a plain one closes at once") {
+  WindowManager manager = make_manager();
+  dg::WindowSpec plain;
+  plain.width = 200;
+  plain.height = 150;
+  const auto plain_window = manager.open(plain);
+  dg::WindowSpec cancellable = plain;
+  cancellable.cancellable_close = true;
+  const auto cancellable_window = manager.open(cancellable);
+  REQUIRE(plain_window.has_value());
+  REQUIRE(cancellable_window.has_value());
+  CHECK(manager.open_window_count() == 2);
+
+  manager.request_close(plain_window.value());
+  manager.request_close(cancellable_window.value());
+  const PumpResult pumped = manager.pump(200);
+  bool plain_closed = false;
+  for (const WindowId id : pumped.closed) {
+    plain_closed = plain_closed || id == plain_window.value();
+  }
+  CHECK(plain_closed);
+  bool cancellable_requested = false;
+  for (const WindowId id : pumped.close_requested) {
+    cancellable_requested = cancellable_requested || id == cancellable_window.value();
+  }
+  CHECK(cancellable_requested);
+  CHECK(manager.open_window_count() == 1);
+
+  // The veto: not calling close_now() leaves it open across another pump.
+  const PumpResult after_veto = manager.pump(50);
+  CHECK(after_veto.closed.empty());
+  CHECK(manager.open_window_count() == 1);
+
+  manager.close_now(cancellable_window.value());
+  CHECK(manager.open_window_count() == 0);
+}

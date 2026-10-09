@@ -1,9 +1,5 @@
 if(DRAWGUI_HAVE_SDL3)
-  add_executable(drawgui_text_input
-    main.cpp
-    text_field_check.cpp
-    text_field_scene.cpp
-    text_field_window.cpp)
+  add_executable(drawgui_text_input main.cpp)
 
   target_link_libraries(drawgui_text_input PRIVATE
     drawgui::drawgui
@@ -11,7 +7,7 @@ if(DRAWGUI_HAVE_SDL3)
     drawgui_sanitizers)
 
   target_include_directories(drawgui_text_input PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}")
+    "${CMAKE_CURRENT_LIST_DIR}/../common")
 
   set_target_properties(drawgui_text_input PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")

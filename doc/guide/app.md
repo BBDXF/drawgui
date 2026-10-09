@@ -1,8 +1,10 @@
 # C++ 运行时：`dg::App` / `dg::Window`
 
 C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用它：
-公开头文件都在 `include/drawgui/app/`。本页是最小 API 参考；完整的
-教程与示例移植留到后续阶段。
+公开头文件都在 `include/drawgui/app/`。本页是 API 参考；`doc/guide/` 里
+每篇都先讲 `dg::App` 的用法，再在「直接使用底层」一节讲不用运行时时要自己
+承担的义务。建在运行时上的示例：`examples/12_text_input`、`15_list`、
+`22_dropdown_menu`、`23_menu_tooltip_dialog`、`27_data_widgets`。
 
 | 头文件 | 内容 |
 |---|---|
@@ -12,6 +14,7 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
 | `items.h` | 值类型：`MenuEntry`、`TreeEntry`、`TableColumnSpec`、`DialogOptions` |
 | `events.h` | `dg::Event`（`std::variant`）及 `Overloaded`、`event_as<E>()`、`window_of()` |
 | `limits.h` | 数组上限 `dg::limits::kListMaxItems` 等（C ABI 用同一组常量） |
+| `prop.h` | `dg::prop::width()/height()/row()/column()/gap()/grow()/…`：配合 `Window::set()` 的类型化属性 |
 | `status.h` / `node_kind.h` | `dg::Status`、`dg::NodeKind` |
 
 ## 线程模型
@@ -48,13 +51,20 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
 
 - 树：`create`、`move`、`remove`（`set_on_removed` 回调对随之移除的每个节点
   触发一次）、`kind_of`、`child_container`。
-- 属性：`set_prop`、`bind_token`、`set_text` / `text`、`checked`、
+- 属性：`set_prop`、`set(node, {dg::prop::width(120), dg::prop::row()})`（逐个应用，返回第一个失败）、`bind_token`、`set_text` / `text`、`checked`、
   `set_disabled`（被禁用的子树不再接收指针/键盘；进行中的按下不会产生
   `ClickEvent`，焦点会移走）、`set_tooltip`、`set_image`、`scope_action`。
 - 焦点：`focus`、`clear_focus`、`focused`；变化以 `FocusChangedEvent` 报告。
 - 弹层：`open_menu(anchor, at, std::vector<MenuEntry>)`、`close_menu`、
   `open_dialog(DialogOptions)`、`close_dialog`；返回的 id 会出现在对应的
   `MenuEvent` / `DialogResultEvent` 里。
+
+## 调试
+
+- `node_count()`：本窗口渲染树里的全部节点数（含组合子节点和弹层），适合断言
+  「虚拟化列表的节点数不随数据增长」「弹层关闭后节点数回到基线」。
+- `frame()`：上一次 `pump()` 画好的帧（`RasterSurface`），首帧前为 null；
+  `frame()->encode_png()` 即可做 `--dump-png`。
 
 ## 组件引用（refs）
 
@@ -103,7 +113,9 @@ for (const dg::Event& e : app.pump(-1)) {
 
 测试用的输入注入走 `App::window_manager()` 的 `post_pointer_button()`、
 `post_key()`、`post_logical_key()`、`post_text_input()` 等——与 C ABI 的
-`dg_debug_*` 是同一条路径（见 `tests/unit/runtime_fixture.h`）。
+`dg_debug_*` 是同一条路径（见 `tests/unit/runtime_fixture.h`、
+`examples/common/example_app.h`）。注意：SDL dummy 驱动下同时开着多个窗口时，
+`warp_pointer()` 产生的移动事件可能不会送达后建的窗口，需要拖动的检查最好只开一个窗口。
 
 ## 示例
 

@@ -1,5 +1,14 @@
 # 动画（Animation）
 
+## 用 `dg::App`
+
+`dg::App` 今天只驱动运行时自己的动画：不确定进度条（`ProgressRef::set_indeterminate(true)`）
+，`pump(-1)` 会在需要下一帧时自动醒来。它还没有面向应用的
+动画 API：`Window::animation()` 返回的 `AnimationEngine` 不会被运行时 `tick()`，
+主题/尺寸变化时运行时会覆盖组合子节点上的属性。需要通用的显式动画或隐式过渡时，
+目前只能按下面「直接使用底层」的方式自己持有 `AnimationEngine`
+（`examples/17_animation`）。
+
 ## 这个子系统解决什么问题
 
 一个属性从 A 值变到 B 值，希望它在一段时间内平滑过渡而不是瞬间跳变——
@@ -10,7 +19,14 @@ CSS `transition` 风格的隐式过渡——声明一次 `set_transition()`，�
 
 **动画完全是 C++ 嵌入层的能力，没有导出到 C ABI**——见下文"ABI 边界"一节。
 
-## 核心类型
+## 直接使用底层
+
+自己持有 `AnimationEngine` 时：每帧用同一个时钟值 `tick()`，`has_active()` 为真时
+用短超时 `pump()`，并在主题切换前处理飞行中的过渡（见下文已知缺陷）。
+
+改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
+
+### 核心类型
 
 ```cpp
 struct AnimTime { std::int64_t ms = 0; };
@@ -38,7 +54,7 @@ class AnimationEngine {
 };
 ```
 
-## 时钟是值语义
+### 时钟是值语义
 
 `AnimTime` 是一个普通值（`ms` 计数），不是虚接口（`include/drawgui/anim/clock.h`）。
 生产代码调用 `steady_anim_time()`；测试直接构造任意 `AnimTime` 推进
@@ -47,7 +63,7 @@ class AnimationEngine {
 普通参数（`WindowManager::warp_pointer()` 传 x/y 而不是抽象一个"输入设备"），
 `AnimationEngine` 延续了同样的做法。
 
-## 四条曲线
+### 四条曲线
 
 ```cpp
 kCurveLinear, kCurveEaseIn, kCurveEaseOut, kCurveEaseInOut
@@ -62,7 +78,7 @@ append-only lock"体系（`include/drawgui/anim/curve.h:10-23`）：那套机制
 未知 curve_id 会退化成线性插值，而不是报错——因为这是一个完全在本地控制
 的小闭集，不像 prop_id 那样可能来自跨进程边界。
 
-## 显式动画：`animate()`
+### 显式动画：`animate()`
 
 ```cpp
 slide_handle_ = engine_.animate(scene.tree, scene.handles.slide_chip, DG_PROP_LEFT,
@@ -91,7 +107,7 @@ slide_handle_ = engine_.animate(scene.tree, scene.handles.slide_chip, DG_PROP_LE
 `generation` 在每次槽位被释放（完成、取消、被回收复用）时递增，每个访问器
 在操作前都会校验它，不匹配就返回 `kStaleHandle` 而不是操作别人的动画。
 
-## 隐式过渡：`set_transition()` + `set_value()`
+### 隐式过渡：`set_transition()` + `set_value()`
 
 ```cpp
 engine_.set_transition(scene.handles.hover_panel, DG_PROP_BACKGROUND_COLOR,
@@ -105,7 +121,7 @@ engine_.set_value(scene.tree, scene.handles.hover_panel, DG_PROP_BACKGROUND_COLO
 和当前有没有正在跑的动画无关，就像 CSS 的 `transition` 声明和它将来要
 应用到的值无关一样。`set_value()` 是调用方之后每次真正写值时改用的入口。
 
-### 只对 7 个属性有效——这是隐式过渡最容易被忽视的边界
+#### 只对 7 个属性有效——这是隐式过渡最容易被忽视的边界
 
 `set_value()` 第一次触发某个 (node, prop_id) 的隐式过渡时，需要知道
 "当前值"才能算出插值的起点（`from`）。这个"读回当前值"的能力由
@@ -136,7 +152,7 @@ switch 语句里，从未在任何文档层面列出过**，如果你的属性�
 不受这条限制——只有**第一次触发、需要从当前值起插值**的场景才需要
 `read_current()`。
 
-### `clear_transition()` 是唯一的逆操作
+#### `clear_transition()` 是唯一的逆操作
 
 ```cpp
 engine_.clear_transition(node, DG_PROP_BACKGROUND_COLOR);
@@ -154,7 +170,7 @@ duration 只是被钳到 0 并存下来，`set_value()` 仍然会走 transition 
 transition**——不要把它当成"清除某一个 (node, prop_id) 的 transition"的
 替代品，它的粒度是整个节点。
 
-## `tick()` / `has_active()` / `poll_events()`：轮询，不是回调
+### `tick()` / `has_active()` / `poll_events()`：轮询，不是回调
 
 ```cpp
 engine.tick(tree, dg::steady_anim_time());
@@ -176,14 +192,14 @@ for (const dg::AnimEvent& event : engine.poll_events()) {
 `dg::set_prop()`，这意味着一个动画帧和一次手动写入对下游（layout、damage、
 paint）而言完全无法区分。
 
-## `AnimHandle{index, generation}`
+### `AnimHandle{index, generation}`
 
 见上文"显式动画"一节——两个字段是为了解决动画槽位复用引发的 ABA 问题，
 这是一个**新**机制，5-3 给渲染节点用的"永不释放、所以永不悬空"那套先例
 在这里不适用：渲染节点的数量在一个会话里是有界增长的（append-only），
 动画数量是无界的（每一次短暂的 hover 都会用掉一个槽位），必须回收复用。
 
-## 已知缺陷：主题切换与飞行中的 transition 冲突
+### 已知缺陷：主题切换与飞行中的 transition 冲突
 
 （与 `doc/guide/theming.md` 共享同一条记录，未修复）
 
@@ -200,7 +216,7 @@ paint）而言完全无法区分。
 按自己文档写的规则运作，只是两者组合在一起产生了此前任何单独测试都没
 覆盖到的行为。目前没有修复计划。
 
-## ABI 边界：动画没有导出到 C ABI
+### ABI 边界：动画没有导出到 C ABI
 
 `abi/drawgui.def.toml` 的头注释**具名拒绝**了 `dg_animate` 和
 `dg_node_set_transition`（`abi/drawgui.def.toml:67-73`）：
@@ -214,7 +230,7 @@ paint）而言完全无法区分。
 目前对你不可用**——不要假设未来会有 `dg_animate`，也不要设计依赖它的
 API 形状。只有直接嵌入 C++ 的宿主可以使用 `dg::AnimationEngine`。
 
-## CPU 光栅下的开销约束
+### CPU 光栅下的开销约束
 
 这个引擎本身的插值计算很轻，真正的成本在每一帧因为动画而触发的重绘/重排
 落到 Skia CPU 光栅管线上要花多少时间——这属于渲染管线本身的开销特性，

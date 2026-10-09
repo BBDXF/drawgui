@@ -1,5 +1,34 @@
 # 布局
 
+## 用 `dg::App`
+
+节点用 `Window::create(kind, parent)` 建，布局属性用 `set()` / `set_prop()` 写，
+运行时在每次 `App::pump()` 里自动重新布局和重绘——不需要调用 `layout()`。
+
+```cpp
+const dg::NodeId root = window->create(dg::NodeKind::kBox).value();
+window->set(root, {dg::prop::width_percent(100), dg::prop::height_percent(100),
+                   dg::prop::column(), dg::prop::gap(12)});
+const dg::NodeId row = window->create(dg::NodeKind::kBox, root).value();
+window->set(row, {dg::prop::row(), dg::prop::gap(8), dg::prop::width_percent(100),
+                  dg::prop::grow(1)});
+window->set_prop(row, DG_PROP_PADDING_L, dg::PropValue::number(20));
+```
+
+- 普通 `kBox` 一开始是 240×120 的叶子；写 `DG_PROP_DIRECTION`（`prop::row()` /
+  `prop::column()`）会把它变成行/列容器。做根节点或容器时记得给尺寸
+  （像素、百分比）或 `grow`，否则内容会被挤在 240×120 里。
+- `gap`、`grow`、`padding_*` 是数值（`PropValue::number`），宽高是长度
+  （`PropValue::length` / `percent`，即 `prop::width()` / `prop::width_percent()`）。
+- 滚动：建 `NodeKind::kScrollView`，往它下面 `create()` 的子节点会自动放进它的
+  内容节点（`Window::child_container()` 告诉你实际位置）；滚动条和滚轮由运行时处理，
+  `Window::scroll_offset()` 读当前偏移。
+- 裁剪、透明度：`DG_PROP_OVERFLOW`、`DG_PROP_OPACITY`。
+- 属性清单：`doc/reference/`；`dg::prop::*` 只覆盖最常用的几个。
+
+下面的「直接使用底层」讲布局引擎本身：约束协议、`LayoutTree` 的增量布局。
+用 `dg::App` 时这些都由运行时完成，读它是为了理解行为和排查问题。
+
 ## 这个子系统解决什么问题
 
 drawgui 没有 HTML/CSS 那样的多遍回流（reflow）。它用的是 Flutter 风格的单遍协议：父节点向下传递约束（constraints），子节点向上报告尺寸（size）。每个节点在一次布局中只被测量一次。
@@ -10,7 +39,17 @@ drawgui 没有 HTML/CSS 那样的多遍回流（reflow）。它用的是 Flutter
 
 参考实现：`include/drawgui/layout/box.h`（约束、样式的定义）与 `include/drawgui/layout/layout_tree.h`（布局树、增量布局）。
 
-## 核心类型和它们的关系
+## 直接使用底层
+
+直接持有 `dg::LayoutTree` 时，下面这些事要自己做（`dg::App` 都替你做了）：
+
+- 改完盒样式后调用 `layout()`（首次用 `layout_full()`），再 `repaint()`。
+- 布局移动了节点之后，滚动视图/列表/多行编辑框的组合子节点要重新同步
+  （`sync_scrollbar()`、`list_reset()`、`text_area_refresh()`，见 `widgets.md`）。
+- 在 `dg::App` 的窗口里通过 `Window::layout()` 自己加节点也可以：只在 `kBox`
+  下面加。改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
+
+### 核心类型和它们的关系
 
 - `dg::BoxConstraints`：一对 `(min, max)` × 两个轴。`kUnbounded` 是 `INT_MAX`，表示「你想多大都行」。
 - `dg::EdgeInsets`：margin / border / padding 共用的四边间距结构。
@@ -48,13 +87,13 @@ LayoutStats stats = tree.layout();
 PixelRect bounds_a = tree.bounds(a);
 ```
 
-## 常见任务怎么做
+### 常见任务怎么做
 
-### 建立一棵树并做首次布局
+#### 建立一棵树并做首次布局
 
 用 `LayoutTree` 而不是直接用 `RenderTree`——`LayoutTree` 内部会创建并拥有一个 `RenderTree`，`render()` 拿到的就是它。首次布局用 `layout_full()`（忽略所有缓存，全量布局），之后每次改动只调用 `layout()`（只重排脏的部分）。参见 `examples/04_layout/layout_scene.cpp`。
 
-### 用 flex（grow / shrink / basis）分配剩余空间
+#### 用 flex（grow / shrink / basis）分配剩余空间
 
 ```cpp
 BoxStyle flexible;
@@ -69,7 +108,7 @@ fixed.shrink = 1;                // 只有 basis 是「声明的」时才会生�
 - `shrink` 只在子节点的 `basis` 被**显式声明**时才生效。`basis` 缺省表示「使用测量出的自然尺寸」，而没有声明基准就无法计算收缩份额——测量两次会把单遍布局变成指数级复杂度。
 - `grow`/`shrink` 在 `kWrapRow`/`kWrapColumn` 下被直接拒绝（写进 `diagnostics()`），因为一个 run（行/列）要等所有子节点都布局完才能确定尺寸，届时再拉伸就要求二次布局，这违反「每个节点只布局一次」的不变量。
 
-### 让容器在放不下时自动换行
+#### 让容器在放不下时自动换行
 
 ```cpp
 BoxStyle wrap;
@@ -80,7 +119,7 @@ wrap.align_content = AlignContent::kSpaceBetween;  // 多行整体在跨轴上�
 
 `run_gap` 只对多行/多列生效——单行容器没有第二行可分隔。`align_content` 决定「行」这个整体怎么摆放，和决定单个子节点在自己所在行里怎么对齐的 `cross_align`是两码事。
 
-### 主轴留白：space_around / space_evenly
+#### 主轴留白：space_around / space_evenly
 
 ```cpp
 row.main_align = MainAlign::kSpaceAround;   // 两端各半份、子节点之间整份
@@ -89,7 +128,7 @@ row.main_align = MainAlign::kSpaceEvenly;   // n 个子节点切成 n+1 份等�
 
 属性层对应 `justify = space_around / space_evenly`。两者和 `align_content` 的 `space_around` 用同一种「累计份额」整数算术：第 i 个子节点前面的留白是 `floor(leftover * k / d)`，相邻两个子节点按差值推进，所以总和恰好等于 leftover，截断余数稳定地落在靠后的间隙里（101 宽、3 个 20 宽子节点、`kSpaceAround` → x = 6, 40, 74）。只有一个子节点时两者都退化为居中。wrap 容器里按每一 run 分别计算。
 
-### 百分比尺寸
+#### 百分比尺寸
 
 ```cpp
 BoxStyle half;
@@ -105,7 +144,7 @@ half.percent.max_height = 25.0F;
 - 同一个字段的像素值和百分比互斥：写百分比会把像素字段恢复为默认值，写像素会清掉百分比；直接改 `BoxStyle` 时如果两者都填了，以百分比为准。
 - 父节点在解析子节点百分比之后才读子节点的尺寸（flex 的声明 basis 就读 `width`），所以百分比从不导致二次测量；父节点 resize 或改 padding 时，子节点会因为参照变化而重新布局（参照值是缓存键的一部分，但只对带百分比的节点生效，不带百分比的树访问的节点集合和以前完全相同）。
 
-### 让内容滚动
+#### 让内容滚动
 
 ```cpp
 BoxStyle viewport_box;
@@ -123,11 +162,11 @@ tree.render().set_scroll_offset(viewport, PixelPoint{0, scroll_y});
 
 **滚动偏移是运行时状态，不是属性**——这是刻意设计。`set_scroll_offset()` 只重新计算子节点的绝对坐标和裁剪边界，从不调用 `measure()`，所以一次滚轮滚动的代价是一次重绘，永远不是一次重排。真正可用的示例见 `examples/10_scrolling/`；实际的封装（clamp 到内容范围）在 `WidgetSet::scroll_by()` 里（见 `doc/guide/widgets.md` 的 `kScrollView`）。
 
-### 裁剪溢出内容
+#### 裁剪溢出内容
 
 `NodeStyle::overflow = Overflow::kClip` 同时控制三件事：绘制（子节点超出部分不画）、命中测试（`hit_test()` 在裁剪边界外直接判定为未命中，被裁掉的像素不可点击）、以及 damage（脏矩形不会跑到裁剪区域外）。这三者共用同一条规则，不是三份独立实现。裁剪矩形是节点自身的**边框盒**（border box），不是 CSS 的 padding box——这是对 CSS 的刻意偏离，因为渲染树本身不知道 padding 是什么。
 
-### 让一整组内容一起变透明
+#### 让一整组内容一起变透明
 
 ```cpp
 NodeStyle group_style;

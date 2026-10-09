@@ -1,5 +1,27 @@
 # 主题（Theming）
 
+## 用 `dg::App`
+
+```cpp
+#include "drawgui/theme/theme_loader.h"
+
+dg::Expected<dg::Theme, dg::ThemeLoadError> theme = dg::load_builtin_theme();
+app.set_theme(std::make_shared<const dg::Theme>(std::move(theme).value()),
+              dg::ThemeVariant::kDark);
+window->bind_token(label, DG_PROP_TEXT_COLOR, DG_TOKEN_COLOR_ON_SURFACE);
+// 之后：
+app.set_theme_variant(dg::ThemeVariant::kLight);   // 每个窗口都会重新套用
+app.override_color(DG_TOKEN_COLOR_PRIMARY, dg::Color::from_argb(0xFF8E44AD));
+```
+
+- 没有设置主题时，运行时用内置主题的深色变体给控件上色；但 `bind_token()`
+  需要先 `set_theme()`（否则返回 `kNoActiveTheme`）。
+- 切换主题/变体/覆盖 token 时，运行时按正确顺序重新绑定属性、重建组件的组合子
+  节点、重新同步滚动条和列表——这正是下面「直接使用底层」里要手工排序的那些步骤。
+- 修改同一个 `Theme` 对象后再用同一个指针 `set_theme()` 一次即可重新套用。
+
+下面的「直接使用底层」讲 token 模型和主题文件格式，这些对两种用法都适用。
+
 ## 这个子系统解决什么问题
 
 一个应用希望有 light/dark 两套配色，并且能在运行期切换，而不需要重建整棵
@@ -11,7 +33,17 @@ widget 树、不需要每个 widget 自己记住"我现在是浅色还是深色"
 这套机制不处理："这个颜色变亮 20%""半透明遮罩叠一层" 这类表达式化的取色
 逻辑——见下面"token 模型"一节。
 
-## 核心类型
+## 直接使用底层
+
+直接持有 `ThemeBindings` 时，切换主题的顺序要自己保证（`dg::App::set_theme()`
+已经这样做）：先重新应用绑定（`ThemeBindings`），再 `refresh_subtree()` 重画
+控件状态色，再更新 `WidgetSet` 的滚动条样式与禁用色板并对每个滚动视图
+`sync_scrollbar()`，组件层控件用新 `ControlStyle` 重建；整数 token 变化后还要重新布局。
+具体见下文「颜色切换零重排，整数切换必然重排」。
+
+改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
+
+### 核心类型
 
 - `dg::Theme`（`include/drawgui/theme/theme.h:84`）：一份已解析完成的主题数据，
   三张按 `dg_token_id` 索引的扁平表：`int` 值一张（与 variant 无关），
@@ -54,7 +86,7 @@ std::size_t switch_variant(Scene& scene) {
 写回，不做任何"值没变就跳过"的优化。整棵 widget 树不重建、node id 也
 不会失效。
 
-## Token 模型：只有二分法
+### Token 模型：只有二分法
 
 `themes/schema.toml` 是 token 的编译期契约（生成
 `include/drawgui/theme/token_ids.generated.h` 等文件），运行时数据在
@@ -146,7 +178,7 @@ Material 的 state layer）不通过表达式实现，而是各自建一个独�
 在读 JSON 时用；`token_name()`/`token_type()` 是反向查询，通常用来拼诊断
 信息。
 
-## 颜色切换零重排，整数切换必然重排
+### 颜色切换零重排，整数切换必然重排
 
 这是本节最容易被忽视的一点：**`ThemeBindings::apply()` 对每条绑定都无条件
 重写一次**，写入走的是普通 `dg::set_prop()` 门——这条门决定"这次写入触发
@@ -176,7 +208,7 @@ relayout**，因为 `apply()` 不比较新旧值，只管重写。
 的注释专门解释了为什么该 demo 故意不把 `gap` 绑定成 token（只做一次性字面量
 读取），从而让自己的 light/dark 切换开销保持诚实的"纯色、零重排"。
 
-## `load_theme()`：未知 token / 类型不匹配即失败
+### `load_theme()`：未知 token / 类型不匹配即失败
 
 `dg::load_theme()`（`theme_loader.h:112`）不做任何静默降级：
 
@@ -192,7 +224,7 @@ relayout**，因为 `apply()` 不比较新旧值，只管重写。
 主题不走捷径，`tools/check_consistency.py` 在 CI 时校验它覆盖了 schema 里
 每一个 token。
 
-## 外部主题包
+### 外部主题包
 
 `dg::ThemePackage`（`include/drawgui/theme/theme_package.h`）是给第三方主题
 目录（`theme.json` + 资源树）用的加载器，把"这是不可信输入"这件事当真：
@@ -239,7 +271,7 @@ if (reloaded) {
 `theme.json`——没有增量 patch 机制，全部开销都在 `ThemeBindings::apply()`
 这一步。
 
-## Token id 是 ABI 契约
+### Token id 是 ABI 契约
 
 `themes/schema.toml` 里的 `id` 是 append-only 的：新 token 只能追加、绝不
 重排、绝不复用旧 id（`schema.toml:20-23`）。`themes/token_ids.lock` 钉死了

@@ -147,4 +147,19 @@ TEST_SUITE("runtime loop") {
     REQUIRE(focus.size() == 1);
     CHECK(focus[0].window == id);
   }
+
+  TEST_CASE("typed prop settings, node_count() and frame()") {
+    Rt t;
+    const dg::NodeId box = t.add(dg::NodeKind::kBox);
+    CHECK(t.win->set(box, {dg::prop::width(120), dg::prop::height(30), dg::prop::row()}) ==
+          dg::Status::kOk);
+    CHECK(t.win->set(box, dg::prop::grow(1)) == dg::Status::kOk);
+    CHECK(t.win->set(box, dg::prop::Setting{}) != dg::Status::kOk);
+    CHECK(t.win->node_count() == t.count());
+    (void)t.pump(2);
+    CHECK(t.bounds(box).width == 120);
+    const dg::RasterSurface* frame = t.win->frame();
+    REQUIRE(frame != nullptr);
+    CHECK(frame->width() == 480);
+  }
 }

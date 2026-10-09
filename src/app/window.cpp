@@ -385,6 +385,30 @@ std::optional<NodeKind> Window::kind_of(NodeId node) const {
   return record != nullptr ? std::optional<NodeKind>(record->kind) : std::nullopt;
 }
 
+Status Window::set(NodeId node, const prop::Setting& setting) {
+  return set_prop(node, setting.id, setting.value);
+}
+
+Status Window::set(NodeId node, std::initializer_list<prop::Setting> settings) {
+  Status first = Status::kOk;
+  for (const prop::Setting& setting : settings) {
+    const Status status = set_prop(node, setting.id, setting.value);
+    if (first == Status::kOk) {
+      first = status;
+    }
+  }
+  return first;
+}
+
+int Window::node_count() const {
+  const RenderTree& tree = state_->tree.render();
+  return static_cast<int>(subtree_of(tree, RenderTree::root()).size());
+}
+
+const RasterSurface* Window::frame() const {
+  return state_->surface.has_value() ? &*state_->surface : nullptr;
+}
+
 void Window::invalidate(NodeId node) {
   RenderTree& tree = state_->tree.render();
   if (tree.is_valid(node)) {

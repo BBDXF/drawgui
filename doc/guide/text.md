@@ -1,5 +1,28 @@
 # 文本
 
+## 用 `dg::App`
+
+```cpp
+(void)app.add_font("/usr/share/fonts", "DejaVu Sans");  // 第一个加入的字体是默认字体
+const dg::NodeId label = window->create(dg::NodeKind::kLabel, root).value();
+window->set_text(label, DG_PROP_TEXT, "你好, drawgui");
+window->set(label, dg::prop::font_size(16));
+window->set_prop(label, DG_PROP_TEXT_ALIGN, dg::PropValue::option(DG_TEXT_ALIGN_LEFT));
+
+const dg::NodeId field = window->create(dg::NodeKind::kTextField, root).value();
+// 用户输入后：TextChangedEvent{node = field}，window->text(field) 读出内容
+```
+
+- `add_font()` 要在建文本节点之前调用；没有字体时文本节点不画字。
+- `kTextField` / `kTextArea`：点击聚焦并放置光标、键入、Backspace/Delete、
+  方向键与 Home/End（加 Shift 选择）、Mod+C/X/V/A 剪贴板、撤销/重做、
+  输入法预编辑（preedit 只做预览，不改已提交文本），全部由运行时处理。
+  未聚焦且放不下的单行框显示省略号。
+- `DG_PROP_WRAP` 让标签换行；`DG_PROP_MAX_LENGTH` 限制编辑框长度。
+- 示例：`examples/12_text_input`（C++ 运行时）、`examples/26_text_area`（C ABI）。
+
+下面的「直接使用底层」讲文本栈本身。
+
 ## 这个子系统解决什么问题
 
 drawgui 内核没有把文本当作特殊节点类型，而是当作 `NodeStyle::text`（`TextStyle`）这一个字段——和 fill、border、image 平级。这样做的好处是绘制、命中测试、damage 只需要处理一种节点结构；代价是文本子系统和布局子系统几乎没有耦合：**LayoutTree 完全不知道字体、字符串这些概念**，`BoxStyle` 里没有任何字段涉及文本测量。这直接导致一个后果，也是这份文档要讲清楚的最容易踩的坑：**多行/自动换行文本的高度必须由调用方自己测量好，再拿去建节点**，内核不会帮你算。
@@ -8,7 +31,21 @@ drawgui 内核没有把文本当作特殊节点类型，而是当作 `NodeStyle:
 
 参考实现：`include/drawgui/render/render_tree.h` 的 `TextStyle`、`include/drawgui/render/font_catalog.h`、`include/drawgui/render/paragraph.h`、`include/drawgui/render/grapheme.h`、`include/drawgui/widget/widget_set.h` 的 `kTextField` 一族。
 
-## 核心类型和它们的关系
+## 直接使用底层
+
+直接持有 `WidgetSet` / `RenderTree` 时，下面这些事要自己做：
+
+- 把 `PumpResult::text_input` 交给聚焦编辑框（`text_field_insert()` /
+  `editor_insert()`），把 `text_editing` 交给 `text_field_composition_update()` /
+  `text_area_composition_update()`。
+- 焦点变化时调用 `text_field_set_focus()` / `text_area_set_focus()`（省略号、光标显隐）。
+- 每次重新布局后对多行编辑框调用 `text_area_refresh()`，对未聚焦的单行框重新推导显示。
+- 剪贴板快捷键要自己走 `apply_clipboard_key()`（见 `input.md`）。
+- 换行文本要先测量再建节点（见下文）。
+
+改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
+
+### 核心类型和它们的关系
 
 - `dg::FontCatalog`：一张可共享（引用计数）的字体表。`scan(dir)` 扫描目录建表，`add(family, bold)` 注册一个具名字族并返回 `FontId`，`resolve(...)` 回答「这个字/这个码点该由哪个字族画」。
 - `dg::FontId`：`{value}`，0 表示无效。
@@ -35,9 +72,9 @@ spec.fonts = fonts;          // 必须在 LayoutTree/RenderTree 构造前设好
 dg::LayoutTree tree{spec};
 ```
 
-## 常见任务怎么做
+### 常见任务怎么做
 
-### 画一行不换行的文本
+#### 画一行不换行的文本
 
 ```cpp
 dg::BoxStyle box;
@@ -58,7 +95,7 @@ tree.add_child(parent, box, style);
 
 注意：**文本不使数节点自己收缩到内容大小**——节点的宽高仍然要按上面 layout.md 的规则声明,文本只是被放进这个已经定好的盒子里绘制,超出部分按 `text.wrap`/`max_lines` 处理,或者直接溢出（不裁剪,除非父节点设了 `Overflow::kClip`)。
 
-### 让一段文本自动换行（wrap）——测量→建节点两步走
+#### 让一段文本自动换行（wrap）——测量→建节点两步走
 
 这是文本子系统里最容易出错的地方，务必按顺序做:
 
@@ -93,7 +130,7 @@ tree.add_child(parent, box, style);
 
 `Paragraph::build()` 是**不可变**的一次性测量：想用不同宽度，就再 `build()` 一次，不能原地重新排版。`ParagraphMetrics` 除了 `height` 还报告 `line_count` 和 `exceeded_max_lines`（是否被 `max_lines` 截断）。完整流程见 `examples/20_multiline_text/multiline_scene.cpp` 里的 `wrapped_height()` 函数。
 
-### 让一段文本混合多种文字（拉丁字母、中文、emoji）
+#### 让一段文本混合多种文字（拉丁字母、中文、emoji）
 
 字体回退链是手工构建的，**不依赖 fontconfig**——同一个字族名可以覆盖 12 种脚本外加 emoji,不需要调用方为每种文字单独指定字体:
 
@@ -106,7 +143,7 @@ fonts.set_fallback_rules(std::move(rules));  // 可选：替换成宿主自己�
 
 这条回退链**不需要 icudtl.dat**：字位簇切分用的是 libgrapheme 后端（`SkUnicodes::Libgrapheme::Make()`），不是 ICU。
 
-### 单行文本编辑（text field）
+#### 单行文本编辑（text field）
 
 ```cpp
 Widget field;
@@ -125,9 +162,9 @@ widgets.text_field_click(tree.render(), fonts, field_node, pointer_x, /*extend_s
 widgets.text_field_set_focus(tree.render(), fonts, field_node, /*focused=*/true);
 ```
 
-`text_field_insert()` 会对输入做 UTF-8 净化（`sanitize_utf8()`，坏字节替换为 U+FFFD）并丢弃 ASCII 控制字符（换行/Tab 之类，单行框没有意义）。`cursor`/`selection_anchor` 永远落在字位簇边界上（`grapheme_boundaries()`），因为所有修改都通过这些边界查询来定位，从不做原始字节算术——这就是「grapheme cluster 正确」的含义：退格键删掉一个 emoji 家族组合表情，而不是它内部的某一个码点。完整调用序列见 `examples/12_text_input/text_field_check.cpp` 和 `text_field_scene.cpp`。
+`text_field_insert()` 会对输入做 UTF-8 净化（`sanitize_utf8()`，坏字节替换为 U+FFFD）并丢弃 ASCII 控制字符（换行/Tab 之类，单行框没有意义）。`cursor`/`selection_anchor` 永远落在字位簇边界上（`grapheme_boundaries()`），因为所有修改都通过这些边界查询来定位，从不做原始字节算术——这就是「grapheme cluster 正确」的含义：退格键删掉一个 emoji 家族组合表情，而不是它内部的某一个码点。完整调用序列见 `tests/unit/test_text_input.cpp`；运行时里的同一路径见 `examples/12_text_input`。
 
-### 多行文本编辑（text area）
+#### 多行文本编辑（text area）
 
 `WidgetKind::kTextArea` 复用同一个编辑内核，只是把投影换成了换行段落：光标、选区、
 点击定位都通过 `dg::Paragraph` 的行几何（全部是 UTF-8 字节偏移）算出来；软换行处同一个
@@ -138,7 +175,7 @@ widgets.text_field_set_focus(tree.render(), fonts, field_node, /*focused=*/true)
 包括 `\r`，照样丢弃）。粘贴走同一条路：粘进 TextArea 保留换行；粘进 TextField 的换行
 依旧被丢弃（不会插入裸 `\n`，这是原有行为，没有改成空格）。
 
-### 接入系统输入法（IME）
+#### 接入系统输入法（IME）
 
 ```cpp
 manager->start_text_input(window_id, caret_rect);  // 开始接收 SDL 的 IME 事件

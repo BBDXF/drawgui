@@ -152,4 +152,23 @@ TEST_SUITE("runtime input") {
     (void)t.pump();
     CHECK(t.win->text(area).value() == "x\ny");
   }
+
+  TEST_CASE("an IME preedit previews in the focused editor; the commit inserts it") {
+    Rt t;
+    const dg::NodeId field = t.add(dg::NodeKind::kTextField);
+    REQUIRE(t.win->focus(field) == dg::Status::kOk);
+    (void)t.pump(1);
+    t.wm().post_text_editing(t.win->id(), "hi", 2, 0);
+    (void)t.pump(1);
+    CHECK(t.win->widgets().text_field_is_composing(field));
+    CHECK(t.win->text(field).value().empty());
+    t.wm().post_text_editing(t.win->id(), "", 0, 0);
+    (void)t.pump(1);
+    CHECK_FALSE(t.win->widgets().text_field_is_composing(field));
+    t.wm().post_text_editing(t.win->id(), "hi", 2, 0);
+    t.wm().post_text_input(t.win->id(), "hi");
+    (void)t.pump(1);
+    CHECK_FALSE(t.win->widgets().text_field_is_composing(field));
+    CHECK(t.win->text(field).value() == "hi");
+  }
 }

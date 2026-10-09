@@ -1,3 +1,11 @@
+// LOW-LEVEL TEACHING EXAMPLE. This builds a kScrollView by hand on
+// LayoutTree/WidgetSet and drives it itself: wheel and drag routing,
+// list_scroll_by(), and sync_scrollbar() after every layout. dg::App does
+// all of that for you - a NodeKind::kScrollView or kList created through
+// dg::Window scrolls, recycles and keeps its scrollbar in sync inside
+// App::pump(). Start with doc/guide/app.md; read this to see what the
+// runtime does underneath.
+//
 // Scrolling and lists, on screen.
 //
 //   (no arguments)         the demo window - wheel or drag either strip

@@ -1,5 +1,31 @@
 # 控件（Widget）
 
+## 用 `dg::App`
+
+每种控件就是一个 `NodeKind`：
+
+| NodeKind | 读写 | 事件 |
+|---|---|---|
+| `kButton` | `set_text(DG_PROP_TEXT)` | `ClickEvent`（`clicks` 为连击数） |
+| `kCheckbox` | `checked(node)` | `ClickEvent`（点击自动切换） |
+| `kList` | `window->list(node)` → `ListRef::set_items/select/selected` | `ListSelectEvent` |
+| `kScrollView` | 子节点直接 `create()` 到它下面；`scroll_offset()` | — |
+| `kImage` | `set_image(node, app.images()...)` | — |
+| `kDropdown` | `dropdown(node)` → `DropdownRef` | `ValueChangedEvent` |
+| `kProgress` | `progress(node)` → `ProgressRef` | — |
+| `kTabs` | `tabs(node)` → `TabsRef::add()` 返回面板节点 | `TabSelectEvent` |
+| `kTree` | `tree(node)` → `TreeRef` | `TreeEvent` |
+| `kTable` | `table(node)` → `TableRef` | `TableEvent`（`kSort` 时由你排序后 `set_rows()`） |
+
+- 列表只建固定数量的行节点并循环复用，1000 项和 10 项节点数相同；滚轮、
+  滚动条拖动、点击选择都由运行时处理（`examples/15_list`）。
+- `set_disabled(node, true)`：整棵子树不再响应指针/键盘，进行中的按下不会产生
+  `ClickEvent`，焦点会移走——不需要自己取消 hover/press 或模糊焦点。
+- 数据控件见 `examples/27_data_widgets`。
+- 单选组和滑块今天只有底层 `WidgetSet` 才有（`examples/11_form_controls`）。
+
+下面的「直接使用底层」讲 `WidgetSet` / `Interaction` 本身。
+
 ## 这个子系统解决什么问题
 
 **这个内核没有 widget 树。** 这是理解整个 `WidgetSet` 之前必须先接受的一件事：没有 `Button`/`Checkbox` 这样的类，没有声明式重建，没有 `createButton()` 这种函数。
@@ -56,7 +82,21 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 
 参考实现：`include/drawgui/widget/widget_set.h`、`include/drawgui/widget/interaction.h`、`include/drawgui/widget/focus.h`。
 
-## 11 种 WidgetKind
+## 直接使用底层
+
+直接持有 `WidgetSet` 时，下面这些事要自己做（`dg::App` 都替你做了）：
+
+- 滚动视图/列表：每次布局后 `sync_scrollbar()`；`list_scroll_by()` / `list_reset()`
+  返回的 `ListSlot` 要自己按新逻辑下标重画。
+- 禁用：写 `DG_PROP_DISABLED` 之后 `refresh_subtree()` 重画，`cancel_disabled()`
+  取消进行中的按下/悬停，`blur_if_disabled()` 移走焦点。
+- 组件（`Dropdown`、`Tabs`、`TreeView`、`Table`、`ProgressBar`）：布局后调用各自的
+  `sync(ctx)`，事件用 `handle_pointer/handle_key` 逐个转发，不确定进度条要 `tick()`。
+- 多行编辑框：布局后 `text_area_refresh()`。
+
+改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
+
+### 11 种 WidgetKind
 
 `WidgetKind` 是闭集合，一共 11 个值（`widget_set.h` 头部注释仍写着「四种」，那是历史遗留，已经过时——实际数量以枚举本身为准）：
 
@@ -74,7 +114,7 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 | `kDropdown` | 是 | 是 | 只是「锚点 + 选项 + 已选索引」，弹出层由 `dg::Dropdown` 组件负责（见下方★一节） |
 | `kScrollbar` | 是 | **否** | 滚动条的轨道或滑块，由 `attach_scrollbar()` 挂上，不要手动 attach（见下方「滚动条」） |
 
-### radio 不是独立的 kind
+#### radio 不是独立的 kind
 
 单选按钮就是 `kCheckbox` 上多设了一个 `group` 字段：
 
@@ -85,7 +125,7 @@ Widget radio_b; radio_b.kind = WidgetKind::kCheckbox; radio_b.group = 1;
 
 点击一个已设 `group` 的 checkbox 会**选中**它（已选中时点击是空操作，不会取消选中），同时把同组里其它 `kCheckbox` 的 `checked` 清空。`WidgetSet::toggle()` 只改数据，不重绘——调用方要自己拿 `group_members()` 把被顺带改变的那些节点也 `refresh()` 一遍。
 
-## Interaction：hover/press 状态机
+### Interaction：hover/press 状态机
 
 `dg::Interaction` 是一个**只吃 widget，不吃坐标**的纯状态机——它接收的是命中测试之后解析出的目标节点,不是原始指针位置：
 
@@ -109,7 +149,7 @@ if (release_change.clicked) {
 
 四个事务性迁移方法——`moved_over`/`pressed_on`/`released_on`/`left_window`——每一个都在**一次调用**里返回全部受影响的节点（`left`/`entered`/`pressed`/`released`/`clicked` 五个独立的 `std::optional`）。这保证不会出现「上一个失焦了但下一个还没获焦」这种中间状态被重绘捕捉到、导致边界闪烁的情况。`InteractionChange` 不是「发生了什么事」的单一分类，是「这些节点各自发生了什么」的并列报告——一次释放可能同时结束一次按压、触发一次点击、还改变了 hover。
 
-## owner_of() / widget_at()：命中语义
+### owner_of() / widget_at()：命中语义
 
 `RenderTree::hit_test()` 只回答几何问题：这个像素点下面**最深、最上层**画的是哪个节点——完全不管这个节点有没有挂 `Widget`。
 
@@ -119,7 +159,7 @@ if (release_change.clicked) {
 
 **这条父链爬升不会横跨到兄弟子树**——如果一个面板里挂了两个互不相关的按钮，点击落在按钮 A 内部的某个几何上层叠着但不属于按钮 A 子树的东西上，`owner_of()` 绝不会跳到按钮 B。这个语义直接决定了「遮挡」行为：一个不可交互的装饰性覆盖层如果几何上盖住了按钮，会拦下点击（`hit_test()` 命中的是它），除非它下面确实有个可交互祖先能被爬到。
 
-## 禁用状态（`disabled`）
+### 禁用状态（`disabled`）
 
 禁用是一个**节点属性**，不是 `Widget` 字段：`DG_PROP_DISABLED`（id 52，`bool`），写进
 `NodeStyle::disabled`。C++ 走 `dg::set_prop(tree, node, DG_PROP_DISABLED,
@@ -187,9 +227,9 @@ widgets.refresh_subtree(tree.render(), group, interaction);         // 重绘子
 `DG_PROP_DISABLED`、或者切换主题后，都要对相关子树调一次 `refresh_subtree()`。
 已知限制：禁用期间直接写某个节点的文字颜色，要到下一次 `refresh_subtree()` 才会变灰。
 
-## 常见任务怎么做
+### 常见任务怎么做
 
-### 虚拟化列表：1000 项跑在固定数量的节点上
+#### 虚拟化列表：1000 项跑在固定数量的节点上
 
 ```cpp
 Widget list_widget;
@@ -214,7 +254,7 @@ std::vector<ListSlot> reassigned =
 
 回收池大小由**视口**决定，不由 `list_item_count` 决定——1000 项和 10 项用的是同一个池（例子里是 14 个节点）。`list_sync()` 只重绘真正改变了显示内容的槽位，不会全量刷新。
 
-### 滚动条
+#### 滚动条
 
 `kScrollView` 和 `kList` 可以带一个滚动条：两个**由调用方创建**的普通节点（和滑块的
 轨道/圆点一样），交给 `attach_scrollbar()`：
@@ -303,9 +343,9 @@ interaction.released_on(target);
 token `color.scrollbar-track`/`-thumb`/`-thumb-hover`/`-thumb-pressed` 和
 `size.scrollbar`，见 `doc/guide/theming.md`。
 
-参考实现：`examples/10_scrolling`、`examples/15_list`（两者的 `--verify-*` 都检查滚动条）。
+参考实现：`examples/10_scrolling`（底层）、`examples/15_list`（运行时；两者的 `--verify-*` 都检查滚动条）。
 
-### 图片
+#### 图片
 
 ```cpp
 ImageCatalog images;
@@ -342,7 +382,7 @@ SVG 的处理方式：**绘制时按节点尺寸直接画矢量**（`SkSVGDOM::r
 
 **没有九宫格（nine-patch）拉伸**。所有解码都是同步的，没有异步/线程池。参考：`examples/13_image`（第六个面板是着色的 SVG 图标）、`tests/unit/test_image_formats.cpp`。
 
-### ★ dropdown / 右键菜单 / tooltip / 对话框 —— 库组件层（`include/drawgui/ui/`）
+#### ★ dropdown / 右键菜单 / tooltip / 对话框 —— 库组件层（`include/drawgui/ui/`）
 
 这四样**不是新的 `WidgetKind`**，而是建在 `PopupHost` + 现有控件之上的**组件层**：
 `dg::Menu`、`dg::Dropdown`、`dg::Tooltip`、`dg::Dialog`。之所以需要单独一层：
@@ -362,10 +402,10 @@ SVG 的处理方式：**绘制时按节点尺寸直接画矢量**（`SkSVGDOM::r
   `dg::Focus` 的当前焦点，模态陷阱就是 `Focus::enter_scope(panel, true)`。
 
 完整 API、事件路由和示例见 [`popups.md`](popups.md) 的"库组件"一节；
-`examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog`、`examples/25_showcase`
-都已改用这些组件。
+`examples/25_showcase` 直接使用这些组件；`examples/22_dropdown_menu`、
+`examples/23_menu_tooltip_dialog` 通过 `dg::App` 间接使用它们。
 
-### ★ 数据控件：ProgressBar / Tabs / TreeView / Table（组件层）
+#### ★ 数据控件：ProgressBar / Tabs / TreeView / Table（组件层）
 
 和弹层组件一样，这四个**不是新的 `WidgetKind`**，而是 `include/drawgui/ui/` 里的
 构建器类：它们通过 `LayoutTree` 建节点、注册普通控件，宿主循环调用
@@ -418,9 +458,9 @@ space.md），**没有新增 token**。
 `WidgetSet` API：替换 `kList` 的行数、把滚动偏移夹到新范围、忘掉所有槽位分配并把
 所有槽停到内容原点上方（裁剪之外），再 `list_sync()`——行数缩小时不会留下陈旧行；
 它同时也是布局之后的重同步。视觉集中在 `src/ui/control_visuals.cpp`，最小可用，
-等设计侧打磨。示例：`examples/27_data_widgets`（`--verify`、`--dump-png`）。
+等设计侧打磨。示例：`examples/27_data_widgets`（运行时版，`--verify`、`--dump-png`），`examples/25_showcase`（直接使用组件）。
 
-### 多行编辑框（`kTextArea`）
+#### 多行编辑框（`kTextArea`）
 
 `kTextArea` 和 `kTextField` 共用同一个编辑内核（`include/drawgui/widget/text_edit.h`），
 差别在于：内容子节点 `TextStyle::wrap = true` 自动换行，几何来自 `dg::Paragraph`
@@ -467,7 +507,7 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - 与 kind 无关的访问器 `editor_state()`/`editor_insert()`/`editor_select_all()`/
   `editor_set_text()`/`editor_is_composing()` 同时适用于两种编辑框——剪贴板动作和快捷键路由用的就是它们。
 
-### 编辑框通用：撤销、按词操作、多击选择、长度上限
+#### 编辑框通用：撤销、按词操作、多击选择、长度上限
 
 以下对 `kTextField` 和 `kTextArea` 都成立，规则都在编辑内核 `text_edit.h` 里：
 
@@ -490,7 +530,7 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 
 完整示例：`examples/26_text_area`（C ABI，`--verify-text-area`/`--dump-png`）。
 
-### kScrollView/kList 不能获得焦点
+#### kScrollView/kList 不能获得焦点
 
 `focus.h` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kTextArea`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList`/`kScrollbar` 不行。后两者被排除是**故意的**而非疏漏——把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。键盘滚动（PageUp/PageDown/Home/End）现在由 `apply_keyboard_scroll()` 实现，但它是从当前焦点向上找最近的可滚动祖先，而不是让 ScrollView/List 自身可聚焦（见 `doc/guide/input.md`）。
 
@@ -516,8 +556,8 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 - `examples/13_image` —— 四种 `ImageFit` 对比
 - `examples/15_list` —— 虚拟化列表的回收池
 - `examples/21_focus` —— Tab 顺序、focus ring
-- `examples/22_dropdown_menu` —— `dg::Dropdown` 的完整用法
-- `examples/23_menu_tooltip_dialog` —— `dg::Menu`（右键菜单）/`dg::Tooltip`/`dg::Dialog` 的用法
+- `examples/22_dropdown_menu` —— 运行时 `kDropdown` 的完整用法
+- `examples/23_menu_tooltip_dialog` —— 运行时的右键菜单/tooltip/对话框
 - `examples/28_c_components` —— 同一批组件从纯 C 使用：`DG_NODE_TYPE_PROGRESS`/`TABS`/
   `TREE`/`TABLE`/`DROPDOWN`（`doc/reference/c-abi.md` 第 5 节「组件」）
-- `examples/27_data_widgets` —— `dg::ProgressBar`/`dg::Tabs`/`dg::TreeView`/`dg::Table`
+- `examples/27_data_widgets` —— 运行时的进度条/页签/树/表格（底层组件见 `examples/25_showcase`）

@@ -1,5 +1,36 @@
 # 输入（Input）：指针、键盘、焦点、快捷键、剪贴板
 
+## 用 `dg::App`
+
+指针、键盘、焦点都由运行时分发，你只处理 `App::run()` / `pump()` 交来的事件：
+
+```cpp
+app.run([&](const dg::Event& event) {
+  std::visit(dg::Overloaded{
+      [&](const dg::events::ClickEvent& e) { /* e.node, e.clicks（双击=2） */ },
+      [&](const dg::events::ContextClickEvent& e) { /* 右键：e.x, e.y */ },
+      [&](const dg::events::FocusChangedEvent& e) { /* e.node */ },
+      [&](const dg::events::ActionEvent& e) { /* scope_action() 绑定的 action */ },
+      [&](const dg::events::TimerEvent& e) { /* app.add_timer() */ },
+      [&](const dg::events::UserEvent& e) { /* app.waker().post_user_event() */ },
+      [](const auto&) {},
+  }, event);
+});
+```
+
+- 焦点：Tab/Shift+Tab、点击可聚焦控件、`Window::focus()/clear_focus()/focused()`；
+  焦点环由运行时画。菜单和对话框打开时自动限制焦点范围。
+- 快捷键：`Window::scope_action(node, action_id)` 让某个节点处理一个 action，
+  触发时得到 `ActionEvent`。编辑框的复制/剪切/粘贴/全选/撤销由运行时直接处理。
+- 鼠标指针形状：写 `DG_PROP_CURSOR`，运行时在指针移动时自己切换。
+- 定时器与跨线程唤醒：`App::add_timer()` / `cancel_timer()`，`App::waker()`
+  返回的 `Waker` 可以在任意线程调用。
+- 测试里注入输入：`App::window_manager()` 的 `warp_pointer()`、
+  `post_pointer_button()`、`post_key()`、`post_logical_key()`、`post_text_input()`、
+  `post_text_editing()`（见 `examples/common/example_app.h`）。
+
+下面的「直接使用底层」讲事件源、焦点和快捷键路由本身。
+
 ## 这个子系统解决什么问题
 
 一个窗口每帧要回答几个问题：指针点在哪个 widget 上？Tab 该把焦点移到哪
@@ -9,7 +40,18 @@
 `route_key_event()` 做四级快捷键路由，`apply_clipboard_action()`/
 `apply_keyboard_scroll()` 是路由结果的具体执行者。
 
-## 核心类型
+## 直接使用底层
+
+直接持有 `WindowManager` / `Focus` / `ActionScopes` 时，下面这些事要自己做：
+
+- 每帧按 `doc/getting-started.md` 第 5 节的顺序处理 `PumpResult`。
+- 指针按下时决定焦点、更新焦点环（`update_focus_ring()`），弹层开关时进出焦点作用域。
+- 编辑框的剪贴板快捷键交给 `apply_clipboard_key()`，其它 action 走 `route_key_event()`。
+- 指针移动时用 `cursor_at()` 算出形状再 `set_cursor()`。
+
+改完要遵守 [`app.md` 的逃生舱约定](app.md#逃生舱约定)：只改运行时不组合的东西，改完调用 `Window::invalidate(node)`。
+
+### 核心类型
 
 - `dg::PumpResult`（`include/drawgui/window/window_manager.h:414`）：一次
   `pump()` 调用捞到的所有事件，按"调用方要怎么处理"分类。
@@ -24,7 +66,7 @@
 - `dg::ActionScopes`（`include/drawgui/shortcuts/action_scopes.h:40`）：
   记录"哪个 node 消费哪个 action_id"的旁表（level 2 路由用）。
 
-## 事件从哪里来：`pump()`
+### 事件从哪里来：`pump()`
 
 ```cpp
 const dg::PumpResult pumped = manager.pump(40);  // 超时毫秒数
@@ -51,7 +93,7 @@ for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/
 组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h:454-460`
 的记录，这条路径主要靠合成注入测试）。
 
-### 多击计数（双击/三击）
+#### 多击计数（双击/三击）
 
 `PointerEvent::clicks` 在 `kDown`/`kUp` 上给出本次按下在连击序列中的序号（1 单击、2 双击、
 3 三击），`kUp` 沿用它所结束的那次 `kDown` 的值；其他动作为 0。
@@ -66,7 +108,7 @@ for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/
 
 编辑框（C ABI 层）仍用自己的 `ClickCounter`，尚未迁移到这个字段（见 limitations）。
 
-### 指针捕获（pointer capture）
+#### 指针捕获（pointer capture）
 
 拖动时希望按下的控件在指针离开窗口后仍收到移动和抬起：
 
@@ -95,7 +137,7 @@ case PointerAction::kUp:
   按住按键时本来就会隐式捕获——这个 API 让它变得显式、可查询。`capture_pointer()`
   只在窗口 id 无效时返回 false。
 
-## 事件循环：定时器与跨线程唤醒
+### 事件循环：定时器与跨线程唤醒
 
 定时器属于 `WindowManager`（不属于某个窗口），没有回调，触发结果从 `PumpResult` 读出：
 
@@ -117,7 +159,7 @@ if (pumped.woken) { /* 其他线程调用过 wake() */ }
 - 时间来自 `set_clock()`（默认 `dg::steady_anim_time`，即动画用的同一个时钟接缝）。测试传入
   一个返回手动推进的 `AnimTime` 的函数，截止时间就完全确定；派生的点击计数也读这个时钟。
 
-### 线程安全
+#### 线程安全
 
 `WindowManager` 的所有方法都只能在调用 `create()` 的线程（主线程）上调用，**唯二的例外**是
 `wake()` 和 `post_user_event(uint64_t)`：可在任意线程、任意时刻调用（包括主线程正阻塞在
@@ -126,7 +168,7 @@ if (pumped.woken) { /* 其他线程调用过 wake() */ }
 在一次 `pump()` 中合并为一个 `woken = true`。调用方必须在 `WindowManager` 析构或被移动之前
 停止/join 这些线程。
 
-## 焦点：复用 `RenderTree` 自身的树，没有第三棵树
+### 焦点：复用 `RenderTree` 自身的树，没有第三棵树
 
 `Focus` 不维护自己的树结构——`focus_order()` 直接对 `RenderTree` 做一次
 前序遍历（`focus.h:11-23`）。这是从"焦点树"这个设想（design.md 原文用词）
@@ -141,7 +183,7 @@ focus.focus_next(tree.render(), widgets, root_node);  // Tab
 focus.focus_previous(tree.render(), widgets, root_node);  // Shift-Tab
 ```
 
-### `focus_order()` 的规则（`focus.h:134-165`）
+#### `focus_order()` 的规则（`focus.h:134-165`）
 
 - 默认按树的前序遍历（DOM 顺序）；`Widget::tab_index` 可以覆盖，正数排前面
   按升序，其余（含 0/未设置）按树序排在后面，负数**从 Tab 序里剔除**（但仍可
@@ -151,7 +193,7 @@ focus.focus_previous(tree.render(), widgets, root_node);  // Shift-Tab
 - **不跳过 `opacity == 0`** 的节点：hit_test 本来就忽略 opacity，Tab 能到达
   的集合和点击能到达的集合保持一致。
 
-### `is_focusable()`（`focus.h:109-124`）
+#### `is_focusable()`（`focus.h:109-124`）
 
 ```
 kButton / kCheckbox / kSlider / kTextField / kDropdown  -> true
@@ -165,7 +207,7 @@ kPanel / kLabel / kScrollView / kList                    -> false
 PageDown/Home/End 滚动，但走的是**从当前焦点节点向上找最近可滚动祖先**这条
 路径，不是让 ScrollView/List 自身可聚焦——见下文。）
 
-### 焦点作用域（弹层边界与模态陷阱）
+#### 焦点作用域（弹层边界与模态陷阱）
 
 ```cpp
 focus.enter_scope(popup_root);          // Tab 被限制在 popup_root 子树内
@@ -181,7 +223,7 @@ focus.exit_scope(tree.render());        // 离开作用域，若当前焦点在�
 （见 `doc/guide/popups.md`），重复调用 `enter_scope()` 直接替换旧作用域，
 没有嵌套恢复。
 
-### 焦点环：内缩，且每个弹层需要自己的实例
+#### 焦点环：内缩，且每个弹层需要自己的实例
 
 ```cpp
 dg::update_focus_ring(tree.render(), parent, ring, focus.current(), ring_color,
@@ -200,14 +242,14 @@ surface 外面。内缩不依赖这个假设。
 `5e630ef`）。宿主窗口的环节点在弹层打开之前就已经挂在 `LayoutTree::root()`
 下了，如果复用它，画出来的环在绘制顺序上会被弹层内容盖住，而不是显示在
 目标上方。所以每次开弹层都要 `FocusRing{}` 重新构造一个，挂在弹层自己的
-`content_root` 下（`examples/22_dropdown_menu/dropdown_window.cpp:158-168`）。
+`content_root` 下（`examples/21_focus/focus_window.cpp` 的弹层）。
 
 **降级行为**：目标任一轴的尺寸小于 `2*(gap+thickness)`（默认 gap=2,
 thickness=2，即 8px）时，`fill_ring()` 直接把整个目标涂成环颜色，而不是
 画出一个反转/重叠的怪异描边（`src/widget/focus.cpp` 约 :60-66,:263-267；
 签名见 `focus.h` 的 `update_focus_ring()` 声明）。
 
-## 快捷键：11 个 action，四级路由
+### 快捷键：11 个 action，四级路由
 
 `input/shortcuts.toml` 是唯一真相源，生成 action id、`LogicalKey` 枚举、
 `ActionScope` 枚举——**运行期不可改键**，改绑定要改这个 toml 重新生成。
@@ -246,7 +288,7 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
 参数：2 选中指针下的词，3 在 TextField 里全选、在 TextArea 里选中所在逻辑行
 （两个 `\n` 之间）。C ABI 自动做这件事。
 
-### 四级路由（design.md section 5.5.2，`router.h`）
+#### 四级路由（design.md section 5.5.2，`router.h`）
 
 ```
 1. IME 正在组字？          -> 每个按键都归 IME，永不进入路由
@@ -288,7 +330,7 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
 甚至不会被提到——这是 8-3b 的缺陷注入测试能直接验证的结构性保证：删掉
 早退语句，`tests/unit/test_shortcut_routing.cpp` 就会失败。
 
-### `Mod` 伪修饰键
+#### `Mod` 伪修饰键
 
 ```cpp
 enum class Platform : std::uint8_t { kLinux, kWindows, kMacos };
@@ -299,7 +341,7 @@ std::string_view mod_label(Platform platform);  // Linux/Windows -> Ctrl, macOS 
 项目目前只有 Linux 后端（README 的"no platform abstraction ahead of a
 second backend"原则），这两个枚举值不代表存在对应的窗口系统实现。
 
-### 剪贴板
+#### 剪贴板
 
 ```cpp
 manager.set_clipboard_text("hello");
@@ -316,7 +358,7 @@ bool did = dg::apply_clipboard_action(DG_ACTION_COPY, field_node, ctx);
 它已经会先删除选区再插入，也已经会丢弃 ASCII 控制字符（含换行）——粘贴
 带换行的文本到单行文本框会静默丢失换行，这是既有行为，不是本节引入的。
 
-### 键盘滚动
+#### 键盘滚动
 
 ```cpp
 bool did = dg::apply_keyboard_scroll(DG_ACTION_SCROLL_PAGE_DOWN, focused, layout, widgets);
@@ -332,7 +374,7 @@ target 永远是 `std::nullopt`），而是**从当前聚焦节点向上找最�
 都是合法的 no-op，不发明"滚动树里第一个/唯一一个 ScrollView"这类兜底
 目标。
 
-## 鼠标指针形状
+### 鼠标指针形状
 
 指针形状是**节点属性** `DG_PROP_CURSOR`（id 53，枚举，见 `doc/reference/properties.md`），
 写进 `NodeStyle::cursor`；默认 `auto` = 继承。解析在 `drawgui/widget/cursor.h`：
@@ -374,7 +416,7 @@ manager.current_cursor(window);                               // 生效值：覆
 
 C ABI 不需要做任何事：`dg_wait_events()`/`dg_poll_events()` 的内部泵在每次指针
 移动/按下/抬起后调用 `cursor_at()` + `set_cursor()`。注意属性改了但指针没动时，光标要等
-下一次指针事件才更新。示例：`examples/12_text_input`（文本框上 I 形、拖选期间用覆盖值钉住）。
+下一次指针事件才更新。`dg::App` 同样如此。
 
 ## 边界与坑
 
@@ -392,7 +434,7 @@ C ABI 不需要做任何事：`dg_wait_events()`/`dg_poll_events()` 的内部泵
 ## 相关 example
 
 - `examples/21_focus` — Tab 序、焦点环、弹层作用域。
-- `examples/22_dropdown_menu` — 弹层内的 Tab 限定与焦点环重建。
+- `examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog` — 运行时里的弹层焦点限定与模态对话框（`--verify-*` 用注入的按键检查）。
 - 快捷键路由与剪贴板动作目前没有独立的可视化 example，主要靠
   `tests/unit/test_shortcut_routing.cpp`、`tests/unit/test_shortcuts.cpp`
   验证。

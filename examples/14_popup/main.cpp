@@ -1,3 +1,10 @@
+// LOW-LEVEL TEACHING EXAMPLE. This opens an overlay popup through
+// PopupHost directly and routes its dismissal (click outside, Escape) by
+// hand. dg::App does that for you - Window::open_menu()/open_dialog() and
+// Window::set_tooltip() open, route and close their own popups and report
+// MenuEvent/DialogResultEvent. Start with doc/guide/app.md; read this to
+// see what the runtime does underneath.
+//
 // The popup demo, on screen and headless.
 //
 //   (no arguments)       the demo window - click the "menu" button to open

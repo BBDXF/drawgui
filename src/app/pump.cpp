@@ -132,10 +132,39 @@ void resync_widgets(WinState& window) {
       window.widgets.sync_scrollbar(tree, record->id, viewport_extent(window, record->id));
     } else if (relaid && record->kind == NodeKind::kList) {
       resync_list(window, *record);
+    } else if (relaid && record->kind == NodeKind::kTextField &&
+               window.focus.current() != record->id) {
+      // An unfocused field's ellipsis depends on its laid-out width.
+      refresh_editor_text(window, *record);
     }
   }
   if (relaid) {
     components::sync(window);
+  }
+}
+
+// An IME's not-yet-committed preedit previews inside the focused editor
+// without touching its text; an empty preedit ends the preview. The commit
+// arrives later as an ordinary TextInputEvent.
+void route_text_editing(AppState& app, const dg::PumpResult& pumped) {
+  for (const dg::TextEditingEvent& event : pumped.text_editing) {
+    WinState* window = find_window_by_sdl_id(app, event.window);
+    if (window == nullptr || !app.fonts.has_value()) {
+      continue;
+    }
+    const std::optional<dg::NodeId> focused = window->focus.current();
+    if (!focused.has_value() || !is_text_editor(*window, *focused)) {
+      continue;
+    }
+    if (is_text_area(*window, *focused)) {
+      window->widgets.text_area_composition_update(window->tree.render(), *app.fonts, *focused,
+                                                   event.text, event.start, event.length);
+      follow_caret(*window, *focused);
+    } else {
+      window->widgets.text_field_composition_update(window->tree.render(), *app.fonts,
+                                                    *focused, event.text, event.start,
+                                                    event.length);
+    }
   }
 }
 
@@ -210,6 +239,8 @@ void process_pump(AppState& app, int timeout_ms) {
       process_key_event(*window, event);
     }
   }
+
+  route_text_editing(app, pumped);
 
   // P6 sub-step a2 (second half): a committed SDL_EVENT_TEXT_INPUT reaches
   // whichever node THIS runtime's own dg::Focus currently names - never

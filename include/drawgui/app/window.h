@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -21,6 +22,7 @@
 
 #include "drawgui/app/items.h"
 #include "drawgui/app/node_kind.h"
+#include "drawgui/app/prop.h"
 #include "drawgui/app/refs.h"
 #include "drawgui/app/status.h"
 #include "drawgui/base/expected.h"
@@ -38,6 +40,7 @@ class Focus;
 class Interaction;
 class LayoutTree;
 class PopupHost;
+class RasterSurface;
 class ThemeBindings;
 class WidgetSet;
 
@@ -86,6 +89,10 @@ class Window {
   // container properties go to its content, an editor's text properties to
   // its text). Statuses as dg::set_prop() reports them.
   Status set_prop(NodeId node, std::uint16_t prop_id, const PropValue& value);
+  // Typed form of set_prop() (drawgui/app/prop.h). The list form applies
+  // every setting and answers the first refusal, or kOk.
+  Status set(NodeId node, const prop::Setting& setting);
+  Status set(NodeId node, std::initializer_list<prop::Setting> settings);
   // Binds `prop_id` to the active theme's `token_id`.
   Status bind_token(NodeId node, std::uint16_t prop_id, std::uint16_t token_id);
   Status set_text(NodeId node, std::uint16_t prop_id, std::string_view text);
@@ -146,6 +153,14 @@ class Window {
   Expected<void, WindowError> set_max_size(int width, int height);
   Expected<void, WindowError> set_icon(const ImageView& icon);
   [[nodiscard]] Expected<WindowState, WindowError> state() const;
+
+  // -- Debugging -------------------------------------------------------
+  // Every node in this window's render tree, composed children and popups
+  // included - what a "the pool stays bounded" check counts.
+  [[nodiscard]] int node_count() const;
+  // The frame the last pump() painted, or null before the first one. Valid
+  // until the next pump(); --dump-png modes encode it.
+  [[nodiscard]] const RasterSurface* frame() const;
 
   // -- Escape hatches ----------------------------------------------------
   // The objects the runtime drives. The contract:

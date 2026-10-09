@@ -1,9 +1,5 @@
 if(DRAWGUI_HAVE_SDL3)
-  add_executable(drawgui_dropdown_menu
-    main.cpp
-    dropdown_check.cpp
-    dropdown_scene.cpp
-    dropdown_window.cpp)
+  add_executable(drawgui_dropdown_menu main.cpp)
 
   target_link_libraries(drawgui_dropdown_menu PRIVATE
     drawgui::drawgui
@@ -11,7 +7,7 @@ if(DRAWGUI_HAVE_SDL3)
     drawgui_sanitizers)
 
   target_include_directories(drawgui_dropdown_menu PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}")
+    "${CMAKE_CURRENT_LIST_DIR}/../common")
 
   set_target_properties(drawgui_dropdown_menu PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")

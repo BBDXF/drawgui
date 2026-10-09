@@ -1,9 +1,5 @@
 if(DRAWGUI_HAVE_SDL3)
-  add_executable(drawgui_menu_tooltip_dialog
-    main.cpp
-    menu_check.cpp
-    menu_scene.cpp
-    menu_window.cpp)
+  add_executable(drawgui_menu_tooltip_dialog main.cpp)
 
   target_link_libraries(drawgui_menu_tooltip_dialog PRIVATE
     drawgui::drawgui
@@ -11,7 +7,7 @@ if(DRAWGUI_HAVE_SDL3)
     drawgui_sanitizers)
 
   target_include_directories(drawgui_menu_tooltip_dialog PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}")
+    "${CMAKE_CURRENT_LIST_DIR}/../common")
 
   set_target_properties(drawgui_menu_tooltip_dialog PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples")

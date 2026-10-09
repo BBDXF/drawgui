@@ -1,3 +1,10 @@
+// LOW-LEVEL TEACHING EXAMPLE. This drives dg::Focus by hand: Tab order,
+// pointer focus, the focus ring, popup focus scopes and blurring a node that
+// becomes disabled. dg::App does all of that for you - Tab/Shift+Tab, click
+// to focus, Window::focus()/focused() and FocusChangedEvent, with menus and
+// dialogs scoping focus themselves. Start with doc/guide/app.md; read this
+// to see what the runtime does underneath.
+//
 // The focus demo, on screen and headless.
 //
 //   (no arguments)       the demo window - Tab/Shift-Tab moves focus, click

@@ -1,3 +1,10 @@
+// LOW-LEVEL TEACHING EXAMPLE, kept on LayoutTree/WidgetSet: radio groups
+// and sliders are WidgetSet features that dg::App has no NodeKind for yet,
+// so this drives toggle(), slider drags and refresh_subtree()/
+// cancel_disabled() itself. A plain checkbox and DG_PROP_DISABLED need none
+// of that under dg::App (NodeKind::kCheckbox, Window::checked(),
+// Window::set_disabled()). Start with doc/guide/app.md.
+//
 // Form controls, on screen.
 //
 //   (no arguments)              the demo window - click the checkbox/radios,
