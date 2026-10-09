@@ -46,25 +46,30 @@ ctest --test-dir build --output-on-failure
 - **C++ 路径**：完整能力——布局、9 种 `WidgetKind`、文本（含 CJK/BiDi/IME）、
   主题、动画、弹出层、焦点、剪贴板，全都可用。本文档下面的窗口骨架和
   `doc/guide/` 都是针对这条路径写的。
-- **C ABI 路径**：今天只能做这些事：
-  - 开窗（`dg_window_create`）
-  - 建节点，只有五种类型：`DG_NODE_TYPE_BOX`（1）、`DG_NODE_TYPE_BUTTON`（2）、
-    `DG_NODE_TYPE_LABEL`（3）、`DG_NODE_TYPE_CHECKBOX`（4）、
-    `DG_NODE_TYPE_TEXT_FIELD`（5）——见 `include/drawgui/abi/drawgui.h`
-  - 设置属性，51 个 `dg_prop_id` 里的任意一个（`dg_node_set_prop`；
-    `DG_PROP_TEXT` 这种字符串属性走 `dg_node_set_text`）
+- **C ABI 路径**：能力比 C++ 路径小，今天能做这些事：
+  - 开窗并操作窗口（`dg_window_create`、`dg_window_set_size` 等）
+  - 建节点，九种类型：`BOX`（写 `DG_PROP_DIRECTION` 变成行/列容器）、
+    `BUTTON`、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、
+    `SCROLL_VIEW`、`LIST`（虚拟化文本列表，`dg_list_set_items`）、
+    `IMAGE`（`dg_node_set_image_data`/`_file`，PNG/JPEG/WebP/SVG）——见
+    `include/drawgui/abi/drawgui.h`
+  - 设置属性，59 个 `dg_prop_id` 里的任意一个（`dg_node_set_prop`；
+    `DG_PROP_TEXT` 这种字符串属性走 `dg_node_set_text`），包括字号、对齐、
+    百分比尺寸（`DG_LENGTH_UNIT_PERCENT`）
   - 按位置插入、在同一窗口内移动、整棵子树删除节点（`dg_node_insert_before`
     / `dg_node_remove`），足够让 keyed reconciler 驱动这棵树
-  - 读复选框状态（`dg_node_get_checked`）和文本框内容（`dg_node_get_text`）
-  - 收 `close` / `click` / `action` / `text_changed` 一类事件
+  - 键盘焦点（`dg_node_focus`、Tab/Shift+Tab）、定时器（`dg_timer_add`）、
+    从其它线程唤醒事件循环（`dg_wake`/`dg_post_user_event`）
+  - 读复选框状态、编辑框内容、列表选中行、滚动偏移
+  - 收点击（带连击数）、右键、焦点、列表选择、文字变化、action、定时器、
+    用户事件和窗口状态事件
   - 注册字体目录（`dg_app_add_font`）、加载主题
 
-  `examples/19_c_client/main.c` 演示了上面这些：矩形、按钮、标签文字、
-  复选框。
+  `examples/19_c_client/main.c` 演示了其中大部分；
+  `examples/26_text_area` 演示了行容器 + 多行编辑框。
 
-  如果你的嵌入场景需要下拉框、滑块、列表、滚动视图——这些今天只存在于
-  C++ 路径。C ABI 路径适合"几个矩形、按钮、标签和复选框做一个原生外壳"
-  这类场景，其余先别指望。
+  菜单、下拉框、tooltip、对话框、Tabs、树、表格、进度条、滑块和动画今天
+  只存在于 C++ 路径（见 `doc/limitations.md` C 节）。
 
 ## 3. 最小 C++ 程序：离屏光栅
 

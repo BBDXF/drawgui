@@ -55,23 +55,26 @@ backend, with no platform-abstraction layer ahead of a second one.
   actions - copy/cut/paste/select_all, keyboard scrolling) resolved through
   a four-level router, and a real platform clipboard seam on
   `WindowManager`.
-- **Theming**: 12 tokens, light/dark variants, and external theme packages
+- **Theming**: 20 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI** (version 0.2): 47 exported functions (8 of them `dg_debug_*`
-  test-only hooks) - but a much smaller surface than the C++ engine. Today
-  it can open a window and operate on it (title, size, position, min/max
-  size, minimize/maximize/restore, fullscreen, resizable, icon, state
-  query), create six node types
-  (`BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`/`TEXT_AREA`), set the 51 properties
-  (text through the dedicated `dg_node_set_text()`), read back a
-  checkbox's state and a text field's or text area's text, receive
-  close/click/action/text-changed and window-state (resize/move/minimize/
-  maximize/restore/focus/fullscreen) events, and load a theme. Nodes can be
-  inserted before a sibling, moved within a window and removed as whole
-  subtrees, so a keyed reconciler can drive the tree. Text is
-  minimal: one engine-default size, no `font_size`/`text_align`, and no
-  IME composition surface. `examples/19_c_client` is a pure C program
-  built entirely on the ABI.
+- **C ABI** (version 0.2): 63 exported functions (11 of them `dg_debug_*`
+  test-only hooks) - still a smaller surface than the C++ engine. It can
+  open and operate windows (title, size, position, min/max size,
+  minimize/maximize/restore, fullscreen, resizable, icon, state query);
+  create nine node types (`BOX`, which `DG_PROP_DIRECTION` turns into a
+  row/column container, `BUTTON`, `LABEL`, `CHECKBOX`, `TEXT_FIELD`,
+  `TEXT_AREA`, `SCROLL_VIEW`, a virtualized text `LIST` and `IMAGE` with
+  PNG/JPEG/WebP/SVG decoding); set 59 properties including font size, text
+  alignment, percentage sizes, tab order and an editor's max length; move
+  keyboard focus (`dg_node_focus()`, Tab/Shift+Tab); read back checkbox
+  state, editor text, list selection and scroll offsets; receive click
+  (with click count), context-click, focus, list-select, text-changed,
+  action, timer, cross-thread user and window-state events; and load a
+  theme. Nodes can be inserted before a sibling, moved within a window and
+  removed as whole subtrees, so a keyed reconciler can drive the tree. Not
+  exported yet: menus, dropdowns, tooltips, dialogs, tabs, trees, tables,
+  progress bars, animation, and any IME composition surface.
+  `examples/19_c_client` is a pure C program built entirely on the ABI.
 
 See `doc/limitations.md` for the full list of known gaps, costly corners
 and things that are deliberately out of scope.
@@ -145,7 +148,7 @@ project's cross-feature regression bed.
 | 23 | `menu_tooltip_dialog` | Context menu and tooltip built on the overlay popup host, plus a modal `Dialog` that is a real, separate OS window (`--branch native\|overlay` compares two ways of opening it) | `--verify-menus` |
 | 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
 | 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
-| 26 | `text_area` | Multi-line `TEXT_AREA` through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
+| 26 | `text_area` | A heading row (a `BOX` made a row) over a multi-line `TEXT_AREA`, all through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
 | 27 | `data_widgets` | `ProgressBar` (determinate + indeterminate), `Tabs` with a disabled tab, a 10,000-item `TreeView` and a 10,000-row sortable `Table` on fixed node pools | `--verify` |
 
 ## Unit tests

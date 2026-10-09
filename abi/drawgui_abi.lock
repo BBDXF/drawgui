@@ -22,7 +22,7 @@ dg_theme_t
 dg_value: size:uint32_t,type:uint32_t,number:float,bits:uint32_t
 dg_app_opts: size:uint32_t
 dg_window_opts: size:uint32_t,title:const char*,width:int32_t,height:int32_t,background_argb:uint32_t,resizable:int32_t,min_width:int32_t,min_height:int32_t,max_width:int32_t,max_height:int32_t
-dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t,action_id:uint16_t
+dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t,action_id:uint16_t,clicks:uint16_t
 dg_theme_err: size:uint32_t,status:uint32_t
 
 [constant_group]
@@ -32,6 +32,9 @@ node_type.LABEL=3
 node_type.CHECKBOX=4
 node_type.TEXT_FIELD=5
 node_type.TEXT_AREA=6
+node_type.SCROLL_VIEW=7
+node_type.LIST=8
+node_type.IMAGE=9
 value_type.FLOAT=1
 value_type.LENGTH=2
 value_type.COLOR=3
@@ -51,8 +54,18 @@ event_kind.WINDOW_FOCUS_GAINED=10
 event_kind.WINDOW_FOCUS_LOST=11
 event_kind.WINDOW_FULLSCREEN_ENTERED=12
 event_kind.WINDOW_FULLSCREEN_LEFT=13
+event_kind.FOCUS_CHANGED=14
+event_kind.TIMER=15
+event_kind.USER=16
+event_kind.CONTEXT_CLICK=17
+event_kind.LIST_SELECT=18
 pixel_format.BGRA8888=1
 pixel_format.RGBA8888=2
+length_unit.PX=0
+length_unit.PERCENT=1
+pointer_button.PRIMARY=1
+pointer_button.SECONDARY=2
+pointer_button.MIDDLE=3
 window_state.MINIMIZED=1
 window_state.MAXIMIZED=2
 window_state.FULLSCREEN=4
@@ -130,4 +143,19 @@ dg_window_set_max_size: int32_t(dg_window_t*,int32_t,int32_t)
 dg_window_set_icon: int32_t(dg_window_t*,const void*,int32_t,int32_t,uint32_t,uint32_t)
 dg_window_get_state: int32_t(dg_window_t*)
 dg_debug_get_cursor: int32_t(dg_window_t*)
+dg_node_focus: int32_t(dg_node_t*)
+dg_window_get_focus: dg_node_t*(dg_window_t*)
+dg_window_clear_focus: int32_t(dg_window_t*)
+dg_node_get_scroll_offset: int32_t(dg_node_t*,int32_t*,int32_t*)
+dg_list_set_items: int32_t(dg_node_t*,const char* const*,uint32_t,int32_t)
+dg_list_get_selected: int32_t(dg_node_t*)
+dg_list_set_selected: int32_t(dg_node_t*,int32_t)
+dg_node_set_image_data: int32_t(dg_node_t*,const void*,uint32_t,uint32_t)
+dg_node_set_image_file: int32_t(dg_node_t*,const char*,uint32_t)
+dg_timer_add: uint32_t(dg_app_t*,int32_t,int32_t)
+dg_timer_cancel: int32_t(dg_app_t*,uint32_t)
+dg_wake: int32_t(dg_app_t*)
+dg_post_user_event: int32_t(dg_app_t*,uint64_t)
+dg_debug_post_wheel: int32_t(dg_window_t*,float,float)
+dg_debug_post_pointer_button_ex: int32_t(dg_window_t*,int32_t,int32_t,int32_t,int32_t,int32_t)
 

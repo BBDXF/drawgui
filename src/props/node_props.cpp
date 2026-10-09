@@ -307,12 +307,13 @@ constexpr float kMaxPercent = 1000.0F;
 // percentage for the same field and a percentage write resets the pixel field
 // to its default, so BoxStyle never holds two competing answers for one field.
 template <typename Pixels>
-[[nodiscard]] PropWrite box_length(Target& target, const PropValue& value, Pixels BoxStyle::*member,
+[[nodiscard]] PropWrite box_length(Target& target, const PropValue& value,
+                                   Pixels BoxStyle::*member,
                                    std::optional<float> BoxPercents::*percent_member,
                                    Pixels unset, const std::string& what) {
   if (value.ordinal() > PropValue::kLengthUnitPercent) {
-    return out_of_range(target, what + " has an unknown length unit " +
-                                    std::to_string(value.ordinal()));
+    return out_of_range(
+        target, what + " has an unknown length unit " + std::to_string(value.ordinal()));
   }
   if (value.is_percent()) {
     const float percent = value.scalar();
@@ -336,8 +337,8 @@ template <typename Pixels>
 }
 
 PropWrite apply_width(Target& target, const PropValue& value) {
-  return box_length(target, value, &BoxStyle::width, &BoxPercents::width,
-                    std::optional<int>{}, "width");
+  return box_length(target, value, &BoxStyle::width, &BoxPercents::width, std::optional<int>{},
+                    "width");
 }
 PropWrite apply_height(Target& target, const PropValue& value) {
   return box_length(target, value, &BoxStyle::height, &BoxPercents::height,
@@ -356,8 +357,8 @@ PropWrite apply_min_height(Target& target, const PropValue& value) {
                     "min_height");
 }
 PropWrite apply_max_height(Target& target, const PropValue& value) {
-  return box_length(target, value, &BoxStyle::max_height, &BoxPercents::max_height,
-                    kUnbounded, "max_height");
+  return box_length(target, value, &BoxStyle::max_height, &BoxPercents::max_height, kUnbounded,
+                    "max_height");
 }
 
 // A RATIO, so neither a length nor a fraction: zero and negative values have
@@ -928,6 +929,64 @@ PropWrite apply_scrollbar(Target& target, const PropValue& value) {
   }
   target.style.scrollbar = static_cast<ScrollbarMode>(value.ordinal());
   target.style_changed = true;
+  return PropWrite{};
+}
+
+PropWrite apply_font_size(Target& target, const PropValue& value) {
+  const float size = value.scalar();
+  if (!std::isfinite(size) || size <= 0.0F || size > kMaxLength) {
+    return out_of_range(target, "font_size needs a finite size above 0");
+  }
+  target.style.text.size = size;
+  target.style_changed = true;
+  return PropWrite{};
+}
+
+static_assert(DG_TEXT_ALIGN_LEFT == static_cast<std::uint32_t>(TextAlign::kLeft) &&
+                  DG_TEXT_ALIGN_CENTER == static_cast<std::uint32_t>(TextAlign::kCenter) &&
+                  DG_TEXT_ALIGN_RIGHT == static_cast<std::uint32_t>(TextAlign::kRight),
+              "dg::TextAlign must list DG_PROP_TEXT_ALIGN's values in the TOML's order");
+
+PropWrite apply_text_align(Target& target, const PropValue& value) {
+  if (value.ordinal() > DG_TEXT_ALIGN_RIGHT) {
+    return out_of_range(
+        target, "text_align has no value with ordinal " + std::to_string(value.ordinal()));
+  }
+  target.style.text.align = static_cast<TextAlign>(value.ordinal());
+  target.style_changed = true;
+  return PropWrite{};
+}
+
+// Widget-layer state (see the TOML's comment on these two): nothing in
+// BoxStyle/NodeStyle holds it, so this door cannot apply it.
+PropWrite apply_tab_index(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "tab_index",
+                     "it is widget state - set dg::Widget::tab_index (the C ABI's "
+                     "dg_node_set_prop() does)");
+}
+
+PropWrite apply_max_length(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "max_length",
+                     "it is editor state - call dg::WidgetSet::editor_set_max_length() (the C "
+                     "ABI's dg_node_set_prop() does)");
+}
+
+PropWrite apply_wrap(Target& target, const PropValue& value) {
+  const std::optional<PropWrite> gate = self_must_arrange(target, "wrap");
+  if (gate.has_value()) {
+    return *gate;
+  }
+  if (value.ordinal() > 1U) {
+    return out_of_range(target, "wrap needs a bool: 0 (false) or 1 (true)");
+  }
+  const bool horizontal =
+      target.kind == LayoutKind::kRow || target.kind == LayoutKind::kWrapRow;
+  if (value.ordinal() == 1U) {
+    target.box.kind = horizontal ? LayoutKind::kWrapRow : LayoutKind::kWrapColumn;
+  } else {
+    target.box.kind = horizontal ? LayoutKind::kRow : LayoutKind::kColumn;
+  }
+  target.box_changed = true;
   return PropWrite{};
 }
 

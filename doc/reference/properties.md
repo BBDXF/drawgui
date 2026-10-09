@@ -78,7 +78,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
 `kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
 
-## 5. 属性表（54 项）
+## 5. 属性表（59 项）
 
 列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
 常量与文档、setter 里出现的那个词汇）；**内部字段**是
@@ -117,7 +117,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 加到位置上，deflate（缩小约束）却没有对称处理负值。这是记录在案的功能缺口，
 不是隐藏 bug（`src/props/node_props.cpp:355-357` 注释原文）。
 
-### 5.3 visual（id 16-30, 47-51）
+### 5.3 visual（id 16-30, 47-51, 55-56）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -133,10 +133,12 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 47 | `image_source` | image | 完整 | 选择哪个已解码的 `ImageCatalog` 条目；**专用 setter**（`set_image`） |
 | 48 | `image_fit` | enum(`fill`/`contain`/`cover`/`none`) | 完整 | 走普通标量路径（不是专用 setter） |
 | 49 | `image_placeholder_color` | color | 完整 | 图片未解码完成前的占位色，绝不是"洞" |
-| 50 | `text` | text | 完整 | label/button 等绘制的 UTF-8 字符串；**专用 setter**（`set_text`，C ABI 为 `dg_node_set_text`），标量入口返回 `kTypeMismatch`；字体/字号/对齐不是属性，取引擎默认值 |
+| 50 | `text` | text | 完整 | label/button 等绘制的 UTF-8 字符串；**专用 setter**（`set_text`，C ABI 为 `dg_node_set_text`），标量入口返回 `kTypeMismatch`；字体族不是属性，取引擎默认值（字号/对齐见 55/56） |
 | 51 | `text_color` | color | 完整 | `TextStyle::color`，走普通标量路径；默认全透明，只设 `text` 不设它则看不见文字 |
+| 55 | `font_size` | float | 完整 | `TextStyle::size`，逻辑像素，须为正的有限数；不改变节点盒子大小 |
+| 56 | `text_align` | enum(`left`/`center`/`right`) | 完整 | `TextStyle::align`，序号即 `DG_TEXT_ALIGN_*`。没有字重属性（`TextStyle` 没有字重） |
 
-### 5.4 container（id 31-37, 46, 54）
+### 5.4 container（id 31-37, 46, 54, 59）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -149,6 +151,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 37 | `align_content` | enum(6 值) | 完整 | 仅 `RenderWrap`；行堆叠方向的交叉轴对齐 |
 | 46 | `scroll_axis` | enum(`none`/`vertical`/`horizontal`) | 完整 | 仅限叶子节点（`kLeaf`）；决定该节点给子节点哪个轴的无界约束 |
 | 54 | `scrollbar` | enum(`auto`/`always`/`never`) | 完整 | `NodeStyle::scrollbar`，写在挂了滚动条的 `kScrollView`/`kList` 节点上。序号即 `DG_SCROLLBAR_*`：`auto`(0，默认，内容溢出才显示)、`always`(1)、`never`(2，隐藏但照常滚动)。不是绘制输入，写入不重排；在下一次 `WidgetSet::sync_scrollbar()` 时生效（C++ 调用方写完要自己调）。见 `doc/guide/widgets.md`「滚动条」 |
+| 59 | `wrap` | bool | 完整 | 行/列容器是否换行：`true` 变成 `kWrapRow`/`kWrapColumn`，`false` 变回，保持轴向；只对行/列/换行容器（叶子返回 `kNotApplicable`） |
 
 ### 5.5 flex（parentData，id 38-41）
 
@@ -165,17 +168,20 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 |---|---|---|---|---|
 | 42-45 | `left`/`top`/`right`/`bottom` | float | 完整 | 相对 stack 内容盒的偏移；写入任一个即视为定位该子节点 |
 
-### 5.7 interaction（id 52-53）
+### 5.7 interaction（id 52-53, 57-58）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
 | 52 | `disabled` | bool | 完整 | `NodeStyle::disabled`。禁用本节点**及其整棵子树**的 hover/press/click/拖动/文本编辑与焦点（`dg::is_disabled()` 沿父链判断）；写入只产生重绘，不重排。C++ 调用方写完需调用 `cancel_disabled()`/`blur_if_disabled()`/`refresh_subtree()`，C ABI 的 `dg_node_set_prop()` 已自动完成。行为细节见 `doc/guide/widgets.md`「禁用状态」 |
 | 53 | `cursor` | enum | 完整 | `NodeStyle::cursor`，鼠标指针形状。取值（序号即 `DG_CURSOR_*`）：`auto`(0，默认)、`default`(1)、`pointer`(2，手形)、`text`(3，I 形)、`crosshair`(4)、`move`(5)、`not_allowed`(6)、`wait`(7)、`progress`(8)、`resize_ew`(9)、`resize_ns`(10)、`resize_nwse`(11)、`resize_nesw`(12)，一一对应 SDL 的系统光标。`auto` 表示继承：从指针下的节点沿父链找第一个非 `auto` 的值，途中遇到有自己默认值的控件（目前只有文本框 → `text`）就用它。不是绘制输入，写入不重排。解析规则见 `doc/guide/input.md`「鼠标指针形状」 |
+| 57 | `tab_index` | float(整数) | **仅 C ABI** | `Widget::tab_index`：正数按升序先走，0 按树序，负数退出 Tab 序列。是控件状态不是节点样式，`dg::set_prop()` 返回 `kUnsupported`（C++ 直接写 `Widget::tab_index`），C ABI 的 `dg_node_set_prop()` 自己处理 |
+| 58 | `max_length` | float(整数) | **仅 C ABI** | 编辑框最多多少个字素簇，0 = 不限；同上，C++ 用 `WidgetSet::editor_set_max_length()` |
 
 ## 6. 状态汇总（自查结果）
 
-- 43 项完整、10 项部分实现、1 项未实现（`transform`），共 54 项（含 P6 a1
-  新增的 `text`/`text_color`，以及 `disabled`、`cursor`、`scrollbar`）。
+- 46 项完整、10 项部分实现、2 项只在 C ABI 生效（`tab_index`/`max_length`）、
+  1 项未实现（`transform`），共 59 项（含 P6 a1 新增的 `text`/`text_color`，
+  以及 `disabled`、`cursor`、`scrollbar`、`font_size`、`text_align`、`wrap`）。
 - 与最初给出的表格核对下来内容基本吻合，本文档在此基础上补充了：
   `justify`/`align` 与内部字段名 `main_align`/`cross_align` 的映射说明
   （5.1 节），以及 `grow`/`wrap` 场景的 `kNotApplicable`（5.5 节）。

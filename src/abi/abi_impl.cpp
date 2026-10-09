@@ -5,6 +5,7 @@
 #include "abi_impl.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -21,13 +22,14 @@
 #include "drawgui/graphics/types.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/props/node_props.h"
+#include "drawgui/render/image_catalog.h"
 #include "drawgui/render/node_lifecycle.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/chord.h"
 #include "drawgui/shortcuts/clipboard_actions.h"
+#include "drawgui/shortcuts/keyboard_scroll.h"
 #include "drawgui/shortcuts/router.h"
 #include "drawgui/theme/theme_loader.h"
-#include "drawgui/widget/click_counter.h"
 #include "drawgui/widget/cursor.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
@@ -84,6 +86,26 @@ constexpr int kTextAreaHeight = 160;
 constexpr int kTextAreaInset = 10;
 constexpr int kTextAreaHighlightPool = 64;
 constexpr int kTextAreaUnderlinePool = 4;
+
+// DG_NODE_TYPE_BUTTON's default text: the label's size, white on the
+// button's own blue fills.
+constexpr std::uint32_t kButtonTextArgb = 0xFFFFFFFF;
+
+// DG_NODE_TYPE_SCROLL_VIEW / DG_NODE_TYPE_LIST / DG_NODE_TYPE_IMAGE default
+// boxes. A list recycles kListPool rows, so at most kListPool - 2 rows can be
+// visible at once (list_sync() needs one spare row at each edge).
+constexpr int kScrollViewWidth = 240;
+constexpr int kScrollViewHeight = 160;
+constexpr int kListWidth = 240;
+constexpr int kListHeight = 200;
+constexpr int kListPool = 32;
+constexpr int kListItemHeight = 28;
+constexpr int kListRowInset = 8;
+constexpr int kListMaxItems = 1 << 24;
+constexpr std::uint32_t kListSelectionAlpha = 0x66;
+constexpr int kImageSize = 64;
+// One wheel notch, in device pixels, for every wheel-scrolled node type.
+constexpr float kWheelStepPx = 40.0F;
 
 // Both editors' colours, resolved from the active (else builtin dark) theme:
 // box = color.surface, border = color.border, focused border / caret =
@@ -342,6 +364,12 @@ std::optional<dg::PropValue> to_prop_value(const dg_value& value) {
     case DG_VALUE_FLOAT:
       return dg::PropValue::number(value.number);
     case DG_VALUE_LENGTH:
+      if (value.bits == DG_LENGTH_UNIT_PERCENT) {
+        return dg::PropValue::percent(value.number);
+      }
+      if (value.bits != DG_LENGTH_UNIT_PX) {
+        return std::nullopt;
+      }
       return dg::PropValue::length(value.number);
     case DG_VALUE_COLOR:
       return dg::PropValue::color(dg::Color::from_argb(value.bits));
@@ -532,6 +560,55 @@ void restyle_editors(AppImpl& impl, std::size_t window_index, WindowImpl& window
   }
 }
 
+// DG_NODE_TYPE_LIST's rows: text in color.on-surface, the selected row
+// filled with color.primary made translucent (the editors' selection rule).
+struct ListPalette {
+  dg::Color text = dg::Color::from_argb(kTextFieldTextColorArgb);
+  dg::Color selection = dg::Color::from_argb((kListSelectionAlpha << 24U) |
+                                             (kTextFieldBorderFocusedArgb & 0xFFFFFFU));
+};
+
+ListPalette list_palette_for(const AppImpl& impl) {
+  const auto [theme, variant] = theme_for(impl);
+  ListPalette palette;
+  if (theme == nullptr) {
+    return palette;
+  }
+  if (const std::optional<dg::Color> c =
+          theme->color_value(DG_TOKEN_COLOR_ON_SURFACE, variant)) {
+    palette.text = *c;
+  }
+  if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_PRIMARY, variant)) {
+    palette.selection =
+        dg::Color::from_argb((kListSelectionAlpha << 24U) | (c->argb() & 0xFFFFFFU));
+  }
+  return palette;
+}
+
+void repaint_list(AppImpl& impl, WindowImpl& window, const NodeSlot& slot);
+
+// Every focus change ends here: the editors' focus/blur side effects, then
+// one DG_EVENT_FOCUS_CHANGED naming the newly focused node (null = none).
+void apply_focus_change(AppImpl& impl, WindowImpl& window, const dg::FocusChange& change) {
+  if (change.blurred.has_value()) {
+    set_editor_focus(impl, window, *change.blurred, false);
+  }
+  if (change.focused.has_value()) {
+    set_editor_focus(impl, window, *change.focused, true);
+  }
+  if (!change.any()) {
+    return;
+  }
+  dg_event out{};
+  out.size = sizeof(dg_event);
+  out.kind = DG_EVENT_FOCUS_CHANGED;
+  out.window = window.self_handle;
+  out.node = change.focused.has_value()
+                 ? find_node_handle(impl, window.self_index, *change.focused)
+                 : nullptr;
+  impl.pending_events.push_back(out);
+}
+
 // dg_app_set_theme()/dg_theme_set_variant()/dg_theme_override() all end
 // here: whichever one changed the theme's DATA, the same re-apply against
 // every open window's own dg::ThemeBindings is what makes the change live -
@@ -551,6 +628,12 @@ void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
       window->widgets.set_disabled_palette(palette);
       window->widgets.set_scrollbar_style(scrollbar_style_for(impl));
       restyle_editors(impl, window->self_index, *window, editor_palette_for(impl));
+      for (const NodeSlot& slot : impl.nodes) {
+        if (slot.state == NodeSlot::State::kLive && slot.type_id == DG_NODE_TYPE_LIST &&
+            slot.window_index == window->self_index) {
+          repaint_list(impl, *window, slot);
+        }
+      }
       window->widgets.refresh_subtree(window->tree.render(), dg::LayoutTree::root(),
                                       window->interaction);
     }
@@ -565,10 +648,7 @@ void reapply_theme_if_active(AppImpl& impl, const ThemeImpl& theme) {
 void sync_disabled(AppImpl& impl, WindowImpl& window, dg::NodeId node) {
   dg::RenderTree& tree = window.tree.render();
   const dg::InteractionChange change = window.interaction.cancel_disabled(tree);
-  const dg::FocusChange focus_change = window.focus.blur_if_disabled(tree);
-  if (focus_change.blurred.has_value()) {
-    set_editor_focus(impl, window, *focus_change.blurred, false);
-  }
+  apply_focus_change(impl, window, window.focus.blur_if_disabled(tree));
   const std::optional<dg::NodeId> touched[] = {change.left, change.released};
   for (const std::optional<dg::NodeId>& id : touched) {
     if (id.has_value()) {
@@ -576,6 +656,74 @@ void sync_disabled(AppImpl& impl, WindowImpl& window, dg::NodeId node) {
     }
   }
   window.widgets.refresh_subtree(tree, node, window.interaction);
+}
+
+bool is_scroller_or_image(std::uint16_t type_id) {
+  return type_id == DG_NODE_TYPE_SCROLL_VIEW || type_id == DG_NODE_TYPE_LIST ||
+         type_id == DG_NODE_TYPE_IMAGE;
+}
+
+// DG_NODE_TYPE_SCROLL_VIEW / LIST / IMAGE default boxes.
+void scroller_or_image_defaults(const WindowImpl& window, std::uint16_t type_id,
+                                dg::BoxStyle& box, dg::NodeStyle& style) {
+  if (type_id == DG_NODE_TYPE_IMAGE) {
+    box.width = kImageSize;
+    box.height = kImageSize;
+    style.image.fit = dg::ImageFit::kContain;
+    return;
+  }
+  // A clipping kLeaf viewport with the scrollbar's gutter reserved on its
+  // trailing edge (examples/10_scrolling's / 15_list's recipe). No fill.
+  const bool list = type_id == DG_NODE_TYPE_LIST;
+  box.kind = dg::LayoutKind::kLeaf;
+  box.width = list ? kListWidth : kScrollViewWidth;
+  box.height = list ? kListHeight : kScrollViewHeight;
+  box.scroll_axis = list ? dg::ScrollAxis::kNone : dg::ScrollAxis::kVertical;
+  box.padding.right = window.widgets.scrollbar_style().size;
+  style.overflow = dg::Overflow::kClip;
+}
+
+void compose_scroll_view(WindowImpl& window, NodeSlot& slot, dg::NodeId new_id) {
+  // The content node every caller child goes into (dg_node_insert_before()),
+  // then the scrollbar track + thumb, added last so they paint on top.
+  dg::BoxStyle content_box;
+  content_box.kind = dg::LayoutKind::kColumn;
+  slot.content = window.tree.add_child(new_id, content_box, dg::NodeStyle{});
+  dg::Widget widget;
+  widget.kind = dg::WidgetKind::kScrollView;
+  widget.scroll_axis = dg::ScrollAxis::kVertical;
+  widget.scroll_content = slot.content;
+  window.widgets.attach(new_id, widget);
+  const dg::NodeId track = window.tree.add_child(new_id, dg::BoxStyle{}, dg::NodeStyle{});
+  const dg::NodeId thumb = window.tree.add_child(track, dg::BoxStyle{}, dg::NodeStyle{});
+  window.widgets.attach_scrollbar(window.tree.render(), new_id, track, thumb);
+  window.relaid = true;
+}
+
+void compose_list(const AppImpl& impl, WindowImpl& window, dg::NodeId new_id) {
+  // A fixed pool of rows, each 100% of the content width (the gutter is
+  // padding), recycled by list_sync()/list_scroll_by().
+  dg::Widget widget;
+  widget.kind = dg::WidgetKind::kList;
+  widget.list_axis = dg::ScrollAxis::kVertical;
+  widget.list_item_count = 0;  // dg_list_set_items() fills it
+  widget.list_item_extent = kListItemHeight;
+  dg::BoxStyle row_box;
+  row_box.height = kListItemHeight;
+  row_box.percent.width = 100.0F;
+  dg::NodeStyle row_style;
+  row_style.text.font = impl.default_font;
+  row_style.text.size = kDefaultLabelTextSize;
+  row_style.text.align = dg::TextAlign::kLeft;
+  row_style.text.inset = kListRowInset;
+  for (int i = 0; i < kListPool; ++i) {
+    widget.list_pool.push_back(window.tree.add_child(new_id, row_box, row_style));
+  }
+  window.widgets.attach(new_id, widget);
+  const dg::NodeId track = window.tree.add_child(new_id, dg::BoxStyle{}, dg::NodeStyle{});
+  const dg::NodeId thumb = window.tree.add_child(track, dg::BoxStyle{}, dg::NodeStyle{});
+  window.widgets.attach_scrollbar(window.tree.render(), new_id, track, thumb);
+  window.relaid = true;
 }
 
 // The one place a PENDING node becomes LIVE - shared by dg_window_set_root()
@@ -637,11 +785,17 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
     box.width = kTextAreaWidth;
     box.height = kTextAreaHeight;
     style = text_field_box_style(editor_palette_for(impl), false);
+  } else if (is_scroller_or_image(slot.type_id)) {
+    scroller_or_image_defaults(window, slot.type_id, box, style);
   } else {
     style.fill = dg::Color::rgba(0x2B, 0x2F, 0x3A);
     if (slot.type_id == DG_NODE_TYPE_BUTTON) {
       box.width = 200;
       box.height = 64;
+      // Ready for dg_node_set_text(): the label's default font and size.
+      style.text.font = impl.default_font;
+      style.text.size = kDefaultLabelTextSize;
+      style.text.color = dg::Color::from_argb(kButtonTextArgb);
     } else {
       box.width = 240;
       box.height = 120;
@@ -654,7 +808,11 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
   slot.window_index = window_index;
   slot.node_id = new_id;
 
-  if (slot.type_id == DG_NODE_TYPE_BUTTON) {
+  if (slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
+    compose_scroll_view(window, slot, new_id);
+  } else if (slot.type_id == DG_NODE_TYPE_LIST) {
+    compose_list(impl, window, new_id);
+  } else if (slot.type_id == DG_NODE_TYPE_BUTTON) {
     dg::Widget widget;
     widget.kind = dg::WidgetKind::kButton;
     widget.fill_normal = dg::Color::rgba(0x35, 0x6B, 0xC7);
@@ -811,6 +969,15 @@ std::int32_t attach_pending_node(AppImpl& impl, std::size_t window_index, dg::No
 // a C host never gets a canvas, it gets dg_poll_events()/dg_wait_events(),
 // and drawgui paints and presents every frame internally.
 
+// Every layout pass goes through here, so resync_widgets() knows when the
+// composed children layout re-places (scrollbars, list rows) need
+// re-deriving.
+void relayout(WindowImpl& window) {
+  if (window.tree.layout().nodes_relaid_out != 0) {
+    window.relaid = true;
+  }
+}
+
 bool ensure_surface_current(dg::WindowManager& wm, WindowImpl& window) {
   const dg::Expected<dg::PixelSize, dg::WindowError> size = wm.drawable_size(window.sdl_window);
   if (!size) {
@@ -820,7 +987,7 @@ bool ensure_surface_current(dg::WindowManager& wm, WindowImpl& window) {
     return true;
   }
   window.tree.resize(size.value());
-  window.tree.layout();
+  relayout(window);
   window.surface = dg::RasterSurface::create(size.value().width, size.value().height);
   return window.surface.has_value();
 }
@@ -839,7 +1006,7 @@ void repaint_and_present(dg::WindowManager& wm, WindowImpl& window) {
   if (!window.surface.has_value()) {
     return;
   }
-  window.tree.layout();
+  relayout(window);
   if (window.tree.render().damage().is_empty()) {
     return;
   }
@@ -867,47 +1034,128 @@ void refresh_touched(WindowImpl& window, const dg::InteractionChange& change) {
   }
 }
 
+// The scroll-view/list/text-area kinds that own a scroll offset and a
+// scrollbar.
+bool is_scroller(const WindowImpl& window, dg::NodeId id) {
+  if (!window.widgets.has(id)) {
+    return false;
+  }
+  const dg::WidgetKind kind = window.widgets.at(id).kind;
+  return kind == dg::WidgetKind::kScrollView || kind == dg::WidgetKind::kList ||
+         kind == dg::WidgetKind::kTextArea;
+}
+
+// The visible length along `owner`'s scroll axis - what scroll_by()/
+// list_scroll_by()/the scrollbar functions call `viewport_extent`.
+int viewport_extent(const WindowImpl& window, dg::NodeId owner) {
+  const dg::Widget& widget = window.widgets.at(owner);
+  if (widget.kind == dg::WidgetKind::kTextArea) {
+    return window.tree.render().local_bounds(owner).height;
+  }
+  const dg::PixelRect content = window.tree.content_bounds(owner);
+  const dg::ScrollAxis axis =
+      widget.kind == dg::WidgetKind::kList ? widget.list_axis : widget.scroll_axis;
+  return axis == dg::ScrollAxis::kHorizontal ? content.width : content.height;
+}
+
+// The live slot naming `id` in window `window_index`, or null.
+NodeSlot* live_slot_of(AppImpl& impl, std::size_t window_index, dg::NodeId id) {
+  for (NodeSlot& slot : impl.nodes) {
+    if (slot.state == NodeSlot::State::kLive && slot.window_index == window_index &&
+        slot.node_id == id) {
+      return &slot;
+    }
+  }
+  return nullptr;
+}
+
+// Paints recycled list rows with the items they now show.
+void paint_list_rows(AppImpl& impl, WindowImpl& window, const NodeSlot& slot,
+                     const std::vector<dg::ListSlot>& rows) {
+  dg::RenderTree& tree = window.tree.render();
+  const ListPalette palette = list_palette_for(impl);
+  for (const dg::ListSlot& row : rows) {
+    const bool in_range = row.logical_index >= 0 &&
+                          static_cast<std::size_t>(row.logical_index) < slot.list_items.size();
+    dg::TextStyle text = tree.style(row.node).text;
+    text.text =
+        in_range ? slot.list_items[static_cast<std::size_t>(row.logical_index)] : std::string();
+    text.color = palette.text;
+    tree.set_text(row.node, text);
+    tree.set_fill(row.node, in_range && row.logical_index == slot.list_selected
+                                ? palette.selection
+                                : dg::Color{});
+  }
+}
+
+// Every pool row of a list that currently shows an item, repainted (after a
+// selection or theme change).
+void repaint_list(AppImpl& impl, WindowImpl& window, const NodeSlot& slot) {
+  const dg::Widget& widget = window.widgets.at(slot.node_id);
+  std::vector<dg::ListSlot> rows;
+  for (std::size_t i = 0; i < widget.list_pool.size() && i < widget.list_assigned.size(); ++i) {
+    if (widget.list_assigned[i] >= 0) {
+      rows.push_back(dg::ListSlot{widget.list_pool[i], widget.list_assigned[i]});
+    }
+  }
+  paint_list_rows(impl, window, slot, rows);
+}
+
+void apply_scroll_result(AppImpl& impl, WindowImpl& window, dg::NodeId owner,
+                         const dg::ScrollResult& result) {
+  if (result.slots.empty()) {
+    return;
+  }
+  const NodeSlot* slot = live_slot_of(impl, window.self_index, owner);
+  if (slot != nullptr && slot->type_id == DG_NODE_TYPE_LIST) {
+    paint_list_rows(impl, window, *slot, result.slots);
+  }
+}
+
 // A drag that started on a focused text area extends its selection; one that
-// started on a text area's scrollbar thumb scrolls it.
-void drag_text_area(AppImpl& impl, WindowImpl& window, dg::PixelPoint at) {
+// started on a scrollbar thumb scrolls its owner.
+void drag_held(AppImpl& impl, WindowImpl& window, dg::PixelPoint at) {
   const std::optional<dg::NodeId> held = window.interaction.holding();
-  if (!held.has_value() || !impl.fonts.has_value()) {
+  if (!held.has_value()) {
     return;
   }
   const std::optional<dg::NodeId> bar_owner = window.widgets.scrollbar_owner_of(*held);
-  if (bar_owner.has_value() && is_text_area(window, *bar_owner)) {
-    window.widgets.scrollbar_drag(window.tree.render(), *held,
-                                  window.tree.render().local_bounds(*bar_owner).height, at);
-  } else if (is_text_area(window, *held) && window.focus.current() == held) {
+  if (bar_owner.has_value() && is_scroller(window, *bar_owner)) {
+    apply_scroll_result(impl, window, *bar_owner,
+                        window.widgets.scrollbar_drag(window.tree.render(), *held,
+                                                      viewport_extent(window, *bar_owner), at));
+  } else if (impl.fonts.has_value() && is_text_area(window, *held) &&
+             window.focus.current() == held) {
     window.widgets.text_area_click(window.tree.render(), *impl.fonts, *held, at,
                                    /*extend_selection=*/true);
     follow_caret(impl, window, *held);
   }
 }
 
-// A press on a text area's own scrollbar scrolls it without moving focus or
-// the caret. True when `hit` was such a part.
-bool press_text_area_scrollbar(WindowImpl& window, std::optional<dg::NodeId> hit,
-                               dg::PixelPoint at) {
+// A press on a scroll view's, list's or text area's own scrollbar scrolls
+// it without moving focus or the caret. True when `hit` was such a part.
+bool press_scrollbar(AppImpl& impl, WindowImpl& window, std::optional<dg::NodeId> hit,
+                     dg::PixelPoint at) {
   const std::optional<dg::NodeId> bar_owner =
       hit.has_value() ? window.widgets.scrollbar_owner_of(*hit) : std::nullopt;
-  if (!bar_owner.has_value() || !is_text_area(window, *bar_owner)) {
+  if (!bar_owner.has_value() || !is_scroller(window, *bar_owner)) {
     return false;
   }
-  window.widgets.scrollbar_press(window.tree.render(), *hit,
-                                 window.tree.render().local_bounds(*bar_owner).height, at);
+  apply_scroll_result(impl, window, *bar_owner,
+                      window.widgets.scrollbar_press(window.tree.render(), *hit,
+                                                     viewport_extent(window, *bar_owner), at));
   return true;
 }
 
 // Every press on a focused editor places its caret, not only the press that
-// focused it.
+// focused it. `clicks` is the press's PointerEvent::clicks.
 void place_editor_caret(AppImpl& impl, WindowImpl& window, std::optional<dg::NodeId> hit,
-                        dg::PixelPoint at) {
+                        dg::PixelPoint at, int clicks) {
   if (!impl.fonts.has_value() || !hit.has_value() || !is_text_editor(window, *hit) ||
       window.focus.current() != hit) {
     return;
   }
-  const int clicks = dg::register_click(window.clicks, at, dg::steady_anim_time());
+  clicks = std::max(clicks, 1);
   if (is_text_area(window, *hit)) {
     window.widgets.text_area_click(window.tree.render(), *impl.fonts, *hit, at,
                                    /*extend_selection=*/false, clicks);
@@ -918,69 +1166,186 @@ void place_editor_caret(AppImpl& impl, WindowImpl& window, std::optional<dg::Nod
   }
 }
 
-// The wheel scrolls a text area under the pointer (the only wheel-scrolled
-// node type this ABI has); the caret stays where it is.
-void wheel_text_area(WindowImpl& window, const dg::PointerEvent& event) {
+bool is_ancestor_or_self(const dg::RenderTree& tree, dg::NodeId ancestor, dg::NodeId id) {
+  dg::NodeId current = id;
+  while (true) {
+    if (current == ancestor) {
+      return true;
+    }
+    const dg::NodeId parent = tree.parent(current);
+    if (parent == current) {
+      return false;
+    }
+    current = parent;
+  }
+}
+
+// The wheel scrolls the nearest list, scroll view or text area under the
+// pointer; a text area's caret stays where it is.
+void wheel_scroll(AppImpl& impl, WindowImpl& window, const dg::PointerEvent& event) {
   const dg::PixelPoint at{event.x, event.y};
-  const std::optional<dg::NodeId> hit = window.tree.render().hit_test(at);
-  const std::optional<dg::NodeId> owner =
-      hit.has_value() ? window.widgets.scrollable_owner_of(window.tree.render(), *hit)
-                      : std::nullopt;
-  if (!owner.has_value() || !is_text_area(window, *owner) ||
-      dg::is_disabled(window.tree.render(), *owner)) {
+  dg::RenderTree& tree = window.tree.render();
+  const std::optional<dg::NodeId> hit = tree.hit_test(at);
+  if (!hit.has_value()) {
     return;
   }
-  constexpr float kWheelStepPx = 40.0F;
-  const dg::PixelRect bounds = window.tree.render().local_bounds(*owner);
-  window.widgets.scroll_by(window.tree.render(), *owner,
-                           dg::PixelRect{0, 0, bounds.width, bounds.height}, 0,
-                           static_cast<int>(-event.wheel_y * kWheelStepPx));
+  const int dx = static_cast<int>(-event.wheel_x * kWheelStepPx);
+  const int dy = static_cast<int>(-event.wheel_y * kWheelStepPx);
+  // The innermost of the two climbs wins: a list inside a scroll view
+  // scrolls itself.
+  const std::optional<dg::NodeId> list = window.widgets.list_owner_of(tree, *hit);
+  const std::optional<dg::NodeId> view = window.widgets.scrollable_owner_of(tree, *hit);
+  const bool list_inside_view =
+      list.has_value() && view.has_value() && is_ancestor_or_self(tree, *view, *list);
+  if (list.has_value() && (!view.has_value() || list_inside_view)) {
+    if (dg::is_disabled(tree, *list)) {
+      return;
+    }
+    const std::vector<dg::ListSlot> rows =
+        window.widgets.list_scroll_by(tree, *list, viewport_extent(window, *list), dx, dy);
+    apply_scroll_result(impl, window, *list, dg::ScrollResult{true, rows});
+    return;
+  }
+  if (!view.has_value() || dg::is_disabled(tree, *view)) {
+    return;
+  }
+  if (is_text_area(window, *view)) {
+    const dg::PixelRect bounds = tree.local_bounds(*view);
+    window.widgets.scroll_by(tree, *view, dg::PixelRect{0, 0, bounds.width, bounds.height}, 0,
+                             dy);
+  } else {
+    window.widgets.scroll_by(tree, *view, window.tree.content_bounds(*view), dx, dy);
+  }
+}
+
+// The nearest ancestor-or-self of `id` that has a dg_node_t handle.
+dg_node_t* nearest_handle(AppImpl& impl, WindowImpl& window, dg::NodeId id) {
+  const dg::RenderTree& tree = window.tree.render();
+  dg::NodeId current = id;
+  while (true) {
+    if (dg_node_t* handle = find_node_handle(impl, window.self_index, current)) {
+      return handle;
+    }
+    const dg::NodeId parent = tree.parent(current);
+    if (parent == current) {
+      return nullptr;
+    }
+    current = parent;
+  }
+}
+
+// A primary press on a list row selects it and queues DG_EVENT_LIST_SELECT.
+// True when `at` hit a row of an enabled list.
+bool press_list_row(AppImpl& impl, WindowImpl& window, dg::PixelPoint at, int clicks) {
+  dg::RenderTree& tree = window.tree.render();
+  const std::optional<dg::NodeId> hit = tree.hit_test(at);
+  const std::optional<dg::NodeId> list =
+      hit.has_value() ? window.widgets.list_owner_of(tree, *hit) : std::nullopt;
+  if (!list.has_value() || dg::is_disabled(tree, *list)) {
+    return false;
+  }
+  const dg::Widget& widget = window.widgets.at(*list);
+  NodeSlot* slot = live_slot_of(impl, window.self_index, *list);
+  if (slot == nullptr) {
+    return false;
+  }
+  for (std::size_t i = 0; i < widget.list_pool.size() && i < widget.list_assigned.size(); ++i) {
+    const int index = widget.list_assigned[i];
+    if (widget.list_pool[i] != *hit || index < 0 ||
+        static_cast<std::size_t>(index) >= slot->list_items.size()) {
+      continue;
+    }
+    slot->list_selected = index;
+    repaint_list(impl, window, *slot);
+    dg_event out{};
+    out.size = sizeof(dg_event);
+    out.kind = DG_EVENT_LIST_SELECT;
+    out.window = window.self_handle;
+    out.node = slot->self_handle;
+    out.x = index;
+    out.clicks = static_cast<std::uint16_t>(std::clamp(clicks, 1, 0xFFFF));
+    impl.pending_events.push_back(out);
+    return true;
+  }
+  return false;
+}
+
+// A secondary-button press: DG_EVENT_CONTEXT_CLICK on the nearest handle
+// under the pointer. Nothing is pressed or focused.
+void context_click(AppImpl& impl, WindowImpl& window, const dg::PointerEvent& event) {
+  const dg::PixelPoint at{event.x, event.y};
+  const std::optional<dg::NodeId> hit = window.tree.render().hit_test(at);
+  if (hit.has_value() && dg::is_disabled(window.tree.render(), *hit)) {
+    return;
+  }
+  dg_event out{};
+  out.size = sizeof(dg_event);
+  out.kind = DG_EVENT_CONTEXT_CLICK;
+  out.window = window.self_handle;
+  out.node = hit.has_value() ? nearest_handle(impl, window, *hit) : nullptr;
+  out.x = event.x;
+  out.y = event.y;
+  out.clicks = static_cast<std::uint16_t>(std::clamp(event.clicks, 1, 0xFFFF));
+  impl.pending_events.push_back(out);
+}
+
+// PointerEvent::clicks (WindowManager's count), restarted at 1 when a key
+// was pressed since the previous press.
+int effective_clicks(WindowImpl& window, int clicks) {
+  clicks = std::max(clicks, 1);
+  if (clicks == 1) {
+    window.click_offset = 0;
+  } else if (window.key_since_press) {
+    window.click_offset = clicks - 1;
+  }
+  window.key_since_press = false;
+  return std::max(clicks - window.click_offset, 1);
 }
 
 void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerEvent& event) {
   const dg::PixelPoint at{event.x, event.y};
+  const bool is_button =
+      event.action == dg::PointerAction::kDown || event.action == dg::PointerAction::kUp;
+  if (is_button && event.button != dg::PointerButton::kPrimary) {
+    // ABI 0.2: only the primary button presses/clicks/focuses; a secondary
+    // press is a context click, the middle button does nothing.
+    if (event.action == dg::PointerAction::kDown &&
+        event.button == dg::PointerButton::kSecondary) {
+      context_click(impl, window, event);
+    }
+    return;
+  }
   dg::InteractionChange change;
   switch (event.action) {
     case dg::PointerAction::kMove: {
       change =
           window.interaction.moved_over(window.widgets.widget_at(window.tree.render(), at));
-      drag_text_area(impl, window, at);
+      drag_held(impl, window, at);
       break;
     }
     case dg::PointerAction::kDown: {
+      window.last_press_clicks = effective_clicks(window, event.clicks);
       const std::optional<dg::NodeId> hit = window.widgets.widget_at(window.tree.render(), at);
       change = window.interaction.pressed_on(hit);
       // 8-3d: a press on a focusable widget focuses it (blurring whatever
       // held focus before), a press anywhere else blurs - the identical
       // rule examples/21_focus/focus_scene.cpp's own dispatch_pointer()
-      // already applies to its own Scene, generalised from one example's
-      // struct to this ABI's WindowImpl. This is what gives
+      // already applies to its own Scene. This is what gives
       // dg_node_scope_action() a real `focused` node to bubble FROM
-      // (design.md section 5.5.2 level 2): with no focus-follows-click
-      // anywhere in this ABI, a scoped action could only ever be reached at
-      // level 4 (the app-wide table, no target node), never level 2.
+      // (design.md section 5.5.2 level 2).
       const bool hit_is_focusable = hit.has_value() && window.widgets.has(*hit) &&
                                     dg::is_focusable(window.widgets.at(*hit).kind);
-      if (press_text_area_scrollbar(window, hit, at)) {
+      if (press_scrollbar(impl, window, hit, at)) {
+        break;
+      }
+      if (!hit.has_value() && press_list_row(impl, window, at, window.last_press_clicks)) {
         break;
       }
       const std::optional<dg::NodeId> new_focus = hit_is_focusable ? hit : std::nullopt;
-      const dg::FocusChange focus_change = window.focus.set(new_focus);
-      // P6 sub-step a2 (second half): the SAME border-recolour +
-      // text_field_set_focus() pair examples/12_text_input/text_field_
-      // scene.cpp's own set_focus() runs, generalised from one Scene's
-      // handful of fields to any DG_NODE_TYPE_TEXT_FIELD this ABI creates -
-      // WidgetSet::text_field_set_focus() re-derives the display projection
-      // (truncation/scroll/caret visibility), the style write is cosmetic
-      // feedback beside it, matching the checkbox indicator's own "state in
-      // WidgetSet, pixels beside it" split.
-      if (focus_change.blurred.has_value()) {
-        set_editor_focus(impl, window, *focus_change.blurred, false);
-      }
-      if (focus_change.focused.has_value()) {
-        set_editor_focus(impl, window, *focus_change.focused, true);
-      }
-      place_editor_caret(impl, window, hit, at);
+      // The border recolour + display re-derivation for editors, and
+      // DG_EVENT_FOCUS_CHANGED, all in apply_focus_change().
+      apply_focus_change(impl, window, window.focus.set(new_focus));
+      place_editor_caret(impl, window, hit, at, window.last_press_clicks);
       break;
     }
     case dg::PointerAction::kUp:
@@ -992,7 +1357,7 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
       change = window.interaction.left_window();
       break;
     case dg::PointerAction::kWheel:
-      wheel_text_area(window, event);
+      wheel_scroll(impl, window, event);
       return;
   }
   refresh_touched(window, change);
@@ -1006,13 +1371,8 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
       window.widgets.at(*change.clicked).kind == dg::WidgetKind::kCheckbox) {
     // P6 sub-step a2: a completed click on a checkbox flips its checked bit
     // immediately, before DG_EVENT_CLICK is queued - "receive CLICK, then
-    // dg_node_get_checked() to ask" is the whole shape (abi/drawgui.def.toml's
-    // own comment on dg_node_get_checked() explains why no DG_EVENT_TOGGLE
-    // exists instead). toggle() only flips the stored bit - it has no
-    // RenderTree and cannot repaint anything itself (widget_set.h's own
-    // comment on toggle()/refresh()) - so refresh() runs again right after,
-    // on the SAME widget, to repaint the indicator this toggle just changed.
-    // No group_members() re-refresh: this ABI never exports Widget::group.
+    // dg_node_get_checked() to ask" (abi/drawgui.def.toml's comment on
+    // dg_node_get_checked()). toggle() cannot repaint, so refresh() follows.
     window.widgets.toggle(*change.clicked);
     window.widgets.refresh(window.tree.render(), *change.clicked,
                            window.interaction.state_of(*change.clicked));
@@ -1025,6 +1385,9 @@ void process_pointer_event(AppImpl& impl, WindowImpl& window, const dg::PointerE
     out.node = find_node_handle(impl, window.self_index, *change.clicked);
     out.x = event.x;
     out.y = event.y;
+    // The release carries no count of its own; the press that started this
+    // click did, and Interaction only clicks on a release after a press.
+    out.clicks = static_cast<std::uint16_t>(std::clamp(window.last_press_clicks, 1, 0xFFFF));
     impl.pending_events.push_back(out);
   }
 }
@@ -1201,6 +1564,23 @@ bool handle_text_field_key(WindowImpl& window, const dg::FontCatalog& fonts, dg:
   return false;
 }
 
+// ABI 0.2: Tab / Shift+Tab move focus through the focusable widgets in
+// tree order (DG_PROP_TAB_INDEX overrides it), before any editor sees the
+// key - Tab is focus traversal in a text area too.
+bool handle_tab(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& event) {
+  if (event.key != dg::Key::kTab || dg::has(event.mods, dg::Modifier::kMod) ||
+      dg::has(event.mods, dg::Modifier::kAlt)) {
+    return false;
+  }
+  dg::RenderTree& tree = window.tree.render();
+  const dg::FocusChange change =
+      dg::has(event.mods, dg::Modifier::kShift)
+          ? window.focus.focus_previous(tree, window.widgets, dg::LayoutTree::root())
+          : window.focus.focus_next(tree, window.widgets, dg::LayoutTree::root());
+  apply_focus_change(impl, window, change);
+  return true;
+}
+
 // 8-3d: design.md section 5.5.2's four-level router, driven by a REAL
 // dg::KeyEvent this ABI's own SDL pump produced (or, for
 // dg_debug_post_key()'s own test injection, a real SDL key event posted
@@ -1227,8 +1607,11 @@ void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& ev
   const std::optional<dg::NodeId> focused = window.focus.current();
   window.widgets.set_edit_time(dg::steady_anim_time());
   // A key press between two clicks ends a multi-click sequence: the second
-  // click places a caret instead of selecting a word.
-  window.clicks = dg::ClickCounter{};
+  // click places a caret instead of selecting a word (effective_clicks()).
+  window.key_since_press = true;
+  if (handle_tab(impl, window, event)) {
+    return;
+  }
   if (focused.has_value() && apply_editor_history_key(impl, window, *focused, event)) {
     return;
   }
@@ -1281,6 +1664,15 @@ void process_key_event(AppImpl& impl, WindowImpl& window, const dg::KeyEvent& ev
     return;
   }
   const dg::ResolvedAction& action = *routed.action;
+  // ABI 0.2: the keyboard-scrolling actions scroll the focused node's
+  // scroll view (a no-op when there is none); still reported below.
+  if (action.action_id == DG_ACTION_SCROLL_PAGE_UP ||
+      action.action_id == DG_ACTION_SCROLL_PAGE_DOWN ||
+      action.action_id == DG_ACTION_SCROLL_TO_START ||
+      action.action_id == DG_ACTION_SCROLL_TO_END) {
+    (void)dg::apply_keyboard_scroll(action.action_id, window.focus.current(), window.tree,
+                                    window.widgets);
+  }
   dg_event out{};
   out.size = sizeof(dg_event);
   out.kind = DG_EVENT_ACTION;
@@ -1352,14 +1744,29 @@ void follow_caret(AppImpl& impl, WindowImpl& window, dg::NodeId area) {
   }
 }
 
-void resync_text_areas(AppImpl& impl, WindowImpl& window) {
-  if (!impl.fonts.has_value()) {
-    return;
-  }
+// After layout: text areas re-place their composed children every pump (as
+// before); scroll views and lists re-derive their scrollbars, and lists
+// their rows, after a pass that actually re-placed nodes.
+void resync_widgets(AppImpl& impl, WindowImpl& window) {
+  dg::RenderTree& tree = window.tree.render();
+  const bool relaid = window.relaid;
+  window.relaid = false;
   for (const NodeSlot& slot : impl.nodes) {
-    if (slot.type_id == DG_NODE_TYPE_TEXT_AREA && slot.state == NodeSlot::State::kLive &&
-        impl.windows[slot.window_index].get() == &window) {
-      window.widgets.text_area_refresh(window.tree.render(), *impl.fonts, slot.node_id);
+    if (slot.state != NodeSlot::State::kLive || slot.window_index != window.self_index ||
+        !window.widgets.has(slot.node_id)) {
+      continue;
+    }
+    if (slot.type_id == DG_NODE_TYPE_TEXT_AREA && impl.fonts.has_value()) {
+      window.widgets.text_area_refresh(tree, *impl.fonts, slot.node_id);
+    } else if (relaid && slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
+      window.widgets.sync_scrollbar(tree, slot.node_id, viewport_extent(window, slot.node_id));
+    } else if (relaid && slot.type_id == DG_NODE_TYPE_LIST) {
+      const int extent = viewport_extent(window, slot.node_id);
+      paint_list_rows(
+          impl, window, slot,
+          window.widgets.list_reset(tree, slot.node_id,
+                                    static_cast<int>(slot.list_items.size()), extent));
+      window.widgets.sync_scrollbar(tree, slot.node_id, extent);
     }
   }
 }
@@ -1376,6 +1783,25 @@ bool insert_into_editor(AppImpl& impl, WindowImpl& window, dg::NodeId editor,
     follow_caret(impl, window, editor);
   }
   return changed;
+}
+
+// ABI 0.2: timers and cross-thread user events. Neither names a window.
+void queue_timer_and_user_events(AppImpl& impl, const dg::PumpResult& pumped) {
+  for (const dg::TimerId timer : pumped.timers) {
+    dg_event out{};
+    out.size = sizeof(dg_event);
+    out.kind = DG_EVENT_TIMER;
+    out.x = static_cast<std::int32_t>(timer.value);
+    impl.pending_events.push_back(out);
+  }
+  for (const std::uint64_t payload : pumped.user_events) {
+    dg_event out{};
+    out.size = sizeof(dg_event);
+    out.kind = DG_EVENT_USER;
+    out.x = static_cast<std::int32_t>(static_cast<std::uint32_t>(payload & 0xFFFFFFFFU));
+    out.y = static_cast<std::int32_t>(static_cast<std::uint32_t>(payload >> 32U));
+    impl.pending_events.push_back(out);
+  }
 }
 
 void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
@@ -1411,6 +1837,8 @@ void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
   }
 
   queue_window_events(impl, pumped.window_events);
+
+  queue_timer_and_user_events(impl, pumped);
 
   for (const dg::PointerEvent& event : pumped.pointer) {
     WindowImpl* window = find_window_by_sdl_id(impl, event.window);
@@ -1459,8 +1887,8 @@ void process_pump(AppImpl& impl, std::int32_t timeout_ms) {
     if (!window->closed) {
       // A relayout re-places a text area's composed children at its content
       // origin (and may have resized it): re-derive them before painting.
-      window->tree.layout();
-      resync_text_areas(impl, *window);
+      relayout(*window);
+      resync_widgets(impl, *window);
       repaint_and_present(impl.wm, *window);
     }
   }
@@ -1689,6 +2117,7 @@ dg_window_t* window_create(dg_app_t* app, const dg_window_opts* opts) {
   // this tree draws text" - exactly the state every window had before this
   // slice.
   tree_spec.fonts = impl->fonts;
+  tree_spec.images = impl->images;
 
   auto window = std::make_unique<WindowImpl>(tree_spec);
   window->sdl_window = opened.value();
@@ -1757,7 +2186,9 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
   }
   if (type_id != DG_NODE_TYPE_BOX && type_id != DG_NODE_TYPE_BUTTON &&
       type_id != DG_NODE_TYPE_LABEL && type_id != DG_NODE_TYPE_CHECKBOX &&
-      type_id != DG_NODE_TYPE_TEXT_FIELD && type_id != DG_NODE_TYPE_TEXT_AREA) {
+      type_id != DG_NODE_TYPE_TEXT_FIELD && type_id != DG_NODE_TYPE_TEXT_AREA &&
+      type_id != DG_NODE_TYPE_SCROLL_VIEW && type_id != DG_NODE_TYPE_LIST &&
+      type_id != DG_NODE_TYPE_IMAGE) {
     set_last_error("dg_node_create: unknown type_id");
     return nullptr;
   }
@@ -1771,6 +2202,173 @@ dg_node_t* node_create(dg_app_t* app, std::uint16_t type_id) {
   impl->nodes.back().self_handle = handle;
   return handle;
 }
+
+namespace {
+
+// DG_NODE_TYPE_SCROLL_VIEW forwards these to its content node.
+bool is_container_prop(std::uint16_t prop_id) {
+  return prop_id == DG_PROP_DIRECTION || prop_id == DG_PROP_JUSTIFY ||
+         prop_id == DG_PROP_ALIGN || prop_id == DG_PROP_GAP || prop_id == DG_PROP_MAIN_SIZE ||
+         prop_id == DG_PROP_RUN_GAP || prop_id == DG_PROP_ALIGN_CONTENT ||
+         prop_id == DG_PROP_WRAP;
+}
+
+// The text editors forward these to their composed content node.
+bool is_text_prop(std::uint16_t prop_id) {
+  return prop_id == DG_PROP_FONT_SIZE || prop_id == DG_PROP_TEXT_ALIGN ||
+         prop_id == DG_PROP_TEXT_COLOR;
+}
+
+bool is_editor_type(std::uint16_t type_id) {
+  return type_id == DG_NODE_TYPE_TEXT_FIELD || type_id == DG_NODE_TYPE_TEXT_AREA;
+}
+
+// Which node a property write on `slot` lands on.
+dg::NodeId prop_target(const NodeSlot& slot, const WindowImpl& window, std::uint16_t prop_id) {
+  if (slot.type_id == DG_NODE_TYPE_SCROLL_VIEW && is_container_prop(prop_id)) {
+    return slot.content;
+  }
+  if (is_editor_type(slot.type_id) && is_text_prop(prop_id) &&
+      window.widgets.has(slot.node_id)) {
+    return window.widgets.at(slot.node_id).content;
+  }
+  return slot.node_id;
+}
+
+// A DG_VALUE_FLOAT carrying a whole number within [lo, hi], or nothing.
+std::optional<int> whole_number(const dg_value& value, int lo, int hi) {
+  if (value.type != DG_VALUE_FLOAT || !std::isfinite(value.number) ||
+      value.number != std::trunc(value.number) || value.number < static_cast<float>(lo) ||
+      value.number > static_cast<float>(hi)) {
+    return std::nullopt;
+  }
+  return static_cast<int>(value.number);
+}
+
+// DG_PROP_TAB_INDEX / DG_PROP_MAX_LENGTH: widget state, not node style.
+std::int32_t set_widget_prop(WindowImpl& window, const NodeSlot& slot, std::uint16_t prop_id,
+                             const dg_value& value) {
+  if (value.type != DG_VALUE_FLOAT) {
+    return DG_ERR_TYPE_MISMATCH;
+  }
+  constexpr int kLimit = 1 << 24;
+  const std::optional<int> number =
+      whole_number(value, prop_id == DG_PROP_MAX_LENGTH ? 0 : -kLimit, kLimit);
+  if (!number.has_value()) {
+    return DG_ERR_VALUE_OUT_OF_RANGE;
+  }
+  if (prop_id == DG_PROP_MAX_LENGTH) {
+    if (!is_editor_type(slot.type_id)) {
+      return DG_ERR_NOT_APPLICABLE;
+    }
+    window.widgets.editor_set_max_length(slot.node_id, *number);
+    return DG_ERR_OK;
+  }
+  if (!window.widgets.has(slot.node_id) ||
+      !dg::is_focusable(window.widgets.at(slot.node_id).kind)) {
+    return DG_ERR_NOT_APPLICABLE;
+  }
+  // attach() replaces the stored Widget by value; a copy with only the tab
+  // index changed keeps the rest of its state.
+  dg::Widget updated = window.widgets.at(slot.node_id);
+  updated.tab_index = number;
+  window.widgets.attach(slot.node_id, updated);
+  return DG_ERR_OK;
+}
+
+// DG_PROP_SCROLL_AXIS on a scroll view: the widget's axis, the gutter's
+// edge and the content's direction follow the layout's axis.
+void follow_scroll_axis(WindowImpl& window, const NodeSlot& slot) {
+  const dg::ScrollAxis axis = window.tree.box(slot.node_id).scroll_axis;
+  dg::Widget updated = window.widgets.at(slot.node_id);
+  updated.scroll_axis = axis;
+  window.widgets.attach(slot.node_id, updated);
+  const int gutter = window.widgets.scrollbar_style().size;
+  dg::BoxStyle box = window.tree.box(slot.node_id);
+  box.padding.right = axis == dg::ScrollAxis::kVertical ? gutter : 0;
+  box.padding.bottom = axis == dg::ScrollAxis::kHorizontal ? gutter : 0;
+  window.tree.set_box(slot.node_id, box);
+  dg::BoxStyle content = window.tree.box(slot.content);
+  const bool wraps = dg::wraps_children(content.kind);
+  if (axis == dg::ScrollAxis::kHorizontal) {
+    content.kind = wraps ? dg::LayoutKind::kWrapRow : dg::LayoutKind::kRow;
+  } else {
+    content.kind = wraps ? dg::LayoutKind::kWrapColumn : dg::LayoutKind::kColumn;
+  }
+  window.tree.set_box(slot.content, content);
+  window.tree.render().set_scroll_offset(slot.node_id, dg::PixelPoint{0, 0});
+  window.relaid = true;
+}
+
+// After a text property reached an editor's content node: re-derive the
+// editor's display (caret position, truncation, wrapping).
+void refresh_editor_text(AppImpl& impl, WindowImpl& window, const NodeSlot& slot) {
+  if (!impl.fonts.has_value()) {
+    return;
+  }
+  dg::RenderTree& tree = window.tree.render();
+  const bool focused = window.focus.current() == slot.node_id;
+  if (slot.type_id == DG_NODE_TYPE_TEXT_AREA) {
+    window.widgets.text_area_set_focus(tree, *impl.fonts, slot.node_id, focused);
+  } else {
+    window.widgets.text_field_set_focus(tree, *impl.fonts, slot.node_id, focused);
+  }
+}
+
+// DG_NODE_TYPE_LIST: vertical only, and DG_PROP_FONT_SIZE goes to every
+// recycled row so the size survives recycling.
+std::int32_t set_list_prop(WindowImpl& window, const NodeSlot& slot, std::uint16_t prop_id,
+                           const dg::PropValue& value) {
+  if (prop_id == DG_PROP_SCROLL_AXIS) {
+    return DG_ERR_UNSUPPORTED;
+  }
+  for (const dg::NodeId row : window.widgets.at(slot.node_id).list_pool) {
+    const dg::PropWrite result = dg::set_prop(window.tree, row, prop_id, value);
+    if (!result.ok()) {
+      return to_error_code(result.status);
+    }
+  }
+  return DG_ERR_OK;
+}
+
+// dg::set_prop() on `target`, except that DG_PROP_DIRECTION on a plain BOX
+// (a leaf until now) makes it a row/column container first - the C++ layer
+// only switches between container kinds, and a C caller has no other way
+// to build one. A refused write leaves the leaf as it was.
+dg::PropWrite write_prop(WindowImpl& window, const NodeSlot& slot, dg::NodeId target,
+                         std::uint16_t prop_id, const dg::PropValue& value) {
+  const dg::BoxStyle before = window.tree.box(target);
+  const bool make_container =
+      prop_id == DG_PROP_DIRECTION && slot.type_id == DG_NODE_TYPE_BOX &&
+      before.kind == dg::LayoutKind::kLeaf && before.scroll_axis == dg::ScrollAxis::kNone;
+  if (make_container) {
+    dg::BoxStyle container = before;
+    container.kind = dg::LayoutKind::kColumn;
+    window.tree.set_box(target, container);
+  }
+  dg::PropWrite result = dg::set_prop(window.tree, target, prop_id, value);
+  if (!result.ok() && make_container) {
+    window.tree.set_box(target, before);
+  }
+  return result;
+}
+
+// The widget-layer follow-ups of a successful write.
+void after_prop_write(AppImpl& impl, WindowImpl& window, const NodeSlot& slot,
+                      dg::NodeId target, std::uint16_t prop_id) {
+  if (prop_id == DG_PROP_DISABLED) {
+    sync_disabled(impl, window, slot.node_id);
+  } else if (prop_id == DG_PROP_SCROLL_AXIS && slot.type_id == DG_NODE_TYPE_SCROLL_VIEW) {
+    follow_scroll_axis(window, slot);
+  } else if (prop_id == DG_PROP_SCROLLBAR) {
+    window.relaid = true;  // re-derive the bar's visibility at the next pump
+  }
+  if (target != slot.node_id && is_editor_type(slot.type_id)) {
+    refresh_editor_text(impl, window, slot);
+  }
+}
+
+}  // namespace
 
 std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_value* value) {
   if (node_h == nullptr || value == nullptr) {
@@ -1789,6 +2387,7 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
 
   AppImpl* impl = resolve_app(node_h->app);
   WindowImpl& window = *impl->windows[slot->window_index];
+  const dg::NodeId target = prop_target(*slot, window, prop_id);
 
   // 7-6: DG_VALUE_TOKEN is not a literal - it names a $token live reference
   // (design.md section 5.7.2) by token_id (carried in `bits`, the same
@@ -1801,18 +2400,28 @@ std::int32_t node_set_prop(dg_node_t* node_h, std::uint16_t prop_id, const dg_va
       return DG_ERR_NO_ACTIVE_THEME;
     }
     const dg::PropWrite result = dg::bind_token(
-        window.tree, window.theme_bindings, slot->node_id, prop_id, impl->active_theme->theme,
+        window.tree, window.theme_bindings, target, prop_id, impl->active_theme->theme,
         impl->active_theme->variant, static_cast<dg_token_id>(value->bits));
     return to_error_code(result.status);
   }
 
+  if (prop_id == DG_PROP_TAB_INDEX || prop_id == DG_PROP_MAX_LENGTH) {
+    return set_widget_prop(window, *slot, prop_id, *value);
+  }
+  if (value->type == DG_VALUE_LENGTH && value->bits > DG_LENGTH_UNIT_PERCENT) {
+    return DG_ERR_VALUE_OUT_OF_RANGE;
+  }
   const std::optional<dg::PropValue> prop_value = to_prop_value(*value);
   if (!prop_value.has_value()) {
     return DG_ERR_INVALID_ARGUMENT;
   }
-  const dg::PropWrite result = dg::set_prop(window.tree, slot->node_id, prop_id, *prop_value);
-  if (result.ok() && prop_id == DG_PROP_DISABLED) {
-    sync_disabled(*impl, window, slot->node_id);
+  if (slot->type_id == DG_NODE_TYPE_LIST &&
+      (prop_id == DG_PROP_SCROLL_AXIS || prop_id == DG_PROP_FONT_SIZE)) {
+    return set_list_prop(window, *slot, prop_id, *prop_value);
+  }
+  const dg::PropWrite result = write_prop(window, *slot, target, prop_id, *prop_value);
+  if (result.ok()) {
+    after_prop_write(*impl, window, *slot, target, prop_id);
   }
   return to_error_code(result.status);
 }
@@ -1871,6 +2480,13 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
     return DG_ERR_INVALID_HANDLE;
   }
   WindowImpl& window = *impl->windows[parent_slot->window_index];
+  if (parent_slot->type_id == DG_NODE_TYPE_LIST) {
+    return DG_ERR_UNSUPPORTED;  // a list's rows come from dg_list_set_items()
+  }
+  // A scroll view's children live in its composed content node.
+  const dg::NodeId container = parent_slot->type_id == DG_NODE_TYPE_SCROLL_VIEW
+                                   ? parent_slot->content
+                                   : parent_slot->node_id;
 
   // `ref` must be a live DIRECT child of `parent` in the same window, and
   // never the node being inserted - anything else names no position.
@@ -1882,21 +2498,21 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
     }
     if (ref_h == child_h || ref_slot->state != NodeSlot::State::kLive ||
         ref_slot->window_index != parent_slot->window_index ||
-        window.tree.render().parent(ref_slot->node_id) != parent_slot->node_id) {
+        window.tree.render().parent(ref_slot->node_id) != container) {
       return DG_ERR_INVALID_ARGUMENT;
     }
     before = ref_slot->node_id;
   }
 
   if (child_slot->state == NodeSlot::State::kPending) {
-    const std::int32_t status = attach_pending_node(*impl, parent_slot->window_index,
-                                                    parent_slot->node_id, child_h->index);
+    const std::int32_t status =
+        attach_pending_node(*impl, parent_slot->window_index, container, child_h->index);
     if (status != DG_ERR_OK || !before.has_value()) {
       return status;
     }
     // attach_pending_node() always appends; a fresh last child moved before
     // a sibling of the same parent cannot fail.
-    window.tree.move_child(child_slot->node_id, parent_slot->node_id, before);
+    window.tree.move_child(child_slot->node_id, container, before);
     return DG_ERR_OK;
   }
 
@@ -1907,7 +2523,7 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
   }
   // Refused by LayoutTree::move_child() when `parent` lies inside `child`'s
   // own subtree (including parent == child) - a cycle.
-  if (!window.tree.move_child(child_slot->node_id, parent_slot->node_id, before)) {
+  if (!window.tree.move_child(child_slot->node_id, container, before)) {
     return DG_ERR_INVALID_ARGUMENT;
   }
   if (window.root == child_slot->node_id) {
@@ -1935,6 +2551,7 @@ std::int32_t node_remove(dg_node_t* node_h) {
     // Collected BEFORE removal: afterwards the subtree's NodeIds are
     // tombstoned and may be reused by the next add_child().
     const std::vector<dg::NodeId> subtree = dg::subtree_of(window.tree.render(), slot->node_id);
+    const std::optional<dg::NodeId> focused_before = window.focus.current();
     if (!dg::remove_subtree(window.tree, slot->node_id,
                             {window.widgets, window.theme_bindings, window.focus,
                              window.animation, window.action_scopes, window.interaction})) {
@@ -1942,6 +2559,14 @@ std::int32_t node_remove(dg_node_t* node_h) {
       // LayoutTree::root() (window.root is always a CHILD of it). Reported
       // rather than asserted.
       return DG_ERR_UNSUPPORTED;
+    }
+    if (focused_before.has_value() && window.focus.current() != focused_before) {
+      // The focused node went with the subtree: report the blur.
+      dg_event out{};
+      out.size = sizeof(dg_event);
+      out.kind = DG_EVENT_FOCUS_CHANGED;
+      out.window = window.self_handle;
+      impl->pending_events.push_back(out);
     }
     // Removing the window's root node clears the root: the window shows its
     // bare background and dg_window_set_root() may attach a new one.
@@ -2628,11 +3253,300 @@ std::int32_t debug_post_text_field_key(dg_window_t* window_h, std::int32_t down,
     key = dg::Key::kPageUp;
   } else if (name == "PageDown") {
     key = dg::Key::kPageDown;
+  } else if (name == "Tab") {
+    key = dg::Key::kTab;
   } else {
     return DG_ERR_INVALID_ARGUMENT;
   }
   AppImpl* impl = resolve_app(window_h->app);
   impl->wm.post_key(window->sdl_window, down != 0, key, shift != 0);
+  return DG_ERR_OK;
+}
+
+// -- ABI 0.2 phase A: focus, scrolling, lists, images, timers ------------
+
+namespace {
+
+// A live slot and its window, or the DG_ERR_* that says why not.
+struct LiveNode {
+  NodeSlot* slot = nullptr;
+  AppImpl* impl = nullptr;
+  WindowImpl* window = nullptr;
+  std::int32_t status = DG_ERR_OK;
+};
+
+LiveNode resolve_live(dg_node_t* node_h) {
+  LiveNode out;
+  out.slot = resolve_node_slot(node_h);
+  if (out.slot == nullptr) {
+    out.status = DG_ERR_INVALID_HANDLE;
+    return out;
+  }
+  if (out.slot->state != NodeSlot::State::kLive) {
+    out.status = DG_ERR_NO_WINDOW;
+    return out;
+  }
+  out.impl = resolve_app(node_h->app);
+  out.window = out.impl->windows[out.slot->window_index].get();
+  return out;
+}
+
+LiveNode resolve_list(dg_node_t* node_h) {
+  LiveNode out = resolve_live(node_h);
+  if (out.status == DG_ERR_OK && out.slot->type_id != DG_NODE_TYPE_LIST) {
+    out.status = DG_ERR_UNSUPPORTED;
+  }
+  return out;
+}
+
+std::int32_t show_image(LiveNode& live,
+                        const dg::Expected<dg::ImageId, dg::ImageError>& decoded,
+                        const char* function) {
+  if (!decoded) {
+    set_last_error(std::string(function) + ": " + decoded.error().message);
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  dg::RenderTree& tree = live.window->tree.render();
+  dg::ImageStyle image = tree.style(live.slot->node_id).image;
+  image.source = decoded.value();
+  tree.set_image(live.slot->node_id, image);
+  return DG_ERR_OK;
+}
+
+LiveNode resolve_image_target(dg_node_t* node_h) {
+  LiveNode out = resolve_live(node_h);
+  if (out.status == DG_ERR_OK && out.slot->type_id != DG_NODE_TYPE_IMAGE &&
+      out.slot->type_id != DG_NODE_TYPE_BOX) {
+    out.status = DG_ERR_UNSUPPORTED;
+  }
+  return out;
+}
+
+dg::SvgOptions svg_options(std::uint32_t tint_argb) {
+  dg::SvgOptions options;
+  if ((tint_argb >> 24U) != 0U) {
+    options.tint = dg::Color::from_argb(tint_argb);
+  }
+  return options;
+}
+
+}  // namespace
+
+std::int32_t node_focus(dg_node_t* node_h) {
+  LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  WindowImpl& window = *live.window;
+  const dg::NodeId id = live.slot->node_id;
+  if (!window.widgets.has(id) || !dg::is_focusable(window.widgets.at(id).kind) ||
+      dg::is_disabled(window.tree.render(), id)) {
+    set_last_error("dg_node_focus: this node cannot take keyboard focus");
+    return DG_ERR_UNSUPPORTED;
+  }
+  apply_focus_change(*live.impl, window, window.focus.set(id));
+  return DG_ERR_OK;
+}
+
+dg_node_t* window_get_focus(dg_window_t* window_h) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    set_last_error("dg_window_get_focus: invalid window handle");
+    return nullptr;
+  }
+  const std::optional<dg::NodeId> focused = window->focus.current();
+  if (!focused.has_value()) {
+    return nullptr;
+  }
+  return find_node_handle(*resolve_app(window_h->app), window->self_index, *focused);
+}
+
+std::int32_t window_clear_focus(dg_window_t* window_h) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  apply_focus_change(*resolve_app(window_h->app), *window, window->focus.set(std::nullopt));
+  return DG_ERR_OK;
+}
+
+std::int32_t node_get_scroll_offset(dg_node_t* node_h, std::int32_t* x, std::int32_t* y) {
+  const LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  const std::uint16_t type = live.slot->type_id;
+  if (type != DG_NODE_TYPE_SCROLL_VIEW && type != DG_NODE_TYPE_LIST &&
+      type != DG_NODE_TYPE_TEXT_AREA) {
+    return DG_ERR_UNSUPPORTED;
+  }
+  const dg::PixelPoint offset = live.window->tree.render().scroll_offset(live.slot->node_id);
+  if (x != nullptr) {
+    *x = offset.x;
+  }
+  if (y != nullptr) {
+    *y = offset.y;
+  }
+  return DG_ERR_OK;
+}
+
+std::int32_t list_set_items(dg_node_t* node_h, const char* const* items, std::uint32_t count,
+                            std::int32_t item_height) {
+  LiveNode live = resolve_list(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  if ((items == nullptr && count > 0) || item_height < 0 ||
+      count > static_cast<std::uint32_t>(kListMaxItems)) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  NodeSlot& slot = *live.slot;
+  WindowImpl& window = *live.window;
+  std::vector<std::string> copied;
+  copied.reserve(count);
+  for (std::uint32_t i = 0; i < count; ++i) {
+    copied.emplace_back(items[i] == nullptr ? "" : items[i]);
+  }
+  slot.list_items = std::move(copied);
+  slot.list_selected = -1;
+  dg::RenderTree& tree = window.tree.render();
+  dg::Widget updated = window.widgets.at(slot.node_id);
+  if (item_height > 0 && item_height != updated.list_item_extent) {
+    updated.list_item_extent = item_height;
+    for (const dg::NodeId row : updated.list_pool) {
+      dg::BoxStyle box = window.tree.box(row);
+      box.height = item_height;
+      window.tree.set_box(row, box);
+    }
+  }
+  updated.list_item_count = static_cast<int>(slot.list_items.size());
+  window.widgets.attach(slot.node_id, updated);
+  const int extent = viewport_extent(window, slot.node_id);
+  paint_list_rows(*live.impl, window, slot,
+                  window.widgets.list_reset(tree, slot.node_id,
+                                            static_cast<int>(slot.list_items.size()), extent));
+  window.widgets.sync_scrollbar(tree, slot.node_id, extent);
+  window.relaid = true;
+  return DG_ERR_OK;
+}
+
+std::int32_t list_get_selected(dg_node_t* node_h) {
+  const LiveNode live = resolve_list(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  return live.slot->list_selected;
+}
+
+std::int32_t list_set_selected(dg_node_t* node_h, std::int32_t index) {
+  LiveNode live = resolve_list(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  if (index < -1 || index >= static_cast<std::int32_t>(live.slot->list_items.size())) {
+    return DG_ERR_VALUE_OUT_OF_RANGE;
+  }
+  live.slot->list_selected = index;
+  repaint_list(*live.impl, *live.window, *live.slot);
+  return DG_ERR_OK;
+}
+
+std::int32_t node_set_image_data(dg_node_t* node_h, const void* bytes, std::uint32_t len,
+                                 std::uint32_t svg_tint_argb) {
+  LiveNode live = resolve_image_target(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  if (bytes == nullptr || len == 0) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return show_image(live,
+                    live.impl->images.decode_any(static_cast<const std::uint8_t*>(bytes), len,
+                                                 svg_options(svg_tint_argb)),
+                    "dg_node_set_image_data");
+}
+
+std::int32_t node_set_image_file(dg_node_t* node_h, const char* path,
+                                 std::uint32_t svg_tint_argb) {
+  LiveNode live = resolve_image_target(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  if (path == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return show_image(live, live.impl->images.decode_file(path, svg_options(svg_tint_argb)),
+                    "dg_node_set_image_file");
+}
+
+std::uint32_t timer_add(dg_app_t* app, std::int32_t delay_ms, std::int32_t repeat) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    set_last_error("dg_timer_add: invalid app handle");
+    return 0;
+  }
+  const dg::TimerId id = impl->wm.add_timer(delay_ms, repeat != 0);
+  if (id.value == 0 || id.value > 0x7FFFFFFFU) {
+    (void)impl->wm.cancel_timer(id);
+    set_last_error("dg_timer_add: out of timer ids");
+    return 0;
+  }
+  return static_cast<std::uint32_t>(id.value);
+}
+
+std::int32_t timer_cancel(dg_app_t* app, std::uint32_t timer_id) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return impl->wm.cancel_timer(dg::TimerId{timer_id}) ? DG_ERR_OK : DG_ERR_INVALID_ARGUMENT;
+}
+
+std::int32_t wake(dg_app_t* app) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return impl->wm.wake() ? DG_ERR_OK : DG_ERR_UNSUPPORTED;
+}
+
+std::int32_t post_user_event(dg_app_t* app, std::uint64_t payload) {
+  AppImpl* impl = resolve_app(app);
+  if (impl == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  return impl->wm.post_user_event(payload) ? DG_ERR_OK : DG_ERR_UNSUPPORTED;
+}
+
+std::int32_t debug_post_wheel(dg_window_t* window_h, float dx, float dy) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  resolve_app(window_h->app)->wm.post_wheel(window->sdl_window, dx, dy);
+  return DG_ERR_OK;
+}
+
+std::int32_t debug_post_pointer_button_ex(dg_window_t* window_h, std::int32_t down,
+                                          std::int32_t x, std::int32_t y, std::int32_t button,
+                                          std::int32_t clicks) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  dg::PointerButton which = dg::PointerButton::kPrimary;
+  if (button == DG_POINTER_BUTTON_SECONDARY) {
+    which = dg::PointerButton::kSecondary;
+  } else if (button == DG_POINTER_BUTTON_MIDDLE) {
+    which = dg::PointerButton::kMiddle;
+  } else if (button != DG_POINTER_BUTTON_PRIMARY) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  if (clicks < 0) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  resolve_app(window_h->app)
+      ->wm.post_pointer_button(window->sdl_window, down != 0, x, y, which, clicks);
   return DG_ERR_OK;
 }
 

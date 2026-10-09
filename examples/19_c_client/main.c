@@ -557,13 +557,13 @@ static int run_verify(void) {
     status = dg_window_set_root(window_c, label);
     check(status == DG_ERR_OK, "dg_window_set_root attaches the label");
 
-    status = dg_node_set_text(label, DG_PROP_TEXT, kLabelText,
-                              (uint32_t)(sizeof(kLabelText) - 1));
+    status =
+        dg_node_set_text(label, DG_PROP_TEXT, kLabelText, (uint32_t)(sizeof(kLabelText) - 1));
     check(status == DG_ERR_OK,
           "dg_node_set_text sets a UTF-8 string mixing ASCII and a fallback-only CJK glyph");
 
-    status = dg_node_set_text(label, DG_PROP_WIDTH, kLabelText,
-                              (uint32_t)(sizeof(kLabelText) - 1));
+    status =
+        dg_node_set_text(label, DG_PROP_WIDTH, kLabelText, (uint32_t)(sizeof(kLabelText) - 1));
     check(status == DG_ERR_TYPE_MISMATCH,
           "dg_node_set_text with a prop_id that is not DG_PROP_TEXT is type-mismatch");
 
@@ -572,8 +572,9 @@ static int run_verify(void) {
     color.number = 0.0F;
     color.bits = 0xFF224488U;
     status = dg_node_set_prop(label, DG_PROP_TEXT_COLOR, &color);
-    check(status == DG_ERR_OK, "dg_node_set_prop(DG_PROP_TEXT_COLOR) rides the ordinary scalar "
-                               "path, beside dg_node_set_text's dedicated one");
+    check(status == DG_ERR_OK,
+          "dg_node_set_prop(DG_PROP_TEXT_COLOR) rides the ordinary scalar "
+          "path, beside dg_node_set_text's dedicated one");
 
     /* Force a real paint pass, then confirm one actually happened: the
      * window's RasterSurface only exists after at least one repaint
@@ -608,7 +609,8 @@ static int run_verify(void) {
     check(window_d != NULL, "dg_window_create opens window D, for the checkbox");
 
     checkbox = dg_node_create(app, DG_NODE_TYPE_CHECKBOX);
-    check(checkbox != NULL, "dg_node_create(DG_NODE_TYPE_CHECKBOX) builds a pending checkbox node");
+    check(checkbox != NULL,
+          "dg_node_create(DG_NODE_TYPE_CHECKBOX) builds a pending checkbox node");
 
     status = dg_window_set_root(window_d, checkbox);
     check(status == DG_ERR_OK, "dg_window_set_root attaches the checkbox");
@@ -649,7 +651,8 @@ static int run_verify(void) {
     status = dg_debug_warp_pointer(window_d, 16, 16);
     check(status == DG_ERR_OK, "dg_debug_warp_pointer onto the checkbox succeeds again");
     status = dg_debug_post_pointer_button(window_d, 1, 16, 16);
-    check(status == DG_ERR_OK, "dg_debug_post_pointer_button(down) succeeds on the second click");
+    check(status == DG_ERR_OK,
+          "dg_debug_post_pointer_button(down) succeeds on the second click");
     status = dg_debug_post_pointer_button(window_d, 0, 16, 16);
     check(status == DG_ERR_OK, "dg_debug_post_pointer_button(up) succeeds on the second click");
     dg_wait_events(app, 50);
@@ -753,7 +756,8 @@ static int run_verify(void) {
           "dg_node_get_text(cap=sizeof(buf)) copies the committed text (\"abc\")");
 
     status = dg_debug_post_text_field_key(window_e, 1, "Backspace", 0);
-    check(status == DG_ERR_OK, "dg_debug_post_text_field_key(down, Backspace) on the focused text field succeeds");
+    check(status == DG_ERR_OK,
+          "dg_debug_post_text_field_key(down, Backspace) on the focused text field succeeds");
     status = dg_debug_post_text_field_key(window_e, 0, "Backspace", 0);
     check(status == DG_ERR_OK, "dg_debug_post_text_field_key(up, Backspace) succeeds");
     dg_wait_events(app, 50);
@@ -814,7 +818,97 @@ static int run_verify(void) {
           "a maximum below the minimum is refused with DG_ERR_UNSUPPORTED");
   }
 
-  /* 15. Teardown safety: dg_app_destroy must not crash even though window_a/
+  /* 15. ABI 0.2 phase A on a third window: a BOX made a column holding a
+   * list and a focusable button, a primary press selecting a list row
+   * (DG_EVENT_LIST_SELECT), dg_node_focus() (DG_EVENT_FOCUS_CHANGED), a
+   * one-shot timer (DG_EVENT_TIMER) and a user event (DG_EVENT_USER). */
+  {
+    dg_window_opts opts_c;
+    dg_window_t* window_c = NULL;
+    dg_node_t* column = NULL;
+    dg_node_t* list = NULL;
+    dg_node_t* focus_button = NULL;
+    dg_value prop;
+    const char* rows[3];
+    dg_event events[32];
+    int32_t count = 0;
+    uint32_t timer = 0;
+    int32_t saw_select = 0;
+    int32_t saw_focus = 0;
+    int32_t saw_timer = 0;
+    int32_t saw_user = 0;
+    int round = 0;
+
+    memset(&opts_c, 0, sizeof(opts_c));
+    opts_c.size = (uint32_t)sizeof(opts_c);
+    opts_c.title = "phase A";
+    opts_c.width = 300;
+    opts_c.height = 300;
+    window_c = dg_window_create(app, &opts_c);
+    column = dg_node_create(app, DG_NODE_TYPE_BOX);
+    check(
+        window_c != NULL && column != NULL && dg_window_set_root(window_c, column) == DG_ERR_OK,
+        "a third window gets a BOX root");
+    memset(&prop, 0, sizeof(prop));
+    prop.size = (uint32_t)sizeof(prop);
+    prop.type = DG_VALUE_ENUM;
+    prop.bits = DG_DIRECTION_COLUMN;
+    check(dg_node_set_prop(column, DG_PROP_DIRECTION, &prop) == DG_ERR_OK,
+          "DG_PROP_DIRECTION makes the BOX a column");
+    prop.type = DG_VALUE_LENGTH;
+    prop.number = 100.0f;
+    prop.bits = DG_LENGTH_UNIT_PERCENT;
+    check(dg_node_set_prop(column, DG_PROP_WIDTH, &prop) == DG_ERR_OK,
+          "DG_LENGTH_UNIT_PERCENT sets a percentage width");
+
+    list = dg_node_create(app, DG_NODE_TYPE_LIST);
+    focus_button = dg_node_create(app, DG_NODE_TYPE_BUTTON);
+    check(dg_node_insert_before(column, list, NULL) == DG_ERR_OK &&
+              dg_node_insert_before(column, focus_button, NULL) == DG_ERR_OK,
+          "a list and a button join the column");
+    rows[0] = "alpha";
+    rows[1] = "beta";
+    rows[2] = "gamma";
+    check(dg_list_set_items(list, rows, 3, 30) == DG_ERR_OK,
+          "dg_list_set_items copies three rows");
+    dg_wait_events(app, 0);
+    dg_poll_events(app, events, 32);
+
+    dg_debug_warp_pointer(window_c, 40, 45); /* row 1: 30..59 */
+    dg_debug_post_pointer_button(window_c, 1, 40, 45);
+    dg_debug_post_pointer_button(window_c, 0, 40, 45);
+    check(dg_node_focus(focus_button) == DG_ERR_OK, "dg_node_focus focuses the button");
+    timer = dg_timer_add(app, 0, 0);
+    check(timer != 0, "dg_timer_add returns a timer id");
+    check(dg_post_user_event(app, 42u) == DG_ERR_OK, "dg_post_user_event queues a payload");
+    for (round = 0; round < 5; ++round) {
+      dg_wait_events(app, 20);
+      count = dg_poll_events(app, events, 32);
+      for (i = 0; i < count; ++i) {
+        if (events[i].kind == DG_EVENT_LIST_SELECT && events[i].node == list &&
+            events[i].x == 1 && events[i].clicks >= 1) {
+          saw_select = 1;
+        }
+        if (events[i].kind == DG_EVENT_FOCUS_CHANGED && events[i].node == focus_button) {
+          saw_focus = 1;
+        }
+        if (events[i].kind == DG_EVENT_TIMER && (uint32_t)events[i].x == timer) {
+          saw_timer = 1;
+        }
+        if (events[i].kind == DG_EVENT_USER && events[i].x == 42 && events[i].y == 0) {
+          saw_user = 1;
+        }
+      }
+    }
+    check(saw_select && dg_list_get_selected(list) == 1,
+          "a press on row 1 selects it and reports DG_EVENT_LIST_SELECT");
+    check(saw_focus && dg_window_get_focus(window_c) == focus_button,
+          "focus moved to the button and was reported");
+    check(saw_timer, "the timer fired as DG_EVENT_TIMER");
+    check(saw_user, "the user event arrived as DG_EVENT_USER");
+  }
+
+  /* 16. Teardown safety: dg_app_destroy must not crash even though window_a/
    * window_b/button_a/button_b/stray_child handles are all still held by
    * this function, and a handle used AFTER destroy must report
    * DG_ERR_INVALID_HANDLE exactly like an individually removed node does

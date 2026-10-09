@@ -30,3 +30,4 @@ on every change, never edited directly.
 | 17 | `color.scrollbar-thumb-hover` | color | color | The scrollbar thumb while the pointer is over it (ScrollbarStyle::thumb_hover). |
 | 18 | `color.scrollbar-thumb-pressed` | color | color | The scrollbar thumb while it is being dragged (ScrollbarStyle::thumb_pressed). |
 | 19 | `size.scrollbar` | int | size | The scrollbar's thickness in device pixels (ScrollbarStyle::size) - also the gutter a scroll view reserves for it. |
+| 20 | `color.scrim` | color | color | The translucent layer a modal dialog lays over the window behind it (PopupStyle::scrim). |

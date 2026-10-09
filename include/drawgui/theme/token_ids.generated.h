@@ -95,5 +95,10 @@ inline constexpr dg_token_id DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED = 18;  // "c
 // type=int
 inline constexpr dg_token_id DG_TOKEN_SIZE_SCROLLBAR = 19;  // "size.scrollbar"
 
-inline constexpr std::uint16_t kDgTokenMaxId = 19;
-inline constexpr std::uint16_t kDgTokenCount = 19;
+// -- color -------------------------------------------------------
+// The translucent layer a modal dialog lays over the window behind it (PopupStyle::scrim).
+// type=color
+inline constexpr dg_token_id DG_TOKEN_COLOR_SCRIM = 20;  // "color.scrim"
+
+inline constexpr std::uint16_t kDgTokenMaxId = 20;
+inline constexpr std::uint16_t kDgTokenCount = 20;

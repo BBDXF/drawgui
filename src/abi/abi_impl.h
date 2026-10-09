@@ -91,4 +91,25 @@ std::int32_t debug_post_text_input(dg_window_t* window, const char* utf8);
 std::int32_t debug_post_text_field_key(dg_window_t* window, std::int32_t down,
                                        const char* key_name, std::int32_t shift);
 
+std::int32_t node_focus(dg_node_t* node);
+dg_node_t* window_get_focus(dg_window_t* window);
+std::int32_t window_clear_focus(dg_window_t* window);
+std::int32_t node_get_scroll_offset(dg_node_t* node, std::int32_t* x, std::int32_t* y);
+std::int32_t list_set_items(dg_node_t* node, const char* const* items, std::uint32_t count,
+                            std::int32_t item_height);
+std::int32_t list_get_selected(dg_node_t* node);
+std::int32_t list_set_selected(dg_node_t* node, std::int32_t index);
+std::int32_t node_set_image_data(dg_node_t* node, const void* bytes, std::uint32_t len,
+                                 std::uint32_t svg_tint_argb);
+std::int32_t node_set_image_file(dg_node_t* node, const char* path,
+                                 std::uint32_t svg_tint_argb);
+std::uint32_t timer_add(dg_app_t* app, std::int32_t delay_ms, std::int32_t repeat);
+std::int32_t timer_cancel(dg_app_t* app, std::uint32_t timer_id);
+std::int32_t wake(dg_app_t* app);
+std::int32_t post_user_event(dg_app_t* app, std::uint64_t payload);
+std::int32_t debug_post_wheel(dg_window_t* window, float dx, float dy);
+std::int32_t debug_post_pointer_button_ex(dg_window_t* window, std::int32_t down,
+                                          std::int32_t x, std::int32_t y, std::int32_t button,
+                                          std::int32_t clicks);
+
 }  // namespace dg::abi

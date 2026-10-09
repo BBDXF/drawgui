@@ -67,7 +67,9 @@ typedef struct dg_value {
   uint32_t type;
   /* meaningful for DG_VALUE_FLOAT / DG_VALUE_LENGTH. */
   float number;
-  /* ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM, 0/1 for DG_VALUE_BOOL. */
+  /* ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM, 0/1 for DG_VALUE_BOOL, */
+  /* token_id for DG_VALUE_TOKEN, DG_LENGTH_UNIT_* for DG_VALUE_LENGTH (ABI 0.2; 0 */
+  /* = pixels, what it always meant). */
   uint32_t bits;
 } dg_value;
 
@@ -117,17 +119,23 @@ typedef struct dg_event {
   /* DG_EVENT_CLICK: the clicked node. DG_EVENT_ACTION: the resolved action's */
   /* target node - design.md section 5.5.2 level 2, a focused node's own */
   /* dg_node_scope_action() binding - or null for a level-4 app-wide action, which */
-  /* names no node. Null for every other kind. */
+  /* names no node. ABI 0.2: DG_EVENT_TEXT_CHANGED the editor; */
+  /* DG_EVENT_FOCUS_CHANGED the newly focused node (null = none); */
+  /* DG_EVENT_CONTEXT_CLICK the nearest node with a handle under the pointer; */
+  /* DG_EVENT_LIST_SELECT the list. Null for every other kind. */
   dg_node_t* node;
   /* DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: */
   /* the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the */
-  /* new drawable WIDTH, device pixels. 0 for every other kind, including */
+  /* new drawable WIDTH, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the */
+  /* pointer x; DG_EVENT_LIST_SELECT the row index; DG_EVENT_TIMER the timer id; */
+  /* DG_EVENT_USER the payload's low 32 bits. 0 for every other kind, including */
   /* DG_EVENT_ACTION. */
   int32_t x;
   /* DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: */
   /* the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the */
-  /* new drawable HEIGHT, device pixels. 0 for every other kind, including */
-  /* DG_EVENT_ACTION. */
+  /* new drawable HEIGHT, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the */
+  /* pointer y; DG_EVENT_USER the payload's high 32 bits. 0 for every other kind, */
+  /* including DG_EVENT_ACTION. */
   int32_t y;
   /* 8-3d: DG_EVENT_ACTION only - the resolved dg_action_id (input/shortcuts.toml, */
   /* design.md section 5.5.3). DG_ACTION_INVALID (0) for every other kind. */
@@ -136,6 +144,12 @@ typedef struct dg_event {
   /* an allowed MINOR addition rather than a break; see abi/drawgui_abi.lock's own */
   /* append-only rule. */
   uint16_t action_id;
+  /* ABI 0.2: DG_EVENT_CLICK, DG_EVENT_CONTEXT_CLICK and DG_EVENT_LIST_SELECT - */
+  /* the press's click count (1 single, 2 double, 3 triple...), from the platform */
+  /* or counted by drawgui with the same thresholds. 0 for every other kind. It */
+  /* sits in what used to be the struct's tail padding, so sizeof(dg_event) is */
+  /* unchanged (40 bytes on a 64-bit target). */
+  uint16_t clicks;
 } dg_event;
 
 /* 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed. */
@@ -229,6 +243,40 @@ typedef struct dg_theme_err {
 /* handle. dg_node_set_text(DG_PROP_TEXT) on a text area or text field replaces */
 /* the EDITOR'S text (caret to the end) and queues no DG_EVENT_TEXT_CHANGED. */
 #define DG_NODE_TYPE_TEXT_AREA 6u
+/* ABI 0.2: a clipping viewport (WidgetKind::kScrollView), 240x160 by default, */
+/* that scrolls ONE caller-invisible content child. */
+/* dg_node_insert_before(scroll_view, child, ref) puts `child` into that content */
+/* node, so a scroll view takes any number of children; the content is a column */
+/* (vertical scrolling, the default) or a row (DG_PROP_SCROLL_AXIS = */
+/* DG_SCROLL_AXIS_HORIZONTAL), sized to its children. */
+/* DG_PROP_DIRECTION/JUSTIFY/ALIGN/GAP/MAIN_SIZE/WRAP/RUN_GAP/ALIGN_CONTENT */
+/* written to the scroll view apply to the content node; every other property */
+/* applies to the viewport. The wheel over it scrolls it, its scrollbar */
+/* (DG_PROP_SCROLLBAR, theme tokens color.scrollbar-* and size.scrollbar, a */
+/* reserved gutter on the trailing edge set through the viewport's padding) can */
+/* be dragged or paged, and PageUp/PageDown/Home/End scroll it while a node */
+/* inside it has focus (the bound DG_ACTION_SCROLL_* action is applied, then */
+/* still reported as DG_EVENT_ACTION). dg_node_get_scroll_offset() reads the */
+/* offset. Writing DG_PROP_PADDING_R/B on it replaces the gutter. */
+#define DG_NODE_TYPE_SCROLL_VIEW 7u
+/* ABI 0.2: a virtualized single-column list of text rows (WidgetKind::kList), */
+/* 240x200 by default: a fixed pool of 32 row nodes is recycled while it */
+/* scrolls, so its item count is unbounded, but at most 30 rows can be visible */
+/* at once (taller lists show empty space). The data is pushed, not pulled: */
+/* dg_list_set_items() copies an array of UTF-8 strings; rows are 28px tall */
+/* unless dg_list_set_items() says otherwise. A primary press on a row selects */
+/* it (dg_list_get_selected()/dg_list_set_selected(); the row is filled with */
+/* color.primary at reduced opacity) and queues DG_EVENT_LIST_SELECT. The wheel */
+/* and its scrollbar scroll it, as for DG_NODE_TYPE_SCROLL_VIEW. Rows draw with */
+/* the default font in color.on-surface; DG_PROP_FONT_SIZE on the list sets */
+/* their size. Not focusable and no keyboard navigation in this version. */
+#define DG_NODE_TYPE_LIST 8u
+/* ABI 0.2: a box that paints a decoded image (no fill of its own), 64x64 by */
+/* default. dg_node_set_image_data()/dg_node_set_image_file() set its picture */
+/* (PNG, JPEG, WebP or SVG); DG_PROP_IMAGE_FIT (default DG_IMAGE_FIT_CONTAIN) */
+/* and DG_PROP_IMAGE_PLACEHOLDER_COLOR apply. The image setters also work on a */
+/* DG_NODE_TYPE_BOX. */
+#define DG_NODE_TYPE_IMAGE 9u
 
 /* dg_value::type. */
 /* PropType::k_float. */
@@ -292,12 +340,53 @@ typedef struct dg_theme_err {
 #define DG_EVENT_WINDOW_FULLSCREEN_ENTERED 12u
 /* ABI 0.2: the window left fullscreen. */
 #define DG_EVENT_WINDOW_FULLSCREEN_LEFT 13u
+/* ABI 0.2: keyboard focus inside `window` moved - a click, Tab/Shift+Tab, */
+/* dg_node_focus()/dg_window_clear_focus(), or the focused node being disabled */
+/* or removed. `node` is the newly focused node, or null when focus was cleared */
+/* (or landed on a node without a handle). One event per change; the previous */
+/* node is not reported. */
+#define DG_EVENT_FOCUS_CHANGED 14u
+/* ABI 0.2: a timer from dg_timer_add() fired; `x` carries its id (as int32_t; */
+/* ids stay below 2^31). `window` and `node` are null. A repeating timer fires */
+/* at most once per dg_wait_events()/dg_poll_events() pump even when late. */
+#define DG_EVENT_TIMER 15u
+/* ABI 0.2: one dg_post_user_event() call; its 64-bit payload is split across */
+/* `x` (low 32 bits) and `y` (high 32 bits): payload = ((uint64_t)(uint32_t)y << */
+/* 32) | (uint32_t)x. `window` and `node` are null. dg_wake() queues no event. */
+#define DG_EVENT_USER 16u
+/* ABI 0.2: a secondary (right) button press. `node` is the nearest node under */
+/* the pointer that has a handle (null over bare background), `x`/`y` the */
+/* pointer position in device pixels, `clicks` the click count. Fires on the */
+/* press, before any release; it does not focus or press anything. */
+#define DG_EVENT_CONTEXT_CLICK 17u
+/* ABI 0.2: a primary press selected a row of a DG_NODE_TYPE_LIST. `node` is the */
+/* list, `x` the row index, `y` 0, `clicks` the click count (2 for a */
+/* double-click - the usual 'activate' gesture). */
+#define DG_EVENT_LIST_SELECT 18u
 
 /* ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()). */
 /* Bytes blue, green, red, alpha - a drawgui-rasterized frame's own order. */
 #define DG_PIXEL_FORMAT_BGRA8888 1u
 /* Bytes red, green, blue, alpha - most image decoders' order. */
 #define DG_PIXEL_FORMAT_RGBA8888 2u
+
+/* ABI 0.2: dg_value::bits for a DG_VALUE_LENGTH - which unit `number` is in. */
+/* Logical pixels - what every DG_VALUE_LENGTH meant before this constant */
+/* existed (bits was 0). */
+#define DG_LENGTH_UNIT_PX 0u
+/* A percentage (50 = half) of the parent's available content box. Accepted by */
+/* DG_PROP_WIDTH, HEIGHT, MIN_WIDTH, MAX_WIDTH, MIN_HEIGHT and MAX_HEIGHT only */
+/* (else DG_ERR_VALUE_OUT_OF_RANGE/NOT_APPLICABLE); 0..1000. Under an unbounded */
+/* parent axis it resolves as unset. */
+#define DG_LENGTH_UNIT_PERCENT 1u
+
+/* ABI 0.2: dg_debug_post_pointer_button_ex()'s `button`. */
+/* The primary (usually left) button. */
+#define DG_POINTER_BUTTON_PRIMARY 1
+/* The secondary (usually right) button. */
+#define DG_POINTER_BUTTON_SECONDARY 2
+/* The middle button. */
+#define DG_POINTER_BUTTON_MIDDLE 3
 
 /* ABI 0.2: bits of dg_window_get_state()'s non-negative result. */
 /* The window is minimized. */
@@ -513,6 +602,16 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_CURSOR 53
 /* Scrollbar visibility on a scroll view or list: auto shows it only while content overflows. */
 #define DG_PROP_SCROLLBAR 54
+/* TextStyle::size in logical pixels; must be finite and positive. */
+#define DG_PROP_FONT_SIZE 55
+/* TextStyle::align - where the text sits horizontally inside its node. */
+#define DG_PROP_TEXT_ALIGN 56
+/* Tab order (an integer): positive values go first, ascending; 0 is tree order; negative leaves Tab order but stays clickable. */
+#define DG_PROP_TAB_INDEX 57
+/* A text editor's maximum length in grapheme clusters (an integer); 0 means unlimited. */
+#define DG_PROP_MAX_LENGTH 58
+/* Whether a row/column starts a new run when a child does not fit (kWrapRow/kWrapColumn). */
+#define DG_PROP_WRAP 59
 
 /* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for
  * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names
@@ -582,6 +681,10 @@ typedef uint16_t dg_prop_id;
 #define DG_SCROLLBAR_AUTO 0u
 #define DG_SCROLLBAR_ALWAYS 1u
 #define DG_SCROLLBAR_NEVER 2u
+/* text_align */
+#define DG_TEXT_ALIGN_LEFT 0u
+#define DG_TEXT_ALIGN_CENTER 1u
+#define DG_TEXT_ALIGN_RIGHT 2u
 
 #endif /* !__cplusplus */
 
@@ -652,6 +755,9 @@ typedef uint16_t dg_token_id;
 /* The scrollbar's thickness in device pixels (ScrollbarStyle::size) - also the */
 /* gutter a scroll view reserves for it. */
 #define DG_TOKEN_SIZE_SCROLLBAR 19
+/* The translucent layer a modal dialog lays over the window behind it */
+/* (PopupStyle::scrim). */
+#define DG_TOKEN_COLOR_SCRIM 20
 
 #endif /* !__cplusplus */
 
@@ -930,17 +1036,18 @@ DG_EXPORT int32_t dg_debug_post_text_input(dg_window_t* window, const char* utf8
 /* key event through the real queue for one of the text-editing keys */
 /* process_key_event() dispatches directly to a focused editor: */
 /* Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for */
-/* DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown - `key_name` is exactly */
-/* one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any */
-/* other string. No other modifier than Shift can be posted (so no Ctrl+Home). */
-/* This is a SEPARATE debug hook from dg_debug_post_key() rather than a second */
-/* parameter on it: dg_debug_post_key() parses `logical_key_name` with */
-/* dg::parse_chord() against input/shortcuts.toml's own generated binding-name */
-/* table, and none of these six keys is a shortcut binding name at all (see this */
-/* file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for */
-/* parse_chord() to parse. `shift` (nonzero extends a text field's selection, */
-/* matching handle_text_field_key()'s own dg::Modifier::kShift check) is */
-/* meaningless for Backspace/Delete, which ignore it exactly like */
+/* DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown, and Tab (focus */
+/* traversal; `shift` makes it Shift+Tab) - `key_name` is exactly one of these */
+/* bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No */
+/* other modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE */
+/* debug hook from dg_debug_post_key() rather than a second parameter on it: */
+/* dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against */
+/* input/shortcuts.toml's own generated binding-name table, and none of these */
+/* six keys is a shortcut binding name at all (see this file's own */
+/* DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to */
+/* parse. `shift` (nonzero extends a text field's selection, matching */
+/* handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for */
+/* Backspace/Delete, which ignore it exactly like */
 /* dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do. */
 DG_EXPORT int32_t dg_debug_post_text_field_key(dg_window_t* window, int32_t down,
                                                const char* key_name, int32_t shift);
@@ -1053,6 +1160,103 @@ DG_EXPORT int32_t dg_window_get_state(dg_window_t* window);
 /* dg_wait_events()/dg_poll_events() (DG_PROP_CURSOR); this only observes the */
 /* result, which a headless run cannot see on screen. */
 DG_EXPORT int32_t dg_debug_get_cursor(dg_window_t* window);
+
+/* ABI 0.2: gives keyboard focus to a LIVE node, exactly as a click on it would */
+/* (an editor shows its caret and starts taking text input). Queues */
+/* DG_EVENT_FOCUS_CHANGED when focus actually moved. DG_ERR_UNSUPPORTED for a */
+/* node that cannot take focus (focusable types: BUTTON, CHECKBOX, TEXT_FIELD, */
+/* TEXT_AREA) or is disabled; DG_ERR_NO_WINDOW for a pending node; */
+/* DG_ERR_INVALID_HANDLE for a stale one. */
+DG_EXPORT int32_t dg_node_focus(dg_node_t* node);
+
+/* ABI 0.2: the node that has keyboard focus in `window`, or null when nothing */
+/* has (or the window is invalid - dg_last_error() then says so). */
+DG_EXPORT dg_node_t* dg_window_get_focus(dg_window_t* window);
+
+/* ABI 0.2: blurs whatever has focus in `window` (DG_EVENT_FOCUS_CHANGED with a */
+/* null node, if something had it). DG_ERR_INVALID_HANDLE for a closed/unknown */
+/* window. */
+DG_EXPORT int32_t dg_window_clear_focus(dg_window_t* window);
+
+/* ABI 0.2: how far a LIVE DG_NODE_TYPE_SCROLL_VIEW, DG_NODE_TYPE_LIST or */
+/* DG_NODE_TYPE_TEXT_AREA is scrolled, in device pixels (0,0 = at the start). */
+/* Either out-param may be null. DG_ERR_UNSUPPORTED for any other node type. */
+DG_EXPORT int32_t dg_node_get_scroll_offset(dg_node_t* node, int32_t* x, int32_t* y);
+
+/* ABI 0.2: replaces a LIVE DG_NODE_TYPE_LIST's rows with `count` NUL-terminated */
+/* UTF-8 strings, copied before returning (`items` may be null when count is 0; */
+/* a null entry is an empty row). `item_height` is every row's height in device */
+/* pixels; 0 keeps the current height (28 by default). The scroll offset is */
+/* clamped to the new content and the selection cleared. DG_ERR_INVALID_ARGUMENT */
+/* for a null array with count > 0, a negative item_height, or count above 2^24; */
+/* DG_ERR_UNSUPPORTED for a node that is not a list. */
+DG_EXPORT int32_t dg_list_set_items(dg_node_t* node, const char* const* items, uint32_t count,
+                                    int32_t item_height);
+
+/* ABI 0.2: the selected row index of a LIVE DG_NODE_TYPE_LIST (non-negative), */
+/* -1 when nothing is selected - or a negative DG_ERR_* below -1 */
+/* (DG_ERR_INVALID_HANDLE, DG_ERR_NO_WINDOW, DG_ERR_UNSUPPORTED). Note */
+/* DG_ERR_OOM is -1 too, but this function allocates nothing. */
+DG_EXPORT int32_t dg_list_get_selected(dg_node_t* node);
+
+/* ABI 0.2: selects row `index` of a LIVE DG_NODE_TYPE_LIST (-1 clears the */
+/* selection). Does not scroll and queues no event. DG_ERR_VALUE_OUT_OF_RANGE */
+/* for an index outside -1..count-1. */
+DG_EXPORT int32_t dg_list_set_selected(dg_node_t* node, int32_t index);
+
+/* ABI 0.2: decodes a complete PNG, JPEG, WebP or SVG file's bytes (sniffed - */
+/* SVG is anything starting with '<'; copied, not retained) and shows it in a */
+/* LIVE DG_NODE_TYPE_IMAGE or DG_NODE_TYPE_BOX, keeping its DG_PROP_IMAGE_FIT. */
+/* `svg_tint_argb`, when its alpha is nonzero, recolours an SVG to that colour */
+/* keeping the icon's shape (ignored for bitmaps); 0 means no tint. These bytes */
+/* are TRUSTED application assets: SVG goes through Skia's SVG parser. Decoded */
+/* images live as long as the app. DG_ERR_INVALID_ARGUMENT for null/empty bytes */
+/* or data that does not decode (dg_last_error() says why); DG_ERR_UNSUPPORTED */
+/* for another node type. */
+DG_EXPORT int32_t dg_node_set_image_data(dg_node_t* node, const void* bytes, uint32_t len,
+                                         uint32_t svg_tint_argb);
+
+/* ABI 0.2: dg_node_set_image_data() with the bytes read from `path`. */
+/* DG_ERR_INVALID_ARGUMENT for a null path, an unreadable file or one that does */
+/* not decode. */
+DG_EXPORT int32_t dg_node_set_image_file(dg_node_t* node, const char* path,
+                                         uint32_t svg_tint_argb);
+
+/* ABI 0.2: schedules DG_EVENT_TIMER `delay_ms` (negative counts as 0) from now; */
+/* nonzero `repeat` fires it again every delay_ms (at least 1) until */
+/* dg_timer_cancel(). Returns the timer id (never 0, never reused within the */
+/* app, below 2^31), or 0 on failure. dg_wait_events() wakes for the nearest */
+/* timer, so a host blocking with timeout -1 still gets it. Main thread only. */
+DG_EXPORT uint32_t dg_timer_add(dg_app_t* app, int32_t delay_ms, int32_t repeat);
+
+/* ABI 0.2: stops a timer; it never fires again. DG_ERR_OK when it was pending; */
+/* DG_ERR_INVALID_ARGUMENT for an id that already fired (one-shot), was */
+/* cancelled or was never issued - so cancelling twice is harmless. Main thread */
+/* only. */
+DG_EXPORT int32_t dg_timer_cancel(dg_app_t* app, uint32_t timer_id);
+
+/* ABI 0.2: makes a dg_wait_events() blocked on the main thread return now, */
+/* without queuing any event. THREAD-SAFE: may be called from any thread while */
+/* `app` is alive (not concurrently with dg_app_create()/dg_app_destroy()). */
+/* DG_ERR_UNSUPPORTED if the platform event queue is full. */
+DG_EXPORT int32_t dg_wake(dg_app_t* app);
+
+/* ABI 0.2: queues DG_EVENT_USER carrying `payload` and wakes dg_wait_events(). */
+/* THREAD-SAFE like dg_wake(); events from one thread arrive in posting order. */
+/* DG_ERR_UNSUPPORTED if the platform event queue is full. */
+DG_EXPORT int32_t dg_post_user_event(dg_app_t* app, uint64_t payload);
+
+/* TEST-ONLY. ABI 0.2: WindowManager::post_wheel() at the ABI boundary - a real */
+/* wheel event, in notches (negative dy scrolls down), at the last */
+/* dg_debug_warp_pointer() position. */
+DG_EXPORT int32_t dg_debug_post_wheel(dg_window_t* window, float dx, float dy);
+
+/* TEST-ONLY. ABI 0.2: dg_debug_post_pointer_button() with a DG_POINTER_BUTTON_* */
+/* `button` and the platform click count `clicks` the event carries (0 = let */
+/* drawgui count). DG_ERR_INVALID_ARGUMENT for an unknown button or negative */
+/* clicks. */
+DG_EXPORT int32_t dg_debug_post_pointer_button_ex(dg_window_t* window, int32_t down, int32_t x,
+                                                  int32_t y, int32_t button, int32_t clicks);
 
 #ifdef __cplusplus
 } /* extern "C" */

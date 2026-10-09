@@ -23,7 +23,8 @@
       "color.scrollbar-track": "#F0F1F3FF",
       "color.scrollbar-thumb": "#B8BDC4FF",
       "color.scrollbar-thumb-hover": "#9EA4ACFF",
-      "color.scrollbar-thumb-pressed": "#80868FFF"
+      "color.scrollbar-thumb-pressed": "#80868FFF",
+      "color.scrim": "#0F141A66"
     },
     "dark": {
       "color.surface": "#1E1E1EFF",
@@ -39,7 +40,8 @@
       "color.scrollbar-track": "#202328FF",
       "color.scrollbar-thumb": "#4A5059FF",
       "color.scrollbar-thumb-hover": "#5E656FFF",
-      "color.scrollbar-thumb-pressed": "#767E89FF"
+      "color.scrollbar-thumb-pressed": "#767E89FF",
+      "color.scrim": "#00000099"
     }
   }
 }

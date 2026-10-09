@@ -49,6 +49,7 @@ PopupStyle popup_style_from_theme(const Theme& theme, ThemeVariant variant) {
   read_color(theme, variant, DG_TOKEN_COLOR_PRIMARY_PRESSED, style.accent_pressed);
   read_color(theme, variant, DG_TOKEN_COLOR_ON_DISABLED, style.on_disabled);
   read_color(theme, variant, DG_TOKEN_COLOR_FOCUS_RING, style.focus_ring);
+  read_color(theme, variant, DG_TOKEN_COLOR_SCRIM, style.scrim);
   read_int(theme, DG_TOKEN_RADIUS_MD, style.radius);
 
   // A highlighted menu row / hovered secondary button is a soft primary
@@ -59,7 +60,6 @@ PopupStyle popup_style_from_theme(const Theme& theme, ThemeVariant variant) {
   style.item_hover = mix(style.surface, style.accent, dark ? 0.24F : 0.12F);
   style.item_pressed = mix(style.surface, style.accent, dark ? 0.34F : 0.22F);
   style.on_item_hover = style.on_surface;
-  style.scrim = dark ? Color::from_argb(0x99000000) : Color::from_argb(0x660F141A);
   read_int(theme, DG_TOKEN_SPACE_MD, style.padding);
   return style;
 }

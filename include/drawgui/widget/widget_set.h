@@ -169,12 +169,10 @@ struct Widget {
 
   // 7-4's Tab-order override (dg::focus_order(), include/drawgui/widget/
   // focus.h), a construction-time declarative field for the identical
-  // reason `min_value`/`max_value`/`step` already are one struct up:
-  // nothing consumes it through dg::set_prop() (design.md names
-  // `tab_index` in section 5.9.6 as an intended property, but it was never
-  // added to props/drawgui.props.toml - there is no generated prop_id for
-  // it to bind to yet), so it stays a plain field until a caller needs the
-  // C ABI to set it. std::nullopt (the default) means "plain tree order";
+  // reason `min_value`/`max_value`/`step` already are one struct up. The C
+  // ABI sets it through DG_PROP_TAB_INDEX, which dg::set_prop() itself
+  // answers kUnsupported for (it is widget state, not node style).
+  // std::nullopt (the default) means "plain tree order";
   // a POSITIVE value is HTML's own tabindex convention - visited ascending
   // before every unset/zero widget; a NEGATIVE value removes this widget
   // from Tab/Shift-Tab's own sequence entirely without making it

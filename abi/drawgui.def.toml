@@ -200,6 +200,20 @@ schema_version = 1
 #        to a focused editor), Ctrl+Left/Right word moves, Ctrl+Backspace/
 #        Delete word deletes, double/triple-click selection, and
 #        dg_debug_post_key() accepting modifier chords.
+#        Phase A of the C-side widget surface: DG_PROP_DIRECTION on a BOX
+#        makes it a row/column container (DG_PROP_WRAP wraps it);
+#        DG_PROP_FONT_SIZE/DG_PROP_TEXT_ALIGN; percentage lengths
+#        (DG_LENGTH_UNIT_*); keyboard focus (dg_node_focus(),
+#        dg_window_get_focus(), dg_window_clear_focus(), Tab/Shift+Tab,
+#        DG_PROP_TAB_INDEX, DG_EVENT_FOCUS_CHANGED); DG_NODE_TYPE_SCROLL_VIEW,
+#        DG_NODE_TYPE_LIST (dg_list_set_items() and friends,
+#        DG_EVENT_LIST_SELECT) and dg_node_get_scroll_offset();
+#        DG_PROP_MAX_LENGTH; dg_event::clicks and DG_EVENT_CONTEXT_CLICK;
+#        dg_timer_add()/dg_timer_cancel() (DG_EVENT_TIMER), dg_wake() and
+#        dg_post_user_event() (DG_EVENT_USER); DG_NODE_TYPE_IMAGE with
+#        dg_node_set_image_data()/dg_node_set_image_file(); the color.scrim
+#        theme token; dg_debug_post_wheel() and
+#        dg_debug_post_pointer_button_ex().
 [meta]
 abi_major = 0
 abi_minor = 2
@@ -246,7 +260,7 @@ fields = [
   { name = "size", type = "uint32_t", summary = "sizeof(dg_value)." },
   { name = "type", type = "uint32_t", summary = "DG_VALUE_* - which field below is meaningful." },
   { name = "number", type = "float", summary = "meaningful for DG_VALUE_FLOAT / DG_VALUE_LENGTH." },
-  { name = "bits", type = "uint32_t", summary = "ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM, 0/1 for DG_VALUE_BOOL." },
+  { name = "bits", type = "uint32_t", summary = "ARGB for DG_VALUE_COLOR, ordinal for DG_VALUE_ENUM, 0/1 for DG_VALUE_BOOL, token_id for DG_VALUE_TOKEN, DG_LENGTH_UNIT_* for DG_VALUE_LENGTH (ABI 0.2; 0 = pixels, what it always meant)." },
 ]
 
 [[struct]]
@@ -279,10 +293,11 @@ fields = [
   { name = "size", type = "uint32_t", summary = "sizeof(dg_event)." },
   { name = "kind", type = "uint32_t", summary = "DG_EVENT_*." },
   { name = "window", type = "dg_window_t*", summary = "which window this event is about." },
-  { name = "node", type = "dg_node_t*", summary = "DG_EVENT_CLICK: the clicked node. DG_EVENT_ACTION: the resolved action's target node - design.md section 5.5.2 level 2, a focused node's own dg_node_scope_action() binding - or null for a level-4 app-wide action, which names no node. Null for every other kind." },
-  { name = "x", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable WIDTH, device pixels. 0 for every other kind, including DG_EVENT_ACTION." },
-  { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable HEIGHT, device pixels. 0 for every other kind, including DG_EVENT_ACTION." },
+  { name = "node", type = "dg_node_t*", summary = "DG_EVENT_CLICK: the clicked node. DG_EVENT_ACTION: the resolved action's target node - design.md section 5.5.2 level 2, a focused node's own dg_node_scope_action() binding - or null for a level-4 app-wide action, which names no node. ABI 0.2: DG_EVENT_TEXT_CHANGED the editor; DG_EVENT_FOCUS_CHANGED the newly focused node (null = none); DG_EVENT_CONTEXT_CLICK the nearest node with a handle under the pointer; DG_EVENT_LIST_SELECT the list. Null for every other kind." },
+  { name = "x", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new left edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable WIDTH, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the pointer x; DG_EVENT_LIST_SELECT the row index; DG_EVENT_TIMER the timer id; DG_EVENT_USER the payload's low 32 bits. 0 for every other kind, including DG_EVENT_ACTION." },
+  { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable HEIGHT, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the pointer y; DG_EVENT_USER the payload's high 32 bits. 0 for every other kind, including DG_EVENT_ACTION." },
   { name = "action_id", type = "uint16_t", summary = "8-3d: DG_EVENT_ACTION only - the resolved dg_action_id (input/shortcuts.toml, design.md section 5.5.3). DG_ACTION_INVALID (0) for every other kind. Appended at the end of the struct, after `y` - dg_event's own `size` field (design.md section 5.8 decision 4) is exactly the mechanism that makes this an allowed MINOR addition rather than a break; see abi/drawgui_abi.lock's own append-only rule." },
+  { name = "clicks", type = "uint16_t", summary = "ABI 0.2: DG_EVENT_CLICK, DG_EVENT_CONTEXT_CLICK and DG_EVENT_LIST_SELECT - the press's click count (1 single, 2 double, 3 triple...), from the platform or counted by drawgui with the same thresholds. 0 for every other kind. It sits in what used to be the struct's tail padding, so sizeof(dg_event) is unchanged (40 bytes on a 64-bit target)." },
 ]
 
 [[struct]]
@@ -316,6 +331,9 @@ values = [
   { name = "CHECKBOX", id = 4, summary = "P6 sub-step a2: a clickable toggle (WidgetKind::kCheckbox) - unchecked by default, DG_EVENT_CLICK fires on a completed press+release exactly like DG_NODE_TYPE_BUTTON, and the click ALSO flips the checked bit (dg::WidgetSet::toggle()) before that event is queued, so a caller reacting to the click can immediately dg_node_get_checked() the new state. A caller-invisible INDICATOR CHILD is composed at attach time (examples/11_form_controls/form_scene.cpp's add_toggle() recipe, copied unchanged) to give the checked/unchecked fill somewhere to paint - it has no dg_node_t handle and cannot be reached, inserted into, or removed through this ABI; this is a deliberate trade, not an oversight, because a reactive framework built on this ABI (P6's own eventual c/d steps) cannot be made to hand-compose a child for every checkbox it creates. Widget::group (radio) is NOT exported - see this file's own \"WHAT IS DELIBERATELY NOT HERE\" entry for why." },
   { name = "TEXT_FIELD", id = 5, summary = "P6 sub-step a2 (second half): a single-line editable text field (WidgetKind::kTextField), examples/12_text_input's own recipe copied unchanged. A click focuses it (this ABI's existing dg::Focus, driven by process_pointer_event() exactly like every other focusable widget already is) and starts real text input on its window (WindowManager::start_text_input()); a committed SDL_EVENT_TEXT_INPUT then reaches it through dg_wait_events()/dg_poll_events()'s internal pump, which now also drains dg::PumpResult::text_input and calls dg::WidgetSet::text_field_insert(), queuing one DG_EVENT_TEXT_CHANGED per commit. Left/Right/Home/End/Backspace/Delete are dispatched directly by key, exactly like examples/12_text_input/text_field_window.cpp's own Runner::handle_key() - NOT through design.md section 5.5.2's four-level router: the router's ActionScope::kTextField only ever carries the four clipboard actions (copy/cut/paste/select_all, dg::clipboard_actions.h), never text_field_move/backspace/delete_forward, so there is no ActionId to resolve a caret move through and this ABI does not invent one. FOUR caller-invisible children are composed at attach time exactly like DG_NODE_TYPE_CHECKBOX's indicator (Widget::content/caret/selection_highlight/composition_underline) - none has a dg_node_t handle. `composition_underline` is built but never driven: this ABI exports no IME/composition surface at all (see this file's own \"明确不做\" entry below) - a field can never enter `composing`, so the underline stays zero-size forever, the same 'built but permanently dormant' shape as an ungrouped checkbox's unused Widget::group field. Read the field's current text with dg_node_get_text(); dg_node_set_text(DG_PROP_TEXT) sets its initial/replacement content the same way it already does for DG_NODE_TYPE_LABEL. ABI 0.2: Mod+Z undoes and Mod+Shift+Z/Mod+Y redo (the pump applies them to the focused editor before the router - typing within a second merges into one step, a paste/cut/IME commit is its own; DG_EVENT_TEXT_CHANGED when the text changed), Ctrl+Left/Right move by word (Shift extends), Ctrl+Backspace/Delete delete a word, a double-click selects a word and a triple-click the whole text (a text area: the logical line)." },
   { name = "TEXT_AREA", id = 6, summary = "ABI 0.2: a multi-line, soft-wrapping editable text area (WidgetKind::kTextArea), 320x160 by default, styled with DG_NODE_TYPE_TEXT_FIELD's own palette. Everything DG_NODE_TYPE_TEXT_FIELD does (click to focus and place the caret, committed text input, DG_EVENT_TEXT_CHANGED, dg_node_get_text(), the clipboard actions, undo/redo, word moves/deletes and double/triple-click selection - see DG_NODE_TYPE_TEXT_FIELD) plus: Enter (bare or with Shift) inserts a newline - Ctrl/Alt+Enter still reach the shortcut router; Up/Down keep the caret's column across lines; Home/End go to the visual (wrapped) line's ends, Ctrl+Home/End to the text's; PageUp/PageDown move by the viewport; a press-drag selects; the wheel and the area's own scrollbar (theme tokens color.scrollbar-track/thumb and size.scrollbar) scroll without moving the caret, and the caret is scrolled into view after every edit or move. Tab stays focus traversal. Its composed children (selection highlights, IME underlines, content, caret, scrollbar track and thumb) have no dg_node_t handle. dg_node_set_text(DG_PROP_TEXT) on a text area or text field replaces the EDITOR'S text (caret to the end) and queues no DG_EVENT_TEXT_CHANGED." },
+  { name = "SCROLL_VIEW", id = 7, summary = "ABI 0.2: a clipping viewport (WidgetKind::kScrollView), 240x160 by default, that scrolls ONE caller-invisible content child. dg_node_insert_before(scroll_view, child, ref) puts `child` into that content node, so a scroll view takes any number of children; the content is a column (vertical scrolling, the default) or a row (DG_PROP_SCROLL_AXIS = DG_SCROLL_AXIS_HORIZONTAL), sized to its children. DG_PROP_DIRECTION/JUSTIFY/ALIGN/GAP/MAIN_SIZE/WRAP/RUN_GAP/ALIGN_CONTENT written to the scroll view apply to the content node; every other property applies to the viewport. The wheel over it scrolls it, its scrollbar (DG_PROP_SCROLLBAR, theme tokens color.scrollbar-* and size.scrollbar, a reserved gutter on the trailing edge set through the viewport's padding) can be dragged or paged, and PageUp/PageDown/Home/End scroll it while a node inside it has focus (the bound DG_ACTION_SCROLL_* action is applied, then still reported as DG_EVENT_ACTION). dg_node_get_scroll_offset() reads the offset. Writing DG_PROP_PADDING_R/B on it replaces the gutter." },
+  { name = "LIST", id = 8, summary = "ABI 0.2: a virtualized single-column list of text rows (WidgetKind::kList), 240x200 by default: a fixed pool of 32 row nodes is recycled while it scrolls, so its item count is unbounded, but at most 30 rows can be visible at once (taller lists show empty space). The data is pushed, not pulled: dg_list_set_items() copies an array of UTF-8 strings; rows are 28px tall unless dg_list_set_items() says otherwise. A primary press on a row selects it (dg_list_get_selected()/dg_list_set_selected(); the row is filled with color.primary at reduced opacity) and queues DG_EVENT_LIST_SELECT. The wheel and its scrollbar scroll it, as for DG_NODE_TYPE_SCROLL_VIEW. Rows draw with the default font in color.on-surface; DG_PROP_FONT_SIZE on the list sets their size. Not focusable and no keyboard navigation in this version." },
+  { name = "IMAGE", id = 9, summary = "ABI 0.2: a box that paints a decoded image (no fill of its own), 64x64 by default. dg_node_set_image_data()/dg_node_set_image_file() set its picture (PNG, JPEG, WebP or SVG); DG_PROP_IMAGE_FIT (default DG_IMAGE_FIT_CONTAIN) and DG_PROP_IMAGE_PLACEHOLDER_COLOR apply. The image setters also work on a DG_NODE_TYPE_BOX." },
 ]
 
 [[constant_group]]
@@ -351,6 +369,11 @@ values = [
   { name = "WINDOW_FOCUS_LOST", id = 11, summary = "ABI 0.2: the window lost keyboard focus." },
   { name = "WINDOW_FULLSCREEN_ENTERED", id = 12, summary = "ABI 0.2: the window became fullscreen." },
   { name = "WINDOW_FULLSCREEN_LEFT", id = 13, summary = "ABI 0.2: the window left fullscreen." },
+  { name = "FOCUS_CHANGED", id = 14, summary = "ABI 0.2: keyboard focus inside `window` moved - a click, Tab/Shift+Tab, dg_node_focus()/dg_window_clear_focus(), or the focused node being disabled or removed. `node` is the newly focused node, or null when focus was cleared (or landed on a node without a handle). One event per change; the previous node is not reported." },
+  { name = "TIMER", id = 15, summary = "ABI 0.2: a timer from dg_timer_add() fired; `x` carries its id (as int32_t; ids stay below 2^31). `window` and `node` are null. A repeating timer fires at most once per dg_wait_events()/dg_poll_events() pump even when late." },
+  { name = "USER", id = 16, summary = "ABI 0.2: one dg_post_user_event() call; its 64-bit payload is split across `x` (low 32 bits) and `y` (high 32 bits): payload = ((uint64_t)(uint32_t)y << 32) | (uint32_t)x. `window` and `node` are null. dg_wake() queues no event." },
+  { name = "CONTEXT_CLICK", id = 17, summary = "ABI 0.2: a secondary (right) button press. `node` is the nearest node under the pointer that has a handle (null over bare background), `x`/`y` the pointer position in device pixels, `clicks` the click count. Fires on the press, before any release; it does not focus or press anything." },
+  { name = "LIST_SELECT", id = 18, summary = "ABI 0.2: a primary press selected a row of a DG_NODE_TYPE_LIST. `node` is the list, `x` the row index, `y` 0, `clicks` the click count (2 for a double-click - the usual 'activate' gesture)." },
 ]
 
 [[constant_group]]
@@ -361,6 +384,27 @@ summary = "ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon
 values = [
   { name = "BGRA8888", id = 1, summary = "Bytes blue, green, red, alpha - a drawgui-rasterized frame's own order." },
   { name = "RGBA8888", id = 2, summary = "Bytes red, green, blue, alpha - most image decoders' order." },
+]
+
+[[constant_group]]
+name = "length_unit"
+prefix = "DG_LENGTH_UNIT_"
+c_type = "uint32_t"
+summary = "ABI 0.2: dg_value::bits for a DG_VALUE_LENGTH - which unit `number` is in."
+values = [
+  { name = "PX", id = 0, summary = "Logical pixels - what every DG_VALUE_LENGTH meant before this constant existed (bits was 0)." },
+  { name = "PERCENT", id = 1, summary = "A percentage (50 = half) of the parent's available content box. Accepted by DG_PROP_WIDTH, HEIGHT, MIN_WIDTH, MAX_WIDTH, MIN_HEIGHT and MAX_HEIGHT only (else DG_ERR_VALUE_OUT_OF_RANGE/NOT_APPLICABLE); 0..1000. Under an unbounded parent axis it resolves as unset." },
+]
+
+[[constant_group]]
+name = "pointer_button"
+prefix = "DG_POINTER_BUTTON_"
+c_type = "int32_t"
+summary = "ABI 0.2: dg_debug_post_pointer_button_ex()'s `button`."
+values = [
+  { name = "PRIMARY", id = 1, summary = "The primary (usually left) button." },
+  { name = "SECONDARY", id = 2, summary = "The secondary (usually right) button." },
+  { name = "MIDDLE", id = 3, summary = "The middle button." },
 ]
 
 [[constant_group]]
@@ -648,7 +692,7 @@ name = "dg_debug_post_text_field_key"
 ret = "int32_t"
 impl = "debug_post_text_field_key"
 params = [{ name = "window", type = "dg_window_t*" }, { name = "down", type = "int32_t" }, { name = "key_name", type = "const char*" }, { name = "shift", type = "int32_t" }]
-summary = "TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL key event through the real queue for one of the text-editing keys process_key_event() dispatches directly to a focused editor: Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown - `key_name` is exactly one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No other modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE debug hook from dg_debug_post_key() rather than a second parameter on it: dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against input/shortcuts.toml's own generated binding-name table, and none of these six keys is a shortcut binding name at all (see this file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to parse. `shift` (nonzero extends a text field's selection, matching handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for Backspace/Delete, which ignore it exactly like dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do."
+summary = "TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL key event through the real queue for one of the text-editing keys process_key_event() dispatches directly to a focused editor: Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown, and Tab (focus traversal; `shift` makes it Shift+Tab) - `key_name` is exactly one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No other modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE debug hook from dg_debug_post_key() rather than a second parameter on it: dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against input/shortcuts.toml's own generated binding-name table, and none of these six keys is a shortcut binding name at all (see this file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to parse. `shift` (nonzero extends a text field's selection, matching handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for Backspace/Delete, which ignore it exactly like dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do."
 
 [[function]]
 name = "dg_window_set_title"
@@ -761,3 +805,109 @@ ret = "int32_t"
 impl = "debug_get_cursor"
 params = [{ name = "window", type = "dg_window_t*" }]
 summary = "TEST-ONLY. ABI 0.2: the window's current cursor as a DG_CURSOR_* value (never DG_CURSOR_AUTO), or a negative DG_ERR_* - WindowManager::current_cursor() at the ABI boundary. The cursor itself follows the pointer automatically inside dg_wait_events()/dg_poll_events() (DG_PROP_CURSOR); this only observes the result, which a headless run cannot see on screen."
+
+
+[[function]]
+name = "dg_node_focus"
+ret = "int32_t"
+impl = "node_focus"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "ABI 0.2: gives keyboard focus to a LIVE node, exactly as a click on it would (an editor shows its caret and starts taking text input). Queues DG_EVENT_FOCUS_CHANGED when focus actually moved. DG_ERR_UNSUPPORTED for a node that cannot take focus (focusable types: BUTTON, CHECKBOX, TEXT_FIELD, TEXT_AREA) or is disabled; DG_ERR_NO_WINDOW for a pending node; DG_ERR_INVALID_HANDLE for a stale one."
+
+[[function]]
+name = "dg_window_get_focus"
+ret = "dg_node_t*"
+impl = "window_get_focus"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2: the node that has keyboard focus in `window`, or null when nothing has (or the window is invalid - dg_last_error() then says so)."
+
+[[function]]
+name = "dg_window_clear_focus"
+ret = "int32_t"
+impl = "window_clear_focus"
+params = [{ name = "window", type = "dg_window_t*" }]
+summary = "ABI 0.2: blurs whatever has focus in `window` (DG_EVENT_FOCUS_CHANGED with a null node, if something had it). DG_ERR_INVALID_HANDLE for a closed/unknown window."
+
+[[function]]
+name = "dg_node_get_scroll_offset"
+ret = "int32_t"
+impl = "node_get_scroll_offset"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "x", type = "int32_t*" }, { name = "y", type = "int32_t*" }]
+summary = "ABI 0.2: how far a LIVE DG_NODE_TYPE_SCROLL_VIEW, DG_NODE_TYPE_LIST or DG_NODE_TYPE_TEXT_AREA is scrolled, in device pixels (0,0 = at the start). Either out-param may be null. DG_ERR_UNSUPPORTED for any other node type."
+
+[[function]]
+name = "dg_list_set_items"
+ret = "int32_t"
+impl = "list_set_items"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "items", type = "const char* const*" }, { name = "count", type = "uint32_t" }, { name = "item_height", type = "int32_t" }]
+summary = "ABI 0.2: replaces a LIVE DG_NODE_TYPE_LIST's rows with `count` NUL-terminated UTF-8 strings, copied before returning (`items` may be null when count is 0; a null entry is an empty row). `item_height` is every row's height in device pixels; 0 keeps the current height (28 by default). The scroll offset is clamped to the new content and the selection cleared. DG_ERR_INVALID_ARGUMENT for a null array with count > 0, a negative item_height, or count above 2^24; DG_ERR_UNSUPPORTED for a node that is not a list."
+
+[[function]]
+name = "dg_list_get_selected"
+ret = "int32_t"
+impl = "list_get_selected"
+params = [{ name = "node", type = "dg_node_t*" }]
+summary = "ABI 0.2: the selected row index of a LIVE DG_NODE_TYPE_LIST (non-negative), -1 when nothing is selected - or a negative DG_ERR_* below -1 (DG_ERR_INVALID_HANDLE, DG_ERR_NO_WINDOW, DG_ERR_UNSUPPORTED). Note DG_ERR_OOM is -1 too, but this function allocates nothing."
+
+[[function]]
+name = "dg_list_set_selected"
+ret = "int32_t"
+impl = "list_set_selected"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "index", type = "int32_t" }]
+summary = "ABI 0.2: selects row `index` of a LIVE DG_NODE_TYPE_LIST (-1 clears the selection). Does not scroll and queues no event. DG_ERR_VALUE_OUT_OF_RANGE for an index outside -1..count-1."
+
+[[function]]
+name = "dg_node_set_image_data"
+ret = "int32_t"
+impl = "node_set_image_data"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "bytes", type = "const void*" }, { name = "len", type = "uint32_t" }, { name = "svg_tint_argb", type = "uint32_t" }]
+summary = "ABI 0.2: decodes a complete PNG, JPEG, WebP or SVG file's bytes (sniffed - SVG is anything starting with '<'; copied, not retained) and shows it in a LIVE DG_NODE_TYPE_IMAGE or DG_NODE_TYPE_BOX, keeping its DG_PROP_IMAGE_FIT. `svg_tint_argb`, when its alpha is nonzero, recolours an SVG to that colour keeping the icon's shape (ignored for bitmaps); 0 means no tint. These bytes are TRUSTED application assets: SVG goes through Skia's SVG parser. Decoded images live as long as the app. DG_ERR_INVALID_ARGUMENT for null/empty bytes or data that does not decode (dg_last_error() says why); DG_ERR_UNSUPPORTED for another node type."
+
+[[function]]
+name = "dg_node_set_image_file"
+ret = "int32_t"
+impl = "node_set_image_file"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "path", type = "const char*" }, { name = "svg_tint_argb", type = "uint32_t" }]
+summary = "ABI 0.2: dg_node_set_image_data() with the bytes read from `path`. DG_ERR_INVALID_ARGUMENT for a null path, an unreadable file or one that does not decode."
+
+[[function]]
+name = "dg_timer_add"
+ret = "uint32_t"
+impl = "timer_add"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "delay_ms", type = "int32_t" }, { name = "repeat", type = "int32_t" }]
+summary = "ABI 0.2: schedules DG_EVENT_TIMER `delay_ms` (negative counts as 0) from now; nonzero `repeat` fires it again every delay_ms (at least 1) until dg_timer_cancel(). Returns the timer id (never 0, never reused within the app, below 2^31), or 0 on failure. dg_wait_events() wakes for the nearest timer, so a host blocking with timeout -1 still gets it. Main thread only."
+
+[[function]]
+name = "dg_timer_cancel"
+ret = "int32_t"
+impl = "timer_cancel"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "timer_id", type = "uint32_t" }]
+summary = "ABI 0.2: stops a timer; it never fires again. DG_ERR_OK when it was pending; DG_ERR_INVALID_ARGUMENT for an id that already fired (one-shot), was cancelled or was never issued - so cancelling twice is harmless. Main thread only."
+
+[[function]]
+name = "dg_wake"
+ret = "int32_t"
+impl = "wake"
+params = [{ name = "app", type = "dg_app_t*" }]
+summary = "ABI 0.2: makes a dg_wait_events() blocked on the main thread return now, without queuing any event. THREAD-SAFE: may be called from any thread while `app` is alive (not concurrently with dg_app_create()/dg_app_destroy()). DG_ERR_UNSUPPORTED if the platform event queue is full."
+
+[[function]]
+name = "dg_post_user_event"
+ret = "int32_t"
+impl = "post_user_event"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "payload", type = "uint64_t" }]
+summary = "ABI 0.2: queues DG_EVENT_USER carrying `payload` and wakes dg_wait_events(). THREAD-SAFE like dg_wake(); events from one thread arrive in posting order. DG_ERR_UNSUPPORTED if the platform event queue is full."
+
+[[function]]
+name = "dg_debug_post_wheel"
+ret = "int32_t"
+impl = "debug_post_wheel"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "dx", type = "float" }, { name = "dy", type = "float" }]
+summary = "TEST-ONLY. ABI 0.2: WindowManager::post_wheel() at the ABI boundary - a real wheel event, in notches (negative dy scrolls down), at the last dg_debug_warp_pointer() position."
+
+[[function]]
+name = "dg_debug_post_pointer_button_ex"
+ret = "int32_t"
+impl = "debug_post_pointer_button_ex"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "down", type = "int32_t" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }, { name = "button", type = "int32_t" }, { name = "clicks", type = "int32_t" }]
+summary = "TEST-ONLY. ABI 0.2: dg_debug_post_pointer_button() with a DG_POINTER_BUTTON_* `button` and the platform click count `clicks` the event carries (0 = let drawgui count). DG_ERR_INVALID_ARGUMENT for an unknown button or negative clicks."

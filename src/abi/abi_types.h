@@ -34,18 +34,19 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "drawgui/abi/drawgui.h"
 #include "drawgui/anim/animation_engine.h"
 #include "drawgui/layout/layout_tree.h"
 #include "drawgui/render/font_catalog.h"
+#include "drawgui/render/image_catalog.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/action_scopes.h"
 #include "drawgui/theme/theme.h"
 #include "drawgui/theme/theme_bindings.h"
 #include "drawgui/theme/theme_package.h"
-#include "drawgui/widget/click_counter.h"
 #include "drawgui/widget/focus.h"
 #include "drawgui/widget/interaction.h"
 #include "drawgui/widget/widget_set.h"
@@ -100,6 +101,15 @@ struct NodeSlot {
   // equal in content but not in address, and a host is entitled to compare
   // handles by pointer identity.
   dg_node_t* self_handle = nullptr;
+
+  // DG_NODE_TYPE_SCROLL_VIEW: the composed content node every child the
+  // caller inserts actually goes into (the widget's scroll_content).
+  dg::NodeId content{};
+
+  // DG_NODE_TYPE_LIST: the rows dg_list_set_items() copied, and the
+  // selected row - the data the recycled pool rows are painted from.
+  std::vector<std::string> list_items;
+  int list_selected = -1;
 };
 
 // One open window: the SDL-backed id window_manager.h already owns, and the
@@ -114,9 +124,20 @@ class WindowImpl {
   dg::LayoutTree tree;
   dg::WidgetSet widgets;
   dg::Interaction interaction;
-  dg::ClickCounter clicks;  // double/triple-click detection for text editors
   std::optional<dg::RasterSurface> surface;
   bool closed = false;
+
+  // A layout pass re-placed nodes since the composed children of scroll
+  // views/lists/text areas were last re-derived (resync_widgets()).
+  bool relaid = true;
+
+  // The click count of the latest primary press (PointerEvent::clicks),
+  // reported by the DG_EVENT_CLICK its release completes.
+  int last_press_clicks = 1;
+  // A key press since the last primary press restarts the multi-click
+  // count: click_offset is subtracted from PointerEvent::clicks.
+  bool key_since_press = false;
+  int click_offset = 0;
 
   // Set once by dg_window_set_root(); a second call is DG_ERR_ALREADY_ATTACHED.
   std::optional<dg::NodeId> root;
@@ -209,6 +230,10 @@ class AppImpl {
   // false, matching "no font added yet" without a second field to
   // disagree with it.
   dg::FontId default_font;
+
+  // ABI 0.2: every image dg_node_set_image_data()/_file() decoded, shared by
+  // all of this app's windows (each TreeSpec gets a copy of this handle).
+  dg::ImageCatalog images;
 };
 
 }  // namespace dg::abi

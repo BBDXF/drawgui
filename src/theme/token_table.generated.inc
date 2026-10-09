@@ -25,3 +25,4 @@
 {"color.scrollbar-thumb-hover", DG_TOKEN_COLOR_SCROLLBAR_THUMB_HOVER, TokenType::k_color},
 {"color.scrollbar-thumb-pressed", DG_TOKEN_COLOR_SCROLLBAR_THUMB_PRESSED, TokenType::k_color},
 {"size.scrollbar", DG_TOKEN_SIZE_SCROLLBAR, TokenType::k_int},
+{"color.scrim", DG_TOKEN_COLOR_SCRIM, TokenType::k_color},

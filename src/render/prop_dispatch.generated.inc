@@ -210,6 +210,24 @@ switch (prop_id) {
   case DG_PROP_SCROLLBAR:
     DG_PROP_ASSIGN(scrollbar, enum);
     break;
+  // -- visual ----------------------------------------------------
+  case DG_PROP_FONT_SIZE:
+    DG_PROP_ASSIGN(font_size, float);
+    break;
+  case DG_PROP_TEXT_ALIGN:
+    DG_PROP_ASSIGN(text_align, enum);
+    break;
+  // -- interaction -----------------------------------------------
+  case DG_PROP_TAB_INDEX:
+    DG_PROP_ASSIGN(tab_index, float);
+    break;
+  case DG_PROP_MAX_LENGTH:
+    DG_PROP_ASSIGN(max_length, float);
+    break;
+  // -- container -------------------------------------------------
+  case DG_PROP_WRAP:
+    DG_PROP_ASSIGN(wrap, bool);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

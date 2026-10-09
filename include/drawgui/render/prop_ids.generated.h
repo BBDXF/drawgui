@@ -235,6 +235,28 @@ inline constexpr dg_prop_id DG_PROP_CURSOR = 53;
 // values: auto | always | never
 inline constexpr dg_prop_id DG_PROP_SCROLLBAR = 54;
 
+// -- visual ------------------------------------------------------
+// TextStyle::size in logical pixels; must be finite and positive.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_FONT_SIZE = 55;
+// TextStyle::align - where the text sits horizontally inside its node.
+// type=enum; applies_to=box
+// values: left | center | right
+inline constexpr dg_prop_id DG_PROP_TEXT_ALIGN = 56;
+
+// -- interaction -------------------------------------------------
+// Tab order (an integer): positive values go first, ascending; 0 is tree order; negative leaves Tab order but stays clickable.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_TAB_INDEX = 57;
+// A text editor's maximum length in grapheme clusters (an integer); 0 means unlimited.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_MAX_LENGTH = 58;
+
+// -- container ---------------------------------------------------
+// Whether a row/column starts a new run when a child does not fit (kWrapRow/kWrapColumn).
+// type=bool; applies_to=flex,wrap
+inline constexpr dg_prop_id DG_PROP_WRAP = 59;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -314,11 +336,15 @@ inline constexpr std::uint32_t DG_CURSOR_RESIZE_NESW = 12;
 inline constexpr std::uint32_t DG_SCROLLBAR_AUTO = 0;
 inline constexpr std::uint32_t DG_SCROLLBAR_ALWAYS = 1;
 inline constexpr std::uint32_t DG_SCROLLBAR_NEVER = 2;
+// text_align
+inline constexpr std::uint32_t DG_TEXT_ALIGN_LEFT = 0;
+inline constexpr std::uint32_t DG_TEXT_ALIGN_CENTER = 1;
+inline constexpr std::uint32_t DG_TEXT_ALIGN_RIGHT = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 54;
+inline constexpr std::uint16_t kDgPropMaxId = 59;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 54;
+inline constexpr std::uint16_t kDgPropCount = 59;

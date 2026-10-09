@@ -73,3 +73,8 @@
    52  disabled
    53  cursor
    54  scrollbar
+   55  font_size
+   56  text_align
+   57  tab_index
+   58  max_length
+   59  wrap

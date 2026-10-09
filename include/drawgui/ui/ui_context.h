@@ -33,8 +33,7 @@ namespace dg {
 
 // Every colour/size a component paints with. Defaults are a usable dark
 // palette; popup_style_from_theme() fills it from the theme's existing
-// tokens. `scrim` has no token yet (adding one regenerates the C ABI
-// header, which is a separate lane's job) - set it directly to override.
+// tokens.
 struct PopupStyle {
   Color surface = Color::from_argb(0xFF2B303B);
   Color on_surface = Color::from_argb(0xFFE6E9F0);
@@ -59,10 +58,10 @@ struct PopupStyle {
 };
 
 // surface/on-surface/border/primary-hover/on-primary/primary-pressed/
-// primary/on-primary/on-disabled/focus-ring colours for `variant`, and
+// primary/on-primary/on-disabled/focus-ring/scrim colours for `variant`, and
 // radius.md/space.md - every token missing from `theme` keeps its default.
 // item_hover/item_pressed are then re-derived as a primary tint of the
-// surface (on_item_hover = on_surface), and scrim is picked per variant.
+// surface (on_item_hover = on_surface).
 [[nodiscard]] PopupStyle popup_style_from_theme(const Theme& theme, ThemeVariant variant);
 
 // The references a component call needs. `tables` carries WidgetSet/Focus/

@@ -60,6 +60,7 @@ export interface dg_event {
   x: number;
   y: number;
   action_id: number;
+  clicks: number;
 }
 
 // 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed.
@@ -81,6 +82,9 @@ export const node_type = {
   CHECKBOX: 4,
   TEXT_FIELD: 5,
   TEXT_AREA: 6,
+  SCROLL_VIEW: 7,
+  LIST: 8,
+  IMAGE: 9,
 } as const;
 
 // dg_value::type.
@@ -108,12 +112,30 @@ export const event_kind = {
   WINDOW_FOCUS_LOST: 11,
   WINDOW_FULLSCREEN_ENTERED: 12,
   WINDOW_FULLSCREEN_LEFT: 13,
+  FOCUS_CHANGED: 14,
+  TIMER: 15,
+  USER: 16,
+  CONTEXT_CLICK: 17,
+  LIST_SELECT: 18,
 } as const;
 
 // ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()).
 export const pixel_format = {
   BGRA8888: 1,
   RGBA8888: 2,
+} as const;
+
+// ABI 0.2: dg_value::bits for a DG_VALUE_LENGTH - which unit `number` is in.
+export const length_unit = {
+  PX: 0,
+  PERCENT: 1,
+} as const;
+
+// ABI 0.2: dg_debug_post_pointer_button_ex()'s `button`.
+export const pointer_button = {
+  PRIMARY: 1,
+  SECONDARY: 2,
+  MIDDLE: 3,
 } as const;
 
 // ABI 0.2: bits of dg_window_get_state()'s non-negative result.
@@ -234,6 +256,11 @@ export const prop_enum = {
     always: 1,
     never: 2,
   },
+  text_align: {
+    left: 0,
+    center: 1,
+    right: 2,
+  },
 } as const;
 
 // Property ids - props/drawgui.props.toml, re-emitted (see gen_abi.py).
@@ -292,6 +319,11 @@ export const prop = {
   disabled: 52,
   cursor: 53,
   scrollbar: 54,
+  font_size: 55,
+  text_align: 56,
+  tab_index: 57,
+  max_length: 58,
+  wrap: 59,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -315,6 +347,7 @@ export const token = {
   'color.scrollbar-thumb-hover': 17,
   'color.scrollbar-thumb-pressed': 18,
   'size.scrollbar': 19,
+  'color.scrim': 20,
 } as const;
 
 export declare namespace DrawguiAbi {
@@ -515,17 +548,18 @@ export declare namespace DrawguiAbi {
   // key event through the real queue for one of the text-editing keys
   // process_key_event() dispatches directly to a focused editor:
   // Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for
-  // DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown - `key_name` is exactly
-  // one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any
-  // other string. No other modifier than Shift can be posted (so no Ctrl+Home).
-  // This is a SEPARATE debug hook from dg_debug_post_key() rather than a second
-  // parameter on it: dg_debug_post_key() parses `logical_key_name` with
-  // dg::parse_chord() against input/shortcuts.toml's own generated binding-name
-  // table, and none of these six keys is a shortcut binding name at all (see this
-  // file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for
-  // parse_chord() to parse. `shift` (nonzero extends a text field's selection,
-  // matching handle_text_field_key()'s own dg::Modifier::kShift check) is
-  // meaningless for Backspace/Delete, which ignore it exactly like
+  // DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown, and Tab (focus
+  // traversal; `shift` makes it Shift+Tab) - `key_name` is exactly one of these
+  // bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other string. No
+  // other modifier than Shift can be posted (so no Ctrl+Home). This is a SEPARATE
+  // debug hook from dg_debug_post_key() rather than a second parameter on it:
+  // dg_debug_post_key() parses `logical_key_name` with dg::parse_chord() against
+  // input/shortcuts.toml's own generated binding-name table, and none of these
+  // six keys is a shortcut binding name at all (see this file's own
+  // DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for parse_chord() to
+  // parse. `shift` (nonzero extends a text field's selection, matching
+  // handle_text_field_key()'s own dg::Modifier::kShift check) is meaningless for
+  // Backspace/Delete, which ignore it exactly like
   // dg::WidgetSet::text_field_backspace()/text_field_delete_forward() do.
   function dg_debug_post_text_field_key(window: dg_window_t | null, down: number, key_name: string | null, shift: number): number;
   // ABI 0.2: replaces the window's title (UTF-8, copied). DG_ERR_INVALID_ARGUMENT
@@ -619,4 +653,82 @@ export declare namespace DrawguiAbi {
   // dg_wait_events()/dg_poll_events() (DG_PROP_CURSOR); this only observes the
   // result, which a headless run cannot see on screen.
   function dg_debug_get_cursor(window: dg_window_t | null): number;
+  // ABI 0.2: gives keyboard focus to a LIVE node, exactly as a click on it would
+  // (an editor shows its caret and starts taking text input). Queues
+  // DG_EVENT_FOCUS_CHANGED when focus actually moved. DG_ERR_UNSUPPORTED for a
+  // node that cannot take focus (focusable types: BUTTON, CHECKBOX, TEXT_FIELD,
+  // TEXT_AREA) or is disabled; DG_ERR_NO_WINDOW for a pending node;
+  // DG_ERR_INVALID_HANDLE for a stale one.
+  function dg_node_focus(node: dg_node_t | null): number;
+  // ABI 0.2: the node that has keyboard focus in `window`, or null when nothing
+  // has (or the window is invalid - dg_last_error() then says so).
+  function dg_window_get_focus(window: dg_window_t | null): dg_node_t | null;
+  // ABI 0.2: blurs whatever has focus in `window` (DG_EVENT_FOCUS_CHANGED with a
+  // null node, if something had it). DG_ERR_INVALID_HANDLE for a closed/unknown
+  // window.
+  function dg_window_clear_focus(window: dg_window_t | null): number;
+  // ABI 0.2: how far a LIVE DG_NODE_TYPE_SCROLL_VIEW, DG_NODE_TYPE_LIST or
+  // DG_NODE_TYPE_TEXT_AREA is scrolled, in device pixels (0,0 = at the start).
+  // Either out-param may be null. DG_ERR_UNSUPPORTED for any other node type.
+  function dg_node_get_scroll_offset(node: dg_node_t | null, x: Int32Array | null, y: Int32Array | null): number;
+  // ABI 0.2: replaces a LIVE DG_NODE_TYPE_LIST's rows with `count` NUL-terminated
+  // UTF-8 strings, copied before returning (`items` may be null when count is 0;
+  // a null entry is an empty row). `item_height` is every row's height in device
+  // pixels; 0 keeps the current height (28 by default). The scroll offset is
+  // clamped to the new content and the selection cleared. DG_ERR_INVALID_ARGUMENT
+  // for a null array with count > 0, a negative item_height, or count above 2^24;
+  // DG_ERR_UNSUPPORTED for a node that is not a list.
+  function dg_list_set_items(node: dg_node_t | null, items: BigUint64Array | null, count: number, item_height: number): number;
+  // ABI 0.2: the selected row index of a LIVE DG_NODE_TYPE_LIST (non-negative),
+  // -1 when nothing is selected - or a negative DG_ERR_* below -1
+  // (DG_ERR_INVALID_HANDLE, DG_ERR_NO_WINDOW, DG_ERR_UNSUPPORTED). Note
+  // DG_ERR_OOM is -1 too, but this function allocates nothing.
+  function dg_list_get_selected(node: dg_node_t | null): number;
+  // ABI 0.2: selects row `index` of a LIVE DG_NODE_TYPE_LIST (-1 clears the
+  // selection). Does not scroll and queues no event. DG_ERR_VALUE_OUT_OF_RANGE
+  // for an index outside -1..count-1.
+  function dg_list_set_selected(node: dg_node_t | null, index: number): number;
+  // ABI 0.2: decodes a complete PNG, JPEG, WebP or SVG file's bytes (sniffed -
+  // SVG is anything starting with '<'; copied, not retained) and shows it in a
+  // LIVE DG_NODE_TYPE_IMAGE or DG_NODE_TYPE_BOX, keeping its DG_PROP_IMAGE_FIT.
+  // `svg_tint_argb`, when its alpha is nonzero, recolours an SVG to that colour
+  // keeping the icon's shape (ignored for bitmaps); 0 means no tint. These bytes
+  // are TRUSTED application assets: SVG goes through Skia's SVG parser. Decoded
+  // images live as long as the app. DG_ERR_INVALID_ARGUMENT for null/empty bytes
+  // or data that does not decode (dg_last_error() says why); DG_ERR_UNSUPPORTED
+  // for another node type.
+  function dg_node_set_image_data(node: dg_node_t | null, bytes: ArrayBufferView | null, len: number, svg_tint_argb: number): number;
+  // ABI 0.2: dg_node_set_image_data() with the bytes read from `path`.
+  // DG_ERR_INVALID_ARGUMENT for a null path, an unreadable file or one that does
+  // not decode.
+  function dg_node_set_image_file(node: dg_node_t | null, path: string | null, svg_tint_argb: number): number;
+  // ABI 0.2: schedules DG_EVENT_TIMER `delay_ms` (negative counts as 0) from now;
+  // nonzero `repeat` fires it again every delay_ms (at least 1) until
+  // dg_timer_cancel(). Returns the timer id (never 0, never reused within the
+  // app, below 2^31), or 0 on failure. dg_wait_events() wakes for the nearest
+  // timer, so a host blocking with timeout -1 still gets it. Main thread only.
+  function dg_timer_add(app: dg_app_t | null, delay_ms: number, repeat: number): number;
+  // ABI 0.2: stops a timer; it never fires again. DG_ERR_OK when it was pending;
+  // DG_ERR_INVALID_ARGUMENT for an id that already fired (one-shot), was
+  // cancelled or was never issued - so cancelling twice is harmless. Main thread
+  // only.
+  function dg_timer_cancel(app: dg_app_t | null, timer_id: number): number;
+  // ABI 0.2: makes a dg_wait_events() blocked on the main thread return now,
+  // without queuing any event. THREAD-SAFE: may be called from any thread while
+  // `app` is alive (not concurrently with dg_app_create()/dg_app_destroy()).
+  // DG_ERR_UNSUPPORTED if the platform event queue is full.
+  function dg_wake(app: dg_app_t | null): number;
+  // ABI 0.2: queues DG_EVENT_USER carrying `payload` and wakes dg_wait_events().
+  // THREAD-SAFE like dg_wake(); events from one thread arrive in posting order.
+  // DG_ERR_UNSUPPORTED if the platform event queue is full.
+  function dg_post_user_event(app: dg_app_t | null, payload: bigint): number;
+  // TEST-ONLY. ABI 0.2: WindowManager::post_wheel() at the ABI boundary - a real
+  // wheel event, in notches (negative dy scrolls down), at the last
+  // dg_debug_warp_pointer() position.
+  function dg_debug_post_wheel(window: dg_window_t | null, dx: number, dy: number): number;
+  // TEST-ONLY. ABI 0.2: dg_debug_post_pointer_button() with a DG_POINTER_BUTTON_*
+  // `button` and the platform click count `clicks` the event carries (0 = let
+  // drawgui count). DG_ERR_INVALID_ARGUMENT for an unknown button or negative
+  // clicks.
+  function dg_debug_post_pointer_button_ex(window: dg_window_t | null, down: number, x: number, y: number, button: number, clicks: number): number;
 }

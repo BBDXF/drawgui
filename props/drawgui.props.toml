@@ -74,7 +74,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 55
+next_id = 60
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -619,10 +619,9 @@ summary = "Painted in place of the image while none is decoded yet; never a hole
 # `text_color` rides the ordinary scalar path: TextStyle::color's own
 # default is fully transparent (Color{}'s "fully transparent" default,
 # graphics/types.h), so a caller who sets `text` alone still draws nothing
-# visible without also setting this - font family and size are NOT here on
-# purpose: this slice ships one engine-chosen default (the app's own
-# dg_app_add_font() primary family, and a fixed default size) rather than a
-# second knob nothing yet asks to turn.
+# visible without also setting this. The font family is NOT a property: one
+# engine-chosen default (the app's own dg_app_add_font() primary family);
+# size and alignment arrived later as font_size/text_align (ids 55/56).
 # ---------------------------------------------------------------------------
 
 [[property]]
@@ -698,3 +697,69 @@ group = "container"
 field = "scrollbar"
 applies_to = ["box"]
 summary = "Scrollbar visibility on a scroll view or list: auto shows it only while content overflows."
+
+# ---------------------------------------------------------------------------
+# Text - size and horizontal alignment of the run a label/button paints
+# (TextStyle::size / TextStyle::align). Plain scalars on the node's own
+# TextStyle, so they ride dg_node_set_prop(). There is no font-weight
+# property: TextStyle carries no weight (one family, one face per FontId).
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "font_size"
+id = 55
+type = "float"
+group = "visual"
+field = "font_size"
+applies_to = ["box"]
+summary = "TextStyle::size in logical pixels; must be finite and positive."
+
+[[property]]
+name = "text_align"
+id = 56
+type = "enum"
+values = ["left", "center", "right"]
+group = "visual"
+field = "text_align"
+applies_to = ["box"]
+summary = "TextStyle::align - where the text sits horizontally inside its node."
+
+# ---------------------------------------------------------------------------
+# Widget state the C ABI sets through dg_node_set_prop(). Both live in the
+# widget layer (dg::Widget::tab_index, the editor's max length), not in
+# BoxStyle/NodeStyle, so the C++ dg::set_prop() reports them kUnsupported
+# and points at WidgetSet; the C ABI's dg_node_set_prop() handles them
+# itself before reaching dg::set_prop().
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "tab_index"
+id = 57
+type = "float"
+group = "interaction"
+field = "tab_index"
+applies_to = ["box"]
+summary = "Tab order (an integer): positive values go first, ascending; 0 is tree order; negative leaves Tab order but stays clickable."
+
+[[property]]
+name = "max_length"
+id = 58
+type = "float"
+group = "interaction"
+field = "max_length"
+applies_to = ["box"]
+summary = "A text editor's maximum length in grapheme clusters (an integer); 0 means unlimited."
+
+# ---------------------------------------------------------------------------
+# Container - WRAPPING. A row/column that wraps becomes LayoutKind::kWrapRow/
+# kWrapColumn (and back), keeping its axis; run_gap/align_content then apply.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "wrap"
+id = 59
+type = "bool"
+group = "container"
+field = "wrap"
+applies_to = ["flex", "wrap"]
+summary = "Whether a row/column starts a new run when a child does not fit (kWrapRow/kWrapColumn)."

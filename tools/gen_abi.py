@@ -155,6 +155,11 @@ C_PRIMITIVE_TYPES = frozenset(
         # untyped pixel buffer dg_window_set_icon() copies before returning.
         "int32_t*",
         "const void*",
+        # ABI 0.2 phase A: dg_post_user_event()'s 64-bit payload, and
+        # dg_list_set_items()'s borrowed array of borrowed UTF-8 strings
+        # (every one copied before the call returns).
+        "uint64_t",
+        "const char* const*",
     }
 )
 
@@ -752,6 +757,8 @@ _C_TO_TS = {
     "uint32_t*": "Uint32Array | null",
     "int32_t*": "Int32Array | null",
     "const void*": "ArrayBufferView | null",
+    "uint64_t": "bigint",
+    "const char* const*": "BigUint64Array | null",
 }
 
 

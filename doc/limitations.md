@@ -61,7 +61,7 @@
 - **每个视图只有一根滚动条**：一个 `kScrollView` 只沿一个轴滚动（`scroll_axis`），所以没有双轴、也没有右下角的交汇块。
 - **点轨道只翻一页**，按住不会连续翻页（没有定时器驱动的重复）；没有「点哪跳哪」模式，也没有滚动条上的箭头按钮。
 - **滚动条不会自动隐藏/淡出**（没有 overlay 式滚动条）；外观只有纯色填充，最小滑块长度 `min_thumb_length` 不是主题 token。
-- **C ABI 没有滚动视图节点类型**，`DG_PROP_SCROLLBAR` 在 ABI 侧只是被校验和保存。
+- C ABI 的 `SCROLL_VIEW`/`LIST`/`TEXT_AREA` 由 ABI 自己建滚动条、留槽、在布局后 sync；其余边界同上。
 
 ### A7. `transform` 属性设置永远返回 `kUnsupported`
 
@@ -108,29 +108,45 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 - **激活发生在按下（kDown）**，不是松开；Type-ahead 只看首字母、ASCII 大小写不敏感。
 - **文字宽度**：给了 `FontCatalog` 时用 `Paragraph` 实测，没给时按每字节 0.6em 估算；没给 `FontCatalog` 时 `Dropdown` 无法提交选择（`dropdown_select()` 需要它）。
 - **对话框覆盖整个窗口**，尺寸取 `RenderTree::viewport()`；窗口打开期间改尺寸不会重新居中（关掉重开即可）。面板/按钮布局是手算的固定几何，不走 `LayoutTree`。
-- **主题**：颜色/尺寸来自已有 token（`popup_style_from_theme()`）；遮罩色 `PopupStyle::scrim` 暂时没有 token（新增 token 会改动 C ABI 生成头，留给 ABI 那条线），是写死的半透明黑，可直接改 `PopupStyle`。
+- **主题**：颜色/尺寸来自已有 token（`popup_style_from_theme()`），遮罩色 `PopupStyle::scrim` 取自 `color.scrim`（内建主题：暗色 `#00000099`、亮色 `#0F141A66`）。
 - **视觉是最小可用版**：所有绘制/节点形状集中在 `src/ui/ui_visuals.cpp`，等设计侧打磨。
-- **C ABI 没有导出这些组件**（见 C 节）。
+- **C ABI 没有导出这些组件**（见 C 节；计划中的 phase B）。
 - `examples/23_menu_tooltip_dialog` 的**原生（第二个 OS 窗口）对话框**分支、`examples/25_showcase` 的带输入框的资料对话框（依赖文本框的 IME/焦点钩子）仍是应用层手搭的，没有迁移到 `dg::Dialog`。
 
 ---
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗并操作窗口（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询）、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`/`TEXT_AREA` 节点、设置 52 个属性（含专用的 `dg_node_set_text()` 通道，以及 `DG_PROP_DISABLED` 禁用状态）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框/多行编辑框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件以及 `DG_EVENT_WINDOW_*` 窗口状态事件（resize/移动/最小化/最大化/还原/焦点/全屏）、加载主题包。ABI 没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
+C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，63 个函数，完整列表见 `doc/reference/c-abi.md`）现在能做到：
 
-**P6 sub-step a1 起，能画文字了**——但只是最小可见的一行：`DG_NODE_TYPE_LABEL` 有引擎内置的默认字号（16px）和默认黑色，`font_size`/`text_align` 这两个属性**故意没做**（够用就不加，是这个仓库的纪律），所以想要更大字号、居左/居右对齐，ABI 现阶段做不到，只能直接用 C++ 层的 `TextStyle`。
+- **窗口**：开窗并操作（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询），接收 `DG_EVENT_WINDOW_*` 状态事件。没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
+- **节点**：九种——`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`；按位置插入、同窗口内移动、整棵子树删除。
+- **布局**：`BOX` 写 `DG_PROP_DIRECTION` 变成行/列容器（`JUSTIFY`/`ALIGN`/`GAP`/`WRAP` 等随之可用）；百分比长度（`DG_LENGTH_UNIT_PERCENT`，只用于 `WIDTH`/`HEIGHT`/`MIN_*`/`MAX_*`）。
+- **文字**：`DG_PROP_TEXT`/`TEXT_COLOR`/`FONT_SIZE`/`TEXT_ALIGN`；编辑框 `DG_PROP_MAX_LENGTH`。
+- **焦点**：`dg_node_focus()`/`dg_window_get_focus()`/`dg_window_clear_focus()`、Tab/Shift+Tab、`DG_PROP_TAB_INDEX`、`DG_EVENT_FOCUS_CHANGED`。
+- **指针**：`DG_EVENT_CLICK` 带连击数（`dg_event::clicks`），右键按下是 `DG_EVENT_CONTEXT_CLICK`。
+- **事件循环**：`dg_timer_add()`/`dg_timer_cancel()`（`DG_EVENT_TIMER`），线程安全的 `dg_wake()`/`dg_post_user_event()`（`DG_EVENT_USER`）。
+- **其它**：读回 checkbox 状态、编辑框文字、列表选中行、滚动偏移；装配字体；加载主题包。
 
-以下四项不是遗漏，是 `abi/drawgui.def.toml` 头部注释里逐项具名拒绝的，各有各的理由：
+能用但有边界的地方：
+
+- **容器不能变回叶子**：`BOX` 一旦写过 `DIRECTION` 就一直是容器；`row_reverse`/`column_reverse` 未实现。`WRAP` 必须在 `DIRECTION` 之后写。
+- **文字没有字族/字重属性**：只有 `dg_app_add_font()` 注册的第一个字族，`TextStyle` 本身没有字重。改大字号不会撑高节点盒子；编辑框的 `TEXT_COLOR` 在下次切换主题时被主题色覆盖。
+- **`SCROLL_VIEW`** 只沿一个轴滚动；它的内容节点没有句柄，`PADDING`/`BACKGROUND` 之类只能写在视口上（容器属性会转给内容节点）。写 `PADDING_R`/`PADDING_B` 会覆盖为滚动条预留的槽。键盘滚动只在焦点落在它里面的控件上时生效（滚动视图本身不可聚焦，见 A6）。
+- **`LIST`** 只有单列文字行：同时可见最多 30 行（32 个复用行节点），数据整体推送（`dg_list_set_items()` 全量拷贝，没有增量更新、也没有按索引拉取的回调），行高统一、不可聚焦、没有键盘导航、没有悬停高亮，选中发生在按下而不是松开。
+- **`IMAGE`**：同步解码；图片表只增不减，app 存活期间不释放（换图片会留下旧图）；SVG 视为可信资源（经 Skia SVG 解析器）；`svg_tint_argb` 是整图 SrcIn 着色。见 E 节的图片格式边界。
+- **定时器 id 低于 2^31**，事件里放在 `int32_t x` 中；用户事件的 64 位负载拆在 `x`/`y` 两个字段里。
+- **焦点事件只报新焦点**，不报失去焦点的是谁；焦点落在没有句柄的节点上时 `node` 为 NULL。
+
+以下几项不是遗漏，是 `abi/drawgui.def.toml` 头部注释里逐项具名拒绝的，各有各的理由：
 
 - **无回调模式**（`dg_set_event_callback`）——没有真实嵌入 QuickJS 的调用方之前，接口形状无从设计
 - **无自定义绘制**（`dg_custom_paint_set_cmds`）——不在当前验收路径上
 - **无动画 API**（`dg_animate`/`dg_node_set_transition`）——C++ 侧 `AnimationEngine` 已存在，只是没有调用方需要它被导出
-- 无焦点 API、无弹层 API——同样：ABI 现有的验收标准不需要它们
 
 此外 `Widget::group`（radio）与 IME 组字接口也在同一处注释里具名不导出：前者因为分组切换不重绘兄弟节点、且无调用方需要；后者因为组字偏移换算从未经真机 IME 验证（见 A10）。
 
-想要动画、焦点管理、弹层、可配置字号/对齐这些能力，目前只能直接用 C++ 层，ABI 现阶段不是这些能力的入口。
+尚未导出、计划中的（phase B）：菜单、下拉框、tooltip、对话框、Tabs、Tree、Table、ProgressBar（C++ 组件见 B 节、A15）。渐变/阴影/变换三个复杂属性 setter 和 `kSlider`/`kDropdown` 控件也没有导出。
 
 ---
 
@@ -163,8 +179,9 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 ### A14. 点击计数、指针捕获与定时器的边界
 
 - `PointerEvent::clicks`：平台计数会一直增长（4、5…），自行推导的计数按 1、2、3 循环；
-  判断双击用 `clicks == 2`。编辑框（C ABI 层 `abi_impl.cpp`）仍用自己的 `ClickCounter`，
-  没有迁移到这个字段；这些 C++ API 也尚未暴露到 C ABI。
+  判断双击用 `clicks == 2`。C ABI 的编辑框和 `dg_event::clicks` 都用这个字段（ABI 另外
+  规定：两次按下之间按过键，连击数从 1 重新数起）。定时器、`wake()`/`post_user_event()`
+  已暴露为 `dg_timer_*`/`dg_wake()`/`dg_post_user_event()`；指针捕获没有暴露。
 - 指针捕获只在 Linux/SDL3 上实现，dummy 驱动下平台调用无效（只有逻辑状态可观察）；
   捕获期间不会把其他窗口的事件改派给被捕获窗口，这件事交给 SDL 自己。
 - 定时器精度受 `SDL_WaitEventTimeout` 的毫秒粒度和调度延迟限制，只保证"不早于截止时间"；
@@ -199,7 +216,7 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 - **编辑框的撤销与选词是简化版**（TextField/TextArea 共用）：撤销快照是整段文字的拷贝（深度上限 100，适合表单级文本，不适合大文档）；分词是按字素簇首码点分类的简单规则，连续的汉字/假名算一个词，没有词典分词；双击选词后拖动仍按字素扩展，不按词扩展；`max_length`（`editor_set_max_length()`）只有 C++ API，没有 ABI 属性；TextArea 里 Tab 始终切焦点，不能插入 `\t`
 - **无 RTL 界面镜像**：BiDi 文本渲染本身是支持的，但整体界面镜像（flex 主轴反转、padding 左右互换、图标翻转）没有做
 - **无竖排文本**
-- **图片格式与 SVG 的边界**：位图只注册并测试了 PNG/JPEG/WebP（GIF/BMP/ICO/AVIF 等解码器未注册，送进来会被拒绝）；动图只取第一帧；无九宫格；解码全部同步。SVG 走 Skia 的 `SkSVGDOM`：没有设置字体管理器和资源提供者，所以 SVG 里的 `<text>` 不显示、`<image>`/外部引用不加载；每次绘制都重新画一遍矢量（无栅格缓存，复杂插画类 SVG 会贵）；`tint` 是整图 SrcIn 着色，只适合单色图标，多色图标会被压成一种颜色；没有任何 node 属性/C ABI 暴露 SVG 或 tint（若后续 ABI 需要，建议是 image 源的加载参数，而不是新的节点属性）。`ImageCatalog::decode()` 刻意不解析 SVG（主题包安全决定），SVG 只能经 `decode_any()`/`decode_svg()`/`decode_file()` 进入
+- **图片格式与 SVG 的边界**：位图只注册并测试了 PNG/JPEG/WebP（GIF/BMP/ICO/AVIF 等解码器未注册，送进来会被拒绝）；动图只取第一帧；无九宫格；解码全部同步。SVG 走 Skia 的 `SkSVGDOM`：没有设置字体管理器和资源提供者，所以 SVG 里的 `<text>` 不显示、`<image>`/外部引用不加载；每次绘制都重新画一遍矢量（无栅格缓存，复杂插画类 SVG 会贵）；`tint` 是整图 SrcIn 着色，只适合单色图标，多色图标会被压成一种颜色；C ABI 通过 `dg_node_set_image_data()`/`_file()` 的 `svg_tint_argb` 参数暴露 SVG 与 tint（图片源的加载参数，而不是节点属性），C++ 侧仍没有对应的 node 属性。`ImageCatalog::decode()` 刻意不解析 SVG（主题包安全决定），SVG 只能经 `decode_any()`/`decode_svg()`/`decode_file()` 进入
 - **字体 fallback 链对完全未覆盖的字符只画 `.notdef` 方框（tofu）**，见 A12——这不是"处理不好"，是链条设计本身：只覆盖显式列出的语言/字符集组合
 
 ### 明确不做（scope boundary，不是遗漏）
