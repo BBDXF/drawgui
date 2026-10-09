@@ -12,7 +12,34 @@ namespace {
 // (examples/12_text_input's Runner::handle_key) already dispatches on
 // directly, restated here as a predicate so route_key_event() can bypass
 // the router for it rather than duplicating that switch a second time.
-[[nodiscard]] bool is_text_editing_intent(WidgetKind kind, Key key) {
+[[nodiscard]] bool is_text_editing_intent(WidgetKind kind, const KeyEvent& event) {
+  if (kind == WidgetKind::kTextArea) {
+    // The multi-line editor's own set: the single-line six plus vertical
+    // movement and Enter. Enter is an editing intent only bare or with
+    // Shift (both insert a newline); Ctrl/Alt/Mod+Enter still reach the
+    // router so an app can bind e.g. Mod+Enter to "submit". Tab is never
+    // here - it stays focus traversal.
+    switch (event.key) {
+      case Key::kLeft:
+      case Key::kRight:
+      case Key::kHome:
+      case Key::kEnd:
+      case Key::kBackspace:
+      case Key::kDelete:
+      case Key::kUp:
+      case Key::kDown:
+      case Key::kPageUp:
+      case Key::kPageDown:
+        return true;
+      case Key::kEnter:
+        return !has(event.mods, Modifier::kMod) && !has(event.mods, Modifier::kAlt);
+      case Key::kOther:
+      case Key::kEscape:
+      case Key::kTab:
+        return false;
+    }
+    return false;
+  }
   if (kind != WidgetKind::kTextField) {
     return false;
   }
@@ -27,7 +54,7 @@ namespace {
   // as belonging to a TextField's editing intents, NOT to the shortcut table.
   // The day a caller does want a modified chord over one of these keys, the
   // fix is to consult `mods` here, not to special-case it at the call site.
-  switch (key) {
+  switch (event.key) {
     case Key::kLeft:
     case Key::kRight:
     case Key::kHome:
@@ -41,6 +68,8 @@ namespace {
     case Key::kUp:
     case Key::kDown:
     case Key::kEnter:
+    case Key::kPageUp:
+    case Key::kPageDown:
       return false;
   }
   return false;
@@ -97,7 +126,7 @@ KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
   // the router structurally unreachable while composing. 8-3b's own
   // defect-injection test proves this by deleting exactly this early
   // return and observing the router get reached.
-  if (focused.has_value() && ctx.widgets.text_field_is_composing(*focused)) {
+  if (focused.has_value() && ctx.widgets.editor_is_composing(*focused)) {
     return KeyRouteResult{KeyRouteOutcome::kIme, std::nullopt};
   }
 
@@ -106,7 +135,7 @@ KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
   // - a kUp KeyEvent for one of these keys is exactly as much "not a
   // shortcut" as a kDown one.
   if (focused.has_value() && ctx.widgets.has(*focused) &&
-      is_text_editing_intent(ctx.widgets.at(*focused).kind, event.key)) {
+      is_text_editing_intent(ctx.widgets.at(*focused).kind, event)) {
     return KeyRouteResult{KeyRouteOutcome::kEditingIntent, std::nullopt};
   }
 

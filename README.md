@@ -29,9 +29,9 @@ backend, with no platform-abstraction layer ahead of a second one.
   `RenderTree` still has no node-kind enum, and the six-value `LayoutKind`
   set has not grown since the first layout slice.
 - **Properties**: 51 CSS-like properties addressable by numeric id.
-- **Widgets**: 9 `WidgetKind` values - panel, label, button, checkbox
+- **Widgets**: 11 `WidgetKind` values - panel, label, button, checkbox
   (radio is a `group` field on it), slider, scroll view, text field,
-  virtualized list, dropdown. Context menu, tooltip and modal dialog are
+  multi-line text area, virtualized list, dropdown, and the scrollbar part. Context menu, tooltip and modal dialog are
   **not** separate widget kinds - they are application-layer recipes built
   on a shared, overlay-only popup host (`kDropdown` itself is real: it
   owns an anchor, an option list and a selected index; the popup *list*
@@ -58,10 +58,10 @@ backend, with no platform-abstraction layer ahead of a second one.
   test-only hooks) - but a much smaller surface than the C++ engine. Today
   it can open a window and operate on it (title, size, position, min/max
   size, minimize/maximize/restore, fullscreen, resizable, icon, state
-  query), create five node types
-  (`BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`), set the 51 properties
+  query), create six node types
+  (`BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`/`TEXT_AREA`), set the 51 properties
   (text through the dedicated `dg_node_set_text()`), read back a
-  checkbox's state and a text field's text, receive
+  checkbox's state and a text field's or text area's text, receive
   close/click/action/text-changed and window-state (resize/move/minimize/
   maximize/restore/focus/fullscreen) events, and load a theme. Nodes can be
   inserted before a sibling, moved within a window and removed as whole
@@ -107,7 +107,7 @@ per-frame call order, see **`doc/getting-started.md`**.
 
 ## Examples
 
-26 examples, `examples/00_*` through `examples/25_*`. Most support
+27 examples, `examples/00_*` through `examples/26_*`. Most support
 `--dump-png out.png` (headless render) and a `--verify-*` flag (headless
 assertion, used in CTest); run any binary with `--help` for its full flag
 list. **Start with `examples/25_showcase`** - it is the only example that
@@ -142,6 +142,7 @@ project's cross-feature regression bed.
 | 23 | `menu_tooltip_dialog` | Context menu and tooltip built on the overlay popup host, plus a modal `Dialog` that is a real, separate OS window (`--branch native\|overlay` compares two ways of opening it) | `--verify-menus` |
 | 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
 | 25 | `showcase` | **Start here.** All 9 `WidgetKind`s, menu/tooltip/dialog, live theme switch, CJK text and shadow, combined in one scene | `--verify-showcase` |
+| 26 | `text_area` | Multi-line `TEXT_AREA` through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
 
 ## Unit tests
 

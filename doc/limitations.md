@@ -111,7 +111,7 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗并操作窗口（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询）、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD` 节点、设置 52 个属性（含专用的 `dg_node_set_text()` 通道，以及 `DG_PROP_DISABLED` 禁用状态）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件以及 `DG_EVENT_WINDOW_*` 窗口状态事件（resize/移动/最小化/最大化/还原/焦点/全屏）、加载主题包。ABI 没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
+C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗并操作窗口（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询）、建 `BOX`/`BUTTON`/`LABEL`/`CHECKBOX`/`TEXT_FIELD`/`TEXT_AREA` 节点、设置 52 个属性（含专用的 `dg_node_set_text()` 通道，以及 `DG_PROP_DISABLED` 禁用状态）、读回 checkbox 勾选状态（`dg_node_get_checked()`）与文本框/多行编辑框文字（`dg_node_get_text()`）、装配字体（`dg_app_add_font()`）、接收 `close`/`click`/`action`/`text_changed` 四类事件以及 `DG_EVENT_WINDOW_*` 窗口状态事件（resize/移动/最小化/最大化/还原/焦点/全屏）、加载主题包。ABI 没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
 
 **P6 sub-step a1 起，能画文字了**——但只是最小可见的一行：`DG_NODE_TYPE_LABEL` 有引擎内置的默认字号（16px）和默认黑色，`font_size`/`text_align` 这两个属性**故意没做**（够用就不加，是这个仓库的纪律），所以想要更大字号、居左/居右对齐，ABI 现阶段做不到，只能直接用 C++ 层的 `TextStyle`。
 
@@ -167,7 +167,8 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2）目前能做到：开窗�
 - **Windows/macOS 从未验证**——当前只有 Linux/SDL3 一条实测路径
 - **JS 绑定层（P6）完全未开始**
 - **移动端（P8）未开始**——Android/iOS 宿主、生命周期、触摸手势都还没做
-- **无公开的富文本编辑 API，无 TextArea**：现有的多行文本能力是"能显示多行"，不是"能编辑多行"（无跨行选择、无双击选词、无三击选段）
+- **无公开的富文本编辑 API**：一个编辑框只有一种字号/颜色
+- **TextArea 只是 MVP**：每次按键都对整段文字重新排版（O(n)，长文档会慢）；没有撤销/重做；没有双击选词、三击选段；选区高亮受节点池大小限制（C ABI 为 64 个可见行，超出的行不画）；C ABI 不能注入 Shift+点击/Ctrl+Home 之类带修饰键的指针或按键
 - **无 RTL 界面镜像**：BiDi 文本渲染本身是支持的，但整体界面镜像（flex 主轴反转、padding 左右互换、图标翻转）没有做
 - **无竖排文本**
 - **字体 fallback 链对完全未覆盖的字符只画 `.notdef` 方框（tofu）**，见 A12——这不是"处理不好"，是链条设计本身：只覆盖显式列出的语言/字符集组合

@@ -31,6 +31,7 @@ node_type.BUTTON=2
 node_type.LABEL=3
 node_type.CHECKBOX=4
 node_type.TEXT_FIELD=5
+node_type.TEXT_AREA=6
 value_type.FLOAT=1
 value_type.LENGTH=2
 value_type.COLOR=3

@@ -24,6 +24,7 @@ bool interactive(WidgetKind kind) {
     // a click has to resolve TO the field (to focus it and place the
     // cursor), not merely to a plain child of it.
     case WidgetKind::kTextField:
+    case WidgetKind::kTextArea:
     // A dropdown's anchor is a plain click target exactly like kButton -
     // opening the popup IS the activation.
     case WidgetKind::kDropdown:
@@ -315,7 +316,8 @@ std::optional<NodeId> WidgetSet::scrollable_owner_of(const RenderTree& tree, Nod
   NodeId current = id;
   while (true) {
     const Widget* widget = find(current);
-    if (widget != nullptr && widget->kind == WidgetKind::kScrollView) {
+    if (widget != nullptr &&
+        (widget->kind == WidgetKind::kScrollView || widget->kind == WidgetKind::kTextArea)) {
       return current;
     }
     const NodeId parent = tree.parent(current);
@@ -329,7 +331,23 @@ std::optional<NodeId> WidgetSet::scrollable_owner_of(const RenderTree& tree, Nod
 bool WidgetSet::scroll_by(RenderTree& tree, NodeId id, const PixelRect& viewport_content,
                           int dx, int dy) const {
   const Widget* widget = find(id);
-  if (widget == nullptr || widget->kind != WidgetKind::kScrollView) {
+  if (widget == nullptr) {
+    return false;
+  }
+  if (widget->kind == WidgetKind::kTextArea) {
+    // A text area scrolls vertically only, over its wrapped text's height
+    // (Widget::content_height, kept current by every display refresh).
+    const int max_y = std::max(0, widget->content_height - viewport_content.height);
+    PixelPoint offset = tree.scroll_offset(id);
+    offset.y = std::clamp(offset.y + dy, 0, max_y);
+    if (offset == tree.scroll_offset(id)) {
+      return false;
+    }
+    tree.set_scroll_offset(id, offset);
+    sync_scrollbar(tree, id, viewport_content.height);
+    return true;
+  }
+  if (widget->kind != WidgetKind::kScrollView) {
     return false;
   }
 
@@ -513,7 +531,8 @@ float WidgetSet::slider_value_at(const RenderTree& tree, NodeId id, int pointer_
 void WidgetSet::attach_scrollbar(RenderTree& tree, NodeId id, NodeId track, NodeId thumb) {
   Widget* widget = find(id);
   if (widget == nullptr ||
-      (widget->kind != WidgetKind::kScrollView && widget->kind != WidgetKind::kList)) {
+      (widget->kind != WidgetKind::kScrollView && widget->kind != WidgetKind::kList &&
+       widget->kind != WidgetKind::kTextArea)) {
     return;
   }
   widget->scrollbar_track = track;
@@ -552,6 +571,9 @@ ScrollbarGeometry WidgetSet::scrollbar_geometry(const RenderTree& tree, NodeId i
   } else if (widget->kind == WidgetKind::kList) {
     geometry.axis = widget->list_axis;
     content = widget->list_item_count * widget->list_item_extent;
+  } else if (widget->kind == WidgetKind::kTextArea) {
+    geometry.axis = ScrollAxis::kVertical;
+    content = widget->content_height;
   }
   if (geometry.axis == ScrollAxis::kNone) {
     return geometry;
@@ -639,8 +661,9 @@ ScrollResult WidgetSet::scroll_to(RenderTree& tree, NodeId id, int viewport_exte
   }
   const PixelPoint current = tree.scroll_offset(id);
   ScrollResult result;
-  if (widget->kind == WidgetKind::kScrollView) {
-    const bool vertical = widget->scroll_axis == ScrollAxis::kVertical;
+  if (widget->kind == WidgetKind::kScrollView || widget->kind == WidgetKind::kTextArea) {
+    const bool vertical =
+        widget->kind == WidgetKind::kTextArea || widget->scroll_axis == ScrollAxis::kVertical;
     const int delta = offset - (vertical ? current.y : current.x);
     // scroll_by() reads only the scrolled axis' extent of this rectangle.
     const PixelRect viewport{0, 0, viewport_extent, viewport_extent};
@@ -826,8 +849,9 @@ void WidgetSet::refresh(RenderTree& tree, NodeId id, PointerState state) const {
     // and press thin that border so the pill widens under the pointer.
     NodeStyle style = tree.style(id);
     const float size = static_cast<float>(std::max(1, scrollbar_style_.size));
-    const float inset = !is_thumb ? 0.0F : active ? std::max(1.0F, size / 10.0F)
-                                                  : std::max(1.0F, size / 5.0F);
+    const float inset = !is_thumb ? 0.0F
+                        : active  ? std::max(1.0F, size / 10.0F)
+                                  : std::max(1.0F, size / 5.0F);
     style.fill = fill;
     style.radii = Radii::all(size / 2.0F);
     style.border_width = BorderWidths::all(inset);
@@ -975,12 +999,13 @@ const std::string& WidgetSet::text_field_text(NodeId id) const {
   static const std::string kEmpty;
   const Widget* widget = find(id);
   return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->edit.text
-                                                                        : kEmpty;
+                                                                       : kEmpty;
 }
 
 int WidgetSet::text_field_cursor(NodeId id) const {
   const Widget* widget = find(id);
-  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->edit.cursor : 0;
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? widget->edit.cursor
+                                                                       : 0;
 }
 
 std::optional<TextSelection> WidgetSet::text_field_selection(NodeId id) const {
@@ -1102,7 +1127,8 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
 
 TextEditState* WidgetSet::text_field_state(NodeId id) {
   Widget* widget = find(id);
-  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? &widget->edit : nullptr;
+  return (widget != nullptr && widget->kind == WidgetKind::kTextField) ? &widget->edit
+                                                                       : nullptr;
 }
 
 bool WidgetSet::text_field_commit(RenderTree& tree, const FontCatalog& fonts, NodeId id,
@@ -1116,7 +1142,8 @@ bool WidgetSet::text_field_commit(RenderTree& tree, const FontCatalog& fonts, No
 bool WidgetSet::text_field_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                   std::string_view input) {
   TextEditState* state = text_field_state(id);
-  return state != nullptr && text_field_commit(tree, fonts, id, text_edit::insert(*state, input));
+  return state != nullptr &&
+         text_field_commit(tree, fonts, id, text_edit::insert(*state, input));
 }
 
 bool WidgetSet::text_field_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
@@ -1235,6 +1262,64 @@ const std::string& WidgetSet::text_field_composition_text(NodeId id) const {
   return (widget != nullptr && widget->kind == WidgetKind::kTextField)
              ? widget->edit.composition_text
              : kEmpty;
+}
+
+const TextEditState* WidgetSet::editor_state(NodeId id) const {
+  const Widget* widget = find(id);
+  return (widget != nullptr && is_editable_text(widget->kind)) ? &widget->edit : nullptr;
+}
+
+bool WidgetSet::editor_is_composing(NodeId id) const {
+  const TextEditState* state = editor_state(id);
+  return state != nullptr && state->composing;
+}
+
+bool WidgetSet::editor_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                              std::string_view input) {
+  const Widget* widget = find(id);
+  if (widget == nullptr) {
+    return false;
+  }
+  if (widget->kind == WidgetKind::kTextArea) {
+    return text_area_insert(tree, fonts, id, input);
+  }
+  return text_field_insert(tree, fonts, id, input);
+}
+
+bool WidgetSet::editor_select_all(RenderTree& tree, const FontCatalog& fonts, NodeId id) {
+  const Widget* widget = find(id);
+  if (widget == nullptr) {
+    return false;
+  }
+  if (widget->kind == WidgetKind::kTextArea) {
+    return text_area_select_all(tree, fonts, id);
+  }
+  return text_field_select_all(tree, fonts, id);
+}
+
+bool WidgetSet::editor_set_text(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                std::string_view text, bool focused) {
+  Widget* widget = find(id);
+  if (widget == nullptr || !is_editable_text(widget->kind)) {
+    return false;
+  }
+  const bool area = widget->kind == WidgetKind::kTextArea;
+  TextEditState& edit = widget->edit;
+  text_edit::cancel_composition(edit);
+  const std::string sanitized = text_edit::sanitize_insertable(text, area);
+  const bool changed = sanitized != edit.text;
+  edit.text = sanitized;
+  edit.cursor = static_cast<int>(edit.text.size());
+  edit.selection_anchor.reset();
+  edit.preferred_x.reset();
+  if (area) {
+    widget->caret_upstream = false;
+    widget->focused = focused;
+    text_area_refresh_display(tree, fonts, id, *widget, true);
+  } else {
+    text_field_refresh_display(tree, fonts, id, *widget, focused);
+  }
+  return changed;
 }
 
 }  // namespace dg

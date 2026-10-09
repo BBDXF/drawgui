@@ -248,6 +248,8 @@ void Runner::handle_key(text_field_scene::Scene& scene, const dg::KeyEvent& even
     case dg::Key::kUp:
     case dg::Key::kDown:
     case dg::Key::kEnter:
+    case dg::Key::kPageUp:
+    case dg::Key::kPageDown:
     case dg::Key::kOther:
       break;
   }

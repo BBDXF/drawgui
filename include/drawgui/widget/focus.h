@@ -116,6 +116,7 @@ struct FocusChange {
     case WidgetKind::kCheckbox:
     case WidgetKind::kSlider:
     case WidgetKind::kTextField:
+    case WidgetKind::kTextArea:
     case WidgetKind::kDropdown:
       return true;
     case WidgetKind::kPanel:

@@ -206,6 +206,23 @@ typedef struct dg_theme_err {
 /* initial/replacement content the same way it already does for */
 /* DG_NODE_TYPE_LABEL. */
 #define DG_NODE_TYPE_TEXT_FIELD 5u
+/* ABI 0.2: a multi-line, soft-wrapping editable text area */
+/* (WidgetKind::kTextArea), 320x160 by default, styled with */
+/* DG_NODE_TYPE_TEXT_FIELD's own palette. Everything DG_NODE_TYPE_TEXT_FIELD */
+/* does (click to focus and place the caret, committed text input, */
+/* DG_EVENT_TEXT_CHANGED, dg_node_get_text(), the clipboard actions) plus: Enter */
+/* (bare or with Shift) inserts a newline - Ctrl/Alt+Enter still reach the */
+/* shortcut router; Up/Down keep the caret's column across lines; Home/End go to */
+/* the visual (wrapped) line's ends, Ctrl+Home/End to the text's; */
+/* PageUp/PageDown move by the viewport; a press-drag selects; the wheel and the */
+/* area's own scrollbar (theme tokens color.scrollbar-track/thumb and */
+/* size.scrollbar) scroll without moving the caret, and the caret is scrolled */
+/* into view after every edit or move. Tab stays focus traversal. Its composed */
+/* children (selection highlights, IME underlines, content, caret, scrollbar */
+/* track and thumb) have no dg_node_t handle. dg_node_set_text(DG_PROP_TEXT) on */
+/* a text area or text field replaces the EDITOR'S text (caret to the end) and */
+/* queues no DG_EVENT_TEXT_CHANGED. */
+#define DG_NODE_TYPE_TEXT_AREA 6u
 
 /* dg_value::type. */
 /* PropType::k_float. */
@@ -900,12 +917,14 @@ DG_EXPORT uint32_t dg_debug_capture_png_len(void);
 DG_EXPORT int32_t dg_debug_post_text_input(dg_window_t* window, const char* utf8);
 
 /* TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL */
-/* key event through the real queue for one of the six text-field editing keys */
-/* process_key_event()'s own handle_text_field_key() dispatches directly */
-/* (Left/Right/Home/End/Backspace/Delete - `key_name` is exactly one of these */
-/* six bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other */
-/* string). This is a SEPARATE debug hook from dg_debug_post_key() rather than a */
-/* second parameter on it: dg_debug_post_key() parses `logical_key_name` with */
+/* key event through the real queue for one of the text-editing keys */
+/* process_key_event() dispatches directly to a focused editor: */
+/* Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for */
+/* DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown - `key_name` is exactly */
+/* one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any */
+/* other string. No other modifier than Shift can be posted (so no Ctrl+Home). */
+/* This is a SEPARATE debug hook from dg_debug_post_key() rather than a second */
+/* parameter on it: dg_debug_post_key() parses `logical_key_name` with */
 /* dg::parse_chord() against input/shortcuts.toml's own generated binding-name */
 /* table, and none of these six keys is a shortcut binding name at all (see this */
 /* file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for */

@@ -219,6 +219,10 @@ Key to_key(SDL_Keycode keycode) {
     case SDLK_RETURN:
     case SDLK_KP_ENTER:
       return Key::kEnter;
+    case SDLK_PAGEUP:
+      return Key::kPageUp;
+    case SDLK_PAGEDOWN:
+      return Key::kPageDown;
     default:
       return Key::kOther;
   }
@@ -248,6 +252,10 @@ SDL_Keycode from_key(Key key) {
       return SDLK_DOWN;
     case Key::kEnter:
       return SDLK_RETURN;
+    case Key::kPageUp:
+      return SDLK_PAGEUP;
+    case Key::kPageDown:
+      return SDLK_PAGEDOWN;
     case Key::kOther:
       break;
   }
@@ -849,9 +857,9 @@ Expected<WindowId, WindowError> WindowManager::open_dialog(const WindowSpec& spe
   // ordinary WindowError path)
   // rather than silently degrading to an unowned/non-modal window -
   // measured, not assumed, that this happens under SDL_VIDEODRIVER=dummy
-  // (see examples/23_menu_tooltip_dialog's own headless check). This engine's OWN modal focus trap
-  // (dg::Focus::set_guarded()) is a separate mechanism either way - it does
-  // not depend on this OS-level call succeeding.
+  // (see examples/23_menu_tooltip_dialog's own headless check). This engine's OWN modal focus
+  // trap (dg::Focus::set_guarded()) is a separate mechanism either way - it does not depend on
+  // this OS-level call succeeding.
   if (!SDL_SetWindowParent(window, owner_entry->window)) {
     SDL_DestroyWindow(window);
     return Unexpected{WindowError{sdl_failure("SDL_SetWindowParent")}};

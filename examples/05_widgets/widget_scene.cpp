@@ -444,6 +444,9 @@ std::string describe(const Scene& scene, NodeId id) {
     case WidgetKind::kTextField:
       kind = "text field";
       break;
+    case WidgetKind::kTextArea:
+      kind = "text area";
+      break;
     case WidgetKind::kList:
       kind = "list";
       break;

@@ -7,6 +7,7 @@ namespace dg {
 Cursor widget_default_cursor(WidgetKind kind) {
   switch (kind) {
     case WidgetKind::kTextField:
+    case WidgetKind::kTextArea:
       return Cursor::kText;
     case WidgetKind::kPanel:
     case WidgetKind::kLabel:

@@ -179,8 +179,12 @@ thickness=2，即 8px）时，`fill_ring()` 直接把整个目标涂成环颜色
   事件根本不会被打包成 `Chord`，也不会传给 `resolve_action()`——不是
   "level 2 赢了 level 4"，是快捷键表压根没被查。这也是为什么应用级的
   `scroll_to_start`（绑定裸 `Home`）和文本框自己的行首（也是 `Home`，
-  没有任何 shortcut 绑定）能共存而不冲突。
-- IME 组字：`WidgetSet::text_field_is_composing(focused)` 为真时，**每一个**
+  没有任何 shortcut 绑定）能共存而不冲突。kTextArea 的编辑意图更多：
+  上面六个再加 Up/Down/PageUp/PageDown（`dg::Key` 新增了 `kPageUp`/`kPageDown`，
+  SDL 的 `SDLK_PAGEUP`/`SDLK_PAGEDOWN` 映射过来），以及**不带 Mod/Alt** 的 Enter
+  （裸 Enter 或 Shift+Enter 插入换行）；Ctrl/Alt+Enter 仍然进快捷键路由。
+  kTextField 的六键集合没有变。Tab 对两种编辑框都不是编辑意图，仍然是焦点切换。
+- IME 组字：`WidgetSet::editor_is_composing(focused)`（两种编辑框通用）为真时，**每一个**
   按键（包括组字期间也可能出现的方向键/Enter/Escape）都归输入法候选窗口，
   是硬隔离，不区分是否恰好也是编辑意图。
 

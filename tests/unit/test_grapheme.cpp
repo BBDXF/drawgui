@@ -65,3 +65,17 @@ TEST_CASE("grapheme_boundaries: mixed ASCII and multi-cluster text") {
   REQUIRE(mixed.size() == 30);
   CHECK(dg::grapheme_boundaries(mixed) == std::vector<int>{0, 1, 3, 4, 29, 30});
 }
+
+// Regression: libgrapheme makes no progress on a truncated lead byte, and
+// grapheme_boundaries() used to hand it malformed input verbatim - "A\xE0"
+// hung forever. Each malformed byte is now a cluster of its own and the
+// well-formed runs around it are segmented normally.
+TEST_CASE("grapheme_boundaries: malformed UTF-8 terminates, one cluster per bad byte") {
+  CHECK(dg::grapheme_boundaries("A\xE0") == std::vector<int>{0, 1, 2});
+  CHECK(dg::grapheme_boundaries("\xE0") == std::vector<int>{0, 1});
+  CHECK(dg::grapheme_boundaries("\x80\x80"
+                                "AB") == std::vector<int>{0, 1, 2, 3, 4});
+  // A valid cluster after the bad byte is still one cluster.
+  CHECK(dg::grapheme_boundaries("\xFF\xE4\xB8\xAD") == std::vector<int>{0, 1, 4});
+  CHECK(dg::grapheme_boundaries("\xE4\xB8") == std::vector<int>{0, 1, 2});
+}

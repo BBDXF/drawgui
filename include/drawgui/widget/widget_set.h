@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -39,6 +40,8 @@
 #include "drawgui/widget/text_edit.h"
 
 namespace dg {
+
+class Paragraph;
 
 // Four kinds, not an open set and not a class hierarchy.
 //
@@ -136,7 +139,27 @@ enum class WidgetKind : std::uint8_t {
   // them, and neither is focusable - a click on a scrollbar never moves
   // keyboard focus. Attached by WidgetSet::attach_scrollbar(), never by hand.
   kScrollbar,
+
+  // A multi-line, soft-wrapping text editor. The same composition kTextField
+  // is - plain positioned children over the shared editing core
+  // (text_edit.h) - with three differences that earn it a kind of its own:
+  // its `content` child WRAPS (TextStyle::wrap) and is laid out by
+  // dg::Paragraph's line geometry rather than a single caret_x() run; its
+  // selection and IME underline can span several lines, so they are POOLS
+  // of plain nodes (`highlight_pool`/`underline_pool`) rather than one node
+  // each; and it is its OWN vertical scroll container - the identical
+  // RenderTree::set_scroll_offset() mechanism kScrollView uses, with an
+  // optional scrollbar from attach_scrollbar(). Enter inserts '\n'; Tab
+  // stays focus traversal.
+  kTextArea,
 };
+
+// Whether `kind` is one of the two text editors (kTextField, kTextArea) -
+// the kinds that own a TextEditState, take committed text input and accept
+// the clipboard actions.
+[[nodiscard]] constexpr bool is_editable_text(WidgetKind kind) {
+  return kind == WidgetKind::kTextField || kind == WidgetKind::kTextArea;
+}
 
 // One widget's whole state. A plain struct of plain fields, for the reason
 // design.md section 5.15.3 gives: compact POD reachable by a switch, not a
@@ -227,7 +250,7 @@ struct Widget {
   float step = 0.0F;
   float value = 0.0F;
 
-  // kTextField only. `content`, `caret` and `selection_highlight` are plain
+  // kTextField and kTextArea. `content`, `caret` and `selection_highlight` are plain
   // children this widget positions/sizes at paint time - the same shape
   // `indicator` and `thumb` already are above. `content`'s OWN
   // NodeStyle::text.text is a PAINT-TIME PROJECTION of `text` below, not a
@@ -297,6 +320,34 @@ struct Widget {
   NodeId scrollbar_track;
   NodeId scrollbar_thumb;
   NodeId scrollbar_of;
+
+  // kTextArea only. `selection_layer` is a plain child (painted under
+  // `content`) whose children are `highlight_pool` - one node per visible
+  // selected line, positioned by the widget; `underline_pool` likewise holds
+  // one node per visible line of an IME composition underline. Both pools
+  // are built by the caller at attach time and never grow: lines beyond the
+  // pool's size are simply not highlighted, so a pool should hold at least
+  // the number of lines the viewport can show plus one. `text_inset` is the
+  // padding (device pixels) between the area's border box and its text, on
+  // every side.
+  NodeId selection_layer;
+  std::vector<NodeId> highlight_pool;
+  std::vector<NodeId> underline_pool;
+  int text_inset = 0;
+
+  // kTextArea runtime state. `caret_upstream` is the caret's affinity at a
+  // soft wrap: true draws an offset that ends one wrapped line and starts
+  // the next at the END of the earlier line (End, or Up/Down landing there).
+  // Every other move/edit/click clears it. `focused` mirrors the last
+  // text_area_set_focus(). `content_height` is the wrapped text's height
+  // plus both insets - the scrollable extent. `layout` caches the wrapped
+  // paragraph of the displayed text at the current wrap width.
+  bool caret_upstream = false;
+  bool focused = false;
+  int content_height = 0;
+  std::shared_ptr<const Paragraph> layout;
+  std::string layout_text;
+  int layout_width = 0;
 };
 
 // One pool slot's new identity after `WidgetSet::list_sync()`/
@@ -324,6 +375,22 @@ enum class TextFieldMove : std::uint8_t {
   kCharRight,
   kLineStart,
   kLineEnd,
+};
+
+// Caret movements a kTextArea registers on itself (Left/Right, Up/Down,
+// PageUp/PageDown, Home/End, Ctrl+Home/End). Line start/end are VISUAL
+// (wrapped) lines; kDocStart/kDocEnd are the whole text's ends.
+enum class TextAreaMove : std::uint8_t {
+  kCharLeft,
+  kCharRight,
+  kLineUp,
+  kLineDown,
+  kPageUp,
+  kPageDown,
+  kLineStart,
+  kLineEnd,
+  kDocStart,
+  kDocEnd,
 };
 
 // The two colours every disabled widget is painted with, normally resolved
@@ -783,6 +850,86 @@ class WidgetSet {
   // assert on it directly rather than only its on-screen projection.
   [[nodiscard]] const std::string& text_field_composition_text(NodeId id) const;
 
+  // --- Either text editor (kTextField or kTextArea) ---
+  //
+  // Kind-agnostic accessors for callers that act on "the focused editor"
+  // without caring which one it is: the clipboard actions, the shortcut
+  // router's IME check, and the C ABI. Each dispatches to the matching
+  // text_field_*/text_area_* function and is a no-op (null/false/empty) for
+  // every other kind.
+
+  [[nodiscard]] const TextEditState* editor_state(NodeId id) const;
+  [[nodiscard]] bool editor_is_composing(NodeId id) const;
+  bool editor_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                     std::string_view input);
+  bool editor_select_all(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  // Replaces the WHOLE committed text (sanitized like an insert - a
+  // kTextField drops '\n', a kTextArea keeps it), ends any composition,
+  // puts the caret at the end and clears the selection. `focused` is the
+  // editor's current focus, needed to re-derive its display. False when
+  // the text did not change.
+  bool editor_set_text(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                       std::string_view text, bool focused);
+
+  // --- kTextArea ---
+  //
+  // The kTextField functions' multi-line counterparts. Every mutator re-derives the
+  // display - the wrapped content, caret, selection and underline pools,
+  // the scrollbar - and scrolls the caret into view; every one returns
+  // whether anything changed. Wheel/scrollbar scrolling (scroll_by(),
+  // scrollbar_press()/drag()) never moves the caret.
+
+  [[nodiscard]] const std::string& text_area_text(NodeId id) const;
+  [[nodiscard]] int text_area_cursor(NodeId id) const;
+  [[nodiscard]] std::optional<TextSelection> text_area_selection(NodeId id) const;
+
+  // Like text_field_insert(), except '\n' is KEPT (Enter is
+  // text_area_insert(..., "\n")). "\r\n" and a lone '\r' are not converted:
+  // '\r' is a control character and is dropped like any other.
+  bool text_area_insert(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                        std::string_view input);
+  bool text_area_backspace(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+  bool text_area_delete_forward(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  // Up/Down/PageUp/PageDown keep TextEditState::preferred_x (set from the
+  // caret on the first vertical move); from the first line Up goes to the
+  // text's start, from the last line Down to its end. Every other move
+  // clears preferred_x. Suppressed while composing.
+  bool text_area_move(RenderTree& tree, const FontCatalog& fonts, NodeId id, TextAreaMove move,
+                      bool extend_selection);
+  bool text_area_select_all(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  // Click/drag/shift-click at an ABSOLUTE device-pixel point: the caret goes
+  // to the grapheme boundary nearest it (Paragraph::offset_at()). Ends any
+  // composition without committing it.
+  bool text_area_click(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                       PixelPoint pointer, bool extend_selection);
+
+  void text_area_set_focus(RenderTree& tree, const FontCatalog& fonts, NodeId id, bool focused);
+  void text_area_composition_update(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                    std::string_view text, int start_units, int length_units);
+  void text_area_cancel_composition(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  // Re-derives the whole display from the model - after a layout pass that
+  // resized the area (a kLeaf's children are re-placed at its content
+  // origin by every relayout, the same obligation resync_sliders() has) or
+  // after a theme switch changed the scrollbar size.
+  void text_area_refresh(RenderTree& tree, const FontCatalog& fonts, NodeId id);
+
+  // The caret's rectangle in ABSOLUTE device pixels (what an IME's candidate
+  // window should be placed against - WindowManager::start_text_input()),
+  // or nothing when `id` is not a focused kTextArea.
+  [[nodiscard]] std::optional<PixelRect> text_area_caret_rect(const RenderTree& tree,
+                                                              NodeId id) const;
+
+  // The visible selection/underline segments, area-local unscrolled pixels
+  // (what the pools currently show) - exposed for tests and debugging.
+  [[nodiscard]] std::vector<PixelRect> text_area_highlight_rects(const RenderTree& tree,
+                                                                 NodeId id) const;
+  [[nodiscard]] std::vector<PixelRect> text_area_underline_rects(const RenderTree& tree,
+                                                                 NodeId id) const;
+
  private:
   // Null when `id` names no widget, including when it is past the end of the
   // table. Every accessor goes through these rather than testing has() and
@@ -827,6 +974,17 @@ class WidgetSet {
   // position and visibility, and the selection highlight's rectangle.
   static void text_field_refresh_display(RenderTree& tree, const FontCatalog& fonts, NodeId id,
                                          Widget& widget, bool focused);
+
+  // kTextArea internals (src/widget/text_area.cpp).
+  TextEditState* text_area_state(NodeId id);
+  // Re-derives the display when `changed`; when `reveal_caret` also scrolls
+  // the caret into view. Passes `changed` through.
+  bool text_area_commit(RenderTree& tree, const FontCatalog& fonts, NodeId id, bool changed,
+                        bool reveal_caret = true);
+  void text_area_refresh_display(RenderTree& tree, const FontCatalog& fonts, NodeId id,
+                                 Widget& widget, bool reveal_caret) const;
+  [[nodiscard]] int text_area_wrap_width(const RenderTree& tree, NodeId id,
+                                         const Widget& widget) const;
 
   // One remembered colour: what the node had while enabled, and what the
   // disabled look wrote over it (to notice a later write by someone else).

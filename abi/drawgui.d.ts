@@ -80,6 +80,7 @@ export const node_type = {
   LABEL: 3,
   CHECKBOX: 4,
   TEXT_FIELD: 5,
+  TEXT_AREA: 6,
 } as const;
 
 // dg_value::type.
@@ -513,12 +514,14 @@ export declare namespace DrawguiAbi {
   // node, nothing happens' rule.
   function dg_debug_post_text_input(window: dg_window_t | null, utf8: string | null): number;
   // TEST-ONLY. WindowManager::post_key() at the ABI boundary, driving a real SDL
-  // key event through the real queue for one of the six text-field editing keys
-  // process_key_event()'s own handle_text_field_key() dispatches directly
-  // (Left/Right/Home/End/Backspace/Delete - `key_name` is exactly one of these
-  // six bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any other
-  // string). This is a SEPARATE debug hook from dg_debug_post_key() rather than a
-  // second parameter on it: dg_debug_post_key() parses `logical_key_name` with
+  // key event through the real queue for one of the text-editing keys
+  // process_key_event() dispatches directly to a focused editor:
+  // Left/Right/Home/End/Backspace/Delete, and (ABI 0.2, meaningful for
+  // DG_NODE_TYPE_TEXT_AREA) Up/Down/Enter/PageUp/PageDown - `key_name` is exactly
+  // one of these bare names, case-sensitive, DG_ERR_INVALID_ARGUMENT for any
+  // other string. No other modifier than Shift can be posted (so no Ctrl+Home).
+  // This is a SEPARATE debug hook from dg_debug_post_key() rather than a second
+  // parameter on it: dg_debug_post_key() parses `logical_key_name` with
   // dg::parse_chord() against input/shortcuts.toml's own generated binding-name
   // table, and none of these six keys is a shortcut binding name at all (see this
   // file's own DG_NODE_TYPE_TEXT_FIELD entry) - there is no chord for

@@ -277,6 +277,10 @@ enum class Key : std::uint8_t {
   kUp,
   kDown,
   kEnter,
+
+  // kTextArea's page-wise caret movement (WidgetSet::text_area_move()).
+  kPageUp,
+  kPageDown,
 };
 
 enum class KeyAction : std::uint8_t {

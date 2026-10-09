@@ -127,6 +127,17 @@ widgets.text_field_set_focus(tree.render(), fonts, field_node, /*focused=*/true)
 
 `text_field_insert()` 会对输入做 UTF-8 净化（`sanitize_utf8()`，坏字节替换为 U+FFFD）并丢弃 ASCII 控制字符（换行/Tab 之类，单行框没有意义）。`cursor`/`selection_anchor` 永远落在字位簇边界上（`grapheme_boundaries()`），因为所有修改都通过这些边界查询来定位，从不做原始字节算术——这就是「grapheme cluster 正确」的含义：退格键删掉一个 emoji 家族组合表情，而不是它内部的某一个码点。完整调用序列见 `examples/12_text_input/text_field_check.cpp` 和 `text_field_scene.cpp`。
 
+### 多行文本编辑（text area）
+
+`WidgetKind::kTextArea` 复用同一个编辑内核，只是把投影换成了换行段落：光标、选区、
+点击定位都通过 `dg::Paragraph` 的行几何（全部是 UTF-8 字节偏移）算出来；软换行处同一个
+偏移有两个光标位置，`Widget::caret_upstream` 记录当前用哪一个。搭建方法、按键表、
+滚动与节点池见 `doc/guide/widgets.md`「多行编辑框」。
+
+`text_area_insert()` 与 `text_field_insert()` 的唯一区别是保留 `\n`（其它控制字符，
+包括 `\r`，照样丢弃）。粘贴走同一条路：粘进 TextArea 保留换行；粘进 TextField 的换行
+依旧被丢弃（不会插入裸 `\n`，这是原有行为，没有改成空格）。
+
 ### 接入系统输入法（IME）
 
 ```cpp
@@ -142,7 +153,8 @@ manager->stop_text_input(window_id);
 
 ## 边界与坑
 
-- **只有单行编辑**：没有 `TextArea`。多行文本（`examples/20_multiline_text`）只是「显示」能力——wrap+build 出来的段落是只读的，不支持在里面点击定位光标或编辑。
+- **多行编辑是 MVP**：`kTextArea` 每次按键都会把整段文字重新排版一次（O(n)），没有撤销/重做，
+  没有双击选词/三击选段；超长文档放进去之前先量一下。
 - **无公开的富文本 API**：一个 `TextStyle` 只有一种字号/颜色/字重，不能在一段文字里局部加粗或换色。
 - **无 RTL 界面镜像、无竖排、无双击选词**：这些都不存在，不是被裁剪掉的功能。
 - **IME 偏移换算未经真机验证**：`TextEditingEvent` 的单位转换只是按 SDL 文档实现，没有在真实输入法上跑过。
@@ -157,4 +169,5 @@ manager->stop_text_input(window_id);
 - `examples/06_font_fallback` —— 回退链、多脚本混排
 - `examples/20_multiline_text` —— wrap + `Paragraph::build()` 的完整测量流程
 - `examples/12_text_input` —— 单行编辑、选区、光标移动
+- `examples/26_text_area` —— 多行编辑、软换行 Home/End、滚动
 - `examples/12_text_input`（IME 部分）—— `TextEditingEvent`/composition 预览

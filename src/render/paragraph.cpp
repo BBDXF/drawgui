@@ -25,9 +25,9 @@ namespace {
 // from the caller's bytes only where build_paragraph() replaced an invalid
 // byte with a 3-byte U+FFFD. Bytes inside a codepoint map to its start.
 struct OffsetMap {
-  std::vector<int> utf16_of_byte;   // size = text bytes + 1
-  std::vector<int> skia8_of_byte;   // size = text bytes + 1
-  std::vector<int> byte_of_utf16;   // size = UTF-16 units + 1
+  std::vector<int> utf16_of_byte;  // size = text bytes + 1
+  std::vector<int> skia8_of_byte;  // size = text bytes + 1
+  std::vector<int> byte_of_utf16;  // size = UTF-16 units + 1
 };
 
 OffsetMap build_offset_map(std::string_view text) {
@@ -55,23 +55,6 @@ OffsetMap build_offset_map(std::string_view text) {
   map.skia8_of_byte[text.size()] = skia8;
   map.byte_of_utf16.push_back(static_cast<int>(text.size()));
   return map;
-}
-
-// Grapheme boundaries for well-formed text; one boundary per decode step
-// otherwise - dg::grapheme_boundaries() must never see malformed UTF-8
-// (libgrapheme was measured to spin forever on a truncated lead byte such
-// as "A\xE0"), and an editor never holds malformed text anyway.
-std::vector<int> caret_boundaries(std::string_view text) {
-  if (sanitize_utf8(text) == text) {
-    return grapheme_boundaries(text);
-  }
-  std::vector<int> boundaries{0};
-  std::size_t byte = 0;
-  while (byte < text.size()) {
-    byte += utf8_decode(text, byte).length;
-    boundaries.push_back(static_cast<int>(byte));
-  }
-  return boundaries;
 }
 
 }  // namespace
@@ -111,7 +94,7 @@ void Paragraph::Impl::ensure_geometry() {
     return;
   }
   map = build_offset_map(text);
-  boundaries = caret_boundaries(text);
+  boundaries = grapheme_boundaries(text);
   build_lines();
   geometry_ready = true;
 }
@@ -284,8 +267,8 @@ std::vector<PixelRectF> Paragraph::range_rects(int start, int end) const {
       skia::textlayout::RectWidthStyle::kTight);
   out.reserve(boxes.size());
   for (const skia::textlayout::TextBox& box : boxes) {
-    out.push_back(PixelRectF{box.rect.left(), box.rect.top(), box.rect.width(),
-                             box.rect.height()});
+    out.push_back(
+        PixelRectF{box.rect.left(), box.rect.top(), box.rect.width(), box.rect.height()});
   }
   return out;
 }

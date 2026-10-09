@@ -56,9 +56,9 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 
 参考实现：`include/drawgui/widget/widget_set.h`、`include/drawgui/widget/interaction.h`、`include/drawgui/widget/focus.h`。
 
-## 10 种 WidgetKind
+## 11 种 WidgetKind
 
-`WidgetKind` 是闭集合，一共 10 个值（`widget_set.h` 头部注释仍写着「四种」，那是历史遗留，已经过时——实际数量以枚举本身为准）：
+`WidgetKind` 是闭集合，一共 11 个值（`widget_set.h` 头部注释仍写着「四种」，那是历史遗留，已经过时——实际数量以枚举本身为准）：
 
 | kind | 是否接受指针输入 | 能否获得键盘焦点 | 说明 |
 |---|---|---|---|
@@ -69,6 +69,7 @@ widgets.attach(label, Widget{.kind = WidgetKind::kLabel});  // 标签本身不�
 | `kScrollView` | 是（用于滚轮）| **否** | 裁剪节点 + 无界约束子节点 + 滚动偏移（三个已有机制的组合） |
 | `kSlider` | 是 | 是 | 轨道（本节点）+ 滑块（`thumb` 子节点），`value` 是运行时状态 |
 | `kTextField` | 是 | 是 | 单行可编辑文本框，详见 `doc/guide/text.md` |
+| `kTextArea` | 是 | 是 | 多行可编辑文本框，自带垂直滚动，见下方「多行编辑框」 |
 | `kList` | 是（用于滚轮）| **否** | 固定回收池的虚拟化列表（见下） |
 | `kDropdown` | 是 | 是 | 只是「锚点 + 选项 + 已选索引」，弹出层要自己搭（见下方「配方」一节） |
 | `kScrollbar` | 是 | **否** | 滚动条的轨道或滑块，由 `attach_scrollbar()` 挂上，不要手动 attach（见下方「滚动条」） |
@@ -332,9 +333,58 @@ tree.add_child(parent, box, style);
 
 **如果你要做下拉菜单/右键菜单/tooltip/对话框，正确的做法是把 `examples/22_dropdown_menu/` 和 `examples/23_menu_tooltip_dialog/` 当模板抄**，而不是去 `widget_set.h` 里找一个现成的 API——它不存在。
 
+### 多行编辑框（`kTextArea`）
+
+`kTextArea` 和 `kTextField` 共用同一个编辑内核（`include/drawgui/widget/text_edit.h`），
+差别在于：内容子节点 `TextStyle::wrap = true` 自动换行，几何来自 `dg::Paragraph`
+的行信息（`offset_at`/`caret_rect`/`range_rects`/`lines`）；选区和输入法下划线可能跨多行，
+所以它们是**节点池**而不是单个节点；它自己就是垂直滚动容器（与 `kScrollView`
+相同的 `RenderTree::set_scroll_offset()` 机制），可以挂滚动条。
+
+```cpp
+Widget area;
+area.kind = WidgetKind::kTextArea;
+area.text_inset = 6;                       // 文字与边框的内边距（四边）
+area.selection_layer = layer;              // 画在 content 下面的普通子节点
+for (int i = 0; i < 32; ++i) {             // 每个可见的选中行一个
+  area.highlight_pool.push_back(tree.add_child(layer, placeholder, highlight_style));
+}
+for (int i = 0; i < 4; ++i) {              // 每个可见的组字行一个
+  area.underline_pool.push_back(tree.add_child(area_node, placeholder, underline_style));
+}
+area.content = content;                    // text.wrap = true
+area.caret = caret;
+widgets.attach(area_node, area);
+widgets.attach_scrollbar(tree.render(), area_node, track, thumb);  // 可选，最后添加
+widgets.text_area_set_focus(tree.render(), fonts, area_node, true);
+
+widgets.text_area_insert(tree.render(), fonts, area_node, "\n");      // Enter
+widgets.text_area_move(tree.render(), fonts, area_node, TextAreaMove::kLineDown, shift);
+widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/drag || shift);
+```
+
+- **按键**：Enter（裸键或 Shift）插入 `\n`，Ctrl/Alt+Enter 交给快捷键路由；
+  Up/Down 保持 `TextEditState::preferred_x` 列位置（在首行按 Up 到文首，末行按 Down 到文末）；
+  Home/End 是**视觉行**（软换行处 End 用上游亲和，光标留在本行末尾）；Ctrl+Home/End
+  是全文首尾；PageUp/PageDown 按视口高度移动并滚动。Tab 仍然是焦点切换。
+  任何非垂直移动、编辑、点击都会清掉 `preferred_x`。
+- **滚动**：每次编辑/移动后都会把光标滚进视口；滚轮（`scroll_by()`，
+  `scrollable_owner_of()` 也会找到 `kTextArea`）和拖动滚动条只动视口，不动光标。
+  文字宽度 = 视口宽 − 2×`text_inset` − 滚动条槽（挂了滚动条且 `DG_PROP_SCROLLBAR` 不是 `never` 时）。
+- **选区**：每行一个矩形；选中了空行的换行符时画一个固定 6px 宽的小块。
+  池子大小就是能同时高亮的可见行数上限，超出的行不画。
+- **布局之后要 `text_area_refresh()`**：和滑块一样，`kLeaf` 的子节点每次重排都会被放回
+  内容原点，C ABI 的事件泵每帧都会调一次。
+- **输入法候选框**：`text_area_caret_rect()` 给出光标的绝对矩形，交给
+  `WindowManager::start_text_input()`（即 `SDL_SetTextInputArea`）。
+- 与 kind 无关的访问器 `editor_state()`/`editor_insert()`/`editor_select_all()`/
+  `editor_set_text()`/`editor_is_composing()` 同时适用于两种编辑框——剪贴板动作和快捷键路由用的就是它们。
+
+完整示例：`examples/26_text_area`（C ABI，`--verify-text-area`/`--dump-png`）。
+
 ### kScrollView/kList 不能获得焦点
 
-`focus.h` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList`/`kScrollbar` 不行。后两者被排除是**故意的**而非疏漏——把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。键盘滚动（PageUp/PageDown/Home/End）现在由 `apply_keyboard_scroll()` 实现，但它是从当前焦点向上找最近的可滚动祖先，而不是让 ScrollView/List 自身可聚焦（见 `doc/guide/input.md`）。
+`focus.h` 的 `is_focusable()` 是个穷举 switch：`kButton`/`kCheckbox`/`kSlider`/`kTextField`/`kTextArea`/`kDropdown` 可以被 Tab 到，`kPanel`/`kLabel`/`kScrollView`/`kList`/`kScrollbar` 不行。后两者被排除是**故意的**而非疏漏——把一个 Tab 能到但没有键盘操作能力的东西做成焦点停靠点，体验比压根不能到达更差。键盘滚动（PageUp/PageDown/Home/End）现在由 `apply_keyboard_scroll()` 实现，但它是从当前焦点向上找最近的可滚动祖先，而不是让 ScrollView/List 自身可聚焦（见 `doc/guide/input.md`）。
 
 ## 边界与坑
 
@@ -353,6 +403,7 @@ tree.add_child(parent, box, style);
   （开关通过 `DG_PROP_DISABLED` 启用/禁用旁边的 checkbox 与 slider，`--verify-form-controls`
   校验它）
 - `examples/12_text_input` —— 文本框（另见 `doc/guide/text.md`）
+- `examples/26_text_area` —— 多行编辑框（C ABI 驱动）
 - `examples/13_image` —— 四种 `ImageFit` 对比
 - `examples/15_list` —— 虚拟化列表的回收池
 - `examples/21_focus` —— Tab 顺序、focus ring

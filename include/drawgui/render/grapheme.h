@@ -34,9 +34,10 @@ namespace dg {
 // cluster, UAX #29) boundary in `utf8`, in ascending order - ALWAYS
 // including 0 and utf8.size(), so N clusters produce a boundary vector of
 // size N+1 (an empty string still produces {0}, its own only legal cursor
-// position). `utf8` must already be well-formed (dg::sanitize_utf8()) -
-// every caller in this codebase reaches this only through a TextField model
-// string, which text_field_insert()'s sanitizer already guarantees.
+// position). Malformed input is tolerated: every byte dg::utf8_decode()
+// reports invalid is a cluster of its own (the unit dg::sanitize_utf8()
+// would replace with one U+FFFD), and the well-formed runs between them are
+// segmented normally.
 [[nodiscard]] std::vector<int> grapheme_boundaries(std::string_view utf8);
 
 }  // namespace dg
