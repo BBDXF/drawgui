@@ -406,6 +406,19 @@ add_test(NAME abi.no_drift
 add_test(NAME abi.abi_lock
   COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_abi_lock_check)
 
+# The shortcut/action family's three gates, mirroring props.no_drift/
+# props.abi_lock/props.lock_selftest (cmake/GenerateShortcuts.cmake).
+# shortcuts.lock_selftest was CI-only once and rotted unnoticed for that
+# reason: a hard-coded next_id went stale when input/shortcuts.toml grew.
+add_test(NAME shortcuts.no_drift
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_shortcuts_check)
+
+add_test(NAME shortcuts.abi_lock
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_shortcuts_lock_check)
+
+add_test(NAME shortcuts.lock_selftest
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target drawgui_shortcuts_lock_selftest)
+
 # The C++ runtime (src/app, include/drawgui/app) sits BELOW the C ABI: it
 # must never include drawgui.h or name a dg_* handle or dg_event.
 add_test(NAME app.no_c_abi

@@ -134,6 +134,9 @@ if(DG_SANITIZE)
 
   target_compile_options(drawgui_sanitizers INTERFACE ${_dg_sanitize_flags})
   target_link_options(drawgui_sanitizers INTERFACE ${_dg_sanitize_flags})
+  # Keep Skia's headers on the archive's (uninstrumented) ABI; see the header.
+  target_compile_options(drawgui_sanitizers INTERFACE
+    "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/cmake/skia_uninstrumented_asan.h>")
 
   message(STATUS "Sanitizers: ASan + UBSan (non-recovering) on first-party code")
 endif()

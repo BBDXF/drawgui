@@ -31,6 +31,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -78,15 +79,36 @@ def run_lock(toml_path: Path, lock_path: Path, action: str) -> subprocess.Comple
 
 
 class Case:
-    """One tampering scenario and the verdict it must produce."""
+    """One tampering scenario and the verdict it must produce.
 
-    def __init__(self, name: str, must_fail: bool):
+    `reason` is a fragment the rejection message must contain. Without it a
+    case whose tampering silently stopped applying still "passes" by being
+    rejected for some unrelated reason - which is how every lock case here
+    went hollow once input/shortcuts.toml outgrew a hard-coded next_id.
+    """
+
+    def __init__(self, name: str, must_fail: bool, reason: str = ""):
         self.name = name
         self.must_fail = must_fail
+        self.reason = reason
+
+
+def replace_once(text: str, old: str, new: str) -> str:
+    """str.replace that refuses to be a silent no-op (or to hit twice)."""
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(
+            f"error: self-test fixture is stale: expected {old!r} exactly once in "
+            f"{TOML_SOURCE.name}, found it {count} time(s). Update this script."
+        )
+    return text.replace(old, new)
 
 
 def bump_next_id(text: str, value: int) -> str:
-    return text.replace("next_id = 9", f"next_id = {value}")
+    bumped, count = re.subn(r"(?m)^next_id = \d+$", f"next_id = {value}", text)
+    if count != 1:
+        raise SystemExit(f"error: expected one `next_id = N` line, found {count}")
+    return bumped
 
 
 def append_action(text: str, action_id: int) -> str:
@@ -95,6 +117,12 @@ def append_action(text: str, action_id: int) -> str:
 
 def report(case: Case, failed: bool, detail: str, failures: list[str]) -> None:
     verdict = "REJECTED" if failed else "accepted"
+    if failed and case.must_fail and case.reason and case.reason not in detail:
+        failures.append(f"{case.name}: rejected, but not for the reason under test")
+        print(f"  FAIL  {case.name}: REJECTED without {case.reason!r}")
+        for line in detail.strip().splitlines()[:2]:
+            print(f"        {line}")
+        return
     if failed != case.must_fail:
         wanted = "reject" if case.must_fail else "accept"
         failures.append(f"{case.name}: expected the check to {wanted} this, it did not")
@@ -124,6 +152,11 @@ def check_generator_case(case: Case, toml_path: Path, failures: list[str]) -> No
 
 def main() -> int:
     original_toml = TOML_SOURCE.read_text(encoding="utf-8")
+    # Derived, never hard-coded: the table grows, and a stale constant here
+    # turns every case below into a rejection for the wrong reason.
+    defs = gen_shortcuts.load_definitions(TOML_SOURCE)
+    fresh_id = defs.next_id
+    last = defs.actions[-1]
     failures: list[str] = []
 
     print("shortcut_lock.py / gen_shortcuts.py self-test: every case below must be")
@@ -145,10 +178,10 @@ def main() -> int:
         # 1. Appended but never recorded.
         unrecorded_toml = tmp / "unrecorded.toml"
         unrecorded_lock = tmp / "unrecorded.lock"
-        unrecorded_toml.write_text(append_action(original_toml, 20), encoding="utf-8")
+        unrecorded_toml.write_text(append_action(original_toml, fresh_id), encoding="utf-8")
         shutil.copyfile(LOCK_SOURCE, unrecorded_lock)
         check_lock_case(
-            Case("an append left unrecorded", must_fail=True),
+            Case("an append left unrecorded", must_fail=True, reason="not in"),
             unrecorded_toml, unrecorded_lock, failures,
         )
 
@@ -157,14 +190,17 @@ def main() -> int:
         renumber_toml = tmp / "renumber.toml"
         renumber_lock = tmp / "renumber.lock"
         renumber_toml.write_text(
-            bump_next_id(original_toml, 21).replace(
-                'name = "scroll_to_end"\nid = 8', 'name = "scroll_to_end"\nid = 20'
+            replace_once(
+                bump_next_id(original_toml, fresh_id + 1),
+                f'name = "{last.name}"\nid = {last.id}',
+                f'name = "{last.name}"\nid = {fresh_id}',
             ),
             encoding="utf-8",
         )
         shutil.copyfile(LOCK_SOURCE, renumber_lock)
         check_lock_case(
-            Case("a locked id renumbered, order preserved", must_fail=True),
+            Case("a locked id renumbered, order preserved", must_fail=True,
+                 reason=f"'{last.name}' is locked at id {last.id}"),
             renumber_toml, renumber_lock, failures,
         )
 
@@ -172,22 +208,22 @@ def main() -> int:
         rename_toml = tmp / "rename.toml"
         rename_lock = tmp / "rename.lock"
         rename_toml.write_text(
-            original_toml.replace('name = "copy"', 'name = "duplicate"'), encoding="utf-8"
+            replace_once(original_toml, 'name = "copy"', 'name = "duplicate"'), encoding="utf-8"
         )
         shutil.copyfile(LOCK_SOURCE, rename_lock)
         check_lock_case(
-            Case("a locked action renamed", must_fail=True),
+            Case("a locked action renamed", must_fail=True, reason="Restore the name 'copy'"),
             rename_toml, rename_lock, failures,
         )
 
         # 4. A deletion. A retired id stays claimed forever.
         delete_toml = tmp / "delete.toml"
         delete_lock = tmp / "delete.lock"
-        marker = '[[action]]\nname = "scroll_to_end"'
+        marker = f'[[action]]\nname = "{last.name}"'
         delete_toml.write_text(original_toml[: original_toml.index(marker)], encoding="utf-8")
         shutil.copyfile(LOCK_SOURCE, delete_lock)
         check_lock_case(
-            Case("a locked action deleted", must_fail=True),
+            Case("a locked action deleted", must_fail=True, reason="has disappeared"),
             delete_toml, delete_lock, failures,
         )
 
@@ -197,7 +233,7 @@ def main() -> int:
         #    shortcut_lock.py is ever refactored.
         regression_toml = tmp / "regression.toml"
         regression_lock = tmp / "regression.lock"
-        regression_toml.write_text(append_action(original_toml, 20), encoding="utf-8")
+        regression_toml.write_text(append_action(original_toml, fresh_id), encoding="utf-8")
         shutil.copyfile(LOCK_SOURCE, regression_lock)
 
         written = run_lock(regression_toml, regression_lock, "--write")
@@ -210,13 +246,12 @@ def main() -> int:
                 regression_toml, regression_lock, failures,
             )
             regression_toml.write_text(
-                append_action(original_toml, 20)
-                .replace("id = 20", "id = 30")
-                .replace("next_id = 21", "next_id = 31"),
+                append_action(original_toml, fresh_id + 10),
                 encoding="utf-8",
             )
             check_lock_case(
-                Case("a freshly recorded id then renumbered", must_fail=True),
+                Case("a freshly recorded id then renumbered", must_fail=True,
+                      reason=f"'selftest_probe' is locked at id {fresh_id}"),
                 regression_toml, regression_lock, failures,
             )
 
@@ -224,7 +259,7 @@ def main() -> int:
         #    design.md section 7's check 1, gen_shortcuts.py's own job.
         duplicate_toml = tmp / "duplicate.toml"
         duplicate_toml.write_text(
-            original_toml.replace('binding = "Mod+X"', 'binding = "Mod+C"'), encoding="utf-8"
+            replace_once(original_toml, 'binding = "Mod+X"', 'binding = "Mod+C"'), encoding="utf-8"
         )
         check_generator_case(
             Case("duplicate chord bound twice in one scope", must_fail=True),
