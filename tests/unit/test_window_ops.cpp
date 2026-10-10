@@ -11,6 +11,7 @@
 // through post_window_event() instead.
 
 #include <array>
+#include <clocale>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
@@ -77,6 +78,17 @@ TEST_SUITE("window operations") {
     CHECK(manager.title(window).value() == "window ops");
     REQUIRE(manager.set_title(window, "标题 - renamed").has_value());
     CHECK(manager.title(window).value() == "标题 - renamed");
+  }
+
+  TEST_CASE("set_title cycles non-Latin-1 titles and leaves LC_CTYPE as it was") {
+    WindowManager manager = make_headless_manager();
+    const WindowId window = open_window(manager, spec_of(120, 80));
+    const std::string ctype_before = std::setlocale(LC_CTYPE, nullptr);
+    for (const char* title : {"标题改好了 ✓", "drawgui showcase — 第三个标题", "a – b", "组件展示"}) {
+      REQUIRE(manager.set_title(window, title).has_value());
+      CHECK(manager.title(window).value() == title);
+      CHECK(std::string{std::setlocale(LC_CTYPE, nullptr)} == ctype_before);
+    }
   }
 
   TEST_CASE("set_size changes size, drawable size, and reports kResized once") {

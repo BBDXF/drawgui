@@ -400,6 +400,11 @@ class Check {
     check(w_.title().value_or("") == "标题改好了 ✓" &&
               label_text(n.log_lines[0]).find("标题改为") == 0,
           "改标题 sets the OS title and logs it");
+    click(n.title_button);
+    const bool third = w_.title().value_or("") == "drawgui showcase — 第三个标题";
+    click(n.title_button);
+    check(third && w_.title().value_or("") == "drawgui 组件展示",
+          "three clicks on 改标题 cycle the three titles");
     check(wait_for([&] { return demo_.ticks() >= 1; }, 2500) &&
               label_text(n.tick_label) != "已运行 0 秒",
           "the 1 s timer ticks the counter");

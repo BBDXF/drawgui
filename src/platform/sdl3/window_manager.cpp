@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <clocale>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -455,12 +456,35 @@ std::optional<WindowEventKind> to_window_event_kind(Uint32 sdl_type) {
   }
 }
 
+// SDL's X11 backend converts a title through the process's LC_CTYPE before
+// it sets _NET_WM_NAME. A program that never calls setlocale() runs in the
+// "C" locale, where some UTF-8 (an em dash, for one) fails that conversion,
+// and SDL then leaves the old title on screen while SDL_GetWindowTitle()
+// reports the new one. Run `call` under a UTF-8 LC_CTYPE, restored after.
+template <typename Call>
+auto with_utf8_ctype(Call call) {
+  const char* driver = SDL_GetCurrentVideoDriver();
+  const char* current = std::setlocale(LC_CTYPE, nullptr);
+  const std::string saved = current != nullptr ? current : "C";
+  const bool utf8 = saved.find("UTF-8") != std::string::npos ||
+                    saved.find("utf8") != std::string::npos;
+  if (driver == nullptr || std::strcmp(driver, "x11") != 0 || utf8 ||
+      (std::setlocale(LC_CTYPE, "C.UTF-8") == nullptr &&
+       std::setlocale(LC_CTYPE, "en_US.UTF-8") == nullptr)) {
+    return call();
+  }
+  auto result = call();
+  std::setlocale(LC_CTYPE, saved.c_str());
+  return result;
+}
+
 // SDL_CreateWindow plus everything WindowSpec asks for beyond a title and a
 // size. Shared by open() and open_dialog(); a limit the platform rejects
 // fails the open rather than leaving a window without it.
 Expected<SDL_Window*, WindowError> create_sdl_window(const WindowSpec& spec) {
   const SDL_WindowFlags flags = spec.resizable ? SDL_WINDOW_RESIZABLE : 0;
-  SDL_Window* window = SDL_CreateWindow(spec.title.c_str(), spec.width, spec.height, flags);
+  SDL_Window* window = with_utf8_ctype(
+      [&] { return SDL_CreateWindow(spec.title.c_str(), spec.width, spec.height, flags); });
   if (window == nullptr) {
     return Unexpected{WindowError{sdl_failure("SDL_CreateWindow")}};
   }
@@ -1421,7 +1445,8 @@ Expected<void, WindowError> WindowManager::set_title(WindowId id, std::string_vi
     return Unexpected{WindowError{"no such window"}};
   }
   const std::string owned{title};
-  return sdl_result(SDL_SetWindowTitle(entry->window, owned.c_str()), "SDL_SetWindowTitle");
+  return sdl_result(with_utf8_ctype([&] { return SDL_SetWindowTitle(entry->window, owned.c_str()); }),
+                    "SDL_SetWindowTitle");
 }
 
 Expected<std::string, WindowError> WindowManager::title(WindowId id) const {
