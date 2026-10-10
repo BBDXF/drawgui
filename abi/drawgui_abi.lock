@@ -22,7 +22,7 @@ dg_theme_t
 dg_value: size:uint32_t,type:uint32_t,number:float,bits:uint32_t
 dg_app_opts: size:uint32_t
 dg_window_opts: size:uint32_t,title:const char*,width:int32_t,height:int32_t,background_argb:uint32_t,resizable:int32_t,min_width:int32_t,min_height:int32_t,max_width:int32_t,max_height:int32_t
-dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t,action_id:uint16_t,clicks:uint16_t
+dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t,action_id:uint16_t,clicks:uint16_t,item:int32_t,column:int32_t,command:int32_t
 dg_theme_err: size:uint32_t,status:uint32_t
 
 [constant_group]
@@ -42,6 +42,7 @@ node_type.TREE=13
 node_type.TABLE=14
 node_type.SLIDER=15
 node_type.RADIO=16
+node_type.MENUBAR=17
 value_type.FLOAT=1
 value_type.LENGTH=2
 value_type.COLOR=3
@@ -77,6 +78,7 @@ event_kind.TREE_COLLAPSE=26
 event_kind.TABLE_SELECT=27
 event_kind.TABLE_SORT=28
 event_kind.SLIDER_CHANGED=29
+event_kind.ROW_PART=30
 pixel_format.BGRA8888=1
 pixel_format.RGBA8888=2
 length_unit.PX=0
@@ -89,7 +91,14 @@ menu_item_flag.DISABLED=1
 menu_item_flag.CHECKED=2
 menu_item_flag.SEPARATOR=4
 menu_item_flag.CHECKABLE=8
+row_part.CHECK=1
+row_part.ACTION=2
+row_flag.CHECKABLE=1
+row_flag.CHECKED=2
+user_action.USER_ACTION_BASE=32768
 tree_item_flag.EXPANDED=1
+tree_item_flag.CHECKABLE=2
+tree_item_flag.CHECKED=4
 table_column_flag.SORTABLE=1
 window_state.MINIMIZED=1
 window_state.MAXIMIZED=2
@@ -207,4 +216,22 @@ dg_table_set_sort_indicator: int32_t(dg_node_t*,int32_t,int32_t)
 dg_debug_node_count: int32_t(dg_window_t*)
 dg_slider_get_value: int32_t(dg_node_t*,float*)
 dg_radio_select: int32_t(dg_node_t*)
+dg_app_add_shortcut: int32_t(dg_app_t*,const char*,uint16_t)
+dg_window_add_shortcut: int32_t(dg_node_t*,const char*,uint16_t)
+dg_app_remove_shortcut: int32_t(dg_app_t*,const char*)
+dg_chord_label: const char*(dg_app_t*,const char*)
+dg_app_load_image: int32_t(dg_app_t*,const void*,uint32_t,uint32_t)
+dg_app_load_image_file: int32_t(dg_app_t*,const char*,uint32_t)
+dg_list_set_rows: int32_t(dg_node_t*,const char* const*,const char* const*,const uint32_t*,const uint32_t*,const uint32_t*,uint32_t,int32_t)
+dg_list_set_row_actions: int32_t(dg_node_t*,const uint32_t*,const char* const*,uint32_t)
+dg_list_row_checked: int32_t(dg_node_t*,int32_t)
+dg_tree_set_items_ex: int32_t(dg_node_t*,const char* const*,const int32_t*,const uint32_t*,const uint32_t*,const char* const*,uint32_t)
+dg_tree_row_checked: int32_t(dg_node_t*,int32_t)
+dg_table_set_cells_ex: int32_t(dg_node_t*,const char* const*,const uint32_t*,const uint32_t*,uint32_t)
+dg_table_cell_checked: int32_t(dg_node_t*,int32_t,int32_t)
+dg_menubar_set_menus: int32_t(dg_node_t*,const char* const*,const uint32_t*,uint32_t,const char* const*,const char* const*,const uint32_t*,const int32_t*,uint32_t)
+dg_menubar_set_entry: int32_t(dg_node_t*,int32_t,int32_t,const char*,const char*,uint32_t,int32_t)
+dg_menu_open_ex: int32_t(dg_window_t*,dg_node_t*,int32_t,int32_t,const char* const*,const uint32_t*,const char* const*,const int32_t*,uint32_t)
+dg_dialog_open_ex: int32_t(dg_window_t*,const char*,const char*,const char* const*,uint32_t,int32_t,int32_t,dg_node_t*)
+dg_dialog_set_button_disabled: int32_t(dg_window_t*,int32_t,int32_t,int32_t)
 

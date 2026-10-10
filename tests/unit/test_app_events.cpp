@@ -52,10 +52,10 @@ TEST_CASE("app events: every alternative maps to a distinct DG_EVENT_* kind") {
   for (const dg::Event& event : events) {
     const std::uint32_t kind = dg::abi::dg_event_kind(event);
     CHECK(kind >= DG_EVENT_WINDOW_CLOSED);
-    CHECK(kind <= DG_EVENT_SLIDER_CHANGED);
+    CHECK(kind <= DG_EVENT_ROW_PART);
     kinds.insert(kind);
   }
   CHECK(kinds.size() == events.size());
   // ...and together they cover every DG_EVENT_* kind there is.
-  CHECK(kinds.size() == DG_EVENT_SLIDER_CHANGED - DG_EVENT_WINDOW_CLOSED + 1);
+  CHECK(kinds.size() == DG_EVENT_ROW_PART - DG_EVENT_WINDOW_CLOSED + 1);
 }

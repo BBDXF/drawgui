@@ -1,6 +1,8 @@
 // dg::App: the window manager, the shared fonts/images, and window creation.
 
 #include <algorithm>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
@@ -165,6 +167,31 @@ FontCatalog* App::fonts() {
 
 ImageCatalog& App::images() {
   return state_->images;
+}
+
+Expected<ImageId, AppError> App::load_image(const std::uint8_t* bytes, std::size_t size,
+                                            std::optional<Color> svg_tint) {
+  if (bytes == nullptr || size == 0) {
+    return Unexpected(AppError{Status::kInvalidArgument, "load_image: no bytes"});
+  }
+  SvgOptions options;
+  options.tint = svg_tint;
+  auto decoded = state_->images.decode_any(bytes, size, options);
+  if (!decoded) {
+    return Unexpected(AppError{Status::kInvalidArgument, decoded.error().message});
+  }
+  return decoded.value();
+}
+
+Expected<ImageId, AppError> App::load_image_file(const std::string& path,
+                                                 std::optional<Color> svg_tint) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file) {
+    return Unexpected(AppError{Status::kInvalidArgument, "load_image_file: cannot read " + path});
+  }
+  const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(file)),
+                                        std::istreambuf_iterator<char>());
+  return load_image(bytes.data(), bytes.size(), svg_tint);
 }
 
 }  // namespace dg

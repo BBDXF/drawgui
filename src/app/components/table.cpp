@@ -202,3 +202,16 @@ Status TableRef::set_sort_indicator(std::optional<int> column, bool ascending) {
 }
 
 }  // namespace dg
+
+namespace dg {
+
+// Contract stubs: rich cells land in a later phase.
+Status TableRef::set_cells(std::vector<std::vector<TableCell>> /*rows*/) {
+  return Status::kUnsupported;
+}
+
+Expected<bool, Status> TableRef::cell_checked(int /*row*/, int /*column*/) const {
+  return Unexpected(Status::kUnsupported);
+}
+
+}  // namespace dg

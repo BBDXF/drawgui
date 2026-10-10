@@ -61,6 +61,9 @@ export interface dg_event {
   y: number;
   action_id: number;
   clicks: number;
+  item: number;
+  column: number;
+  command: number;
 }
 
 // 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed.
@@ -92,6 +95,7 @@ export const node_type = {
   TABLE: 14,
   SLIDER: 15,
   RADIO: 16,
+  MENUBAR: 17,
 } as const;
 
 // dg_value::type.
@@ -135,6 +139,7 @@ export const event_kind = {
   TABLE_SELECT: 27,
   TABLE_SORT: 28,
   SLIDER_CHANGED: 29,
+  ROW_PART: 30,
 } as const;
 
 // ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()).
@@ -165,9 +170,31 @@ export const menu_item_flag = {
   CHECKABLE: 8,
 } as const;
 
+// ABI 0.2: DG_EVENT_ROW_PART's `x`.
+export const row_part = {
+  CHECK: 1,
+  ACTION: 2,
+} as const;
+
+// ABI 0.2: bits of dg_list_set_rows()' per-row and dg_table_set_cells_ex()'
+// per-cell `flags`.
+export const row_flag = {
+  CHECKABLE: 1,
+  CHECKED: 2,
+} as const;
+
+// ABI 0.2: app-defined action ids
+// (dg_app_add_shortcut()/dg_window_add_shortcut()) start here; lower ids are
+// the built-in DG_ACTION_*.
+export const user_action = {
+  USER_ACTION_BASE: 32768,
+} as const;
+
 // ABI 0.2 phase B: bits of dg_tree_set_items()' per-item `flags`.
 export const tree_item_flag = {
   EXPANDED: 1,
+  CHECKABLE: 2,
+  CHECKED: 4,
 } as const;
 
 // ABI 0.2 phase B: bits of dg_table_set_columns()' per-column `flags`.
@@ -370,6 +397,7 @@ export const prop = {
   placeholder: 66,
   wrap_text: 67,
   image_tint: 68,
+  checked: 69,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -905,4 +933,72 @@ export declare namespace DrawguiAbi {
   // group, and repaints them. Queues no event. DG_ERR_UNSUPPORTED for another
   // node type.
   function dg_radio_select(node: dg_node_t | null): number;
+  // ABI 0.2: binds `chord` (input/shortcuts.toml syntax, e.g. Ctrl+Shift+K) to
+  // `action_id` (>= DG_USER_ACTION_BASE) in every window of the app (router level
+  // 4); it queues DG_EVENT_ACTION with a null node. Rebinding a chord replaces
+  // it. DG_ERR_INVALID_ARGUMENT for a chord that does not parse or an id below
+  // DG_USER_ACTION_BASE.
+  function dg_app_add_shortcut(app: dg_app_t | null, chord: string | null, action_id: number): number;
+  // ABI 0.2: binds `chord` to `action_id` (>= DG_USER_ACTION_BASE) while focus is
+  // inside the LIVE node `scope` (router level 2); DG_EVENT_ACTION names `scope`.
+  function dg_window_add_shortcut(scope: dg_node_t | null, chord: string | null, action_id: number): number;
+  // ABI 0.2: drops every dg_app_add_shortcut()/dg_window_add_shortcut() binding
+  // of `chord`. DG_ERR_UNKNOWN_ID when there is none.
+  function dg_app_remove_shortcut(app: dg_app_t | null, chord: string | null): number;
+  // ABI 0.2: the platform label of `chord` (e.g. Ctrl+K), or NULL when it does
+  // not parse. Valid until the next dg_chord_label() call on this thread.
+  function dg_chord_label(app: dg_app_t | null, chord: string | null): string | null;
+  // ABI 0.2: decodes a PNG/JPEG/WebP/SVG (sniffed, as dg_node_set_image_data())
+  // once and returns its image id (positive) for the icon arrays of
+  // dg_list_set_rows()/dg_tree_set_items_ex()/dg_table_set_cells_ex()/dg_list_set_row_actions(),
+  // or a negative DG_ERR_*. Images live as long as the app.
+  function dg_app_load_image(app: dg_app_t | null, bytes: ArrayBufferView | null, len: number, svg_tint_argb: number): number;
+  // ABI 0.2: dg_app_load_image() with the bytes read from `path`.
+  function dg_app_load_image_file(app: dg_app_t | null, path: string | null, svg_tint_argb: number): number;
+  // ABI 0.2: dg_list_set_items() with rich rows: texts[i], secondaries[i] (dimmed
+  // second text), icons[i] (a dg_app_load_image() id, 0 = none), flags[i]
+  // (DG_ROW_*), trailing_actions[i] (how many of dg_list_set_row_actions()'
+  // buttons it shows, 0..8). Every array but `texts` may be null; a null string
+  // is empty.
+  function dg_list_set_rows(node: dg_node_t | null, texts: BigUint64Array | null, secondaries: BigUint64Array | null, icons: Uint32Array | null, flags: Uint32Array | null, trailing_actions: Uint32Array | null, count: number, item_height: number): number;
+  // ABI 0.2: the trailing action buttons (at most 8; icon ids and tooltips,
+  // either array may be null) the rows of a DG_NODE_TYPE_LIST pick from. A press
+  // queues DG_EVENT_ROW_PART with x = DG_ROW_PART_ACTION.
+  function dg_list_set_row_actions(node: dg_node_t | null, icons: Uint32Array | null, tooltips: BigUint64Array | null, count: number): number;
+  // ABI 0.2: 1/0 for a dg_list_set_rows() row's check box, or a negative DG_ERR_*
+  // (DG_ERR_NOT_APPLICABLE for a row without one).
+  function dg_list_row_checked(node: dg_node_t | null, row: number): number;
+  // ABI 0.2: dg_tree_set_items() plus icons[i] (image ids, 0 = none),
+  // secondaries[i] and flags[i]'s DG_TREE_ITEM_CHECKABLE/CHECKED.
+  // `icons`/`secondaries` may be null.
+  function dg_tree_set_items_ex(node: dg_node_t | null, labels: BigUint64Array | null, depths: Int32Array | null, flags: Uint32Array | null, icons: Uint32Array | null, secondaries: BigUint64Array | null, count: number): number;
+  // ABI 0.2: 1/0 for a dg_tree_set_items_ex() item's check box, or a negative
+  // DG_ERR_*.
+  function dg_tree_row_checked(node: dg_node_t | null, index: number): number;
+  // ABI 0.2: dg_table_set_cells() plus row-major icons (image ids, 0 = none) and
+  // flags (DG_ROW_*) per cell; either may be null.
+  function dg_table_set_cells_ex(node: dg_node_t | null, cells: BigUint64Array | null, icons: Uint32Array | null, flags: Uint32Array | null, rows: number): number;
+  // ABI 0.2: 1/0 for a dg_table_set_cells_ex() cell's check box, or a negative
+  // DG_ERR_*.
+  function dg_table_cell_checked(node: dg_node_t | null, row: number, column: number): number;
+  // ABI 0.2: replaces a DG_NODE_TYPE_MENUBAR's menus: `menu_count` titles, menu i
+  // owning the next entry_counts[i] entries of the flattened
+  // labels/shortcut_labels/flags (DG_MENU_ITEM_*)/commands arrays (`entry_total`
+  // = their sum; shortcut_labels/flags/commands may be null).
+  function dg_menubar_set_menus(node: dg_node_t | null, titles: BigUint64Array | null, entry_counts: Uint32Array | null, menu_count: number, labels: BigUint64Array | null, shortcut_labels: BigUint64Array | null, flags: Uint32Array | null, commands: Int32Array | null, entry_total: number): number;
+  // ABI 0.2: replaces one entry of a menu bar menu. DG_ERR_VALUE_OUT_OF_RANGE for
+  // a missing menu/item.
+  function dg_menubar_set_entry(node: dg_node_t | null, menu: number, item: number, label: string | null, shortcut_label: string | null, flags: number, command: number): number;
+  // ABI 0.2: dg_menu_open() plus right-aligned shortcut labels and per-entry
+  // commands (echoed in DG_EVENT_MENU_ACTIVATE's `command`); either array may be
+  // null.
+  function dg_menu_open_ex(window: dg_window_t | null, anchor: dg_node_t | null, x: number, y: number, labels: BigUint64Array | null, flags: Uint32Array | null, shortcut_labels: BigUint64Array | null, commands: Int32Array | null, count: number): number;
+  // ABI 0.2: dg_dialog_open() plus `content` (may be null): a LIVE node of
+  // `window` the dialog body shows below `body` while open; it is detached
+  // (alive, parentless) when the dialog closes.
+  function dg_dialog_open_ex(window: dg_window_t | null, title: string | null, body: string | null, buttons: BigUint64Array | null, count: number, default_button: number, cancel_button: number, content: dg_node_t | null): number;
+  // ABI 0.2: disables (nonzero) or enables one button of the open dialog
+  // `dialog_id`. DG_ERR_UNKNOWN_ID when it is not open; DG_ERR_VALUE_OUT_OF_RANGE
+  // for a missing button.
+  function dg_dialog_set_button_disabled(window: dg_window_t | null, dialog_id: number, button: number, disabled: number): number;
 }

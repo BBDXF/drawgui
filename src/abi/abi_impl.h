@@ -147,4 +147,47 @@ std::int32_t table_set_sort_indicator(dg_node_t* node, std::int32_t column,
                                       std::int32_t ascending);
 std::int32_t debug_node_count(dg_window_t* window);
 
+// ABI 0.2 enterprise features (src/abi/abi_enterprise.cpp).
+std::int32_t app_add_shortcut(dg_app_t* app, const char* chord, std::uint16_t action_id);
+std::int32_t window_add_shortcut(dg_node_t* scope, const char* chord, std::uint16_t action_id);
+std::int32_t app_remove_shortcut(dg_app_t* app, const char* chord);
+const char* chord_label(dg_app_t* app, const char* chord);
+std::int32_t app_load_image(dg_app_t* app, const void* bytes, std::uint32_t len,
+                            std::uint32_t svg_tint_argb);
+std::int32_t app_load_image_file(dg_app_t* app, const char* path, std::uint32_t svg_tint_argb);
+std::int32_t list_set_rows(dg_node_t* node, const char* const* texts,
+                           const char* const* secondaries, const std::uint32_t* icons,
+                           const std::uint32_t* flags, const std::uint32_t* trailing_actions,
+                           std::uint32_t count, std::int32_t item_height);
+std::int32_t list_set_row_actions(dg_node_t* node, const std::uint32_t* icons,
+                                  const char* const* tooltips, std::uint32_t count);
+std::int32_t list_row_checked(dg_node_t* node, std::int32_t row);
+std::int32_t tree_set_items_ex(dg_node_t* node, const char* const* labels,
+                               const std::int32_t* depths, const std::uint32_t* flags,
+                               const std::uint32_t* icons, const char* const* secondaries,
+                               std::uint32_t count);
+std::int32_t tree_row_checked(dg_node_t* node, std::int32_t index);
+std::int32_t table_set_cells_ex(dg_node_t* node, const char* const* cells,
+                                const std::uint32_t* icons, const std::uint32_t* flags,
+                                std::uint32_t rows);
+std::int32_t table_cell_checked(dg_node_t* node, std::int32_t row, std::int32_t column);
+std::int32_t menubar_set_menus(dg_node_t* node, const char* const* titles,
+                               const std::uint32_t* entry_counts, std::uint32_t menu_count,
+                               const char* const* labels, const char* const* shortcut_labels,
+                               const std::uint32_t* flags, const std::int32_t* commands,
+                               std::uint32_t entry_total);
+std::int32_t menubar_set_entry(dg_node_t* node, std::int32_t menu, std::int32_t item,
+                               const char* label, const char* shortcut_label,
+                               std::uint32_t flags, std::int32_t command);
+std::int32_t menu_open_ex(dg_window_t* window, dg_node_t* anchor, std::int32_t x,
+                          std::int32_t y, const char* const* labels, const std::uint32_t* flags,
+                          const char* const* shortcut_labels, const std::int32_t* commands,
+                          std::uint32_t count);
+std::int32_t dialog_open_ex(dg_window_t* window, const char* title, const char* body,
+                            const char* const* buttons, std::uint32_t count,
+                            std::int32_t default_button, std::int32_t cancel_button,
+                            dg_node_t* content);
+std::int32_t dialog_set_button_disabled(dg_window_t* window, std::int32_t dialog_id,
+                                        std::int32_t button, std::int32_t disabled);
+
 }  // namespace dg::abi

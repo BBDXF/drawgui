@@ -1052,6 +1052,12 @@ PropWrite apply_radio_group(Target& target, const PropValue& /*value*/) {
                      "dg_node_set_prop() does for DG_NODE_TYPE_RADIO)");
 }
 
+PropWrite apply_checked(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "checked",
+                     "it is widget state - dg::Window::set_prop() / dg_node_set_prop() "
+                     "apply it to a button, checkbox or radio");
+}
+
 PropWrite apply_wrap(Target& target, const PropValue& value) {
   const std::optional<PropWrite> gate = self_must_arrange(target, "wrap");
   if (gate.has_value()) {

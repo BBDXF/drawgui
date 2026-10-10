@@ -102,7 +102,10 @@ class Window {
   Status set_text(NodeId node, std::uint16_t prop_id, std::string_view text);
   // An editor's committed text.
   [[nodiscard]] Expected<std::string, Status> text(NodeId node) const;
-  // A checkbox's or radio button's checked mark.
+  // A checkbox's or radio button's checked mark, or a toggle button's
+  // pressed state. A kButton becomes a toggle button once DG_PROP_CHECKED
+  // is written on it (true or false): each click then flips it before its
+  // ClickEvent is queued, like a checkbox.
   [[nodiscard]] Expected<bool, Status> checked(NodeId node) const;
   // DG_PROP_DISABLED: a disabled node and its subtree take no pointer or
   // key input (a press in progress produces no ClickEvent) and lose focus.
@@ -110,6 +113,11 @@ class Window {
   Status set_tooltip(NodeId node, std::string text);
   Status set_image(NodeId node, ImageId image);
   Status scope_action(NodeId node, std::uint16_t action_id);
+  // Binds `chord` (e.g. "Ctrl+Shift+K", the input/shortcuts.toml syntax) to
+  // `action_id` (>= kUserActionBase) while focus is inside `scope` (router
+  // level 2); it reports ActionEvent{node = scope}. kInvalidArgument for a
+  // chord that does not parse or an id below kUserActionBase.
+  Status add_shortcut(NodeId scope, std::string_view chord, std::uint16_t action_id);
   [[nodiscard]] Expected<PixelPoint, Status> scroll_offset(NodeId node) const;
 
   // -- Focus -------------------------------------------------------------
@@ -128,6 +136,7 @@ class Window {
   [[nodiscard]] Expected<ProgressRef, Status> progress(NodeId node);
   [[nodiscard]] Expected<SliderRef, Status> slider(NodeId node);
   [[nodiscard]] Expected<RadioRef, Status> radio(NodeId node);
+  [[nodiscard]] Expected<MenuBarRef, Status> menu_bar(NodeId node);
 
   // -- Popups ------------------------------------------------------------
   // Opens a menu below `anchor`'s bounds (or at `at`); returns its id, which
@@ -143,6 +152,10 @@ class Window {
   // DialogResultEvent repeats the returned id.
   [[nodiscard]] Expected<std::int32_t, Status> open_dialog(DialogOptions options);
   void close_dialog();
+  // Disables (or re-enables) one button of the open dialog `dialog_id`.
+  // kUnknownId when that dialog is not open; kValueOutOfRange for a
+  // missing button.
+  Status set_dialog_button_disabled(std::int32_t dialog_id, int button, bool disabled);
 
   // -- The OS window -----------------------------------------------------
   Expected<void, WindowError> set_title(const std::string& title);

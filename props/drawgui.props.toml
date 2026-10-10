@@ -74,7 +74,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 69
+next_id = 70
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -872,3 +872,16 @@ group = "visual"
 field = "image_tint"
 applies_to = ["box"]
 summary = "Recolours the node's image at paint time (SrcIn, alpha kept); fully transparent = no tint. Overrides a decode-time SVG tint."
+
+# ---------------------------------------------------------------------------
+# Enterprise features (ABI 0.2, unreleased): toggle buttons.
+# ---------------------------------------------------------------------------
+
+[[property]]
+name = "checked"
+id = 69
+type = "bool"
+group = "interaction"
+field = "checked"
+applies_to = ["box"]
+summary = "A checkbox's/radio's checked mark; on a button, makes it a toggle button (each click flips it) in that state. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it."

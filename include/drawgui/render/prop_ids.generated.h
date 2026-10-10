@@ -288,6 +288,11 @@ inline constexpr dg_prop_id DG_PROP_WRAP_TEXT = 67;
 // type=color; applies_to=box
 inline constexpr dg_prop_id DG_PROP_IMAGE_TINT = 68;
 
+// -- interaction -------------------------------------------------
+// A checkbox's/radio's checked mark; on a button, makes it a toggle button (each click flips it) in that state. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it.
+// type=bool; applies_to=box
+inline constexpr dg_prop_id DG_PROP_CHECKED = 69;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -374,8 +379,8 @@ inline constexpr std::uint32_t DG_TEXT_ALIGN_RIGHT = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 68;
+inline constexpr std::uint16_t kDgPropMaxId = 69;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 68;
+inline constexpr std::uint16_t kDgPropCount = 69;

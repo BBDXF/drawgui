@@ -31,6 +31,11 @@ struct ClickEvent {
   int x = 0;
   int y = 0;
   int clicks = 1;
+  // A press on a row of a List/Table (the row) or a Tree (the pre-order
+  // item); none for every other node or a press outside the rows.
+  std::optional<int> item = std::nullopt;
+  // The column of a Table press; none elsewhere.
+  std::optional<int> column = std::nullopt;
 };
 
 // A secondary-button press on the nearest created node under the pointer.
@@ -40,9 +45,14 @@ struct ContextClickEvent {
   int x = 0;
   int y = 0;
   int clicks = 1;
+  // As ClickEvent::item/column.
+  std::optional<int> item = std::nullopt;
+  std::optional<int> column = std::nullopt;
 };
 
-// A routed shortcut action; `node` = its target (none = app-wide).
+// A routed shortcut action; `node` = its target (none = app-wide). An
+// action_id >= kUserActionBase (app.h) is one the app bound itself
+// (App::add_shortcut()/Window::add_shortcut()).
 struct ActionEvent {
   WindowId window;
   std::optional<NodeId> node;
@@ -80,8 +90,13 @@ struct ValueChangedEvent {
 struct MenuEvent {
   WindowId window;
   std::optional<NodeId> anchor;
-  std::optional<int> item;
+  std::optional<int> item = std::nullopt;
   std::int32_t menu_id = 0;
+  // A menu-bar menu (NodeKind::kMenuBar): which of its menus; `anchor` is
+  // the bar. None for an open_menu() menu.
+  std::optional<int> bar_menu = std::nullopt;
+  // The activated entry's MenuEntry::command (0 = none / dismissed).
+  std::int32_t command = 0;
 };
 
 // `button` = -1 when Escape closed a dialog without a cancel button.
@@ -157,6 +172,21 @@ struct SliderEvent {
   float previous = 0.0F;
 };
 
+// A press on a row part other than the row itself: a List/Tree/Table
+// check box (kCheck; the new state is already applied - ask
+// ListRef/TreeRef/TableRef::*_checked()) or a List row's trailing action
+// button (kAction; `action` = its index into ListRef::set_row_actions()).
+// `column` = the Table column, -1 elsewhere; `action` = -1 for kCheck.
+struct RowPartEvent {
+  enum class Part : std::uint8_t { kCheck, kAction };
+  WindowId window;
+  NodeId node;
+  int item = 0;
+  int column = -1;
+  Part part = Part::kCheck;
+  int action = -1;
+};
+
 }  // namespace events
 
 using Event = std::variant<events::ClickEvent, events::ContextClickEvent, events::ActionEvent,
@@ -165,7 +195,7 @@ using Event = std::variant<events::ClickEvent, events::ContextClickEvent, events
                            events::MenuEvent, events::DialogResultEvent, events::TabSelectEvent,
                            events::TreeEvent, events::TableEvent, events::WindowStateEvent,
                            events::WindowClosedEvent, events::TimerEvent, events::UserEvent,
-                           events::SliderEvent>;
+                           events::SliderEvent, events::RowPartEvent>;
 
 // std::visit(Overloaded{[](const events::ClickEvent& e) {...}, [](const auto&) {}}, event)
 template <class... F>

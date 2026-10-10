@@ -223,6 +223,22 @@ schema_version = 1
 #        padding moves a node's own text; DG_PROP_WRAP_TEXT;
 #        DG_PROP_IMAGE_TINT; LIST/TREE/TABLE honour grow/stretch/percentage
 #        sizes; the TABS strip background spans the whole node.
+#        Enterprise features (contract; runtime landing in phases):
+#        dg_event grows `item`/`column`/`command` (appended - sizeof goes
+#        40 -> 56 on a 64-bit target; a caller compiled against the
+#        40-byte struct that sets out[0].size = 40 before dg_poll_events()
+#        gets 40-byte entries, size = 40); DG_EVENT_ROW_PART
+#        (DG_ROW_PART_*); DG_NODE_TYPE_MENUBAR (dg_menubar_*); app shortcuts
+#        (dg_app_add_shortcut(), dg_window_add_shortcut(),
+#        dg_app_remove_shortcut(), dg_chord_label(), DG_USER_ACTION_BASE);
+#        app-wide images (dg_app_load_image(), dg_app_load_image_file());
+#        rich rows (dg_list_set_rows(), dg_list_set_row_actions(),
+#        dg_list_row_checked(), DG_ROW_*, dg_tree_set_items_ex(),
+#        dg_tree_row_checked(), DG_TREE_ITEM_CHECKABLE/CHECKED,
+#        dg_table_set_cells_ex(), dg_table_cell_checked());
+#        dg_menu_open_ex() (shortcut labels, commands); dg_dialog_open_ex()
+#        (an app-built content node) and dg_dialog_set_button_disabled();
+#        DG_PROP_CHECKED (toggle buttons).
 [meta]
 abi_major = 0
 abi_minor = 2
@@ -307,6 +323,9 @@ fields = [
   { name = "y", type = "int32_t", summary = "DG_EVENT_CLICK: the pointer position, device pixels. DG_EVENT_WINDOW_MOVED: the new top edge, logical screen coordinates. DG_EVENT_WINDOW_RESIZED: the new drawable HEIGHT, device pixels. ABI 0.2: DG_EVENT_CONTEXT_CLICK the pointer y; DG_EVENT_USER the payload's high 32 bits. Phase B: DG_EVENT_MENU_ACTIVATE/_DISMISS the menu id; DG_EVENT_VALUE_CHANGED the previous option (-1 = none); DG_EVENT_DIALOG_RESULT the dialog id. 0 for every other kind, including DG_EVENT_ACTION." },
   { name = "action_id", type = "uint16_t", summary = "8-3d: DG_EVENT_ACTION only - the resolved dg_action_id (input/shortcuts.toml, design.md section 5.5.3). DG_ACTION_INVALID (0) for every other kind. Appended at the end of the struct, after `y` - dg_event's own `size` field (design.md section 5.8 decision 4) is exactly the mechanism that makes this an allowed MINOR addition rather than a break; see abi/drawgui_abi.lock's own append-only rule." },
   { name = "clicks", type = "uint16_t", summary = "ABI 0.2: DG_EVENT_CLICK, DG_EVENT_CONTEXT_CLICK, DG_EVENT_LIST_SELECT and (phase B) a pointer-made DG_EVENT_TABLE_SELECT - the press's click count (1 single, 2 double, 3 triple...), from the platform or counted by drawgui with the same thresholds; 0 for a DG_EVENT_CLICK an arrow key made by selecting a DG_NODE_TYPE_RADIO. 0 for every other kind. It sits in what used to be the struct's tail padding, so sizeof(dg_event) is unchanged (40 bytes on a 64-bit target)." },
+  { name = "item", type = "int32_t", summary = "ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK on a LIST/TABLE row (the row) or a TREE item (the pre-order item); DG_EVENT_ROW_PART the row/item; DG_EVENT_MENU_ACTIVATE the item index. -1 for every other kind or a press outside the rows. Appended (with `column` and `command`): sizeof(dg_event) grows from 40 to 56 on a 64-bit target; `size` tells which fields a struct has." },
+  { name = "column", type = "int32_t", summary = "ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK/DG_EVENT_ROW_PART on a TABLE: the column. DG_EVENT_MENU_ACTIVATE/_DISMISS of a DG_NODE_TYPE_MENUBAR menu: the bar menu index. -1 otherwise." },
+  { name = "command", type = "int32_t", summary = "ABI 0.2: DG_EVENT_MENU_ACTIVATE: the chosen entry's command (dg_menu_open_ex()/dg_menubar_*; 0 = none). 0 for every other kind." },
 ]
 
 [[struct]]
@@ -350,6 +369,7 @@ values = [
   { name = "TABLE", id = 14, summary = "ABI 0.2 phase B: a virtualized table with a header row (dg::Table), 360x240 by default. dg_table_set_columns() defines columns (title, width, sortable), dg_table_set_cells() pushes the row-major cell strings (copied). A press on a row (or Up/Down/Home/End/PageUp/PageDown while focused) selects it - DG_EVENT_TABLE_SELECT; a press on a sortable header queues DG_EVENT_TABLE_SORT - the caller sorts its data, pushes it again and calls dg_table_set_sort_indicator(). Focusable. DG_PROP_HEIGHT sizes it; percentage heights, DG_PROP_GROW and a parent's stretch are honoured too (the viewport follows the laid-out size after each layout)." },
   { name = "SLIDER", id = 15, summary = "ABI 0.2: a horizontal slider (WidgetKind::kSlider), 200x20 by default: a rounded track (theme color.border) and a round thumb as tall as the track (color.primary), a caller-invisible composed child. DG_PROP_VALUE (DG_VALUE_FLOAT) sets the value, clamped to [DG_PROP_MIN_VALUE, DG_PROP_MAX_VALUE] (default 0..100) and snapped to min + k * DG_PROP_STEP (default 0 = continuous); a min not below the max, a max not above the min, a negative step or a non-finite number is DG_ERR_VALUE_OUT_OF_RANGE, and a range or step change re-clamps the value. A primary press on it moves the thumb under the pointer, focuses it and starts a drag that follows the pointer until the release; while focused, Left/Down and Right/Up move it one step (1/100 of the range when continuous), PageDown/PageUp a tenth of the range, Home/End to the ends. Each user change queues DG_EVENT_SLIDER_CHANGED; read the value with dg_slider_get_value(). DG_PROP_DISABLED stops all of it and paints the theme's disabled colours. DG_PROP_HEIGHT resizes the thumb with the track. Takes no children." },
   { name = "RADIO", id = 16, summary = "ABI 0.2: a radio button - a round DG_NODE_TYPE_CHECKBOX (32x32, a 20x20 dot, the checkbox's colours) in group DG_PROP_RADIO_GROUP (an integer, default 0) of its window: selecting one clears every other radio of that group. A completed primary click selects it (a no-op when already selected) before queuing DG_EVENT_CLICK, exactly like a checkbox; dg_node_get_checked() reads it and dg_radio_select() selects it without an event. While a radio has focus, Left/Up and Right/Down move focus AND the selection to the previous/next enabled radio of its group in creation order, wrapping, and queue DG_EVENT_CLICK on it with clicks = 0 and x/y = 0. Each radio is its own Tab stop." },
+  { name = "MENUBAR", id = 17, summary = "ABI 0.2: a horizontal menu bar (dg_menubar_set_menus()/dg_menubar_set_entry()). A press on a title drops its menu down; choosing an entry queues DG_EVENT_MENU_ACTIVATE with `node` = the bar, `column` = the bar menu, `x`/`item` = the entry and `command` its command. Takes no children." },
 ]
 
 [[constant_group]]
@@ -401,6 +421,7 @@ values = [
   { name = "TABLE_SELECT", id = 27, summary = "ABI 0.2 phase B: the user selected a row of a DG_NODE_TYPE_TABLE. `node` is the table, `x` the row index, `clicks` the click count for a pointer press (0 for a key)." },
   { name = "TABLE_SORT", id = 28, summary = "ABI 0.2 phase B: a sortable header of a DG_NODE_TYPE_TABLE was pressed. `x` is the column index. drawgui does not sort: the caller reorders its rows, calls dg_table_set_cells() and dg_table_set_sort_indicator()." },
   { name = "SLIDER_CHANGED", id = 29, summary = "ABI 0.2: the user moved a DG_NODE_TYPE_SLIDER to a different value (a press, a drag or a key). `node` is the slider; x/y are 0 - read the new value with dg_slider_get_value() (the 'CLICK then ask' shape DG_EVENT_TEXT_CHANGED uses: dg_event carries no float). One per change; not queued for DG_PROP_VALUE writes." },
+  { name = "ROW_PART", id = 30, summary = "ABI 0.2: a press on a row's check box or trailing action button of a LIST (dg_list_set_rows()), TREE (dg_tree_set_items_ex()) or TABLE (dg_table_set_cells_ex()). `node` the component, `item` the row/item, `column` the table column (-1 elsewhere), `x` DG_ROW_PART_*, `y` the action index (-1 for a check box). A check box has already flipped - read it with dg_list_row_checked()/dg_tree_row_checked()/dg_table_cell_checked()." },
 ]
 
 [[constant_group]]
@@ -448,12 +469,43 @@ values = [
 ]
 
 [[constant_group]]
+name = "row_part"
+prefix = "DG_ROW_PART_"
+c_type = "int32_t"
+summary = "ABI 0.2: DG_EVENT_ROW_PART's `x`."
+values = [
+  { name = "CHECK", id = 1, summary = "The row's (or cell's) check box." },
+  { name = "ACTION", id = 2, summary = "A trailing action button; `y` is its index into dg_list_set_row_actions()." },
+]
+
+[[constant_group]]
+name = "row_flag"
+prefix = "DG_ROW_"
+c_type = "uint32_t"
+summary = "ABI 0.2: bits of dg_list_set_rows()' per-row and dg_table_set_cells_ex()' per-cell `flags`."
+values = [
+  { name = "CHECKABLE", id = 1, summary = "Shows a check box, unchecked unless CHECKED is also set." },
+  { name = "CHECKED", id = 2, summary = "Shows a checked check box (implies CHECKABLE)." },
+]
+
+[[constant_group]]
+name = "user_action"
+prefix = "DG_"
+c_type = "uint16_t"
+summary = "ABI 0.2: app-defined action ids (dg_app_add_shortcut()/dg_window_add_shortcut()) start here; lower ids are the built-in DG_ACTION_*."
+values = [
+  { name = "USER_ACTION_BASE", id = 32768, summary = "The first app-defined action id (dg::kUserActionBase)." },
+]
+
+[[constant_group]]
 name = "tree_item_flag"
 prefix = "DG_TREE_ITEM_"
 c_type = "uint32_t"
 summary = "ABI 0.2 phase B: bits of dg_tree_set_items()' per-item `flags`."
 values = [
   { name = "EXPANDED", id = 1, summary = "The item starts expanded (meaningful when it has children)." },
+  { name = "CHECKABLE", id = 2, summary = "ABI 0.2 (dg_tree_set_items_ex()): shows a check box, unchecked unless CHECKED is also set." },
+  { name = "CHECKED", id = 4, summary = "ABI 0.2 (dg_tree_set_items_ex()): shows a checked check box (implies CHECKABLE)." },
 ]
 
 [[constant_group]]
@@ -1137,3 +1189,129 @@ ret = "int32_t"
 impl = "radio_select"
 params = [{ name = "node", type = "dg_node_t*" }]
 summary = "ABI 0.2: selects a LIVE DG_NODE_TYPE_RADIO, clearing the other radios of its group, and repaints them. Queues no event. DG_ERR_UNSUPPORTED for another node type."
+
+[[function]]
+name = "dg_app_add_shortcut"
+ret = "int32_t"
+impl = "app_add_shortcut"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "chord", type = "const char*" }, { name = "action_id", type = "uint16_t" }]
+summary = "ABI 0.2: binds `chord` (input/shortcuts.toml syntax, e.g. Ctrl+Shift+K) to `action_id` (>= DG_USER_ACTION_BASE) in every window of the app (router level 4); it queues DG_EVENT_ACTION with a null node. Rebinding a chord replaces it. DG_ERR_INVALID_ARGUMENT for a chord that does not parse or an id below DG_USER_ACTION_BASE."
+
+[[function]]
+name = "dg_window_add_shortcut"
+ret = "int32_t"
+impl = "window_add_shortcut"
+params = [{ name = "scope", type = "dg_node_t*" }, { name = "chord", type = "const char*" }, { name = "action_id", type = "uint16_t" }]
+summary = "ABI 0.2: binds `chord` to `action_id` (>= DG_USER_ACTION_BASE) while focus is inside the LIVE node `scope` (router level 2); DG_EVENT_ACTION names `scope`."
+
+[[function]]
+name = "dg_app_remove_shortcut"
+ret = "int32_t"
+impl = "app_remove_shortcut"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "chord", type = "const char*" }]
+summary = "ABI 0.2: drops every dg_app_add_shortcut()/dg_window_add_shortcut() binding of `chord`. DG_ERR_UNKNOWN_ID when there is none."
+
+[[function]]
+name = "dg_chord_label"
+ret = "const char*"
+impl = "chord_label"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "chord", type = "const char*" }]
+summary = "ABI 0.2: the platform label of `chord` (e.g. Ctrl+K), or NULL when it does not parse. Valid until the next dg_chord_label() call on this thread."
+
+[[function]]
+name = "dg_app_load_image"
+ret = "int32_t"
+impl = "app_load_image"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "bytes", type = "const void*" }, { name = "len", type = "uint32_t" }, { name = "svg_tint_argb", type = "uint32_t" }]
+summary = "ABI 0.2: decodes a PNG/JPEG/WebP/SVG (sniffed, as dg_node_set_image_data()) once and returns its image id (positive) for the icon arrays of dg_list_set_rows()/dg_tree_set_items_ex()/dg_table_set_cells_ex()/dg_list_set_row_actions(), or a negative DG_ERR_*. Images live as long as the app."
+
+[[function]]
+name = "dg_app_load_image_file"
+ret = "int32_t"
+impl = "app_load_image_file"
+params = [{ name = "app", type = "dg_app_t*" }, { name = "path", type = "const char*" }, { name = "svg_tint_argb", type = "uint32_t" }]
+summary = "ABI 0.2: dg_app_load_image() with the bytes read from `path`."
+
+[[function]]
+name = "dg_list_set_rows"
+ret = "int32_t"
+impl = "list_set_rows"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "texts", type = "const char* const*" }, { name = "secondaries", type = "const char* const*" }, { name = "icons", type = "const uint32_t*" }, { name = "flags", type = "const uint32_t*" }, { name = "trailing_actions", type = "const uint32_t*" }, { name = "count", type = "uint32_t" }, { name = "item_height", type = "int32_t" }]
+summary = "ABI 0.2: dg_list_set_items() with rich rows: texts[i], secondaries[i] (dimmed second text), icons[i] (a dg_app_load_image() id, 0 = none), flags[i] (DG_ROW_*), trailing_actions[i] (how many of dg_list_set_row_actions()' buttons it shows, 0..8). Every array but `texts` may be null; a null string is empty."
+
+[[function]]
+name = "dg_list_set_row_actions"
+ret = "int32_t"
+impl = "list_set_row_actions"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "icons", type = "const uint32_t*" }, { name = "tooltips", type = "const char* const*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2: the trailing action buttons (at most 8; icon ids and tooltips, either array may be null) the rows of a DG_NODE_TYPE_LIST pick from. A press queues DG_EVENT_ROW_PART with x = DG_ROW_PART_ACTION."
+
+[[function]]
+name = "dg_list_row_checked"
+ret = "int32_t"
+impl = "list_row_checked"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "row", type = "int32_t" }]
+summary = "ABI 0.2: 1/0 for a dg_list_set_rows() row's check box, or a negative DG_ERR_* (DG_ERR_NOT_APPLICABLE for a row without one)."
+
+[[function]]
+name = "dg_tree_set_items_ex"
+ret = "int32_t"
+impl = "tree_set_items_ex"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "labels", type = "const char* const*" }, { name = "depths", type = "const int32_t*" }, { name = "flags", type = "const uint32_t*" }, { name = "icons", type = "const uint32_t*" }, { name = "secondaries", type = "const char* const*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2: dg_tree_set_items() plus icons[i] (image ids, 0 = none), secondaries[i] and flags[i]'s DG_TREE_ITEM_CHECKABLE/CHECKED. `icons`/`secondaries` may be null."
+
+[[function]]
+name = "dg_tree_row_checked"
+ret = "int32_t"
+impl = "tree_row_checked"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "index", type = "int32_t" }]
+summary = "ABI 0.2: 1/0 for a dg_tree_set_items_ex() item's check box, or a negative DG_ERR_*."
+
+[[function]]
+name = "dg_table_set_cells_ex"
+ret = "int32_t"
+impl = "table_set_cells_ex"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "cells", type = "const char* const*" }, { name = "icons", type = "const uint32_t*" }, { name = "flags", type = "const uint32_t*" }, { name = "rows", type = "uint32_t" }]
+summary = "ABI 0.2: dg_table_set_cells() plus row-major icons (image ids, 0 = none) and flags (DG_ROW_*) per cell; either may be null."
+
+[[function]]
+name = "dg_table_cell_checked"
+ret = "int32_t"
+impl = "table_cell_checked"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "row", type = "int32_t" }, { name = "column", type = "int32_t" }]
+summary = "ABI 0.2: 1/0 for a dg_table_set_cells_ex() cell's check box, or a negative DG_ERR_*."
+
+[[function]]
+name = "dg_menubar_set_menus"
+ret = "int32_t"
+impl = "menubar_set_menus"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "titles", type = "const char* const*" }, { name = "entry_counts", type = "const uint32_t*" }, { name = "menu_count", type = "uint32_t" }, { name = "labels", type = "const char* const*" }, { name = "shortcut_labels", type = "const char* const*" }, { name = "flags", type = "const uint32_t*" }, { name = "commands", type = "const int32_t*" }, { name = "entry_total", type = "uint32_t" }]
+summary = "ABI 0.2: replaces a DG_NODE_TYPE_MENUBAR's menus: `menu_count` titles, menu i owning the next entry_counts[i] entries of the flattened labels/shortcut_labels/flags (DG_MENU_ITEM_*)/commands arrays (`entry_total` = their sum; shortcut_labels/flags/commands may be null)."
+
+[[function]]
+name = "dg_menubar_set_entry"
+ret = "int32_t"
+impl = "menubar_set_entry"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "menu", type = "int32_t" }, { name = "item", type = "int32_t" }, { name = "label", type = "const char*" }, { name = "shortcut_label", type = "const char*" }, { name = "flags", type = "uint32_t" }, { name = "command", type = "int32_t" }]
+summary = "ABI 0.2: replaces one entry of a menu bar menu. DG_ERR_VALUE_OUT_OF_RANGE for a missing menu/item."
+
+[[function]]
+name = "dg_menu_open_ex"
+ret = "int32_t"
+impl = "menu_open_ex"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "anchor", type = "dg_node_t*" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }, { name = "labels", type = "const char* const*" }, { name = "flags", type = "const uint32_t*" }, { name = "shortcut_labels", type = "const char* const*" }, { name = "commands", type = "const int32_t*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2: dg_menu_open() plus right-aligned shortcut labels and per-entry commands (echoed in DG_EVENT_MENU_ACTIVATE's `command`); either array may be null."
+
+[[function]]
+name = "dg_dialog_open_ex"
+ret = "int32_t"
+impl = "dialog_open_ex"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "title", type = "const char*" }, { name = "body", type = "const char*" }, { name = "buttons", type = "const char* const*" }, { name = "count", type = "uint32_t" }, { name = "default_button", type = "int32_t" }, { name = "cancel_button", type = "int32_t" }, { name = "content", type = "dg_node_t*" }]
+summary = "ABI 0.2: dg_dialog_open() plus `content` (may be null): a LIVE node of `window` the dialog body shows below `body` while open; it is detached (alive, parentless) when the dialog closes."
+
+[[function]]
+name = "dg_dialog_set_button_disabled"
+ret = "int32_t"
+impl = "dialog_set_button_disabled"
+params = [{ name = "window", type = "dg_window_t*" }, { name = "dialog_id", type = "int32_t" }, { name = "button", type = "int32_t" }, { name = "disabled", type = "int32_t" }]
+summary = "ABI 0.2: disables (nonzero) or enables one button of the open dialog `dialog_id`. DG_ERR_UNKNOWN_ID when it is not open; DG_ERR_VALUE_OUT_OF_RANGE for a missing button."

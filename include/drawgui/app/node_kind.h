@@ -27,10 +27,12 @@ enum class NodeKind : std::uint8_t {
   kTable = 14,
   kSlider = 15,
   kRadio = 16,
+  // A horizontal bar of drop-down menus (Window::menu_bar()).
+  kMenuBar = 17,
 };
 
 inline constexpr std::uint16_t kNodeKindMin = 1;
-inline constexpr std::uint16_t kNodeKindMax = 16;
+inline constexpr std::uint16_t kNodeKindMax = 17;
 
 [[nodiscard]] constexpr bool is_node_kind(std::uint16_t value) {
   return value >= kNodeKindMin && value <= kNodeKindMax;
@@ -47,7 +49,8 @@ inline constexpr std::uint16_t kNodeKindMax = 16;
 // and a component composes its own children (tabs take content through
 // Window::tabs_add()'s panels).
 [[nodiscard]] constexpr bool accepts_children(NodeKind kind) {
-  return kind != NodeKind::kList && kind != NodeKind::kSlider && !is_component_kind(kind);
+  return kind != NodeKind::kList && kind != NodeKind::kSlider && kind != NodeKind::kMenuBar &&
+         !is_component_kind(kind);
 }
 
 [[nodiscard]] constexpr bool is_editor_kind(NodeKind kind) {

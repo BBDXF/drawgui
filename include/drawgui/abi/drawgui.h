@@ -162,6 +162,20 @@ typedef struct dg_event {
   /* struct's tail padding, so sizeof(dg_event) is unchanged (40 bytes on a 64-bit */
   /* target). */
   uint16_t clicks;
+  /* ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK on a LIST/TABLE row (the row) */
+  /* or a TREE item (the pre-order item); DG_EVENT_ROW_PART the row/item; */
+  /* DG_EVENT_MENU_ACTIVATE the item index. -1 for every other kind or a press */
+  /* outside the rows. Appended (with `column` and `command`): sizeof(dg_event) */
+  /* grows from 40 to 56 on a 64-bit target; `size` tells which fields a struct */
+  /* has. */
+  int32_t item;
+  /* ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK/DG_EVENT_ROW_PART on a TABLE: */
+  /* the column. DG_EVENT_MENU_ACTIVATE/_DISMISS of a DG_NODE_TYPE_MENUBAR menu: */
+  /* the bar menu index. -1 otherwise. */
+  int32_t column;
+  /* ABI 0.2: DG_EVENT_MENU_ACTIVATE: the chosen entry's command */
+  /* (dg_menu_open_ex()/dg_menubar_*; 0 = none). 0 for every other kind. */
+  int32_t command;
 } dg_event;
 
 /* 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed. */
@@ -361,6 +375,12 @@ typedef struct dg_theme_err {
 /* queue DG_EVENT_CLICK on it with clicks = 0 and x/y = 0. Each radio is its own */
 /* Tab stop. */
 #define DG_NODE_TYPE_RADIO 16u
+/* ABI 0.2: a horizontal menu bar */
+/* (dg_menubar_set_menus()/dg_menubar_set_entry()). A press on a title drops its */
+/* menu down; choosing an entry queues DG_EVENT_MENU_ACTIVATE with `node` = the */
+/* bar, `column` = the bar menu, `x`/`item` = the entry and `command` its */
+/* command. Takes no children. */
+#define DG_NODE_TYPE_MENUBAR 17u
 
 /* dg_value::type. */
 /* PropType::k_float. */
@@ -487,6 +507,13 @@ typedef struct dg_theme_err {
 /* dg_event carries no float). One per change; not queued for DG_PROP_VALUE */
 /* writes. */
 #define DG_EVENT_SLIDER_CHANGED 29u
+/* ABI 0.2: a press on a row's check box or trailing action button of a LIST */
+/* (dg_list_set_rows()), TREE (dg_tree_set_items_ex()) or TABLE */
+/* (dg_table_set_cells_ex()). `node` the component, `item` the row/item, */
+/* `column` the table column (-1 elsewhere), `x` DG_ROW_PART_*, `y` the action */
+/* index (-1 for a check box). A check box has already flipped - read it with */
+/* dg_list_row_checked()/dg_tree_row_checked()/dg_table_cell_checked(). */
+#define DG_EVENT_ROW_PART 30u
 
 /* ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()). */
 /* Bytes blue, green, red, alpha - a drawgui-rasterized frame's own order. */
@@ -529,9 +556,34 @@ typedef struct dg_theme_err {
 /* set. */
 #define DG_MENU_ITEM_CHECKABLE 8u
 
+/* ABI 0.2: DG_EVENT_ROW_PART's `x`. */
+/* The row's (or cell's) check box. */
+#define DG_ROW_PART_CHECK 1
+/* A trailing action button; `y` is its index into dg_list_set_row_actions(). */
+#define DG_ROW_PART_ACTION 2
+
+/* ABI 0.2: bits of dg_list_set_rows()' per-row and dg_table_set_cells_ex()' */
+/* per-cell `flags`. */
+/* Shows a check box, unchecked unless CHECKED is also set. */
+#define DG_ROW_CHECKABLE 1u
+/* Shows a checked check box (implies CHECKABLE). */
+#define DG_ROW_CHECKED 2u
+
+/* ABI 0.2: app-defined action ids */
+/* (dg_app_add_shortcut()/dg_window_add_shortcut()) start here; lower ids are */
+/* the built-in DG_ACTION_*. */
+/* The first app-defined action id (dg::kUserActionBase). */
+#define DG_USER_ACTION_BASE 32768u
+
 /* ABI 0.2 phase B: bits of dg_tree_set_items()' per-item `flags`. */
 /* The item starts expanded (meaningful when it has children). */
 #define DG_TREE_ITEM_EXPANDED 1u
+/* ABI 0.2 (dg_tree_set_items_ex()): shows a check box, unchecked unless CHECKED */
+/* is also set. */
+#define DG_TREE_ITEM_CHECKABLE 2u
+/* ABI 0.2 (dg_tree_set_items_ex()): shows a checked check box (implies */
+/* CHECKABLE). */
+#define DG_TREE_ITEM_CHECKED 4u
 
 /* ABI 0.2 phase B: bits of dg_table_set_columns()' per-column `flags`. */
 /* Pressing the header queues DG_EVENT_TABLE_SORT. */
@@ -779,6 +831,8 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_WRAP_TEXT 67
 /* Recolours the node's image at paint time (SrcIn, alpha kept); fully transparent = no tint. Overrides a decode-time SVG tint. */
 #define DG_PROP_IMAGE_TINT 68
+/* A checkbox's/radio's checked mark; on a button, makes it a toggle button (each click flips it) in that state. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it. */
+#define DG_PROP_CHECKED 69
 
 /* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for
  * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names
@@ -1586,6 +1640,118 @@ DG_EXPORT int32_t dg_slider_get_value(dg_node_t* node, float* out_value);
 /* group, and repaints them. Queues no event. DG_ERR_UNSUPPORTED for another */
 /* node type. */
 DG_EXPORT int32_t dg_radio_select(dg_node_t* node);
+
+/* ABI 0.2: binds `chord` (input/shortcuts.toml syntax, e.g. Ctrl+Shift+K) to */
+/* `action_id` (>= DG_USER_ACTION_BASE) in every window of the app (router level */
+/* 4); it queues DG_EVENT_ACTION with a null node. Rebinding a chord replaces */
+/* it. DG_ERR_INVALID_ARGUMENT for a chord that does not parse or an id below */
+/* DG_USER_ACTION_BASE. */
+DG_EXPORT int32_t dg_app_add_shortcut(dg_app_t* app, const char* chord, uint16_t action_id);
+
+/* ABI 0.2: binds `chord` to `action_id` (>= DG_USER_ACTION_BASE) while focus is */
+/* inside the LIVE node `scope` (router level 2); DG_EVENT_ACTION names `scope`. */
+DG_EXPORT int32_t dg_window_add_shortcut(dg_node_t* scope, const char* chord,
+                                         uint16_t action_id);
+
+/* ABI 0.2: drops every dg_app_add_shortcut()/dg_window_add_shortcut() binding */
+/* of `chord`. DG_ERR_UNKNOWN_ID when there is none. */
+DG_EXPORT int32_t dg_app_remove_shortcut(dg_app_t* app, const char* chord);
+
+/* ABI 0.2: the platform label of `chord` (e.g. Ctrl+K), or NULL when it does */
+/* not parse. Valid until the next dg_chord_label() call on this thread. */
+DG_EXPORT const char* dg_chord_label(dg_app_t* app, const char* chord);
+
+/* ABI 0.2: decodes a PNG/JPEG/WebP/SVG (sniffed, as dg_node_set_image_data()) */
+/* once and returns its image id (positive) for the icon arrays of */
+/* dg_list_set_rows()/dg_tree_set_items_ex()/dg_table_set_cells_ex()/dg_list_set_row_actions(), */
+/* or a negative DG_ERR_*. Images live as long as the app. */
+DG_EXPORT int32_t dg_app_load_image(dg_app_t* app, const void* bytes, uint32_t len,
+                                    uint32_t svg_tint_argb);
+
+/* ABI 0.2: dg_app_load_image() with the bytes read from `path`. */
+DG_EXPORT int32_t dg_app_load_image_file(dg_app_t* app, const char* path,
+                                         uint32_t svg_tint_argb);
+
+/* ABI 0.2: dg_list_set_items() with rich rows: texts[i], secondaries[i] (dimmed */
+/* second text), icons[i] (a dg_app_load_image() id, 0 = none), flags[i] */
+/* (DG_ROW_*), trailing_actions[i] (how many of dg_list_set_row_actions()' */
+/* buttons it shows, 0..8). Every array but `texts` may be null; a null string */
+/* is empty. */
+DG_EXPORT int32_t dg_list_set_rows(dg_node_t* node, const char* const* texts,
+                                   const char* const* secondaries, const uint32_t* icons,
+                                   const uint32_t* flags, const uint32_t* trailing_actions,
+                                   uint32_t count, int32_t item_height);
+
+/* ABI 0.2: the trailing action buttons (at most 8; icon ids and tooltips, */
+/* either array may be null) the rows of a DG_NODE_TYPE_LIST pick from. A press */
+/* queues DG_EVENT_ROW_PART with x = DG_ROW_PART_ACTION. */
+DG_EXPORT int32_t dg_list_set_row_actions(dg_node_t* node, const uint32_t* icons,
+                                          const char* const* tooltips, uint32_t count);
+
+/* ABI 0.2: 1/0 for a dg_list_set_rows() row's check box, or a negative DG_ERR_* */
+/* (DG_ERR_NOT_APPLICABLE for a row without one). */
+DG_EXPORT int32_t dg_list_row_checked(dg_node_t* node, int32_t row);
+
+/* ABI 0.2: dg_tree_set_items() plus icons[i] (image ids, 0 = none), */
+/* secondaries[i] and flags[i]'s DG_TREE_ITEM_CHECKABLE/CHECKED. */
+/* `icons`/`secondaries` may be null. */
+DG_EXPORT int32_t dg_tree_set_items_ex(dg_node_t* node, const char* const* labels,
+                                       const int32_t* depths, const uint32_t* flags,
+                                       const uint32_t* icons, const char* const* secondaries,
+                                       uint32_t count);
+
+/* ABI 0.2: 1/0 for a dg_tree_set_items_ex() item's check box, or a negative */
+/* DG_ERR_*. */
+DG_EXPORT int32_t dg_tree_row_checked(dg_node_t* node, int32_t index);
+
+/* ABI 0.2: dg_table_set_cells() plus row-major icons (image ids, 0 = none) and */
+/* flags (DG_ROW_*) per cell; either may be null. */
+DG_EXPORT int32_t dg_table_set_cells_ex(dg_node_t* node, const char* const* cells,
+                                        const uint32_t* icons, const uint32_t* flags,
+                                        uint32_t rows);
+
+/* ABI 0.2: 1/0 for a dg_table_set_cells_ex() cell's check box, or a negative */
+/* DG_ERR_*. */
+DG_EXPORT int32_t dg_table_cell_checked(dg_node_t* node, int32_t row, int32_t column);
+
+/* ABI 0.2: replaces a DG_NODE_TYPE_MENUBAR's menus: `menu_count` titles, menu i */
+/* owning the next entry_counts[i] entries of the flattened */
+/* labels/shortcut_labels/flags (DG_MENU_ITEM_*)/commands arrays (`entry_total` */
+/* = their sum; shortcut_labels/flags/commands may be null). */
+DG_EXPORT int32_t dg_menubar_set_menus(dg_node_t* node, const char* const* titles,
+                                       const uint32_t* entry_counts, uint32_t menu_count,
+                                       const char* const* labels,
+                                       const char* const* shortcut_labels,
+                                       const uint32_t* flags, const int32_t* commands,
+                                       uint32_t entry_total);
+
+/* ABI 0.2: replaces one entry of a menu bar menu. DG_ERR_VALUE_OUT_OF_RANGE for */
+/* a missing menu/item. */
+DG_EXPORT int32_t dg_menubar_set_entry(dg_node_t* node, int32_t menu, int32_t item,
+                                       const char* label, const char* shortcut_label,
+                                       uint32_t flags, int32_t command);
+
+/* ABI 0.2: dg_menu_open() plus right-aligned shortcut labels and per-entry */
+/* commands (echoed in DG_EVENT_MENU_ACTIVATE's `command`); either array may be */
+/* null. */
+DG_EXPORT int32_t dg_menu_open_ex(dg_window_t* window, dg_node_t* anchor, int32_t x, int32_t y,
+                                  const char* const* labels, const uint32_t* flags,
+                                  const char* const* shortcut_labels, const int32_t* commands,
+                                  uint32_t count);
+
+/* ABI 0.2: dg_dialog_open() plus `content` (may be null): a LIVE node of */
+/* `window` the dialog body shows below `body` while open; it is detached */
+/* (alive, parentless) when the dialog closes. */
+DG_EXPORT int32_t dg_dialog_open_ex(dg_window_t* window, const char* title, const char* body,
+                                    const char* const* buttons, uint32_t count,
+                                    int32_t default_button, int32_t cancel_button,
+                                    dg_node_t* content);
+
+/* ABI 0.2: disables (nonzero) or enables one button of the open dialog */
+/* `dialog_id`. DG_ERR_UNKNOWN_ID when it is not open; DG_ERR_VALUE_OUT_OF_RANGE */
+/* for a missing button. */
+DG_EXPORT int32_t dg_dialog_set_button_disabled(dg_window_t* window, int32_t dialog_id,
+                                                int32_t button, int32_t disabled);
 
 #ifdef __cplusplus
 } /* extern "C" */

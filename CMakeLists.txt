@@ -248,6 +248,7 @@ if(DRAWGUI_HAVE_SDL3)
     src/app/keys.cpp
     src/app/pointer.cpp
     src/app/pump.cpp
+    src/app/shortcuts.cpp
     src/app/theme.cpp
     src/app/window.cpp
     src/app/components/basic.cpp
@@ -255,6 +256,7 @@ if(DRAWGUI_HAVE_SDL3)
     src/app/components/dropdown.cpp
     src/app/components/editors.cpp
     src/app/components/list.cpp
+    src/app/components/menubar.cpp
     src/app/components/popups.cpp
     src/app/components/progress.cpp
     src/app/components/slider_radio.cpp
@@ -267,6 +269,7 @@ if(DRAWGUI_HAVE_SDL3)
     # so nothing here can exist without a real windowing backend. A build
     # without SDL3 has no C ABI at all.
     src/abi/abi_components.cpp
+    src/abi/abi_enterprise.cpp
     src/abi/abi_impl.cpp
     src/abi/drawgui_abi.generated.cpp)
 

@@ -285,3 +285,20 @@ Status ListRef::select(int index) {
 }
 
 }  // namespace dg
+
+namespace dg {
+
+// Contract stubs: rich rows land in a later phase.
+Status ListRef::set_rows(std::vector<RowItem> /*rows*/, int /*item_height*/) {
+  return Status::kUnsupported;
+}
+
+Status ListRef::set_row_actions(std::vector<RowAction> /*actions*/) {
+  return Status::kUnsupported;
+}
+
+Expected<bool, Status> ListRef::row_checked(int /*row*/) const {
+  return Unexpected(Status::kUnsupported);
+}
+
+}  // namespace dg

@@ -419,6 +419,12 @@ Expected<std::int32_t, Status> Window::open_dialog(DialogOptions options) {
   return window.dialog_id;
 }
 
+// Contract stub: per-button disabling lands in a later phase.
+Status Window::set_dialog_button_disabled(std::int32_t /*dialog_id*/, int /*button*/,
+                                          bool /*disabled*/) {
+  return Status::kUnsupported;
+}
+
 void Window::close_dialog() {
   WinState& window = *state_;
   dg::UiContext ctx = app_detail::components::ui(window);

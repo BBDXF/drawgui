@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <optional>
 #include <stdexcept>
@@ -61,7 +62,9 @@ static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTree) == DG_NODE_TYPE_TR
 static_assert(static_cast<std::uint16_t>(dg::NodeKind::kTable) == DG_NODE_TYPE_TABLE);
 static_assert(static_cast<std::uint16_t>(dg::NodeKind::kSlider) == DG_NODE_TYPE_SLIDER);
 static_assert(static_cast<std::uint16_t>(dg::NodeKind::kRadio) == DG_NODE_TYPE_RADIO);
-static_assert(dg::kNodeKindMin == DG_NODE_TYPE_BOX && dg::kNodeKindMax == DG_NODE_TYPE_RADIO);
+static_assert(static_cast<std::uint16_t>(dg::NodeKind::kMenuBar) == DG_NODE_TYPE_MENUBAR);
+static_assert(dg::kNodeKindMin == DG_NODE_TYPE_BOX && dg::kNodeKindMax == DG_NODE_TYPE_MENUBAR);
+static_assert(dg::kUserActionBase == DG_USER_ACTION_BASE);
 
 // The longest dg_list_set_items() a caller can pass.
 constexpr auto kListMaxItems = dg::limits::kListMaxItems;
@@ -443,6 +446,8 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
   dg_event out{};
   out.size = sizeof(dg_event);
   out.kind = dg_event_kind(event);
+  out.item = -1;
+  out.column = -1;
   std::size_t window_index = 0;
   const auto on_window = [&](dg::WindowId id) {
     if (const WindowImpl* window = window_named(impl, id)) {
@@ -462,6 +467,8 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.x = e.x;
             out.y = e.y;
             out.clicks = clicks_of(e.clicks, 0);
+            out.item = e.item.value_or(-1);
+            out.column = e.column.value_or(-1);
           },
           [&](const dg::events::ContextClickEvent& e) {
             on_window(e.window);
@@ -469,6 +476,8 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.x = e.x;
             out.y = e.y;
             out.clicks = clicks_of(e.clicks, 1);
+            out.item = e.item.value_or(-1);
+            out.column = e.column.value_or(-1);
           },
           [&](const dg::events::ActionEvent& e) {
             on_window(e.window);
@@ -500,6 +509,9 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.node = node(e.anchor);
             out.x = e.item.value_or(-1);
             out.y = e.menu_id;
+            out.item = e.item.value_or(-1);
+            out.column = e.bar_menu.value_or(-1);
+            out.command = e.command;
           },
           [&](const dg::events::DialogResultEvent& e) {
             on_window(e.window);
@@ -539,6 +551,15 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
           [&](const dg::events::SliderEvent& e) {
             on_window(e.window);
             out.node = node(e.node);
+          },
+          [&](const dg::events::RowPartEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.item = e.item;
+            out.column = e.column;
+            out.x = e.part == dg::events::RowPartEvent::Part::kCheck ? DG_ROW_PART_CHECK
+                                                                      : DG_ROW_PART_ACTION;
+            out.y = e.action;
           },
       },
       event);
@@ -759,6 +780,7 @@ std::uint32_t dg_event_kind(const dg::Event& event) {
           [](const dg::events::SliderEvent&) -> std::uint32_t {
             return DG_EVENT_SLIDER_CHANGED;
           },
+          [](const dg::events::RowPartEvent&) -> std::uint32_t { return DG_EVENT_ROW_PART; },
       },
       event);
 }
@@ -1180,8 +1202,19 @@ std::int32_t poll_events(dg_app_t* app, dg_event* out, std::int32_t max) {
   drain_events(*impl);
   const auto count =
       std::min<std::size_t>(static_cast<std::size_t>(max), impl->pending_events.size());
+  // A caller built against the 40-byte dg_event (before item/column/command)
+  // says so in out[0].size; its entries are then written at that stride and
+  // truncated. Any other size value means the current struct.
+  constexpr std::size_t kLegacySize = offsetof(dg_event, item);
+  std::size_t stride = sizeof(dg_event);
+  if (count > 0 && out[0].size >= kLegacySize && out[0].size < sizeof(dg_event)) {
+    stride = kLegacySize;
+  }
+  auto* bytes = reinterpret_cast<unsigned char*>(out);
   for (std::size_t i = 0; i < count; ++i) {
-    out[i] = impl->pending_events[i];
+    dg_event entry = impl->pending_events[i];
+    entry.size = static_cast<std::uint32_t>(stride);
+    std::memcpy(bytes + (i * stride), &entry, stride);
   }
   impl->pending_events.erase(impl->pending_events.begin(),
                              impl->pending_events.begin() + static_cast<std::ptrdiff_t>(count));

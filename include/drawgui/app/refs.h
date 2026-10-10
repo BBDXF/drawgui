@@ -1,6 +1,6 @@
 // Typed handles to one component node of a dg::Window: Window::list(id),
-// dropdown(id), tabs(id), tree(id), table(id), progress(id), slider(id) and
-// radio(id) check the
+// dropdown(id), tabs(id), tree(id), table(id), progress(id), slider(id),
+// radio(id) and menu_bar(id) check the
 // node's kind once and hand back the matching ref.
 //
 // A ref is a cheap value ({window, node}); copy it freely. It never keeps the
@@ -49,6 +49,15 @@ class ListRef : public ComponentRef {
   [[nodiscard]] Expected<int, Status> selected() const;
   // -1 deselects. Reports no event.
   Status select(int index);
+  // Rich rows (text, secondary text, icon, check box, trailing actions);
+  // replaces every row like set_items(). kValueOutOfRange for
+  // trailing_actions above 8.
+  Status set_rows(std::vector<RowItem> rows, int item_height = 0);
+  // The trailing action buttons RowItem::trailing_actions picks from (at
+  // most 8). A press reports RowPartEvent{kAction}.
+  Status set_row_actions(std::vector<RowAction> actions);
+  // A set_rows() row's check state; kNotApplicable for a row without one.
+  [[nodiscard]] Expected<bool, Status> row_checked(int row) const;
 
  private:
   friend class Window;
@@ -95,6 +104,8 @@ class TreeRef : public ComponentRef {
   // -1 deselects. Reports no event.
   Status select(int index);
   Status set_expanded(int index, bool expanded);
+  // An item's check state (TreeEntry::check); kNotApplicable without one.
+  [[nodiscard]] Expected<bool, Status> row_checked(int index) const;
 
  private:
   friend class Window;
@@ -116,6 +127,10 @@ class TableRef : public ComponentRef {
   Status select(int row);
   // nullopt = no indicator.
   Status set_sort_indicator(std::optional<int> column, bool ascending);
+  // set_rows() with icons and check boxes per cell.
+  Status set_cells(std::vector<std::vector<TableCell>> rows);
+  // A cell's check state (TableCell::check); kNotApplicable without one.
+  [[nodiscard]] Expected<bool, Status> cell_checked(int row, int column) const;
 
  private:
   friend class Window;
@@ -174,6 +189,22 @@ class RadioRef : public ComponentRef {
   // radio joining a group with a selection is cleared.
   Status set_group(int group);
   [[nodiscard]] Expected<int, Status> group() const;
+
+ private:
+  friend class Window;
+  using ComponentRef::ComponentRef;
+};
+
+// NodeKind::kMenuBar: a row of titles, each dropping down a menu of
+// MenuEntry rows. Choosing one reports MenuEvent{anchor = the bar,
+// bar_menu, item, command}.
+class MenuBarRef : public ComponentRef {
+ public:
+  // Replaces every menu (closing an open one).
+  Status set_menus(std::vector<MenuBarMenu> menus);
+  // Replaces one entry (e.g. to toggle checked/disabled); kValueOutOfRange
+  // for a missing menu/item.
+  Status set_entry(int menu, int item, MenuEntry entry);
 
  private:
   friend class Window;

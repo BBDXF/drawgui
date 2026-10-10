@@ -37,6 +37,10 @@ struct Setting {
 [[nodiscard]] inline Setting image_tint(Color color) {
   return {DG_PROP_IMAGE_TINT, PropValue::color(color)};
 }
+// On a kButton: makes it a toggle button in this state (Window::checked()).
+[[nodiscard]] inline Setting checked(bool on = true) {
+  return {DG_PROP_CHECKED, PropValue::boolean(on)};
+}
 [[nodiscard]] inline Setting gap(float px) { return {DG_PROP_GAP, PropValue::number(px)}; }
 [[nodiscard]] inline Setting grow(float factor) { return {DG_PROP_GROW, PropValue::number(factor)}; }
 [[nodiscard]] inline Setting row() {

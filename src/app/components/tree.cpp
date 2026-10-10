@@ -185,3 +185,12 @@ Status TreeRef::set_expanded(int index, bool expanded) {
 }
 
 }  // namespace dg
+
+namespace dg {
+
+// Contract stub: tree check boxes land in a later phase.
+Expected<bool, Status> TreeRef::row_checked(int /*index*/) const {
+  return Unexpected(Status::kUnsupported);
+}
+
+}  // namespace dg

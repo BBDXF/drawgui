@@ -10,16 +10,20 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "drawgui/app/events.h"
 #include "drawgui/app/status.h"
 #include "drawgui/base/expected.h"
 #include "drawgui/graphics/types.h"
+#include "drawgui/render/image_catalog.h"
 #include "drawgui/theme/theme.h"
 #include "drawgui/window/window_id.h"
 
@@ -35,6 +39,11 @@ struct AppState;
 }  // namespace app_detail
 
 struct AppOptions {};
+
+// ActionEvent::action_id values from here up are the app's own
+// (App::add_shortcut()/Window::add_shortcut()); below it are
+// input/shortcuts.toml's built-in DG_ACTION_* ids.
+inline constexpr std::uint16_t kUserActionBase = 0x8000;
 
 struct WindowOptions {
   std::string title;
@@ -127,6 +136,30 @@ class App {
   [[nodiscard]] TimerId add_timer(int delay_ms, bool repeat);
   bool cancel_timer(TimerId id);
   [[nodiscard]] Waker waker() const;
+
+  // -- Shortcuts ---------------------------------------------------------
+  // Binds `chord` (e.g. "Ctrl+Shift+K", the input/shortcuts.toml syntax) to
+  // `action_id` (>= kUserActionBase) in every window (router level 4); it
+  // reports ActionEvent{node = none}. Rebinding a chord replaces it.
+  // kInvalidArgument for a chord that does not parse or an id below
+  // kUserActionBase.
+  Status add_shortcut(std::string_view chord, std::uint16_t action_id);
+  // Drops an add_shortcut() binding (and every Window::add_shortcut() one)
+  // of `chord`; kUnknownId when none.
+  Status remove_shortcut(std::string_view chord);
+  // The platform label of `chord` (e.g. "Ctrl+K", or "⌘K" on macOS) for
+  // MenuEntry::shortcut_label. kInvalidArgument when it does not parse.
+  [[nodiscard]] Expected<std::string, Status> chord_label(std::string_view chord) const;
+
+  // -- Images ------------------------------------------------------------
+  // Decodes a PNG/JPEG/WebP/SVG (sniffed; `svg_tint` recolours an SVG) once
+  // into images() and returns its id, for Window::set_image(),
+  // RowItem::icon, TreeEntry::icon and TableCell::icon.
+  [[nodiscard]] Expected<ImageId, AppError> load_image(const std::uint8_t* bytes,
+                                                       std::size_t size,
+                                                       std::optional<Color> svg_tint = {});
+  [[nodiscard]] Expected<ImageId, AppError> load_image_file(const std::string& path,
+                                                            std::optional<Color> svg_tint = {});
 
   // -- Escape hatches ----------------------------------------------------
   [[nodiscard]] WindowManager& window_manager();

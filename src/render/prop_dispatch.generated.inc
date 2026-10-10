@@ -257,6 +257,10 @@ switch (prop_id) {
   case DG_PROP_IMAGE_TINT:
     DG_PROP_ASSIGN(image_tint, color);
     break;
+  // -- interaction -----------------------------------------------
+  case DG_PROP_CHECKED:
+    DG_PROP_ASSIGN(checked, bool);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:
