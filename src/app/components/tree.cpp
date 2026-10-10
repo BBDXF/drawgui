@@ -45,7 +45,7 @@ namespace components {
 
 void build_tree(WinState& window, NodeRecord& record, std::optional<int> select) {
   TreeState& c = std::get<TreeState>(record.state);
-  dg::ControlContext ctx = controls(window);
+  dg::ControlContext ctx = controls_with_rows(window, c.row_height);
   c.built_height = laid_out_height(window, record, kTreeHeight);
   const FocusKeeper keeper(window, c.tree.root());
   c.tree.destroy(ctx);
@@ -74,7 +74,7 @@ void capture_tree(TreeState& state) {
 
 bool control_pointer(WinState& window, NodeRecord& record, TreeState& state,
                      const dg::PointerEvent& event) {
-  dg::ControlContext ctx = controls(window);
+  dg::ControlContext ctx = controls_with_rows(window, state.row_height);
   const bool press =
       event.action == dg::PointerAction::kDown && event.button == dg::PointerButton::kPrimary;
   const dg::PixelPoint at{event.x, event.y};
@@ -108,7 +108,7 @@ bool control_key(WinState& window, NodeRecord& record, TreeState& state,
       toggle_tree_row_check(window, record)) {
     return true;
   }
-  dg::ControlContext ctx = controls(window);
+  dg::ControlContext ctx = controls_with_rows(window, state.row_height);
   const dg::TreeResult r = state.tree.handle_key(ctx, event);
   tree_result(window, record, r);
   return r.event != dg::TreeEvent::kIgnored;
@@ -120,7 +120,7 @@ void sync_state(WinState& window, NodeRecord& record, TreeState& state) {
     build_tree(window, record, state.tree.selected());
     return;
   }
-  dg::ControlContext ctx = controls(window);
+  dg::ControlContext ctx = controls_with_rows(window, state.row_height);
   state.tree.sync(ctx);
 }
 
@@ -137,6 +137,24 @@ void after_prop_state(WinState& window, NodeRecord& record, TreeState& state,
   }
 }
 
+std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
+                                         TreeState& state, std::uint16_t prop_id,
+                                         const dg::PropValue& value) {
+  if (prop_id != DG_PROP_ROW_HEIGHT) {
+    return std::nullopt;
+  }
+  int px = 0;
+  if (const dg::Status status = row_height_value(value, px); status != dg::Status::kOk) {
+    return status;
+  }
+  if (state.row_height != px) {
+    state.row_height = px;
+    capture_tree(state);
+    build_tree(window, record, state.tree.selected());
+  }
+  return dg::Status::kOk;
+}
+
 dg::NodeId focus_target_state(const NodeRecord& /*record*/, const TreeState& state) {
   return state.tree.root();
 }
@@ -148,7 +166,7 @@ RowHit tree_context_row(WinState& window, NodeRecord& record, dg::PixelPoint at)
   if (state == nullptr) {
     return {};
   }
-  dg::ControlContext ctx = components::controls(window);
+  dg::ControlContext ctx = components::controls_with_rows(window, state->row_height);
   const std::optional<dg::TreeView::Hit> hit = state->tree.hit(ctx, at);
   if (!hit.has_value()) {
     return {};
@@ -162,7 +180,7 @@ RowHit tree_context_row(WinState& window, NodeRecord& record, dg::PixelPoint at)
 namespace {
 
 bool toggle_tree_selected(WinState& window, NodeRecord& record, TreeState& state) {
-  dg::ControlContext ctx = components::controls(window);
+  dg::ControlContext ctx = components::controls_with_rows(window, state.row_height);
   const std::optional<int> item = state.tree.selected();
   if (!item.has_value() || window.focus.current() != state.tree.root() ||
       !state.tree.toggle_check(ctx, *item)) {
@@ -244,9 +262,21 @@ Status TreeRef::select(int index) {
     app_detail::components::build_tree(win, *found.record);
     return Status::kOk;
   }
-  dg::ControlContext ctx = app_detail::components::controls(win);
+  dg::ControlContext ctx = app_detail::components::controls_with_rows(win, c.row_height);
   (void)c.tree.select(ctx, index);
   return Status::kOk;
+}
+
+Status TreeRef::set_row_height(int px) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TreeState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
+  }
+  return app_detail::components::set_prop_state(win, *found.record, *found.state,
+                                                 DG_PROP_ROW_HEIGHT,
+                                                 PropValue::number(static_cast<float>(px)))
+      .value_or(Status::kUnsupported);
 }
 
 Status TreeRef::set_expanded(int index, bool expanded) {
@@ -259,7 +289,7 @@ Status TreeRef::set_expanded(int index, bool expanded) {
   if (index < 0 || index >= static_cast<int>(c.items.size())) {
     return Status::kValueOutOfRange;
   }
-  dg::ControlContext ctx = app_detail::components::controls(win);
+  dg::ControlContext ctx = app_detail::components::controls_with_rows(win, c.row_height);
   (void)c.tree.set_expanded(ctx, index, expanded);
   return Status::kOk;
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -49,6 +50,9 @@ Expected<Window*, AppError> App::create_window(const WindowOptions& options) {
   spec.min_height = options.min_height;
   spec.max_width = options.max_width;
   spec.max_height = options.max_height;
+  // The runtime decides per window (pump.cpp): close at once, or
+  // CloseRequestedEvent when close confirmation is on.
+  spec.cancellable_close = true;
 
   Expected<WindowId, WindowError> opened = app.wm.open(spec);
   if (!opened) {
@@ -68,6 +72,8 @@ Expected<Window*, AppError> App::create_window(const WindowOptions& options) {
 
   auto state = std::make_unique<WinState>(app, tree_spec);
   state->sdl_window = opened.value();
+  state->close_confirmation = options.close_confirmation;
+  state->animation.set_reduced_motion(app.reduced_motion);
   state->widgets.set_disabled_palette(app_detail::disabled_palette_for(app));
   state->widgets.set_scrollbar_style(app_detail::scrollbar_style_for(app));
   // P6 sub-step a2 (second half): enabled for the window's whole lifetime,
@@ -143,6 +149,21 @@ Expected<void, AppError> App::add_font(const std::string& directory,
     app.default_font = added.value();
   }
   return {};
+}
+
+void App::set_reduced_motion(bool enabled) {
+  state_->reduced_motion = enabled;
+  for (const std::unique_ptr<Window>& window : state_->windows) {
+    window->impl().animation.set_reduced_motion(enabled);
+  }
+}
+
+bool App::reduced_motion() const {
+  return state_->reduced_motion;
+}
+
+void App::set_clock(std::function<AnimTime()> clock) {
+  state_->clock = std::move(clock);
 }
 
 TimerId App::add_timer(int delay_ms, bool repeat) {

@@ -33,13 +33,15 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
   它的 `WindowId`，但 `find()` 不再解析它。用户关闭的窗口（收到
   `WindowClosedEvent`、`Window::closed()` 为真）会一直留在 `windows()` 里，
   直到调用 `destroy_window()`。C ABI 没有对应的 `dg_window_destroy`，窗口随
-  `dg_app_destroy()` 一起释放。
+  `dg_app_destroy()` 一起释放（`dg_window_close()` 只关闭 OS 窗口）。
 - `pump(timeout_ms)`：等待（`-1` 为无限，但会被 tooltip 截止时间、动画帧、
   定时器、`Waker` 提前唤醒）、分发、重绘，返回期间产生的全部事件。
   `poll()` 只取走已排队的事件，不等待。
 - `run(on_event)`：循环 `pump(-1)`，逐个把事件交给 `on_event`，直到所有窗口
   都已关闭/销毁，或回调里调用了 `quit()`（同一批里剩下的事件留给下一次
   `pump()`/`poll()`）。没有打开的窗口时立即返回。
+- 动画：`set_reduced_motion(bool)`（所有窗口的动画时长视为 0）、`set_clock(fn)`
+  （测试用时钟接缝），见 [animation.md](animation.md)。
 - 资源：`add_font()`、`images()`（`ImageCatalog`，解码后用
   `Window::set_image()` 显示）、`set_theme()` / `set_theme_variant()` /
   `override_color()` / `override_int()`（见 [theming.md](theming.md)）、`set_tooltip_delay()`、`add_timer()` / `cancel_timer()`。
@@ -67,11 +69,19 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
   主题自动重涂；你在它们上 `set_prop`/`bind_token` 的 `BACKGROUND_COLOR`/
   `TEXT_COLOR`/`BORDER_COLOR` 优先（背景色的悬停/按下色由它派生），不必再改
   `widgets()` 里的 `fill_*`。
-- 焦点：`focus`、`clear_focus`、`focused`；变化以 `FocusChangedEvent` 报告。`kList`
+- 焦点：`focus`、`clear_focus`、`focused`；变化以 `FocusChangedEvent` 报告。
+  `focused()` 返回最近的 `create()` 节点（组件本身）：焦点落在表格/标签页/树的内部
+  部件上时它返回组件，与 `FocusChangedEvent::node` 一致，所以 `focused() == table`
+  成立；焦点只在弹层内部（菜单行、对话框自带按钮）时返回 `nullopt`。需要原始渲染
+  节点（比如读出菜单里高亮的那一行）用 `focused_node()`。`kList`
   和树/表格一样可聚焦（键盘导航见 [widgets.md](widgets.md)「列表的键盘」）。
 - 弹层：`open_menu(anchor, at, std::vector<MenuEntry>)`、`close_menu`、
   `open_dialog(DialogOptions)`、`close_dialog`；返回的 id 会出现在对应的
   `MenuEvent` / `DialogResultEvent` 里。
+- 动画：`animate(node, prop, from, to, duration_ms, curve)` → `AnimationId`、
+  `set_transition(node, prop, duration_ms, curve)`（之后的 `set_prop` 插值）、
+  `cancel_animation(id)`、`animating()`，由 `pump()` 推进（见 [animation.md](animation.md)）。
+- 关闭：`set_close_confirmation(bool)`、`close()`，见下文「关闭确认」。
 
 ## 调试
 
@@ -117,8 +127,34 @@ for (const dg::Event& e : app.pump(-1)) {
 - `SliderEvent{window, node, value, previous}`：用户（按下、拖动、按键）把滑块移到了
   不同的值；`value`/`previous` 是 float。C ABI 对应 `DG_EVENT_SLIDER_CHANGED`（不带值，
   用 `dg_slider_get_value()` 查询）。
+- `CloseRequestedEvent{window}`：开启了关闭确认的窗口，用户点了标题栏关闭；窗口仍然打开。
+  见下文「关闭确认」。C ABI 对应 `DG_EVENT_CLOSE_REQUESTED`。
+- `AnimationFinishedEvent{window, node, animation}`：`Window::animate()` 的动画走到终点
+  （取消、节点删除、隐式过渡不报）。C ABI 对应 `DG_EVENT_ANIMATION_FINISHED`（`x` = id）。
 - 复选框和单选不新增事件：`ClickEvent` 到达时状态已经改好，用 `checked()` 查询；
   方向键选中单选时 `ClickEvent::clicks == 0`。
+
+## 关闭确认
+
+默认用户点标题栏关闭会立即关闭窗口并产生 `WindowClosedEvent`。需要「有未保存的修改，
+确定关闭吗？」时打开关闭确认：
+
+```cpp
+dg::WindowOptions options;
+options.close_confirmation = true;          // 或之后 win->set_close_confirmation(true)
+...
+[&](const dg::events::CloseRequestedEvent& c) {
+  if (!dirty) { win->close(); return; }      // 接受
+  (void)win->open_dialog(save_prompt);       // 什么都不做 = 拒绝
+},
+```
+
+- `Window::close()`：立即关闭 OS 窗口并排入 `WindowClosedEvent`（下一次 `pump()`/`poll()`
+  取到）；`Window` 仍留在 `windows()` 里（`closed()` 为真），直到 `destroy_window()`。
+  已关闭时是空操作。`App::destroy_window()` 也算接受（不产生事件）。
+- 只影响用户/平台发起的关闭请求；`close()`/`destroy_window()` 总是直接关闭。
+- C ABI：`dg_window_set_close_confirmation(window, on)`、`DG_EVENT_CLOSE_REQUESTED`、
+  `dg_window_close(window)`。
 
 ## 逃生舱约定
 

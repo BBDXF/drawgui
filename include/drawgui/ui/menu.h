@@ -141,6 +141,10 @@ class Menu {
   std::vector<NodeId> rows_;
   std::optional<NodeId> restore_focus_;
   std::optional<NodeId> painted_highlight_;
+  // The focus scope active when the menu opened (an open dialog's), put
+  // back on close.
+  std::optional<NodeId> outer_scope_;
+  bool outer_modal_ = false;
 };
 
 }  // namespace dg

@@ -80,6 +80,11 @@ struct PointerState {
 // whole subtree for interaction and focus, and re-enabling the container
 // restores every descendant's own bit untouched. The bit is read at event
 // time rather than cached, so there is no second copy to fall out of sync.
+//
+// A HIDDEN node (NodeStyle::visible == false, DG_PROP_VISIBLE) counts as
+// disabled too, inherited the same way: it cannot be hovered, pressed,
+// focused or tooltipped, and hiding the focused widget blurs it through the
+// same Focus::blur_if_disabled() a DG_PROP_DISABLED write uses.
 [[nodiscard]] bool is_disabled(const RenderTree& tree, NodeId id);
 
 class Interaction {

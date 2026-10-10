@@ -265,7 +265,11 @@ void process_pointer_event(WinState& window, const dg::PointerEvent& event) {
       }
       // The border recolour + display re-derivation for editors, and
       // the FocusChangedEvent, all in apply_focus_change().
-      apply_focus_change(window, window.focus.set(new_focus));
+      // Inside a modal dialog's content a press on nothing focusable (a
+      // disabled control, a label) keeps focus, like the dialog's own panel.
+      if (new_focus.has_value() || !window.dialog.is_open()) {
+        apply_focus_change(window, window.focus.set(new_focus));
+      }
       place_editor_caret(window, hit, at, window.last_press_clicks);
       break;
     }

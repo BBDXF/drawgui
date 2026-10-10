@@ -79,7 +79,7 @@ test、clip 全部如此），通用 2D 变换会把每一个都变成非轴对�
 属性其实**已实现**，只是不走标量入口——用标量 `set_prop` 写它们，会得到
 `kTypeMismatch`，消息里明确说明"请改用 `set_gradient`/`set_shadow`/`set_image`"。
 
-## 5. 属性表（68 项）
+## 5. 属性表（71 项）
 
 列说明：**外部名**是 `props/drawgui.props.toml` 的 `name`（即 `dg_prop_id`
 常量与文档、setter 里出现的那个词汇）；**内部字段**是
@@ -118,7 +118,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 加到位置上，deflate（缩小约束）却没有对称处理负值。这是记录在案的功能缺口，
 不是隐藏 bug（见 `src/props/node_props.cpp` 中 `apply_margin_l()` 上方的注释）。
 
-### 5.3 visual（id 16-30, 47-51, 55-56, 66-68）
+### 5.3 visual（id 16-30, 47-51, 55-56, 66-68, 70）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -141,6 +141,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 66 | `placeholder` | text | **运行时/C ABI** | 0.2：编辑框为空且没有组字时显示的提示文字（颜色是 `color.on-surface` 半透明，随主题）；**专用 setter**：`Window::set_text(node, DG_PROP_PLACEHOLDER, …)` / `dg_node_set_text()`，只有 `TEXT_FIELD`/`TEXT_AREA` 接受，其余节点（以及 C++ 的 `dg::set_text()`）返回 `kNotApplicable`；标量入口返回 `kTypeMismatch` |
 | 67 | `wrap_text` | bool | 完整 | 0.2：`TextStyle::wrap`——节点文字按宽度折行（SkParagraph 路径）。不会撑高节点，高度仍由调用方给；`dg::prop::wrap_text()` |
 | 68 | `image_tint` | color | 完整 | 0.2：`ImageStyle::tint`，绘制时把图片（SVG 与位图）整体 SrcIn 着色、保留 alpha；全透明 = 不着色（SVG 则沿用解码时的 `SvgOptions::tint`）。可 `bind_token()` 绑主题色，同一份解码结果可在多个节点上着不同颜色；`dg::prop::image_tint()` |
+| 70 | `visible` | bool | 完整 | 0.2：默认 1。0 = CSS `display:none`：节点及整棵子树不占布局空间（不计 margin、不计 `gap`）、不绘制、不参与命中测试、不能聚焦/hover/弹 tooltip（`dg::is_disabled()` 视为禁用），隐藏焦点所在子树会清掉焦点。写入会重排（同时写 `BoxStyle::visible` 与 `NodeStyle::visible`）。`dg::prop::visible()`；详见 `doc/guide/layout.md`「隐藏节点」 |
 
 ### 5.4 container（id 31-37, 46, 54, 59）
 
@@ -172,7 +173,7 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 |---|---|---|---|---|
 | 42-45 | `left`/`top`/`right`/`bottom` | float | 完整 | 相对 stack 内容盒的偏移；写入任一个即视为定位该子节点 |
 
-### 5.7 interaction（id 52-53, 57-58, 60-65）
+### 5.7 interaction（id 52-53, 57-58, 60-65, 69, 71）
 
 | id | 名称 | 类型 | 状态 | 说明 |
 |---|---|---|---|---|
@@ -186,11 +187,13 @@ toml 里 `justify`（id 32）、`align`（id 33）两个属性的 `field` 元数
 | 63 | `max_value` | float | **运行时/C ABI** | 0.2：`SLIDER` 最大值（默认 100），须大于 `min_value` |
 | 64 | `step` | float | **运行时/C ABI** | 0.2：`SLIDER` 步长，≥0，0 = 连续 |
 | 65 | `radio_group` | float | **运行时/C ABI** | 0.2：`RADIO` 所属组（整数，±2^24，默认 0）；`RadioRef::set_group()` |
+| 69 | `checked` | bool | **运行时/C ABI** | 复选框/单选的勾选状态；写在 `kButton` 上使其成为切换按钮。`dg::prop::checked()` |
+| 71 | `row_height` | float(整数) | **运行时/C ABI** | 0.2：`TABLE`/`TREE` 的数据行高（1..1024，默认取主题）；回收池按新行高重建，选中项保留并滚入可见。`dg::set_prop()` 返回 `kUnsupported`；用 `Window::set_prop()`/`TableRef::set_row_height()`/`TreeRef::set_row_height()`/`dg::prop::row_height()`。表头保持主题行高 |
 
 ## 6. 状态汇总（自查结果）
 
-- 49 项完整、9 项部分实现（`margin_*` 四项、`direction`、`align`、`grow`、`shrink`、`align_self`）、9 项只在 `dg::Window` 运行时 / C ABI 生效（`tab_index`/`max_length`/
-  `value`/`indeterminate`/`min_value`/`max_value`/`step`/`radio_group`/`placeholder`）、1 项未实现（`transform`），共 68 项。C ABI 把全部 68 项导出为 `DG_PROP_*` 常量。
+- 50 项完整、9 项部分实现（`margin_*` 四项、`direction`、`align`、`grow`、`shrink`、`align_self`）、11 项只在 `dg::Window` 运行时 / C ABI 生效（`tab_index`/`max_length`/
+  `value`/`indeterminate`/`min_value`/`max_value`/`step`/`radio_group`/`placeholder`/`checked`/`row_height`）、1 项未实现（`transform`），共 71 项。C ABI 把全部 71 项导出为 `DG_PROP_*` 常量。
 
 ## 7. 相关文档
 

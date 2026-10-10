@@ -79,6 +79,8 @@ event_kind.TABLE_SELECT=27
 event_kind.TABLE_SORT=28
 event_kind.SLIDER_CHANGED=29
 event_kind.ROW_PART=30
+event_kind.CLOSE_REQUESTED=31
+event_kind.ANIMATION_FINISHED=32
 pixel_format.BGRA8888=1
 pixel_format.RGBA8888=2
 length_unit.PX=0
@@ -91,6 +93,10 @@ menu_item_flag.DISABLED=1
 menu_item_flag.CHECKED=2
 menu_item_flag.SEPARATOR=4
 menu_item_flag.CHECKABLE=8
+curve.LINEAR=1
+curve.EASE_IN=2
+curve.EASE_OUT=3
+curve.EASE_IN_OUT=4
 row_part.CHECK=1
 row_part.ACTION=2
 row_flag.CHECKABLE=1
@@ -239,4 +245,10 @@ dg_menubar_set_entry: int32_t(dg_node_t*,int32_t,int32_t,const char*,const char*
 dg_menu_open_ex: int32_t(dg_window_t*,dg_node_t*,int32_t,int32_t,const char* const*,const uint32_t*,const char* const*,const int32_t*,uint32_t)
 dg_dialog_open_ex: int32_t(dg_window_t*,const char*,const char*,const char* const*,uint32_t,int32_t,int32_t,dg_node_t*)
 dg_dialog_set_button_disabled: int32_t(dg_window_t*,int32_t,int32_t,int32_t)
+dg_window_set_close_confirmation: int32_t(dg_window_t*,int32_t)
+dg_window_close: int32_t(dg_window_t*)
+dg_node_animate: int32_t(dg_node_t*,uint16_t,const dg_value*,const dg_value*,uint32_t,uint32_t)
+dg_node_set_transition: int32_t(dg_node_t*,uint16_t,uint32_t,uint32_t)
+dg_animation_cancel: int32_t(dg_window_t*,int32_t)
+dg_app_set_reduced_motion: int32_t(dg_app_t*,int32_t)
 

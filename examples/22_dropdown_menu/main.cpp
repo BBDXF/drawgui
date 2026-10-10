@@ -122,7 +122,7 @@ int verify(dg::App& app, std::ostream& out) {
   auto check = [&](bool pass, const std::string& what) { example::check(pass, what, out, ok); };
   const dg::RenderTree& tree = w.layout().render();
   dg::DropdownRef dropdown = w.dropdown(s.dropdown).value();
-  auto highlighted = [&] { return row_text(tree, w.focused()); };
+  auto highlighted = [&] { return row_text(tree, w.focused_node()); };
   auto changes = [](const std::vector<dg::Event>& events) {
     return example::events_of<dg::events::ValueChangedEvent>(events);
   };
@@ -131,7 +131,7 @@ int verify(dg::App& app, std::ostream& out) {
   std::vector<NodeId> order;
   for (int i = 0; i < 3; ++i) {
     drive.key(dg::Key::kTab);
-    order.push_back(w.focused().value_or(NodeId{}));
+    order.push_back(w.focused_node().value_or(NodeId{}));
   }
   check(order == std::vector<NodeId>{s.before, s.dropdown, s.after},
         "Tab visits [before, dropdown, after]");

@@ -95,6 +95,8 @@ struct TreeState {
   dg::TreeView tree;
   std::vector<dg::TreeItem> items;
   int built_height = 0;
+  // TreeRef::set_row_height() / DG_PROP_ROW_HEIGHT; nothing = the theme's.
+  std::optional<int> row_height;
 };
 
 struct TableState {
@@ -108,6 +110,9 @@ struct TableState {
   std::optional<int> sort_column;
   bool sort_ascending = true;
   int built_height = 0;
+  // TableRef::set_row_height() / DG_PROP_ROW_HEIGHT; nothing = the theme's.
+  // The header keeps the theme's row height.
+  std::optional<int> row_height;
 };
 
 // NodeKind::kSlider: the WidgetSet kSlider widget holds the value and range;
@@ -219,14 +224,15 @@ struct WinState {
   dg::Focus focus;
   dg::ActionScopes action_scopes;
 
-  // 8-5: this window's own AnimationEngine, present for exactly one
-  // reason - remove_subtree() requires one as a NON-optional reference
-  // member of NodeSideTables (include/drawgui/render/node_lifecycle.h's own
-  // header comment explains why cleanup takes every side table this way).
-  // Nothing in the runtime ever calls animate()/set_transition() on this
-  // instance - it only ever receives cancel_all_for() calls, which are
-  // no-ops against an engine with no slots.
+  // Window::animate()/set_transition()'s engine, ticked once per pump
+  // (src/app/animation.cpp); remove_subtree() cancels a removed node's
+  // animations through it.
   dg::AnimationEngine animation;
+  // Window::animate() ids still running, and the next one to hand out.
+  std::unordered_map<dg::AnimationId, dg::AnimHandle> animations;
+  dg::AnimationId next_animation = 1;
+  // Window::set_close_confirmation().
+  bool close_confirmation = false;
 
   // ABI 0.2 phase B: the overlay popups (menus, dropdown menus, the
   // dialog, tooltips) all share this host; at most one open_menu() menu
@@ -282,6 +288,11 @@ struct AppState {
   std::vector<dg::Event> pending_events;
   // App::quit() during App::run().
   bool quit_requested = false;
+
+  // App::set_clock() (null = dg::steady_anim_time()) and
+  // App::set_reduced_motion().
+  std::function<dg::AnimTime()> clock;
+  bool reduced_motion = false;
 
   // P6 sub-step a1: this app's ONE shared FontCatalog (design.md's
   // dg::FontCatalog is copyable and a copy names the same fonts - a

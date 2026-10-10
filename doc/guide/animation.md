@@ -2,12 +2,40 @@
 
 ## 用 `dg::App`
 
-`dg::App` 今天只驱动运行时自己的动画：不确定进度条（`ProgressRef::set_indeterminate(true)`，
-见 [widgets.md](widgets.md)），`pump(-1)` 会在需要下一帧时自动醒来。它还没有面向应用的
-动画 API：`Window::animation()` 返回的 `AnimationEngine` 不会被运行时 `tick()`，
-主题/尺寸变化时运行时会覆盖组合子节点上的属性。需要通用的显式动画或隐式过渡时，
-目前只能按下面「直接使用底层」的方式自己持有 `AnimationEngine`
-（`examples/17_animation`）。
+运行时会推进每个窗口自己的 `AnimationEngine`：`App::pump()` 每次都按应用时钟 `tick()`
+一次，把插值写进节点属性并重绘；只要还有动画在跑，等待就被截到约 16 ms 一帧，
+没有动画时 `pump(-1)` 照旧一直阻塞（空闲不占 CPU）。
+
+```cpp
+// 显式动画：from 为 std::nullopt 时取当前值
+auto id = win->animate(card, DG_PROP_OPACITY, std::nullopt, dg::PropValue::number(1.0F),
+                       200, dg::kCurveEaseOut);
+// 隐式过渡：之后的 set_prop()/set() 都会插值；时长 0 删除过渡
+win->set_transition(card, DG_PROP_BACKGROUND_COLOR, 150, dg::kCurveEaseInOut);
+win->set_prop(card, DG_PROP_BACKGROUND_COLOR, dg::PropValue::color(hover));
+win->cancel_animation(id.value());   // 停在当前值，不产生结束事件
+```
+
+- `Window::animate(node, prop, from, to, duration_ms, curve)` 返回 `AnimationId`
+  （> 0）；动画走到终点时 `pump()` 返回 `events::AnimationFinishedEvent{window, node, animation}`。
+  被 `cancel_animation()` 取消、节点被删除、隐式过渡都**不**产生这个事件。
+- 只插值 float/length/color 属性；其它类型直接跳到 `to` 并返回 0。`from` 省略时只有
+  背景色、边框色、不透明度、left/top/width/height 读得回当前值，其它属性返回 `kUnsupported`。
+- 动画写在节点自身：`set_prop()` 会转发到组合子节点的属性（编辑框的文字、滚动视图的内容）
+  不参与动画/过渡。
+- `Window::animating()` 表示该窗口还有动画在跑。
+- `App::set_reduced_motion(true)`：所有窗口（含以后创建的）的动画时长都视为 0，下一次
+  `pump()` 即到终值（照常产生结束事件）。
+- `App::set_clock(fn)`：测试用的时钟接缝，返回 `AnimTime`；不能早于已经用过的时间
+  （从 `steady_anim_time()` 起步）。确定性测试见 `tests/unit/test_runtime_loop2.cpp`。
+- 一段空闲之后才开始的动画从开始那一刻计时，不会因为之前的等待而一下子跳完。
+- C ABI：`dg_node_animate()`、`dg_node_set_transition()`、`dg_animation_cancel()`、
+  `DG_CURVE_*`、`DG_EVENT_ANIMATION_FINISHED`、`dg_app_set_reduced_motion()`，见
+  [c-abi.md](../reference/c-abi.md)。
+
+`Window::animation()` 仍是逃生舱：直接调用它的 `animate()` 也会被运行时 `tick()`，但
+不会分配 `AnimationId`、不产生 `AnimationFinishedEvent`。主题切换与飞行中的过渡冲突的
+已知缺陷（见下文）在运行时里同样存在。
 
 ## 这个子系统解决什么问题
 
@@ -17,7 +45,7 @@
 CSS `transition` 风格的隐式过渡——声明一次 `set_transition()`，之后任何
 `set_value()` 写入都会自动插值。
 
-**动画完全是 C++ 嵌入层的能力，没有导出到 C ABI**——见下文"ABI 边界"一节。
+0.2 起动画也导出到了 C ABI——见下文"ABI 边界"一节。
 
 ## 直接使用底层
 
@@ -211,19 +239,12 @@ paint）而言完全无法区分。
 按自己文档写的规则运作，只是两者组合在一起产生了此前任何单独测试都没
 覆盖到的行为。目前没有修复计划。
 
-### ABI 边界：动画没有导出到 C ABI
+### ABI 边界
 
-`abi/drawgui.def.toml` 的头注释**具名拒绝**了 `dg_animate` 和
-`dg_node_set_transition`（`abi/drawgui.def.toml:67-73`）：
-
-> `dg::AnimationEngine` 这个 C++ 形态早已存在，但当前没有任何
-> 验收标准需要它导出，在有真实调用方之前把一个每窗口一份的
-> `AnimationEngine` 接进 trampoline 层是同一类"没有真实调用方就先写接口"
-> 的错误。
-
-**如果你在写纯 C ABI 调用方（比如通过 FFI 绑定的另一种语言），动画能力
-目前对你不可用**——不要假设未来会有 `dg_animate`，也不要设计依赖它的
-API 形状。只有直接嵌入 C++ 的宿主可以使用 `dg::AnimationEngine`。
+0.2 起动画通过 `dg::App` 的事件泵导出到 C ABI（见上文「用 `dg::App`」）：
+`dg_node_animate()` 返回每窗口的 `int32_t` 动画 id（不是设计稿里的 `dg_anim_t*`），
+`dg_node_set_transition()` 声明隐式过渡，`dg_animation_cancel()` 取消。
+`pause()`/`resume()`/`reverse()` 仍只在 C++ 的 `AnimationEngine` 上可用。
 
 ### CPU 光栅下的开销约束
 

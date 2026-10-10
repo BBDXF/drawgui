@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "drawgui/widget/focus.h"
 #include "drawgui/widget/widget_set.h"
 #include "ui/ui_visuals.h"
 
@@ -145,7 +146,11 @@ DialogResult Dialog::handle_pointer(UiContext& ctx, const PointerEvent& event) {
     }
   }
   const bool inside = hit.has_value() && is_within(ctx.tree, panel_, *hit);
-  ctx.tables.focus.set_guarded(ctx.tree, inside ? hit : std::nullopt);
+  // Only a focusable widget inside the panel takes focus; a press on the
+  // scrim, the panel's background or a disabled part keeps it where it was.
+  if (inside && ctx.tables.widgets.has(*hit) && takes_focus(ctx.tables.widgets.at(*hit))) {
+    ctx.tables.focus.set_guarded(ctx.tree, hit);
+  }
   refresh_ring(ctx);
   return DialogResult{DialogEvent::kHandled, std::nullopt, inside ? hit : std::nullopt};
 }

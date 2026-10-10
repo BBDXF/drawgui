@@ -88,3 +88,5 @@
    67  wrap_text
    68  image_tint
    69  checked
+   70  visible
+   71  row_height

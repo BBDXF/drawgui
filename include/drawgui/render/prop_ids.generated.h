@@ -293,6 +293,16 @@ inline constexpr dg_prop_id DG_PROP_IMAGE_TINT = 68;
 // type=bool; applies_to=box
 inline constexpr dg_prop_id DG_PROP_CHECKED = 69;
 
+// -- visual ------------------------------------------------------
+// Whether the node is shown (default 1). 0 is display:none - the node and its subtree take no layout space and are neither painted, hit-tested, focusable nor tooltipped.
+// type=bool; applies_to=box
+inline constexpr dg_prop_id DG_PROP_VISIBLE = 70;
+
+// -- interaction -------------------------------------------------
+// A table's/tree's row height in logical pixels (an integer, 1..1024); the row pool resizes and the scroll clamps. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it.
+// type=float; applies_to=box
+inline constexpr dg_prop_id DG_PROP_ROW_HEIGHT = 71;
+
 // -- enum property values ----------------------------------------------
 //
 // An enum-typed property travels as an ORDINAL, so the order of each
@@ -379,8 +389,8 @@ inline constexpr std::uint32_t DG_TEXT_ALIGN_RIGHT = 2;
 
 // Highest id currently assigned. Boundary code uses it to reject out of
 // range ids before dispatching; it grows as properties are appended.
-inline constexpr std::uint16_t kDgPropMaxId = 69;
+inline constexpr std::uint16_t kDgPropMaxId = 71;
 
 // Number of properties defined. Not an ABI value - retired ids leave gaps,
 // so this is not the same as kDgPropMaxId.
-inline constexpr std::uint16_t kDgPropCount = 69;
+inline constexpr std::uint16_t kDgPropCount = 71;

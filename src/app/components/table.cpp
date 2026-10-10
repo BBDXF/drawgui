@@ -2,6 +2,7 @@
 // set, rebuilt with its selection and sort indicator kept.
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -41,7 +42,7 @@ std::uint64_t key_at(const TableState& state, int row) {
 // Flips a cell's check box (the Table's copy and the rebuild copy) and
 // reports RowPartEvent{kCheck}.
 bool toggle_cell(WinState& window, NodeRecord& record, TableState& state, int row, int column) {
-  dg::ControlContext ctx = components::controls(window);
+  dg::ControlContext ctx = components::controls_with_rows(window, state.row_height);
   if (!state.table.toggle_check(ctx, row, column)) {
     return false;
   }
@@ -63,7 +64,7 @@ RowHit table_context_row(WinState& window, NodeRecord& record, dg::PixelPoint at
   if (state == nullptr) {
     return {};
   }
-  dg::ControlContext ctx = components::controls(window);
+  dg::ControlContext ctx = components::controls_with_rows(window, state->row_height);
   const std::optional<dg::Table::Hit> hit = state->table.hit(ctx, at);
   if (!hit.has_value()) {
     return {};
@@ -97,7 +98,8 @@ namespace components {
 
 void build_table(WinState& window, NodeRecord& record, std::optional<int> select) {
   TableState& c = std::get<TableState>(record.state);
-  dg::ControlContext ctx = controls(window);
+  const int header_height = controls(window).style.row_height;
+  dg::ControlContext ctx = controls_with_rows(window, c.row_height);
   c.built_height = laid_out_height(window, record, kTableHeight);
   const FocusKeeper keeper(window, c.table.root());
   c.table.destroy(ctx);
@@ -105,9 +107,9 @@ void build_table(WinState& window, NodeRecord& record, std::optional<int> select
   spec.columns = c.columns;
   spec.rows = c.rows;
   spec.parts = c.parts;
+  spec.header_height = header_height;
   spec.viewport_height =
-      std::max(ctx.style.row_height, c.built_height -
-                                         (2 * kFrame) - ctx.style.row_height);
+      std::max(ctx.style.row_height, c.built_height - (2 * kFrame) - header_height);
   spec.box.percent.width = 100.0F;
   c.table.build(ctx, record.id, std::move(spec));
   if (c.sort_column.has_value()) {
@@ -122,7 +124,7 @@ void build_table(WinState& window, NodeRecord& record, std::optional<int> select
 
 bool control_pointer(WinState& window, NodeRecord& record, TableState& state,
                      const dg::PointerEvent& event) {
-  dg::ControlContext ctx = controls(window);
+  dg::ControlContext ctx = controls_with_rows(window, state.row_height);
   const bool press =
       event.action == dg::PointerAction::kDown && event.button == dg::PointerButton::kPrimary;
   const dg::PixelPoint at{event.x, event.y};
@@ -156,7 +158,7 @@ bool control_key(WinState& window, NodeRecord& record, TableState& state,
       toggle_table_row_check(window, record)) {
     return true;
   }
-  dg::ControlContext ctx = controls(window);
+  dg::ControlContext ctx = controls_with_rows(window, state.row_height);
   const dg::TableResult r = state.table.handle_key(ctx, event);
   table_result(window, record, r, 0);
   return r.event != dg::TableEvent::kIgnored;
@@ -167,7 +169,7 @@ void sync_state(WinState& window, NodeRecord& record, TableState& state) {
     build_table(window, record, state.table.selected());
     return;
   }
-  dg::ControlContext ctx = controls(window);
+  dg::ControlContext ctx = controls_with_rows(window, state.row_height);
   state.table.sync(ctx);
 }
 
@@ -180,6 +182,44 @@ void after_prop_state(WinState& window, NodeRecord& record, TableState& state,
   if (prop_id == DG_PROP_HEIGHT) {
     build_table(window, record, state.table.selected());
   }
+}
+
+dg::ControlContext controls_with_rows(WinState& window, std::optional<int> row_height) {
+  dg::ControlContext ctx = controls(window);
+  if (row_height.has_value()) {
+    ctx.style.row_height = *row_height;
+  }
+  return ctx;
+}
+
+dg::Status row_height_value(const dg::PropValue& value, int& out) {
+  if (value.type() != dg::PropType::k_float) {
+    return dg::Status::kTypeMismatch;
+  }
+  const float px = value.scalar();
+  if (!std::isfinite(px) || px != std::trunc(px) || px < 1.0F ||
+      px > static_cast<float>(kMaxRowHeight)) {
+    return dg::Status::kValueOutOfRange;
+  }
+  out = static_cast<int>(px);
+  return dg::Status::kOk;
+}
+
+std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
+                                         TableState& state, std::uint16_t prop_id,
+                                         const dg::PropValue& value) {
+  if (prop_id != DG_PROP_ROW_HEIGHT) {
+    return std::nullopt;
+  }
+  int px = 0;
+  if (const dg::Status status = row_height_value(value, px); status != dg::Status::kOk) {
+    return status;
+  }
+  if (state.row_height != px) {
+    state.row_height = px;
+    build_table(window, record, state.table.selected());
+  }
+  return dg::Status::kOk;
 }
 
 dg::NodeId focus_target_state(const NodeRecord& /*record*/, const TableState& state) {
@@ -221,6 +261,18 @@ Status TableRef::set_columns(std::vector<TableColumnSpec> columns) {
   return Status::kOk;
 }
 
+Status TableRef::set_row_height(int px) {
+  app_detail::WinState& win = window();
+  const auto found = component_of<TableState>(win, node());
+  if (found.status != Status::kOk) {
+    return found.status;
+  }
+  return app_detail::components::set_prop_state(win, *found.record, *found.state,
+                                                 DG_PROP_ROW_HEIGHT,
+                                                 PropValue::number(static_cast<float>(px)))
+      .value_or(Status::kUnsupported);
+}
+
 Expected<int, Status> TableRef::column_count() const {
   const auto found = component_of<TableState>(std::as_const(window()), node());
   if (found.status != Status::kOk) {
@@ -242,7 +294,7 @@ Status TableRef::set_rows(std::vector<std::vector<std::string>> rows) {
   c.rows = rows;
   c.parts.clear();
   c.keys.clear();
-  dg::ControlContext ctx = app_detail::components::controls(win);
+  dg::ControlContext ctx = app_detail::components::controls_with_rows(win, c.row_height);
   c.table.set_rows(ctx, std::move(rows));
   return Status::kOk;
 }
@@ -265,7 +317,7 @@ Status TableRef::select(int row) {
   if (row < -1 || row >= c.table.row_count()) {
     return Status::kValueOutOfRange;
   }
-  dg::ControlContext ctx = app_detail::components::controls(win);
+  dg::ControlContext ctx = app_detail::components::controls_with_rows(win, c.row_height);
   if (row == -1 && !c.parts.empty()) {
     app_detail::components::build_table(win, *found.record);  // keeps the parts
   } else if (row == -1) {
@@ -288,7 +340,7 @@ Status TableRef::set_sort_indicator(std::optional<int> column, bool ascending) {
   }
   c.sort_column = column;
   c.sort_ascending = ascending;
-  dg::ControlContext ctx = app_detail::components::controls(win);
+  dg::ControlContext ctx = app_detail::components::controls_with_rows(win, c.row_height);
   c.table.set_sort_indicator(ctx, c.sort_column, c.sort_ascending);
   return Status::kOk;
 }

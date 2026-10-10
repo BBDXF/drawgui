@@ -271,6 +271,15 @@ class AnimationEngine {
   // exercises it end to end.
   void clear_transition(NodeId node, dg_prop_id prop_id);
 
+  // Whether set_transition() declared (node, prop_id) and clear_transition()
+  // (or cancel_all_for()) has not since forgotten it.
+  [[nodiscard]] bool has_transition(NodeId node, dg_prop_id prop_id) const;
+
+  // The property's current value, for the properties set_value() can read
+  // back (read_current() below); nullopt for every other one.
+  [[nodiscard]] static std::optional<PropValue> current_value(const LayoutTree& tree,
+                                                              NodeId node, dg_prop_id prop_id);
+
   // The write a transition-aware caller makes in place of dg::set_prop() -
   // this project's C++ stand-in for what `dg_node_set_prop` would route
   // through once a transition is declared (the ABI itself is 6-3). Falls

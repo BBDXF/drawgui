@@ -34,7 +34,10 @@ window->open_dialog(dialog);   // 结果：DialogResultEvent::button（-1 = 无�
   松开右键不会关闭或激活刚打开的菜单。
 - 每个窗口同时最多一个 `open_menu()` 菜单和一个对话框（对话框打开期间
   `open_menu()` 返回 `kUnsupported`）；对话框是模态的，打开期间 Tab 不会离开它，
-  点击它外面的控件不会产生事件。
+  点击它外面的控件不会产生事件，点在禁用按钮或空白处也不会移走焦点。
+- 对话框内容里的下拉框可以打开：它的选项列表叠在对话框**之上**，打开期间先收到
+  指针/键盘/文字事件；Escape 只关闭最上层的列表，再按一次才关闭对话框；
+  列表关闭后对话框的模态焦点陷阱照旧。
 - tooltip 的计时、显示、按下后隐藏都由运行时完成，不需要 `tick()`。
 - 快捷键列与命令号：`MenuEntry::shortcut_label` 在该行右侧以暗色右对齐显示（只是
   文字，常用 `app.chord_label("Ctrl+S")` 生成；绑定本身仍要 `App::add_shortcut()`），
@@ -276,7 +279,8 @@ if (r.event == DialogEvent::kClosed) { act_on(r.button); }   // nullopt = 无取
 if (r.event == DialogEvent::kIgnored && dialog.is_open()) { /* 交给 body 里聚焦的控件 */ }
 ```
 
-- 覆盖整个窗口（`tree.viewport()`）：遮罩吞掉所有点击，面板居中。
+- 覆盖整个窗口（`tree.viewport()`）：遮罩吞掉所有点击，面板居中。指针按下只在
+  命中面板内可聚焦、未禁用的控件时移动焦点；按在遮罩、面板空白或禁用按钮上焦点不变。
 - 焦点陷阱就是现成的模态作用域：`enter_scope(panel, true)` + `set_guarded()`；
   Tab/Shift-Tab 在面板内循环；对话框自带一个挂在面板下的焦点环。
 - `adopt(ctx, node)` 把调用方的节点（仅渲染树一侧）挂进 `body()`，`close()` 在销毁
@@ -353,11 +357,13 @@ overlay 容器是用 `RenderTree::add_child()` 加的，从不出现在任何
 `LayoutTree::add_child()`"。如果以后换成后者，下一次 `layout()` 就会悄悄覆盖
 `PopupHost` 用 `apply_bounds()` 摆好的位置——目前没有机制阻止这种改动。
 
-### 不支持嵌套 popup
+### 嵌套 popup：只支持"对话框之上一层菜单"
 
-一个 popup 内部再打开第二个 popup（比如子菜单）目前不被支持。`PopupHost`
-从不维护"父弹层是谁"这种关系，`Focus` 的单一活跃作用域（不是栈）设计也
-建立在"从不嵌套"这个前提上（见 [input.md](input.md)）。
+`PopupHost` 不维护"父弹层是谁"，后 `show()` 的容器挂在渲染树根的末尾，所以
+自然画在前一个之上。`Focus` 仍是单一活跃作用域（不是栈），`dg::Menu` 自己补上
+这一层：`open()` 记下当时的作用域（比如对话框的模态作用域），`close()` 退出菜单
+作用域后再把它恢复。运行时只用到这一种叠法——对话框内容里的 `Dropdown`；路由
+顺序是：打开的下拉列表 → 对话框 → 菜单。子菜单等更深的嵌套仍不支持。
 
 ### Dismissal 路由细节
 

@@ -524,6 +524,15 @@ typedef struct dg_theme_err {
 /* index (-1 for a check box). A check box has already flipped - read it with */
 /* dg_list_row_checked()/dg_tree_row_checked()/dg_table_cell_checked(). */
 #define DG_EVENT_ROW_PART 30u
+/* ABI 0.2: the user asked to close a window with close confirmation on */
+/* (dg_window_set_close_confirmation()); it is still open. dg_window_close() */
+/* accepts; doing nothing refuses. */
+#define DG_EVENT_CLOSE_REQUESTED 31u
+/* ABI 0.2: a dg_node_animate() animation reached its end. `node` is the */
+/* animated node, `x` the id dg_node_animate() returned. Not queued for */
+/* dg_animation_cancel(), a removed node, or a dg_node_set_transition() */
+/* transition. */
+#define DG_EVENT_ANIMATION_FINISHED 32u
 
 /* ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()). */
 /* Bytes blue, green, red, alpha - a drawgui-rasterized frame's own order. */
@@ -565,6 +574,16 @@ typedef struct dg_theme_err {
 /* A check item (reserves the check column), unchecked unless CHECKED is also */
 /* set. */
 #define DG_MENU_ITEM_CHECKABLE 8u
+
+/* ABI 0.2: the easing of dg_node_animate()/dg_node_set_transition(). */
+/* Constant speed. */
+#define DG_CURVE_LINEAR 1u
+/* Starts slow. */
+#define DG_CURVE_EASE_IN 2u
+/* Ends slow. */
+#define DG_CURVE_EASE_OUT 3u
+/* Starts and ends slow. */
+#define DG_CURVE_EASE_IN_OUT 4u
 
 /* ABI 0.2: DG_EVENT_ROW_PART's `x`. */
 /* The row's (or cell's) check box. */
@@ -843,6 +862,10 @@ typedef uint16_t dg_prop_id;
 #define DG_PROP_IMAGE_TINT 68
 /* A checkbox's/radio's checked mark; on a button, makes it a toggle button (each click flips it) in that state. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it. */
 #define DG_PROP_CHECKED 69
+/* Whether the node is shown (default 1). 0 is display:none - the node and its subtree take no layout space and are neither painted, hit-tested, focusable nor tooltipped. */
+#define DG_PROP_VISIBLE 70
+/* A table's/tree's row height in logical pixels (an integer, 1..1024); the row pool resizes and the scroll clamps. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it. */
+#define DG_PROP_ROW_HEIGHT 71
 
 /* Enum property values (ABI 0.2): the ordinal dg_value::bits carries for
  * a DG_VALUE_ENUM write - the same DG_<PROP>_<VALUE> names
@@ -1790,6 +1813,42 @@ DG_EXPORT int32_t dg_dialog_open_ex(dg_window_t* window, const char* title, cons
 /* for a missing button. */
 DG_EXPORT int32_t dg_dialog_set_button_disabled(dg_window_t* window, int32_t dialog_id,
                                                 int32_t button, int32_t disabled);
+
+/* ABI 0.2: nonzero makes the title-bar close of `window` queue */
+/* DG_EVENT_CLOSE_REQUESTED instead of closing it; 0 (the default) closes it at */
+/* once (DG_EVENT_WINDOW_CLOSED). */
+DG_EXPORT int32_t dg_window_set_close_confirmation(dg_window_t* window, int32_t enabled);
+
+/* ABI 0.2: closes `window` now and queues DG_EVENT_WINDOW_CLOSED; the handle is */
+/* stale afterwards (DG_ERR_INVALID_HANDLE once closed). */
+DG_EXPORT int32_t dg_window_close(dg_window_t* window);
+
+/* ABI 0.2: interpolates a LIVE node's float/length/colour property from `from` */
+/* (null = its current value; readable for background/border colour, opacity, */
+/* left/top/width/height, else DG_ERR_UNSUPPORTED) to `to` over `duration_ms` */
+/* with DG_CURVE_*, advanced by dg_wait_events()/dg_poll_events() (which wake */
+/* about every 16 ms while anything animates). Returns the animation id (> 0; */
+/* DG_EVENT_ANIMATION_FINISHED repeats it), 0 when the property is of another */
+/* type and jumped to `to` at once, or a negative DG_ERR_*. */
+/* dg_app_set_reduced_motion() makes it land at the next pump. */
+DG_EXPORT int32_t dg_node_animate(dg_node_t* node, uint16_t prop_id, const dg_value* from,
+                                  const dg_value* to, uint32_t duration_ms, uint32_t curve);
+
+/* ABI 0.2: every later dg_node_set_prop() of `prop_id` on this LIVE node */
+/* interpolates to the new value over `duration_ms` with DG_CURVE_* (from the */
+/* in-flight value when one is running). 0 ms removes the transition. */
+DG_EXPORT int32_t dg_node_set_transition(dg_node_t* node, uint16_t prop_id,
+                                         uint32_t duration_ms, uint32_t curve);
+
+/* ABI 0.2: stops a dg_node_animate() animation of `window` where it is (no */
+/* DG_EVENT_ANIMATION_FINISHED). DG_ERR_UNKNOWN_ID once it finished, was */
+/* cancelled or its node was removed. */
+DG_EXPORT int32_t dg_animation_cancel(dg_window_t* window, int32_t animation);
+
+/* ABI 0.2: nonzero makes every animation and transition of every window of */
+/* `app` take zero time (the user's reduced-motion preference, read by the */
+/* host). */
+DG_EXPORT int32_t dg_app_set_reduced_motion(dg_app_t* app, int32_t enabled);
 
 #ifdef __cplusplus
 } /* extern "C" */

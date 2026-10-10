@@ -19,6 +19,7 @@
 #include <string_view>
 #include <vector>
 
+#include "drawgui/anim/clock.h"
 #include "drawgui/app/events.h"
 #include "drawgui/app/status.h"
 #include "drawgui/base/expected.h"
@@ -55,6 +56,8 @@ struct WindowOptions {
   int min_height = 0;
   int max_width = 0;
   int max_height = 0;
+  // Window::set_close_confirmation() from the start.
+  bool close_confirmation = false;
 };
 
 // Wakes App::pump() from any thread. Valid only while the App that handed
@@ -131,6 +134,17 @@ class App {
 
   // 0..60000 ms; kValueOutOfRange otherwise.
   Status set_tooltip_delay(int delay_ms);
+
+  // -- Animation ---------------------------------------------------------
+  // Reduced motion (the user's accessibility preference, read by the host):
+  // every animation and transition of every window, current and future,
+  // takes zero time - it lands on its target at the next pump().
+  void set_reduced_motion(bool enabled);
+  [[nodiscard]] bool reduced_motion() const;
+  // The time animations advance by; null (the default) = steady_anim_time().
+  // A test seam: a fake clock makes animation frames deterministic. It must
+  // not run behind a time already used (start it at steady_anim_time()).
+  void set_clock(std::function<AnimTime()> clock);
 
   // TimerId{0} when the platform refused.
   [[nodiscard]] TimerId add_timer(int delay_ms, bool repeat);

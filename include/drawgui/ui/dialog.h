@@ -69,8 +69,9 @@ class Dialog {
   void close(UiContext& ctx);
 
   // Modal: every pointer event on the dialog's window is consumed. kDown on
-  // a button closes with it; elsewhere focuses the widget under the pointer
-  // (or nothing) through set_guarded().
+  // a button closes with it; elsewhere focuses the focusable widget under
+  // the pointer through set_guarded() - a press on anything else (scrim,
+  // panel, a disabled button) leaves focus where it was.
   DialogResult handle_pointer(UiContext& ctx, const PointerEvent& event);
   DialogResult handle_key(UiContext& ctx, const KeyEvent& event);
 

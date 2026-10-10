@@ -125,6 +125,10 @@ class TreeRef : public ComponentRef {
   [[nodiscard]] Expected<std::uint64_t, Status> key_of(int index) const;
   [[nodiscard]] Expected<int, Status> index_of(std::uint64_t key) const;
   Status select_key(std::uint64_t key);
+  // Every row's height in logical pixels (DG_PROP_ROW_HEIGHT; default: the
+  // theme's). kValueOutOfRange outside 1..1024. The row pool is rebuilt for
+  // the new height; the selection is kept and scrolled into view.
+  Status set_row_height(int px);
 
  private:
   friend class Window;
@@ -159,6 +163,11 @@ class TableRef : public ComponentRef {
   [[nodiscard]] Expected<std::uint64_t, Status> key_of(int index) const;
   [[nodiscard]] Expected<int, Status> index_of(std::uint64_t key) const;
   Status select_key(std::uint64_t key);
+  // Every body row's height in logical pixels (DG_PROP_ROW_HEIGHT; default:
+  // the theme's); the header keeps the theme's. kValueOutOfRange outside
+  // 1..1024. The row pool is rebuilt for the new height; the selection is
+  // kept and scrolled into view.
+  Status set_row_height(int px);
 
  private:
   friend class Window;

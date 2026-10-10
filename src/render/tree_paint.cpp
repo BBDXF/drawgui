@@ -48,6 +48,9 @@ PixelRect RenderTree::Impl::subtree_extent(std::uint32_t index) const {
   while (!stack.empty()) {
     const std::uint32_t walk = stack.back();
     stack.pop_back();
+    if (!nodes[walk].style.visible) {
+      continue;
+    }
     extent = join(extent, nodes[walk].visible_bounds());
     for (const std::uint32_t child : nodes[walk].children) {
       stack.push_back(child);

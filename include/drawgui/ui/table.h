@@ -53,6 +53,9 @@ struct TableSpec {
   // the part nodes per cell.
   std::vector<std::vector<TableCellPart>> parts;
   int viewport_height = 240;                   // the row area, below the header
+  // The header's height; 0 = ctx.style.row_height. Rows always take
+  // ctx.style.row_height (a caller overrides that for a per-table height).
+  int header_height = 0;
   BoxStyle box;                                // kind/height overridden
 };
 

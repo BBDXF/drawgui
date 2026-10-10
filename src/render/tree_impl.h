@@ -160,8 +160,10 @@ struct Node {
   return style.opacity < 1.0F && style.opacity > 0.0F;
 }
 
+// A hidden node (NodeStyle::visible, display:none) paints nothing either,
+// and neither does its subtree.
 [[nodiscard]] constexpr bool paints_nothing(const NodeStyle& style) {
-  return !(style.opacity > 0.0F);
+  return !style.visible || !(style.opacity > 0.0F);
 }
 
 // Everything one traversal of the tree needs, so that painting takes two

@@ -147,7 +147,11 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_runtime_loop.cpp
     unit/test_runtime_rows.cpp
     unit/test_abi_rows.cpp
+    unit/test_runtime_loop2.cpp
+    unit/test_abi_runtime_loop2.cpp
     unit/test_runtime_menus.cpp
+    unit/test_runtime_focus_fixes.cpp
+    unit/test_runtime_layout_props.cpp
     unit/test_abi_menus.cpp)
 endif()
 

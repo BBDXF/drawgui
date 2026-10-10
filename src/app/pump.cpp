@@ -148,6 +148,32 @@ void resync_widgets(WinState& window) {
   }
 }
 
+// Every runtime window is cancellable_close: the title-bar close arrives
+// as a close request, and closes at once unless the app asked to confirm
+// it. `closed` still names windows the platform closed by itself.
+void process_closes(AppState& app, const dg::PumpResult& pumped) {
+  for (const dg::WindowId closed_id : pumped.closed) {
+    WinState* window = find_window_by_sdl_id(app, closed_id);
+    if (window == nullptr) {
+      continue;
+    }
+    window->closed = true;
+    emit(app, dg::events::WindowClosedEvent{window->sdl_window});
+  }
+
+  for (const dg::WindowId requested : pumped.close_requested) {
+    WinState* window = find_window_by_sdl_id(app, requested);
+    if (window == nullptr) {
+      continue;
+    }
+    if (window->close_confirmation) {
+      emit(app, dg::events::CloseRequestedEvent{window->sdl_window});
+    } else {
+      window->self->close();
+    }
+  }
+}
+
 // An IME's not-yet-committed preedit previews inside the focused editor
 // without touching its text; an empty preedit ends the preview. The commit
 // arrives later as an ordinary TextInputEvent.
@@ -201,7 +227,9 @@ bool ensure_surface_current(WinState& window) {
 
 void process_pump(AppState& app, int timeout_ms) {
   // Tooltip delays and indeterminate progress bars wake the wait by themselves.
-  const dg::PumpResult pumped = app.wm.pump(components::clamp_timeout(app, timeout_ms));
+  // Running animations wake it every frame.
+  const dg::PumpResult pumped =
+      app.wm.pump(clamp_animation_timeout(app, components::clamp_timeout(app, timeout_ms)));
 
   // A node created since the last pump has all-zero bounds() until
   // LayoutTree::layout() has run at least once - LayoutTree::add_child()'s
@@ -218,14 +246,7 @@ void process_pump(AppState& app, int timeout_ms) {
     }
   }
 
-  for (const dg::WindowId closed_id : pumped.closed) {
-    WinState* window = find_window_by_sdl_id(app, closed_id);
-    if (window == nullptr) {
-      continue;
-    }
-    window->closed = true;
-    emit(app, dg::events::WindowClosedEvent{window->sdl_window});
-  }
+  process_closes(app, pumped);
 
   queue_window_events(app, pumped.window_events);
 
@@ -275,6 +296,7 @@ void process_pump(AppState& app, int timeout_ms) {
     WinState& window = handle->impl();
     if (!window.closed) {
       report_focus_drift(window);
+      tick_animations(window);
       components::tick(window);
       // A relayout re-places a text area's composed children at its content
       // origin (and may have resized it): re-derive them before painting.

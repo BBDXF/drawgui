@@ -943,6 +943,25 @@ PropWrite apply_disabled(Target& target, const PropValue& value) {
   return PropWrite{};
 }
 
+// Written to BOTH structs: layout reads BoxStyle::visible (and set_box()
+// re-lays the parent out), paint/hit testing read NodeStyle::visible.
+PropWrite apply_visible(Target& target, const PropValue& value) {
+  if (value.ordinal() > 1U) {
+    return out_of_range(target, "visible needs a bool: 0 (false) or 1 (true)");
+  }
+  target.box.visible = value.ordinal() == 1U;
+  target.style.visible = target.box.visible;
+  target.box_changed = true;
+  target.style_changed = true;
+  return PropWrite{};
+}
+
+PropWrite apply_row_height(Target& target, const PropValue& /*value*/) {
+  return unsupported(target, "row_height",
+                     "it is widget state - dg::Window::set_prop() / dg_node_set_prop() "
+                     "apply it to a table or tree (TableRef/TreeRef::set_row_height())");
+}
+
 static_assert(DG_CURSOR_AUTO == static_cast<std::uint32_t>(Cursor::kAuto) &&
                   DG_CURSOR_RESIZE_NESW == static_cast<std::uint32_t>(Cursor::kResizeNesw) &&
                   DG_CURSOR_RESIZE_NESW + 1 == kCursorCount,

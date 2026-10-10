@@ -22,6 +22,9 @@ bool Menu::open(UiContext& ctx, const PixelRect& anchor, MenuSpec spec,
   restore_focus_ = restore_focus;
   painted_highlight_.reset();
   rows_ = ui_visuals::build_menu(ctx, handle_->content_root, spec_, size.width);
+  // Opened above a dialog: its modal scope comes back on close.
+  outer_scope_ = ctx.tables.focus.current_scope();
+  outer_modal_ = ctx.tables.focus.scope_is_modal();
   ctx.tables.focus.enter_scope(handle_->content_root);
 
   const int initial = spec_.initial_highlight.value_or(-1);
@@ -40,6 +43,11 @@ void Menu::close(UiContext& ctx) {
     return;
   }
   ctx.tables.focus.exit_scope(ctx.tree);
+  if (outer_scope_.has_value() && ctx.tree.is_valid(*outer_scope_)) {
+    ctx.tables.focus.enter_scope(*outer_scope_, outer_modal_);
+  }
+  outer_scope_.reset();
+  outer_modal_ = false;
   ctx.popups.destroy(*handle_, ctx.tables);
   handle_.reset();
   rows_.clear();

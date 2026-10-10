@@ -52,6 +52,12 @@ std::uint32_t descend(const std::vector<Node>& nodes, std::uint32_t index, Pixel
                       std::uint32_t miss) {
   const Node& node = nodes[index];
 
+  // A hidden node (NodeStyle::visible) takes its subtree out of hit testing,
+  // the same rule painting applies through paints_nothing().
+  if (!node.style.visible) {
+    return miss;
+  }
+
   // Children are searched before the node itself, and none of them is pruned
   // against the parent's box unless the parent asked for it. Ancestor clips
   // need no separate handling: the walk never reaches a descendant through a

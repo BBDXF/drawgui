@@ -251,6 +251,13 @@ struct LayoutTree::Impl {
   // out so that layout_node() is only about the cache and the boundary.
   PixelSize measure(std::uint32_t index, const BoxConstraints& constraints);
 
+  // The children a container arranges: every child whose BoxStyle::visible
+  // holds, in child order. A hidden child (display:none) is skipped as if it
+  // were absent; layout_node() collapses its `local` to empty instead.
+  [[nodiscard]] std::vector<std::uint32_t> shown_children(std::uint32_t index) const;
+  [[nodiscard]] bool in_hidden_subtree(std::uint32_t index) const;
+  void collapse_hidden(std::uint32_t index);
+
   PixelSize measure_flex(std::uint32_t index, const SizeLimits& limits,
                          const BoxConstraints& inner, const Axis& axis);
 

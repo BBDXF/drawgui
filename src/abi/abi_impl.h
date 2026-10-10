@@ -126,6 +126,14 @@ std::int32_t node_set_tooltip(dg_node_t* node, const char* utf8);
 std::int32_t node_set_user_data(dg_node_t* node, std::uint64_t value);
 std::int32_t node_get_user_data(dg_node_t* node, std::uint64_t* out_value);
 std::int32_t app_set_tooltip_delay(dg_app_t* app, std::int32_t delay_ms);
+std::int32_t window_set_close_confirmation(dg_window_t* window, std::int32_t enabled);
+std::int32_t window_close(dg_window_t* window);
+std::int32_t node_animate(dg_node_t* node, std::uint16_t prop_id, const dg_value* from,
+                          const dg_value* to, std::uint32_t duration_ms, std::uint32_t curve);
+std::int32_t node_set_transition(dg_node_t* node, std::uint16_t prop_id,
+                                 std::uint32_t duration_ms, std::uint32_t curve);
+std::int32_t animation_cancel(dg_window_t* window, std::int32_t animation);
+std::int32_t app_set_reduced_motion(dg_app_t* app, std::int32_t enabled);
 std::int32_t dialog_open(dg_window_t* window, const char* title, const char* body,
                          const char* const* buttons, std::uint32_t count,
                          std::int32_t default_button, std::int32_t cancel_button);

@@ -176,9 +176,11 @@ TEST_SUITE("abi phase a") {
     // The refused write left it a leaf: justify still does not apply.
     const dg_value justify = option(DG_JUSTIFY_CENTER);
     CHECK(dg_node_set_prop(leaf, DG_PROP_JUSTIFY, &justify) == DG_ERR_NOT_APPLICABLE);
+    // A button is a centring row (its icon/label children), so it takes
+    // direction like any container.
     dg_node_t* button = a.add(a.root, DG_NODE_TYPE_BUTTON);
-    const dg_value row_dir = option(DG_DIRECTION_ROW);
-    CHECK(dg_node_set_prop(button, DG_PROP_DIRECTION, &row_dir) == DG_ERR_NOT_APPLICABLE);
+    const dg_value column_dir = option(DG_DIRECTION_COLUMN);
+    CHECK(dg_node_set_prop(button, DG_PROP_DIRECTION, &column_dir) == DG_ERR_OK);
   }
 
   TEST_CASE("font_size and text_align on labels, buttons and editors") {

@@ -261,6 +261,14 @@ switch (prop_id) {
   case DG_PROP_CHECKED:
     DG_PROP_ASSIGN(checked, bool);
     break;
+  // -- visual ----------------------------------------------------
+  case DG_PROP_VISIBLE:
+    DG_PROP_ASSIGN(visible, bool);
+    break;
+  // -- interaction -----------------------------------------------
+  case DG_PROP_ROW_HEIGHT:
+    DG_PROP_ASSIGN(row_height, float);
+    break;
   // No implicit fall-through: an unhandled id is reported, never dropped.
   case DG_PROP_INVALID:
   default:

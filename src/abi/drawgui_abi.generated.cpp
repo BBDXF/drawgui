@@ -1744,3 +1744,97 @@ extern "C" DG_EXPORT int32_t dg_dialog_set_button_disabled(dg_window_t* window,
     return DG_ERR_INTERNAL;
   }
 }
+
+extern "C" DG_EXPORT int32_t dg_window_set_close_confirmation(dg_window_t* window,
+                                                              int32_t enabled) {
+  try {
+    return dg::abi::window_set_close_confirmation(window, enabled);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_set_close_confirmation: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_set_close_confirmation: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_set_close_confirmation: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_window_close(dg_window_t* window) {
+  try {
+    return dg::abi::window_close(window);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_window_close: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_window_close: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_window_close: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_node_animate(dg_node_t* node, uint16_t prop_id,
+                                             const dg_value* from, const dg_value* to,
+                                             uint32_t duration_ms, uint32_t curve) {
+  try {
+    return dg::abi::node_animate(node, prop_id, from, to, duration_ms, curve);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_animate: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_animate: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_animate: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_node_set_transition(dg_node_t* node, uint16_t prop_id,
+                                                    uint32_t duration_ms, uint32_t curve) {
+  try {
+    return dg::abi::node_set_transition(node, prop_id, duration_ms, curve);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_set_transition: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_set_transition: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_set_transition: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_animation_cancel(dg_window_t* window, int32_t animation) {
+  try {
+    return dg::abi::animation_cancel(window, animation);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_animation_cancel: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_animation_cancel: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_animation_cancel: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_app_set_reduced_motion(dg_app_t* app, int32_t enabled) {
+  try {
+    return dg::abi::app_set_reduced_motion(app, enabled);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_app_set_reduced_motion: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_app_set_reduced_motion: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_app_set_reduced_motion: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}

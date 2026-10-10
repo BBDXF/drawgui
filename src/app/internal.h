@@ -48,6 +48,8 @@ void reapply_theme(AppState& app);
 // FocusChangedEvent.
 void apply_focus_change(WinState& window, const dg::FocusChange& change);
 void set_editor_focus(WinState& window, dg::NodeId id, bool focused);
+// After a popup moved Focus itself: the editors' focus/blur side effects.
+void sync_editor_focus(WinState& window, std::optional<dg::NodeId> before);
 // Points the platform IME's candidate window at a focused text area's caret.
 void follow_caret(WinState& window, dg::NodeId area);
 void sync_disabled(WinState& window, dg::NodeId node);
@@ -60,6 +62,20 @@ void process_pointer_event(WinState& window, const dg::PointerEvent& event);
 void process_key_event(WinState& window, const dg::KeyEvent& event);
 [[nodiscard]] bool is_scroller(const WinState& window, dg::NodeId id);
 [[nodiscard]] int viewport_extent(const WinState& window, dg::NodeId owner);
+
+// -- animation.cpp ----------------------------------------------------------------
+
+[[nodiscard]] dg::AnimTime anim_now(const AppState& app);
+void sync_animation_clock(WinState& window);
+// The write of a property with a declared transition (Window::
+// set_transition()); nullopt when (target, prop_id) has none.
+[[nodiscard]] std::optional<dg::PropWrite> transition_write(WinState& window, dg::NodeId target,
+                                                            std::uint16_t prop_id,
+                                                            const dg::PropValue& value);
+// Advances the window's animations to now and queues AnimationFinishedEvent.
+void tick_animations(WinState& window);
+// `timeout_ms` cut to one frame while any window animates.
+[[nodiscard]] int clamp_animation_timeout(const AppState& app, int timeout_ms);
 
 // -- pump.cpp ---------------------------------------------------------------------
 

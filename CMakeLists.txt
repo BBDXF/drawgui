@@ -243,6 +243,7 @@ if(DRAWGUI_HAVE_SDL3)
     # The C++ runtime (dg::App / dg::Window): one WindowManager-backed app,
     # its windows' widgets and src/ui components, and the event pump. The C
     # ABI below is a thin shell over it.
+    src/app/animation.cpp
     src/app/app.cpp
     src/app/focus.cpp
     src/app/keys.cpp

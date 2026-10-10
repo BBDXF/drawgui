@@ -498,6 +498,27 @@ space.md），**没有新增 token**。
 `src/ui/control_visuals.cpp`。示例：`examples/27_data_widgets`（运行时版，`--verify`、
 `--dump-png`）；组件本身的单测在 `tests/unit/test_ui_components.cpp`。
 
+#### 行高：`set_row_height()` / `DG_PROP_ROW_HEIGHT`（运行时）
+
+```cpp
+window->table(table).value().set_row_height(40);   // 或 window->set(table, dg::prop::row_height(40))
+window->tree(tree).value().set_row_height(32);     // C ABI：dg_node_set_prop(n, DG_PROP_ROW_HEIGHT, 浮点整数值)
+```
+
+默认行高取主题（`ControlStyle::row_height`，26px）。按控件覆盖后：回收池按新行高重建
+（`ceil(viewport_height/row_height)+1` 行）、滚动范围按新行高计算，选中项保留并滚入可见区
+（重建时滚动回到顶部再 reveal 选中行，所以偏移总在合法范围内）。表格的**表头保持主题行高**，
+只改变数据行。取值必须是 1..1024 的整数，否则 `kValueOutOfRange`；写在其他类型的节点上
+返回 `kUnsupported`。`kList` 的行高仍通过 `ListRef::set_items/set_rows(…, item_height)` 设置。
+
+#### 按钮内容居中
+
+`kButton` 默认是一个 **row 容器，主轴与交叉轴都居中**（`justify = center`，
+`align = center`）：放进按钮的子节点（`kImage` 图标、`kLabel` 文字，或二者组合）自动居中，
+纯图标按钮不再需要用 padding 去"挤"到中间。`DG_PROP_JUSTIFY` / `DG_PROP_ALIGN` /
+`DG_PROP_DIRECTION` / `DG_PROP_GAP` 都可以直接写在按钮上改变排布（例如图标在左、文字在右：
+保持 row，设 `gap`）。按钮自己的 `set_text()` 文字仍按 `text_align` 绘制在按钮盒内，与子节点无关。
+
 #### 富行：图标、复选框、副文字、行尾操作、行键（运行时）
 
 `ListRef::set_rows()` 接受固定结构的 `dg::RowItem`（`items.h`）：主文字 `text`、右对齐的

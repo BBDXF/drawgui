@@ -200,7 +200,7 @@ dg::PropWrite write_prop(WinState& window, const NodeRecord& record, dg::NodeId 
 // The widget-layer follow-ups of a successful write.
 void after_prop_write(WinState& window, const NodeRecord& record, dg::NodeId target,
                       std::uint16_t prop_id) {
-  if (prop_id == DG_PROP_DISABLED) {
+  if (prop_id == DG_PROP_DISABLED || prop_id == DG_PROP_VISIBLE) {
     sync_disabled(window, record.id);
   } else if (prop_id == DG_PROP_SCROLL_AXIS && record.kind == NodeKind::kScrollView) {
     follow_scroll_axis(window, record);
@@ -283,6 +283,24 @@ WindowId Window::id() const {
 
 bool Window::closed() const {
   return state_->closed;
+}
+
+void Window::set_close_confirmation(bool enabled) {
+  state_->close_confirmation = enabled;
+}
+
+bool Window::close_confirmation() const {
+  return state_->close_confirmation;
+}
+
+void Window::close() {
+  app_detail::WinState& window = *state_;
+  if (window.closed) {
+    return;
+  }
+  window.app.wm.close_now(window.sdl_window);
+  window.closed = true;
+  app_detail::emit(window.app, events::WindowClosedEvent{window.sdl_window});
 }
 
 std::optional<NodeId> Window::root() const {
@@ -565,7 +583,11 @@ Status Window::set_prop(NodeId node, std::uint16_t prop_id, const PropValue& val
     // are placed by the widget layer, not by layout.
     return app_detail::set_editor_padding(window, *record, value);
   }
-  const PropWrite result = app_detail::write_prop(window, *record, target, prop_id, value);
+  const std::optional<PropWrite> transitioned =
+      app_detail::transition_write(window, target, prop_id, value);
+  const PropWrite result = transitioned.has_value()
+                               ? *transitioned
+                               : app_detail::write_prop(window, *record, target, prop_id, value);
   if (result.ok()) {
     app_detail::after_prop_write(window, *record, target, prop_id);
     app_detail::components::after_prop(window, *record, prop_id);

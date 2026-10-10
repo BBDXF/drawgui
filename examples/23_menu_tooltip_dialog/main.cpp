@@ -199,15 +199,15 @@ int verify(dg::App& app, std::ostream& out) {
   check(copy.has_value() && drive.bounds(tree.parent(*copy)).x == at.x &&
             drive.bounds(tree.parent(*copy)).y == at.y,
         "the menu opens anchored at the POINTER position, not menu_target's own bounds");
-  check(row_text(tree, w.focused()) == "Copy", "opening seeds the highlight at the first item");
+  check(row_text(tree, w.focused_node()) == "Copy", "opening seeds the highlight at the first item");
   drive.key(dg::Key::kDown);
-  check(row_text(tree, w.focused()) == "Paste", "Down moves the highlight to the second item");
+  check(row_text(tree, w.focused_node()) == "Paste", "Down moves the highlight to the second item");
   drive.key(dg::Key::kDown);
-  check(row_text(tree, w.focused()) == "Delete", "Down again reaches the LAST item");
+  check(row_text(tree, w.focused_node()) == "Delete", "Down again reaches the LAST item");
   drive.key(dg::Key::kDown);
-  check(row_text(tree, w.focused()) == "Copy", "Down from the last item WRAPS to the first");
+  check(row_text(tree, w.focused_node()) == "Copy", "Down from the last item WRAPS to the first");
   drive.key(dg::Key::kUp);
-  check(row_text(tree, w.focused()) == "Delete", "Up from the first item WRAPS to the last");
+  check(row_text(tree, w.focused_node()) == "Delete", "Up from the first item WRAPS to the last");
   std::vector<dg::events::MenuEvent> menu =
       example::events_of<dg::events::MenuEvent>(drive.key(dg::Key::kEscape));
   check(menu.size() == 1 && !menu[0].item.has_value() && w.node_count() == baseline,
@@ -253,16 +253,16 @@ int verify(dg::App& app, std::ostream& out) {
   out << "\ndialog: modal focus refusal\n";
   feed(drive.click(s.open_dialog));
   check(w.has_dialog(), "clicking \"Open Dialog\" opens the dialog");
-  const std::optional<NodeId> close = w.focused();
+  const std::optional<NodeId> close = w.focused_node();
   check(close.has_value() && !w.kind_of(*close).has_value(),
         "the dialog's own Close button is focused on open (inside the dialog)");
   drive.key(dg::Key::kTab);
   drive.key(dg::Key::kTab, true);
-  check(w.focused() == close, "Tab and Shift+Tab never leave the dialog");
+  check(w.focused_node() == close, "Tab and Shift+Tab never leave the dialog");
   const std::vector<dg::Event> outside = feed(drive.click(s.after));
-  // Blurring to nothing is allowed; focusing or clicking `after` is not.
+  // Focus stays where it was; it never reaches `after`.
   check(example::events_of<dg::events::ClickEvent>(outside).empty() && w.has_dialog() &&
-            w.focused() != s.after,
+            w.focused_node() != s.after,
         "a click outside the dialog reaches nothing behind it and cannot move focus there");
   const std::vector<dg::events::DialogResultEvent> result =
       example::events_of<dg::events::DialogResultEvent>(drive.key(dg::Key::kEscape));

@@ -587,7 +587,7 @@ PixelSize LayoutTree::Impl::measure_leaf(std::uint32_t index, const SizeLimits& 
                                          const BoxConstraints& inner) {
   const BoxStyle& box = nodes[index].used;
   const EdgeInsets insets = content_insets(box);
-  const std::vector<std::uint32_t>& children = nodes[index].children;
+  const std::vector<std::uint32_t> children = shown_children(index);
 
   // A scrolling leaf hands its child an UNBOUNDED constraint on the one axis
   // it scrolls, instead of `inner`'s own bound. This is the first unbounded
@@ -686,7 +686,7 @@ void LayoutTree::Impl::classify_child(FlexItem& item, const BoxStyle& child_box,
 
 int LayoutTree::Impl::size_flex_children(std::uint32_t index, const FlexRoom& room,
                                          const Axis& axis) {
-  const std::vector<std::uint32_t>& children = nodes[index].children;
+  const std::vector<std::uint32_t> children = shown_children(index);
   const int gap = nodes[index].used.gap;
   const int gaps = children.empty() ? 0 : gap * static_cast<int>(children.size() - 1);
 
@@ -780,7 +780,7 @@ void LayoutTree::Impl::place_flex_children(std::uint32_t index, PixelSize size, 
                                            const Axis& axis) {
   const EdgeInsets insets = content_insets(nodes[index].used);
   const int gap = nodes[index].used.gap;
-  const std::vector<std::uint32_t>& children = nodes[index].children;
+  const std::vector<std::uint32_t> children = shown_children(index);
 
   const int inner_main = std::max(0, axis.main_of(size) - axis.main_total(insets));
   const int inner_cross = std::max(0, axis.cross_of(size) - axis.cross_total(insets));
@@ -822,7 +822,7 @@ void LayoutTree::Impl::place_flex_children(std::uint32_t index, PixelSize size, 
 PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& limits,
                                          const BoxConstraints& inner, const Axis& axis) {
   const EdgeInsets insets = content_insets(nodes[index].used);
-  const std::vector<std::uint32_t>& children = nodes[index].children;
+  const std::vector<std::uint32_t> children = shown_children(index);
 
   FlexRoom room;
   room.main = axis.main_max(inner);
@@ -885,7 +885,7 @@ PixelSize LayoutTree::Impl::measure_flex(std::uint32_t index, const SizeLimits& 
 
 WrapLayout LayoutTree::Impl::size_wrap_children(std::uint32_t index, const FlexRoom& room,
                                                 const Axis& axis) {
-  const std::vector<std::uint32_t>& children = nodes[index].children;
+  const std::vector<std::uint32_t> children = shown_children(index);
   const int gap = nodes[index].used.gap;
   const int run_gap = nodes[index].used.run_gap;
   const CrossAlign container_align = nodes[index].used.cross_align;
@@ -980,7 +980,7 @@ void LayoutTree::Impl::place_wrap_children(std::uint32_t index, PixelSize size,
   const int run_gap = nodes[index].used.run_gap;
   const MainAlign main_align = nodes[index].used.main_align;
   const AlignContent align_content = nodes[index].used.align_content;
-  const std::vector<std::uint32_t>& children = nodes[index].children;
+  const std::vector<std::uint32_t> children = shown_children(index);
 
   const int inner_main = std::max(0, axis.main_of(size) - axis.main_total(insets));
   const int inner_cross = std::max(0, axis.cross_of(size) - axis.cross_total(insets));
@@ -1083,7 +1083,7 @@ PixelSize LayoutTree::Impl::measure_wrap(std::uint32_t index, const SizeLimits& 
 PixelSize LayoutTree::Impl::measure_absolute(std::uint32_t index, const SizeLimits& limits,
                                              const BoxConstraints& inner) {
   const EdgeInsets insets = content_insets(nodes[index].used);
-  const std::vector<std::uint32_t>& children = nodes[index].children;
+  const std::vector<std::uint32_t> children = shown_children(index);
 
   // An absolute container takes all the room it is offered rather than
   // shrinking to its children. design.md section 5.4.2 sizes a Stack from its

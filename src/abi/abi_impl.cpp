@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -564,6 +565,12 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.y = e.action;
             out.item_key = e.item_key;
           },
+          [&](const dg::events::CloseRequestedEvent& e) { on_window(e.window); },
+          [&](const dg::events::AnimationFinishedEvent& e) {
+            on_window(e.window);
+            out.node = node(e.node);
+            out.x = static_cast<std::int32_t>(e.animation);
+          },
       },
       event);
   return out;
@@ -784,6 +791,12 @@ std::uint32_t dg_event_kind(const dg::Event& event) {
             return DG_EVENT_SLIDER_CHANGED;
           },
           [](const dg::events::RowPartEvent&) -> std::uint32_t { return DG_EVENT_ROW_PART; },
+          [](const dg::events::CloseRequestedEvent&) -> std::uint32_t {
+            return DG_EVENT_CLOSE_REQUESTED;
+          },
+          [](const dg::events::AnimationFinishedEvent&) -> std::uint32_t {
+            return DG_EVENT_ANIMATION_FINISHED;
+          },
       },
       event);
 }
@@ -1810,6 +1823,90 @@ std::int32_t window_clear_focus(dg_window_t* window_h) {
     return DG_ERR_INVALID_HANDLE;
   }
   window->window->clear_focus();
+  return DG_ERR_OK;
+}
+
+std::int32_t window_set_close_confirmation(dg_window_t* window_h, std::int32_t enabled) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  window->window->set_close_confirmation(enabled != 0);
+  return DG_ERR_OK;
+}
+
+std::int32_t window_close(dg_window_t* window_h) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  window->window->close();
+  return DG_ERR_OK;
+}
+
+std::int32_t node_animate(dg_node_t* node_h, std::uint16_t prop_id, const dg_value* from,
+                          const dg_value* to, std::uint32_t duration_ms, std::uint32_t curve) {
+  if (to == nullptr || to->size < sizeof(dg_value) ||
+      (from != nullptr && from->size < sizeof(dg_value))) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  const LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  if (duration_ms > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
+      curve > std::numeric_limits<std::uint16_t>::max()) {
+    return DG_ERR_VALUE_OUT_OF_RANGE;
+  }
+  const std::optional<dg::PropValue> to_value = to_prop_value(*to);
+  std::optional<dg::PropValue> from_value;
+  if (from != nullptr) {
+    from_value = to_prop_value(*from);
+  }
+  if (!to_value.has_value() || (from != nullptr && !from_value.has_value())) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  const dg::Expected<dg::AnimationId, dg::Status> started = live.window->animate(
+      live.slot->node_id, prop_id, from_value, *to_value, static_cast<int>(duration_ms),
+      static_cast<std::uint16_t>(curve));
+  if (!started) {
+    return to_error_code(started.error());
+  }
+  return static_cast<std::int32_t>(started.value());
+}
+
+std::int32_t node_set_transition(dg_node_t* node_h, std::uint16_t prop_id,
+                                 std::uint32_t duration_ms, std::uint32_t curve) {
+  const LiveNode live = resolve_live(node_h);
+  if (live.status != DG_ERR_OK) {
+    return live.status;
+  }
+  if (duration_ms > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
+      curve > std::numeric_limits<std::uint16_t>::max()) {
+    return DG_ERR_VALUE_OUT_OF_RANGE;
+  }
+  return to_error_code(live.window->set_transition(live.slot->node_id, prop_id,
+                                                   static_cast<int>(duration_ms),
+                                                   static_cast<std::uint16_t>(curve)));
+}
+
+std::int32_t animation_cancel(dg_window_t* window_h, std::int32_t animation) {
+  WindowImpl* window = resolve_window(window_h);
+  if (window == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (animation <= 0) {
+    return DG_ERR_UNKNOWN_ID;
+  }
+  return to_error_code(window->window->cancel_animation(static_cast<dg::AnimationId>(animation)));
+}
+
+std::int32_t app_set_reduced_motion(dg_app_t* app_h, std::int32_t enabled) {
+  AppImpl* impl = resolve_app(app_h);
+  if (impl == nullptr) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  impl->app.set_reduced_motion(enabled != 0);
   return DG_ERR_OK;
 }
 

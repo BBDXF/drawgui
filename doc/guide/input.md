@@ -19,7 +19,13 @@ app.run([&](const dg::Event& event) {
 ```
 
 - 焦点：Tab/Shift+Tab、点击可聚焦控件、`Window::focus()/clear_focus()/focused()`；
-  焦点环由运行时画。菜单和对话框打开时自动限制焦点范围。
+  焦点环由运行时画。菜单和对话框打开时自动限制焦点范围。`focused()` 返回组件
+  （最近的 `create()` 节点），`focused_node()` 返回原始节点（含组件内部部件、菜单行）。
+- 编辑框：焦点从一个 `TextField`/`TextArea` 移到另一个时（点击、Tab、
+  `Window::focus()`，包括在表单对话框里），旧编辑框的光标、选区和焦点边框都会撤掉，
+  同一时刻只有一个光标。
+- 模态对话框里按在不可聚焦或禁用的东西上（禁用按钮、标签、面板空白、遮罩）不会
+  清掉焦点，焦点留在原处。
 - 快捷键：`Window::scope_action(node, action_id)` 让某个节点处理一个 action，
   触发时得到 `ActionEvent`。编辑框的复制/剪切/粘贴/全选/撤销由运行时直接处理。
 - 应用自定义快捷键：`App::add_shortcut("Ctrl+Shift+N", id)`（第 4 级，所有窗口，

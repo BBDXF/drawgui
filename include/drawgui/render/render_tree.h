@@ -455,6 +455,12 @@ struct NodeStyle {
   // setting it on a container disables that container's whole subtree.
   bool disabled = false;
 
+  // DG_PROP_VISIBLE (mirrors BoxStyle::visible, which layout reads). False
+  // removes the node AND its subtree from painting and hit testing; the
+  // widget layer reads it through dg::is_hidden() (widget/interaction.h),
+  // which climbs ancestors, to keep hidden widgets out of focus and tooltips.
+  bool visible = true;
+
   // DG_PROP_CURSOR. Not a paint input either: dg::resolve_cursor()
   // (widget/cursor.h) climbs ancestors from the node under the pointer, so
   // kAuto - the default - inherits.

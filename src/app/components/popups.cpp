@@ -264,19 +264,45 @@ std::optional<dg::NodeId> tooltip_target(WinState& window) {
 
 namespace {
 
-// The open dialog, then the open menu, see a pointer event first. nullopt =
-// neither took a position on it.
+// The open dropdown list, if any, takes a pointer event first. True when
+// it used the event.
+bool route_open_dropdown_pointer(WinState& window, const dg::PointerEvent& event) {
+  dg::UiContext ctx = ui(window);
+  for (NodeRecord* record : records_in_order(window)) {
+    std::optional<dg::Dropdown>* dropdown = dropdown_in(*record);
+    if (dropdown != nullptr && dropdown->has_value() && (*dropdown)->is_open()) {
+      const dg::DropdownResult result = (*dropdown)->handle_pointer(ctx, event);
+      dropdown_result(window, *record, result);
+      if (result.event != dg::DropdownEvent::kIgnored) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// An open dropdown list (above any dialog), the open dialog, then the open
+// menu, see a pointer event first. nullopt = none took a position on it
+// (dialog content included: its components see it next).
 std::optional<bool> route_pointer_to_popups(WinState& window, const dg::PointerEvent& event) {
   dg::UiContext ctx = ui(window);
   if (window.dialog.is_open()) {
+    // A dropdown list opened from the dialog's content sits above it.
+    if (route_open_dropdown_pointer(window, event)) {
+      return true;
+    }
+    const std::optional<dg::NodeId> before = window.focus.current();
     if (pointer_in_dialog_content(window, event)) {
       // Form content: the dialog focuses it, the core then clicks/edits it.
       if (event.action == dg::PointerAction::kDown) {
         (void)window.dialog.handle_pointer(ctx, event);
+        sync_editor_focus(window, before);
       }
-      return false;
+      // Then the content's own dropdowns and components, then the core.
+      return std::nullopt;
     }
     dialog_result(window, window.dialog.handle_pointer(ctx, event));
+    sync_editor_focus(window, before);
     return true;  // modal: nothing behind it reacts
   }
   if (!window.menu.is_open()) {
@@ -312,17 +338,10 @@ bool route_pointer(WinState& window, const dg::PointerEvent& event) {
   if (const std::optional<bool> popup = route_pointer_to_popups(window, event)) {
     return *popup;
   }
-  const std::vector<NodeRecord*> records = records_in_order(window);
-  for (NodeRecord* record : records) {
-    std::optional<dg::Dropdown>* dropdown = dropdown_in(*record);
-    if (dropdown != nullptr && dropdown->has_value() && (*dropdown)->is_open()) {
-      const dg::DropdownResult result = (*dropdown)->handle_pointer(ctx, event);
-      dropdown_result(window, *record, result);
-      if (result.event != dg::DropdownEvent::kIgnored) {
-        return true;
-      }
-    }
+  if (route_open_dropdown_pointer(window, event)) {
+    return true;
   }
+  const std::vector<NodeRecord*> records = records_in_order(window);
   for (NodeRecord* record : records) {
     std::optional<dg::Dropdown>* dropdown = dropdown_in(*record);
     if (dropdown != nullptr && dropdown->has_value() && !(*dropdown)->is_open()) {
@@ -347,10 +366,25 @@ bool route_pointer(WinState& window, const dg::PointerEvent& event) {
 bool route_key(WinState& window, const dg::KeyEvent& event) {
   dg::UiContext ctx = ui(window);
   if (window.dialog.is_open()) {
+    // An open dropdown list above the dialog takes every key (Escape
+    // closes the list only); a closed one in the content opens on its keys.
+    for (NodeRecord* record : records_in_order(window)) {
+      std::optional<dg::Dropdown>* dropdown = dropdown_in(*record);
+      if (dropdown != nullptr && dropdown->has_value() &&
+          ((*dropdown)->is_open() || focus_in_dialog_content(window))) {
+        const dg::DropdownResult result = (*dropdown)->handle_key(ctx, event);
+        dropdown_result(window, *record, result);
+        if ((*dropdown)->is_open() || result.event != dg::DropdownEvent::kIgnored) {
+          return true;
+        }
+      }
+    }
     if (key_for_dialog_content(window, event)) {
       return false;
     }
+    const std::optional<dg::NodeId> before = window.focus.current();
     dialog_result(window, window.dialog.handle_key(ctx, event));
+    sync_editor_focus(window, before);
     return true;
   }
   if (window.menu.is_open()) {
@@ -391,10 +425,17 @@ bool route_key(WinState& window, const dg::KeyEvent& event) {
 }
 
 bool route_text(WinState& window, const dg::TextInputEvent& event) {
+  dg::UiContext ctx = ui(window);
   if (window.dialog.is_open()) {
+    for (NodeRecord* record : records_in_order(window)) {
+      std::optional<dg::Dropdown>* dropdown = dropdown_in(*record);
+      if (dropdown != nullptr && dropdown->has_value() && (*dropdown)->is_open()) {
+        dropdown_result(window, *record, (*dropdown)->handle_text(ctx, event));
+        return true;
+      }
+    }
     return !focus_in_dialog_content(window);
   }
-  dg::UiContext ctx = ui(window);
   if (window.menu.is_open()) {
     menu_result(window, window.menu.handle_text(ctx, event), true);
     return true;
@@ -574,6 +615,7 @@ Expected<std::int32_t, Status> Window::open_dialog(DialogOptions options) {
       (*dropdown)->close(ctx);
     }
   }
+  const std::optional<dg::NodeId> before = window.focus.current();
   // Focus as the caller last saw it, restored on close.
   const std::optional<dg::NodeId> restore = window.reported_focus;
   (void)window.focus.set(restore);
@@ -598,8 +640,10 @@ Expected<std::int32_t, Status> Window::open_dialog(DialogOptions options) {
   }
   if (!window.dialog.open(ctx, std::move(spec), restore)) {
     app_detail::release_dialog_content(window);
+    app_detail::sync_editor_focus(window, before);
     return Unexpected(Status::kUnsupported);
   }
+  app_detail::sync_editor_focus(window, before);
   if (window.dialog_content.has_value() && window.dialog_host.has_value()) {
     const dg::NodeId host = *window.dialog_host;
     dg::BoxStyle box = window.tree.box(host);
@@ -622,7 +666,9 @@ Status Window::set_dialog_button_disabled(std::int32_t dialog_id, int button, bo
     return Status::kValueOutOfRange;
   }
   dg::UiContext ctx = app_detail::components::ui(window);
+  const std::optional<dg::NodeId> before = window.focus.current();
   window.dialog.set_button_disabled(ctx, button, disabled);
+  app_detail::sync_editor_focus(window, before);
   app_detail::report_focus_drift(window);
   return Status::kOk;
 }
@@ -630,7 +676,9 @@ Status Window::set_dialog_button_disabled(std::int32_t dialog_id, int button, bo
 void Window::close_dialog() {
   WinState& window = *state_;
   dg::UiContext ctx = app_detail::components::ui(window);
+  const std::optional<dg::NodeId> before = window.focus.current();
   window.dialog.close(ctx);
+  app_detail::sync_editor_focus(window, before);
   window.dialog_id = 0;
   app_detail::release_dialog_content(window);
   app_detail::report_focus_drift(window);

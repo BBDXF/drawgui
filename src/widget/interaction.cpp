@@ -7,7 +7,7 @@ namespace dg {
 bool is_disabled(const RenderTree& tree, NodeId id) {
   NodeId current = id;
   while (true) {
-    if (tree.style(current).disabled) {
+    if (tree.style(current).disabled || !tree.style(current).visible) {
       return true;
     }
     const NodeId parent = tree.parent(current);

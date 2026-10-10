@@ -20,6 +20,7 @@
 #include <string_view>
 #include <vector>
 
+#include "drawgui/anim/curve.h"
 #include "drawgui/app/items.h"
 #include "drawgui/app/node_kind.h"
 #include "drawgui/app/prop.h"
@@ -47,6 +48,9 @@ class WidgetSet;
 namespace app_detail {
 struct WinState;
 }  // namespace app_detail
+
+// Names one Window::animate() animation of one window; 0 = none.
+using AnimationId = std::uint32_t;
 
 class Window {
  public:
@@ -128,7 +132,13 @@ class Window {
   // -- Focus -------------------------------------------------------------
   Status focus(NodeId node);
   void clear_focus();
+  // The focused create() node: a component's composed part (a table's
+  // frame, a tab) reports the component, matching FocusChangedEvent::node.
+  // nullopt when nothing, or only popup-internal UI (a menu row), is focused.
   [[nodiscard]] std::optional<NodeId> focused() const;
+  // The raw focused render node, composed parts and popup rows included
+  // (an open menu's highlighted row) - for diagnostics and examples.
+  [[nodiscard]] std::optional<NodeId> focused_node() const;
 
   // -- Components ----------------------------------------------------------
   // The typed ref of a component node: kInvalidNode when `node` is not a
@@ -162,7 +172,46 @@ class Window {
   // missing button.
   Status set_dialog_button_disabled(std::int32_t dialog_id, int button, bool disabled);
 
+  // -- Animation ---------------------------------------------------------
+  // Interpolates `prop_id` of `node` from `from` (none = its current value)
+  // to `to` over `duration_ms`, easing by `curve` (kCurve*), one step per
+  // App::pump() - which wakes about every 16 ms while anything animates.
+  // Float, length and colour properties interpolate; any other type jumps
+  // to `to` at once and answers 0. AnimationFinishedEvent repeats the id.
+  // A property the routing of set_prop() sends to a composed child (an
+  // editor's text, a scroll view's content) is animated on the node itself.
+  // kInvalidNode, kUnknownId, kTypeMismatch (`from`/`to` against the
+  // property), kValueOutOfRange (negative duration, unknown curve), and
+  // kUnsupported when `from` is none and the current value cannot be read
+  // back (only background/border colour, opacity, left/top/width/height
+  // can).
+  [[nodiscard]] Expected<AnimationId, Status> animate(NodeId node, std::uint16_t prop_id,
+                                                      std::optional<PropValue> from,
+                                                      const PropValue& to, int duration_ms,
+                                                      std::uint16_t curve = kCurveEaseInOut);
+  // From now on every set_prop()/set() of `prop_id` on `node` interpolates
+  // from the current value (or the in-flight one) to the new one over
+  // `duration_ms`. A duration of 0 removes the transition. Statuses as
+  // animate(); a property whose value cannot be read back jumps on its
+  // first write.
+  Status set_transition(NodeId node, std::uint16_t prop_id, int duration_ms,
+                        std::uint16_t curve = kCurveEaseInOut);
+  // Stops an animate() animation where it is (no AnimationFinishedEvent).
+  // kUnknownId once it finished, was cancelled, or its node was removed.
+  Status cancel_animation(AnimationId animation);
+  // Whether an animation or transition of this window is running.
+  [[nodiscard]] bool animating() const;
+
   // -- The OS window -----------------------------------------------------
+  // Off by default: the title-bar close closes the window
+  // (WindowClosedEvent). On: it queues CloseRequestedEvent instead and the
+  // window stays open until close() or App::destroy_window().
+  void set_close_confirmation(bool enabled);
+  [[nodiscard]] bool close_confirmation() const;
+  // Closes the OS window now and queues WindowClosedEvent; the Window stays
+  // in App::windows() (closed()) until App::destroy_window(). No-op once
+  // closed.
+  void close();
   Expected<void, WindowError> set_title(const std::string& title);
   [[nodiscard]] Expected<std::string, WindowError> title() const;
   Expected<void, WindowError> set_size(int width, int height);

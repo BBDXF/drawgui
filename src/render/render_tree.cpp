@@ -342,7 +342,10 @@ void RenderTree::set_style(NodeId id, const NodeStyle& style) {
   // apart.
   const bool shadow_changed = shadow_reach(node.style) != shadow_reach(style);
 
-  if (clip_changed || shadow_changed) {
+  // Hiding or showing a node adds or removes its whole subtree's pixels.
+  const bool visibility_changed = node.style.visible != style.visible;
+
+  if (clip_changed || shadow_changed || visibility_changed) {
     impl_->damage_subtree(id.index);
   }
 

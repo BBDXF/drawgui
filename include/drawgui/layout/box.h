@@ -485,6 +485,13 @@ struct BoxStyle {
   // same name for layout.
   BoxPercents percent;
 
+  // DG_PROP_VISIBLE, display:none semantics. A hidden node is skipped by
+  // every container exactly as if it were not a child (no size, no margin,
+  // no gap); its own `local` collapses to an empty rectangle. parentData in
+  // effect: the PARENT is what stops arranging it. NodeStyle::visible carries
+  // the same bit for paint and hit testing.
+  bool visible = true;
+
   friend bool operator==(const BoxStyle&, const BoxStyle&) = default;
 };
 

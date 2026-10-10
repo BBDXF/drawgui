@@ -41,6 +41,14 @@ struct Setting {
 [[nodiscard]] inline Setting checked(bool on = true) {
   return {DG_PROP_CHECKED, PropValue::boolean(on)};
 }
+// false = display:none: no layout space, not painted, hit-tested or focusable.
+[[nodiscard]] inline Setting visible(bool shown = true) {
+  return {DG_PROP_VISIBLE, PropValue::boolean(shown)};
+}
+// On a kTable/kTree: the row height in logical pixels (whole, 1..1024).
+[[nodiscard]] inline Setting row_height(float px) {
+  return {DG_PROP_ROW_HEIGHT, PropValue::number(px)};
+}
 [[nodiscard]] inline Setting gap(float px) { return {DG_PROP_GAP, PropValue::number(px)}; }
 [[nodiscard]] inline Setting grow(float factor) { return {DG_PROP_GROW, PropValue::number(factor)}; }
 [[nodiscard]] inline Setting row() {

@@ -159,6 +159,22 @@ struct WindowClosedEvent {
   WindowId window;
 };
 
+// The user asked to close a window that has close confirmation on
+// (Window::set_close_confirmation()); it is still open. Call
+// Window::close() (or App::destroy_window()) to accept, nothing to refuse.
+struct CloseRequestedEvent {
+  WindowId window;
+};
+
+// An animation Window::animate() started reached its end. Not queued for
+// a cancelled one (Window::cancel_animation(), the node removed) or for
+// an implicit transition (Window::set_transition()).
+struct AnimationFinishedEvent {
+  WindowId window;
+  NodeId node;
+  std::uint32_t animation = 0;
+};
+
 struct TimerEvent {
   TimerId timer;
 };
@@ -201,7 +217,8 @@ using Event = std::variant<events::ClickEvent, events::ContextClickEvent, events
                            events::MenuEvent, events::DialogResultEvent, events::TabSelectEvent,
                            events::TreeEvent, events::TableEvent, events::WindowStateEvent,
                            events::WindowClosedEvent, events::TimerEvent, events::UserEvent,
-                           events::SliderEvent, events::RowPartEvent>;
+                           events::SliderEvent, events::RowPartEvent,
+                           events::CloseRequestedEvent, events::AnimationFinishedEvent>;
 
 // std::visit(Overloaded{[](const events::ClickEvent& e) {...}, [](const auto&) {}}, event)
 template <class... F>

@@ -74,7 +74,7 @@ schema_version = 1
 
 [meta]
 # The id the next new property must take. Bump it when appending.
-next_id = 70
+next_id = 72
 node_kinds = ["box", "flex", "wrap", "stack"]
 
 # ---------------------------------------------------------------------------
@@ -885,3 +885,21 @@ group = "interaction"
 field = "checked"
 applies_to = ["box"]
 summary = "A checkbox's/radio's checked mark; on a button, makes it a toggle button (each click flips it) in that state. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it."
+
+[[property]]
+name = "visible"
+id = 70
+type = "bool"
+group = "visual"
+field = "visible"
+applies_to = ["box"]
+summary = "Whether the node is shown (default 1). 0 is display:none - the node and its subtree take no layout space and are neither painted, hit-tested, focusable nor tooltipped."
+
+[[property]]
+name = "row_height"
+id = 71
+type = "float"
+group = "interaction"
+field = "row_height"
+applies_to = ["box"]
+summary = "A table's/tree's row height in logical pixels (an integer, 1..1024); the row pool resizes and the scroll clamps. Widget state: the runtime (dg::Window / dg_node_set_prop()) applies it."

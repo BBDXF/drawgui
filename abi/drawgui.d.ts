@@ -141,6 +141,8 @@ export const event_kind = {
   TABLE_SORT: 28,
   SLIDER_CHANGED: 29,
   ROW_PART: 30,
+  CLOSE_REQUESTED: 31,
+  ANIMATION_FINISHED: 32,
 } as const;
 
 // ABI 0.2: the byte order of caller-supplied pixels (dg_window_set_icon()).
@@ -169,6 +171,14 @@ export const menu_item_flag = {
   CHECKED: 2,
   SEPARATOR: 4,
   CHECKABLE: 8,
+} as const;
+
+// ABI 0.2: the easing of dg_node_animate()/dg_node_set_transition().
+export const curve = {
+  LINEAR: 1,
+  EASE_IN: 2,
+  EASE_OUT: 3,
+  EASE_IN_OUT: 4,
 } as const;
 
 // ABI 0.2: DG_EVENT_ROW_PART's `x`.
@@ -399,6 +409,8 @@ export const prop = {
   wrap_text: 67,
   image_tint: 68,
   checked: 69,
+  visible: 70,
+  row_height: 71,
 } as const;
 
 // Token ids (7-6) - themes/schema.toml, re-emitted (see gen_abi.py).
@@ -1025,4 +1037,32 @@ export declare namespace DrawguiAbi {
   // `dialog_id`. DG_ERR_UNKNOWN_ID when it is not open; DG_ERR_VALUE_OUT_OF_RANGE
   // for a missing button.
   function dg_dialog_set_button_disabled(window: dg_window_t | null, dialog_id: number, button: number, disabled: number): number;
+  // ABI 0.2: nonzero makes the title-bar close of `window` queue
+  // DG_EVENT_CLOSE_REQUESTED instead of closing it; 0 (the default) closes it at
+  // once (DG_EVENT_WINDOW_CLOSED).
+  function dg_window_set_close_confirmation(window: dg_window_t | null, enabled: number): number;
+  // ABI 0.2: closes `window` now and queues DG_EVENT_WINDOW_CLOSED; the handle is
+  // stale afterwards (DG_ERR_INVALID_HANDLE once closed).
+  function dg_window_close(window: dg_window_t | null): number;
+  // ABI 0.2: interpolates a LIVE node's float/length/colour property from `from`
+  // (null = its current value; readable for background/border colour, opacity,
+  // left/top/width/height, else DG_ERR_UNSUPPORTED) to `to` over `duration_ms`
+  // with DG_CURVE_*, advanced by dg_wait_events()/dg_poll_events() (which wake
+  // about every 16 ms while anything animates). Returns the animation id (> 0;
+  // DG_EVENT_ANIMATION_FINISHED repeats it), 0 when the property is of another
+  // type and jumped to `to` at once, or a negative DG_ERR_*.
+  // dg_app_set_reduced_motion() makes it land at the next pump.
+  function dg_node_animate(node: dg_node_t | null, prop_id: number, from: dg_value, to: dg_value, duration_ms: number, curve: number): number;
+  // ABI 0.2: every later dg_node_set_prop() of `prop_id` on this LIVE node
+  // interpolates to the new value over `duration_ms` with DG_CURVE_* (from the
+  // in-flight value when one is running). 0 ms removes the transition.
+  function dg_node_set_transition(node: dg_node_t | null, prop_id: number, duration_ms: number, curve: number): number;
+  // ABI 0.2: stops a dg_node_animate() animation of `window` where it is (no
+  // DG_EVENT_ANIMATION_FINISHED). DG_ERR_UNKNOWN_ID once it finished, was
+  // cancelled or its node was removed.
+  function dg_animation_cancel(window: dg_window_t | null, animation: number): number;
+  // ABI 0.2: nonzero makes every animation and transition of every window of
+  // `app` take zero time (the user's reduced-motion preference, read by the
+  // host).
+  function dg_app_set_reduced_motion(app: dg_app_t | null, enabled: number): number;
 }

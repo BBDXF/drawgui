@@ -298,6 +298,15 @@ void AnimationEngine::clear_transition(NodeId node, dg_prop_id prop_id) {
   transitions_.erase(transition_key(node, prop_id));
 }
 
+bool AnimationEngine::has_transition(NodeId node, dg_prop_id prop_id) const {
+  return transitions_.contains(transition_key(node, prop_id));
+}
+
+std::optional<PropValue> AnimationEngine::current_value(const LayoutTree& tree, NodeId node,
+                                                        dg_prop_id prop_id) {
+  return read_current(tree, node, prop_id);
+}
+
 PropWrite AnimationEngine::set_value(LayoutTree& tree, NodeId node, dg_prop_id prop_id,
                                      const PropValue& target) {
   const std::uint64_t key = transition_key(node, prop_id);

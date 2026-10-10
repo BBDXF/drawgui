@@ -118,6 +118,11 @@ void basic_defaults(const AppState& app, NodeKind kind, dg::BoxStyle& box,
   } else if (kind == NodeKind::kButton) {
     box.width = 200;
     box.height = 64;
+    // A row that centres what the caller puts inside it (an icon, a label)
+    // on both axes; DG_PROP_DIRECTION / JUSTIFY / ALIGN override it.
+    box.kind = dg::LayoutKind::kRow;
+    box.main_align = dg::MainAlign::kCenter;
+    box.cross_align = dg::CrossAlign::kCenter;
     style.radii = dg::Radii::all(kControlRadius);
     // Ready for set_text(): the label's default font and size. The colours
     // come from style_control(), once the node exists.

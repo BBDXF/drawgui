@@ -28,6 +28,21 @@ void set_editor_focus(WinState& window, dg::NodeId id, bool focused) {
   set_text_field_box_style(editor_palette_for(app), tree, id, focused);
 }
 
+// After a popup (the dialog) moved Focus itself: the editor side effects
+// apply_focus_change() would have applied, without a FocusChangedEvent.
+void sync_editor_focus(WinState& window, std::optional<dg::NodeId> before) {
+  const std::optional<dg::NodeId> now = window.focus.current();
+  if (now == before) {
+    return;
+  }
+  if (before.has_value() && window.tree.render().is_valid(*before)) {
+    set_editor_focus(window, *before, false);
+  }
+  if (now.has_value()) {
+    set_editor_focus(window, *now, true);
+  }
+}
+
 void follow_caret(WinState& window, dg::NodeId area) {
   const std::optional<dg::PixelRect> caret =
       window.widgets.text_area_caret_rect(window.tree.render(), area);
@@ -111,6 +126,11 @@ void Window::clear_focus() {
 }
 
 std::optional<NodeId> Window::focused() const {
+  const std::optional<NodeId> current = state_->focus.current();
+  return current.has_value() ? app_detail::nearest_node(*state_, *current) : std::nullopt;
+}
+
+std::optional<NodeId> Window::focused_node() const {
   return state_->focus.current();
 }
 

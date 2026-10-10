@@ -11,7 +11,7 @@ void collect_focus_order(const RenderTree& tree, const WidgetSet& widgets, NodeI
                          std::vector<NodeId>& out) {
   // A disabled node takes its whole subtree out of Tab order (is_disabled()
   // inheritance), so the walk stops here rather than re-climbing per child.
-  if (tree.style(id).disabled) {
+  if (tree.style(id).disabled || !tree.style(id).visible) {
     return;
   }
   if (widgets.has(id)) {

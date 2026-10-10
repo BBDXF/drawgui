@@ -274,6 +274,19 @@ std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
 std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
                                          RadioState& state, std::uint16_t prop_id,
                                          const dg::PropValue& value);
+std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
+                                         TableState& state, std::uint16_t prop_id,
+                                         const dg::PropValue& value);
+std::optional<dg::Status> set_prop_state(WinState& window, NodeRecord& record,
+                                         TreeState& state, std::uint16_t prop_id,
+                                         const dg::PropValue& value);
+
+// DG_PROP_ROW_HEIGHT's range, shared by TableRef/TreeRef::set_row_height().
+inline constexpr int kMaxRowHeight = 1024;
+// A ControlContext whose style.row_height is `row_height` when set.
+dg::ControlContext controls_with_rows(WinState& window, std::optional<int> row_height);
+// DG_PROP_ROW_HEIGHT's value as a whole 1..kMaxRowHeight, or the Status.
+dg::Status row_height_value(const dg::PropValue& value, int& out);
 
 template <class S>
 void after_prop_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,

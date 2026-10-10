@@ -461,11 +461,12 @@ RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& sp
   const ControlStyle& style = ctx.style;
   const int gutter = ctx.tables.widgets.scrollbar_style().size;
   RowListNodes nodes;
-  nodes.root = build_frame(ctx, parent, spec.box, style.row_height + spec.viewport_height);
+  const int header_height = spec.header_height > 0 ? spec.header_height : style.row_height;
+  nodes.root = build_frame(ctx, parent, spec.box, header_height + spec.viewport_height);
 
   BoxStyle header_box;
   header_box.kind = LayoutKind::kRow;
-  header_box.height = style.row_height;
+  header_box.height = header_height;
   header_box.padding.right = gutter;
   const Color header_fill = neutral(style, 0.05F, 0.07F);
   NodeStyle header;
@@ -479,7 +480,7 @@ RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& sp
     cell.fill = header_fill;
     cell.text = text_style(ctx, column.title, muted_text(style), TextAlign::kLeft);
     cell.text.inset = style.padding;
-    BoxStyle cell_box = column_box(column, style.row_height - 1);
+    BoxStyle cell_box = column_box(column, header_height - 1);
     if (&column != &spec.columns.back()) {
       // Column separator.
       cell_box.border.right = 1;

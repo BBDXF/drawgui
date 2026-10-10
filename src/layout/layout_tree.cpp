@@ -68,7 +68,8 @@ const char* kind_name(LayoutKind kind) {
          before.shrink != after.shrink || before.basis != after.basis ||
          before.align_self != after.align_self || before.left != after.left ||
          before.top != after.top || before.right != after.right ||
-         before.bottom != after.bottom || before.percent != after.percent;
+         before.bottom != after.bottom || before.percent != after.percent ||
+         before.visible != after.visible;
 }
 
 }  // namespace
@@ -219,7 +220,50 @@ PixelSize LayoutTree::Impl::layout_node(std::uint32_t index,
   laid_out.local.width = size.width;
   laid_out.local.height = size.height;
   laid_out.needs_layout = false;
+  for (const std::uint32_t child : laid_out.children) {
+    if (!nodes[child].box.visible) {
+      collapse_hidden(child);
+    }
+  }
   return size;
+}
+
+// A hidden subtree is left exactly as a full pass leaves it - never laid
+// out - so incremental and full layout agree on every rectangle, and
+// showing it again lays it out from scratch.
+void LayoutTree::Impl::collapse_hidden(std::uint32_t index) {
+  std::vector<std::uint32_t> stack{index};
+  while (!stack.empty()) {
+    LayoutNode& node = nodes[stack.back()];
+    stack.pop_back();
+    node.local = PixelRect{};
+    node.size = PixelSize{};
+    node.needs_layout = true;
+    node.has_cached = false;
+    stack.insert(stack.end(), node.children.begin(), node.children.end());
+  }
+}
+
+bool LayoutTree::Impl::in_hidden_subtree(std::uint32_t index) const {
+  for (std::uint32_t current = index;; current = nodes[current].parent) {
+    if (!nodes[current].box.visible) {
+      return true;
+    }
+    if (current == 0) {
+      return false;
+    }
+  }
+}
+
+std::vector<std::uint32_t> LayoutTree::Impl::shown_children(std::uint32_t index) const {
+  std::vector<std::uint32_t> shown;
+  shown.reserve(nodes[index].children.size());
+  for (const std::uint32_t child : nodes[index].children) {
+    if (nodes[child].box.visible) {
+      shown.push_back(child);
+    }
+  }
+  return shown;
 }
 
 void LayoutTree::Impl::set_percent_base(std::uint32_t index, PixelSize base) {
@@ -303,7 +347,10 @@ LayoutStats LayoutTree::Impl::run(bool full) {
 
   DamageRegion moved{max_damage_rects};
   for (const std::uint32_t index : roots) {
-    if (!nodes[index].needs_layout) {
+    // A root inside a hidden subtree stays marked: a full pass never lays a
+    // hidden subtree out either, and showing it marks the parent, whose
+    // pass reaches it.
+    if (!nodes[index].needs_layout || in_hidden_subtree(index)) {
       continue;
     }
     ++stats.dirty_roots;
