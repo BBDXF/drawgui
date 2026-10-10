@@ -121,7 +121,7 @@ per-frame call order, see **`doc/getting-started.md`**.
 | --- | --- |
 | `doc/getting-started.md` | Build the project and write your first program (C++ or C ABI) |
 | `doc/concepts.md` | Understand the engine's non-obvious design choices before writing code against it (two trees, side tables, damage, exactly-once layout, text does not participate in layout, integer pixels, zero virtual dispatch) |
-| `doc/contracts.md` | See the 9 rules the caller must follow that the code does not enforce |
+| `doc/contracts.md` | See the 10 rules the caller must follow that the code does not enforce |
 | `doc/limitations.md` | Know what will bite you before it does - costly corners, ABI capability limits, what the tests actually prove |
 | `doc/guide/app.md` | Build an application on the `dg::App` / `dg::Window` runtime |
 | `doc/guide/layout.md` | Work with the Flexbox-like layout model |

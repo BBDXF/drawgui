@@ -32,8 +32,14 @@ window->open_dialog(dialog);   // 结果：DialogResultEvent::button（-1 = 无�
 - 右键在**按下**时触发；菜单打开时，在菜单外右键会先关闭它（报告一次 `item = nullopt`
   的 `MenuEvent`），同一次按下仍产生 `ContextClickEvent`，可直接在新位置重新打开。
   松开右键不会关闭或激活刚打开的菜单。
-- 每个窗口同时最多一个 `open_menu()` 菜单和一个对话框；对话框是模态的，打开期间 Tab 不会离开它，
-  点击它外面的控件不会产生事件，点在禁用按钮或空白处也不会移走焦点。
+- 每个窗口同时最多一个菜单（`open_menu()` 或菜单栏的）和一个对话框；再次 `open_menu()` 会先
+  关掉已开的菜单，对话框已开时 `open_dialog()` 返回 `kUnsupported`。`open_dialog()` 会先关掉
+  已开的菜单、下拉列表和 tooltip。对话框是模态的，打开期间 Tab 不会离开它，点击它外面的控件
+  不会产生事件，点在禁用按钮或空白处也不会移走焦点。
+- tooltip 的计时、显示、按下后隐藏都由运行时完成，不需要 `tick()`。
+
+### 叠放：对话框之上的下拉列表和菜单
+
 - 对话框内容里的下拉框可以打开：它的选项列表叠在对话框**之上**，打开期间先收到
   指针/键盘/文字事件；Escape 只关闭最上层的列表，再按一次才关闭对话框；
   列表关闭后对话框的模态焦点陷阱照旧。
@@ -41,7 +47,13 @@ window->open_dialog(dialog);   // 结果：DialogResultEvent::button（-1 = 无�
   文字事件，选中照常报 `MenuEvent`；Escape 或点菜单外只关闭菜单，对话框留着，
   焦点陷阱恢复。在对话框内容里右键产生 `ContextClickEvent`（菜单已开时先关掉它），
   据此即可在对话框里弹右键菜单。关闭对话框会先关掉其上的菜单。
-- tooltip 的计时、显示、按下后隐藏都由运行时完成，不需要 `tick()`。
+- 叠放只有这一层：菜单里不能再开子菜单。
+
+### 菜单的其它细节
+
+- 行菜单：按在 List/Table 行或 Tree 条目上的右键会先选中该行，`ContextClickEvent` 带
+  `item`/`column`/`item_key`，据此在 `c->x, c->y` 打开作用于该行的菜单；键盘的 Menu 键 /
+  Shift+F10 产生同样的事件（`item` = 选中行，坐标是节点左下角），见 [input.md](input.md)。
 - 快捷键列与命令号：`MenuEntry::shortcut_label` 在该行右侧以暗色右对齐显示（只是
   文字，常用 `app.chord_label("Ctrl+S")` 生成；绑定本身仍要 `App::add_shortcut()`），
   菜单按最宽的快捷键文字加宽；`MenuEntry::command` 在选中时原样放进
@@ -74,6 +86,8 @@ menus.set_menus(m);
 - `set_entry(menu, item, entry)` 替换一项（切换勾选/禁用等），越界 `kValueOutOfRange`；
   该菜单正展开时先收起。`set_menus()` 替换全部（会关闭已展开的）。
 - 不支持子菜单和助记符（`&File`）。
+- 示例：`examples/29_enterprise` 的「文件 / 编辑 / 视图 / 帮助」菜单栏，「视图」里的勾选项用
+  `set_entry()` 切换。
 
 ### 表单对话框（`DialogOptions::content`）
 
@@ -105,8 +119,10 @@ window->set_dialog_button_disabled(id, 0, true);   // 名字为空时禁用 OK
   Tab 跳过，点击和 Enter（作为默认按钮时）都不会触发；对话框未打开/id 不符为
   `kUnknownId`，按钮越界为 `kValueOutOfRange`。
 - 对话框打开期间不路由应用快捷键。
+- 示例：`examples/29_enterprise` 的「新建 / 编辑资产」和「重命名」表单（文本框加下拉框；名称为空时
+  禁用确定按钮）。它每次打开都新建表单，对话框结束后自己 `remove()` 掉停放的内容。
 
-- 示例：`examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog`、`examples/25_showcase`。
+其它示例：`examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog`、`examples/25_showcase`。
 
 下面的「直接使用底层」讲 `PopupHost` 和库组件本身。
 
@@ -173,14 +189,14 @@ class PopupHost {
 };
 ```
 
-（`include/drawgui/window/popup_host.h:91-237`）
+（`include/drawgui/window/popup_host.h`）
 
 `handle_pointer()`/`handle_key()` 不接受 `PopupFlags` 参数——flags 在 `show()`
 时已存进 `handle.flags`。
 
 **一个 `PopupHost` 可以同时持有任意多个打开的 `PopupHandle`**，每个 handle
 自足：`tree`/`window`/`content_root`/`content_bounds`/`flags` 都存在 handle
-自己身上，`PopupHost` 不保存跨 handle 的状态（`popup_host.h:115-157` 的注释
+自己身上，`PopupHost` 不保存跨 handle 的状态（`popup_host.h` 的注释
 记录了把 `tree` 挪到 `PopupHost` 上曾导致第二个弹层让第一个的 `close()` 失效）。
 
 ### 库组件：Menu / Dropdown / Tooltip / Dialog
@@ -351,7 +367,7 @@ void PopupHost::destroy(PopupHandle& handle, const NodeSideTables& tables);
 ### 弹层打开期间可以 `layout()`
 
 调用方可以在任意数量的弹层打开期间自由调用 `layout()`/`layout_full()`
-（`popup_host.h:26-60`）。原因是 `LayoutTree` 的布局只从 dirty 节点出发、沿
+（`popup_host.h`）。原因是 `LayoutTree` 的布局只从 dirty 节点出发、沿
 `LayoutNode::children` 递归，从不按 `RenderTree` 的 index 范围判断可达性；
 overlay 容器是用 `RenderTree::add_child()` 加的，从不出现在任何
 `LayoutNode::children` 里，所以布局永远走不到它。
@@ -360,7 +376,7 @@ overlay 容器是用 `RenderTree::add_child()` 加的，从不出现在任何
 `LayoutTree::add_child()`"。如果以后换成后者，下一次 `layout()` 就会悄悄覆盖
 `PopupHost` 用 `apply_bounds()` 摆好的位置——目前没有机制阻止这种改动。
 
-### 嵌套 popup：只支持"对话框之上一层菜单"
+### 嵌套 popup：只支持"对话框之上一层下拉列表或菜单"
 
 `PopupHost` 不维护"父弹层是谁"，后 `show()` 的容器挂在渲染树根的末尾，所以
 自然画在前一个之上。`Focus` 仍是单一活跃作用域（不是栈），`dg::Menu` 自己补上
@@ -389,15 +405,15 @@ overlay 容器是用 `RenderTree::add_child()` 加的，从不出现在任何
 ### 组件之外的东西仍是应用层的
 
 组件只覆盖"文字行菜单 / 文字气泡 / 标题+正文+按钮对话框"这几种形态。图标菜单项、
-子菜单、富内容 tooltip、非模态面板、带输入框的对话框等，仍然在 `content_root`
-下自己搭（见上文"自己搭浮层"；`dg::Dialog::body()` 也可以放自己的控件）。
-运行时的 `open_dialog()` 只有标题、正文和按钮。
+子菜单、富内容 tooltip、非模态面板等，仍然在 `content_root` 下自己搭（见上文"自己搭浮层"）。
+带控件的对话框不用自己搭：`dg::Dialog::body()`/`adopt()` 可以放自己的控件，运行时的
+`open_dialog()` 通过 `DialogOptions::content` 提供表单对话框。
 
 ## 边界与坑
 
 - overlay-only：不存在跑出父窗口边界的能力，也不存在第二个 OS 窗口。
 - `close()` 不回收节点，反复开关有累积成本。
-- 不支持嵌套 popup（组件也一样：菜单里不能开子菜单，对话框里不能再开下拉）。
+- 叠放只有「对话框之上一层下拉列表或菜单」，没有子菜单。
 - 焦点环必须每个弹层单独一份实例。
 - 弹层内容必须 attach 进宿主的 `WidgetSet` 才能被 Tab 到达。
 - 更多边界见 `doc/limitations.md`。
@@ -409,6 +425,8 @@ overlay 容器是用 `RenderTree::add_child()` 加的，从不出现在任何
 - `examples/22_dropdown_menu` — 运行时的 `kDropdown`（底层是 `dg::Dropdown`）。
 - `examples/23_menu_tooltip_dialog` — 运行时的 `open_menu()`/`set_tooltip()`/`open_dialog()`。
 - `examples/25_showcase` — 运行时里的下拉框、右键菜单、CJK tooltip、确认对话框。
+- `examples/29_enterprise` — 运行时的菜单栏（快捷键列、命令号、勾选项）、行右键菜单、表单对话框、
+  对话框里的下拉框、关闭确认对话框。
 - `tests/unit/test_ui_components.cpp` — 库组件（直接使用）的行为单测。
 - `examples/28_c_components` — 纯 C：`dg_menu_open()`（锚定与右键）、`DG_NODE_TYPE_DROPDOWN`、
   `dg_node_set_tooltip()`、`dg_dialog_open()`，全部走轮询事件（`tests/unit/test_abi_phase_b.cpp` 是对应单测）。

@@ -10,7 +10,7 @@ app.run([&](const dg::Event& event) {
       [&](const dg::events::ClickEvent& e) { /* e.node, e.clicks（双击=2） */ },
       [&](const dg::events::ContextClickEvent& e) { /* 右键：e.x, e.y */ },
       [&](const dg::events::FocusChangedEvent& e) { /* e.node */ },
-      [&](const dg::events::ActionEvent& e) { /* scope_action() 绑定的 action */ },
+      [&](const dg::events::ActionEvent& e) { /* 快捷键：e.action_id，e.node = 作用域节点或空 */ },
       [&](const dg::events::TimerEvent& e) { /* app.add_timer() */ },
       [&](const dg::events::UserEvent& e) { /* app.waker().post_user_event() */ },
       [](const auto&) {},
@@ -26,13 +26,15 @@ app.run([&](const dg::Event& event) {
   同一时刻只有一个光标。
 - 模态对话框里按在不可聚焦或禁用的东西上（禁用按钮、标签、面板空白、遮罩）不会
   清掉焦点，焦点留在原处。
-- 快捷键：`Window::scope_action(node, action_id)` 让某个节点处理一个 action，
-  触发时得到 `ActionEvent`。编辑框的复制/剪切/粘贴/全选/撤销由运行时直接处理。
-- 应用自定义快捷键：`App::add_shortcut("Ctrl+Shift+N", id)`（第 4 级，所有窗口，
-  `ActionEvent::node` 为空）、`Window::add_shortcut(scope, "F2", id)`（第 2 级，焦点在
-  `scope` 子树内时触发，`node` = `scope`）、`App::remove_shortcut(chord)`、
-  `App::chord_label(chord)`（菜单快捷键列的文字），见下文「应用自定义快捷键」。
-- 键盘右键菜单：Menu 键或 Shift+F10 对焦点节点产生 `ContextClickEvent`，见下文。
+- 快捷键：`App::add_shortcut("Ctrl+Shift+N", id)`（第 4 级，所有窗口，`ActionEvent::node`
+  为空）、`Window::add_shortcut(scope, "F2", id)`（第 2 级，焦点在 `scope` 子树内时触发，
+  `node` = `scope`）、`App::remove_shortcut(chord)`、`App::chord_label(chord)`（菜单快捷键列的
+  文字）；`Window::scope_action(node, action_id)` 让节点消费一个内置 action。优先顺序一句话：
+  输入法组字 > 聚焦编辑框自己的编辑键和剪贴板/撤销键 > 作用域级（离焦点最近的胜）> 应用级；
+  每一级里应用的绑定先于内置绑定。模态对话框打开期间不路由快捷键。详见下文「应用自定义快捷键」。
+- 键盘右键菜单：Menu 键或 Shift+F10 对焦点节点产生 `ContextClickEvent`（`clicks == 0`），
+  见下文「键盘右键菜单」。
+- 菜单栏：F10 或单独按下再松开 Alt 进入菜单栏的键盘模式，见 [popups.md](popups.md)「菜单栏」。
 - 鼠标指针形状：写 `DG_PROP_CURSOR`，运行时在指针移动时自己切换。
 - 定时器与跨线程唤醒：`App::add_timer()` / `cancel_timer()`，`App::waker()`
   返回的 `Waker` 可以在任意线程调用。
@@ -64,17 +66,17 @@ app.run([&](const dg::Event& event) {
 
 ### 核心类型
 
-- `dg::PumpResult`（`include/drawgui/window/window_manager.h:424`）：一次
+- `dg::PumpResult`（`include/drawgui/window/window_manager.h`）：一次
   `pump()` 调用捞到的所有事件，按"调用方要怎么处理"分类。
-- `dg::Focus`（`include/drawgui/widget/focus.h:174`）：单例每窗口一份的
+- `dg::Focus`（`include/drawgui/widget/focus.h`）：单例每窗口一份的
   焦点状态机，`current()`/`set()`/`focus_next()`/`focus_previous()`/
   `enter_scope()`/`exit_scope()`。
-- `dg::FocusRing`（`focus.h:380`）：焦点可视化，四条描边的位置数据。
+- `dg::FocusRing`（`focus.h`）：焦点可视化，四条描边的位置数据。
 - `dg::Chord`/`dg::ShortcutBinding`（`include/drawgui/shortcuts/chord.h`）：
   一个解析好的按键组合、以及它绑定到的 action。
-- `dg::route_key_event()`（`include/drawgui/shortcuts/router.h:160`）：
+- `dg::route_key_event()`（`include/drawgui/shortcuts/router.h`）：
   四级路由的唯一入口。
-- `dg::ActionScopes`（`include/drawgui/shortcuts/action_scopes.h:40`）：
+- `dg::ActionScopes`（`include/drawgui/shortcuts/action_scopes.h`）：
   记录"哪个 node 消费哪个 action_id"的旁表（level 2 路由用）。
 
 ### 事件从哪里来：`pump()`
@@ -89,7 +91,7 @@ for (const dg::TextEditingEvent& event : pumped.text_editing) { /* IME 预览态
 for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/焦点/全屏… */ }
 ```
 
-**`needs_repaint` 必须先于 `pointer` 处理**（`window_manager.h:445,451-453`）：
+**`needs_repaint` 必须先于 `pointer` 处理**（`window_manager.h`）：
 一个 resize 改变了每个 widget 的位置，如果同一次 `pump()` 里恰好也带来了
 指针事件，而调用方还没来得及按新尺寸重新布局，这个指针事件就会命中错误的
 坐标。这条顺序是硬性约束，详细理由见 `doc/contracts.md`。
@@ -101,7 +103,7 @@ for (const dg::WindowEvent& event : pumped.window_events) { /* 移动/最小化/
 `set_fullscreen()` 等也会经由这里确认——在真实显示服务器上这些请求是异步生效的。
 
 `PumpResult::closed`/`close_requested` 处理窗口关闭；`text_editing` 是 IME
-组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h:463-469`
+组字预览（大多数真实 IME 在这台开发机上从未产生过这个事件——见 `window_manager.h`
 的记录，这条路径主要靠合成注入测试）。
 
 #### 多击计数（双击/三击）
@@ -184,7 +186,7 @@ if (pumped.woken) { /* 其他线程调用过 wake() */ }
 ### 焦点：复用 `RenderTree` 自身的树，没有第三棵树
 
 `Focus` 不维护自己的树结构——`focus_order()` 直接对 `RenderTree` 做一次
-前序遍历（`focus.h:11-23`）。这是从"焦点树"这个设想（design.md 原文用词）
+前序遍历（`focus.h`）。这是从"焦点树"这个设想（design.md 原文用词）
 出发追问"它到底要回答什么问题"后的结论：Tab 顺序需要一个遍历序，弹层需要
 一个边界，而 `RenderTree` 已经暴露了 `children()`/`parent()`，`Focus` 只
 额外需要一个"哪个 node 是作用域边界"的 `std::optional<NodeId>`。
@@ -196,7 +198,7 @@ focus.focus_next(tree.render(), widgets, root_node);  // Tab
 focus.focus_previous(tree.render(), widgets, root_node);  // Shift-Tab
 ```
 
-#### `focus_order()` 的规则（`focus.h:147-172`）
+#### `focus_order()` 的规则（`focus.h`）
 
 - 默认按树的前序遍历（DOM 顺序）；`Widget::tab_index` 可以覆盖，正数排前面
   按升序，其余（含 0/未设置）按树序排在后面，负数**从 Tab 序里剔除**（但仍可
@@ -207,7 +209,7 @@ focus.focus_previous(tree.render(), widgets, root_node);  // Shift-Tab
 - **不跳过 `opacity == 0`** 的节点：hit_test 本来就忽略 opacity，Tab 能到达
   的集合和点击能到达的集合保持一致。
 
-#### `is_focusable()`（`focus.h:113-130`）
+#### `is_focusable()`（`focus.h`）
 
 ```
 kButton / kCheckbox / kSlider / kTextField / kTextArea / kDropdown  -> true
@@ -233,9 +235,10 @@ focus.exit_scope(tree.render());        // 离开作用域，若当前焦点在�
 `set_guarded()` 拒绝把焦点设到作用域外——这是 `Dialog` 的模态焦点陷阱，和
 普通弹层用的是**同一个作用域机制**，只是多了一个拒绝开关，不是第二套概念。
 
-**只有一个活跃作用域，不是栈**：因为 `PopupHost` 从不允许弹层里再开弹层
-（见 [popups.md](popups.md)），重复调用 `enter_scope()` 直接替换旧作用域，
-没有嵌套恢复。
+**只有一个活跃作用域，不是栈**：重复调用 `enter_scope()` 直接替换旧作用域，`Focus`
+自己不做嵌套恢复。需要叠放的地方由上层补上：`dg::Menu` 打开时记下当时的作用域（比如
+对话框的模态作用域），关闭时恢复它——运行时的「对话框之上的下拉列表/菜单」就靠这一点
+（见 [popups.md](popups.md)「嵌套 popup」）。
 
 #### 焦点环：内缩，且每个弹层需要自己的实例
 
@@ -311,7 +314,7 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
 **第 3 级只是声明性存在，不要把"窗口级快捷键"描述成一个可用特性**：
 `ActionScope`（`action_scope.generated.h`）目前只生成了 `kApp` 和
 `kTextField` 两个值，因为 `input/shortcuts.toml` 里没有任何 action 需要
-窗口级作用域（`router.h:14-27`）。加它需要先有一个真实消费者去
+窗口级作用域（`router.h`）。加它需要先有一个真实消费者去
 `shortcuts.toml` 里注册第三个 scope 值，生成器才会长出对应枚举——目前
 没有。
 
@@ -321,7 +324,7 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
 战胜应用级绑定——路由根本没走到应用级表，不需要为此写特例。
 
 **IME 隔离（第 1 级）和"文本编辑键不算快捷键"是两回事**，虽然效果都是
-"这个键不进 `resolve_action()`"（`router.h:40-75`）：
+"这个键不进 `resolve_action()`"（`router.h`）：
 
 - 文本编辑键：当聚焦的 widget kind 会把 `KeyEvent::key` 当编辑意图直接
   消费（如 kTextField 上的 Left/Right/Home/End/Backspace/Delete），这个
@@ -373,7 +376,10 @@ std::string label = app.chord_label("ctrl+shift+n").value();       // "Ctrl+Shif
   `kAlreadyAttached`（不同 scope 各自独立，最近的 scope 胜）。
   `App::remove_shortcut(chord)` 删除该组合键的全部用户绑定（应用级和所有窗口的
   作用域级），没有则 `kUnknownId`。scope 节点被删除时它的绑定随之删除。
-- 模态对话框打开期间不路由快捷键。
+- 模态对话框打开期间不路由快捷键（应用级、作用域级、内置的都不触发；Menu 键/Shift+F10 也不
+  产生 `ContextClickEvent`）；对话框内容里的编辑框仍然处理自己的编辑键和剪贴板键。
+- 实际用法：`examples/29_enterprise` 在表格上用作用域级绑定 F2/Delete/Enter，用应用级绑定
+  Ctrl+N/S/F/Q，菜单项用 `chord_label()` 显示同样的组合键，二者走同一个命令分发。
 
 #### 键盘右键菜单（Menu 键 / Shift+F10）
 
@@ -382,7 +388,8 @@ Menu 键（裸按）或 Shift+F10 在编辑键处理之后、快捷键路由之�
 焦点时是窗口根）产生 `ContextClickEvent`，`clicks = 0`。若该节点是 List/Tree/Table
 且有选中行，`item` = 选中行（通过公开的 `ListRef/TreeRef/TableRef::selected()`）。
 `x`/`y` 是该**节点**的左下角——行几何不是公开接口，所以不是行本身的位置；在此处
-`open_menu()` 即得到节点下方的菜单。
+`open_menu()` 即得到节点下方的菜单。`examples/29_enterprise` 的表格就是这样：右键和
+Shift+F10 弹出同一个行菜单。
 
 #### `Mod` 伪修饰键
 
@@ -405,7 +412,7 @@ dg::TextFieldEditContext ctx{tree, fonts, widgets, manager};
 bool did = dg::apply_clipboard_action(DG_ACTION_COPY, field_node, ctx);
 ```
 
-`apply_clipboard_action()`（`include/drawgui/shortcuts/clipboard_actions.h:87`）
+`apply_clipboard_action()`（`include/drawgui/shortcuts/clipboard_actions.h`）
 处理 copy/cut/paste/select_all 四个 action，全部注册在 `ActionScope::kTextField`
 下。**复制/剪切在没有选区时是 no-op**，剪贴板不动，返回 `false`——这是
 刻意决定，不是"选中全部再复制"的隐式回退。粘贴走 `WidgetSet::editor_insert()`（单行框即 `text_field_insert()`），
@@ -420,7 +427,7 @@ bool did = dg::apply_keyboard_scroll(DG_ACTION_SCROLL_PAGE_DOWN, focused, layout
 
 目标不是 `ResolvedAction::target`（这四个 action 都注册在 `kApp` 作用域，
 target 永远是 `std::nullopt`），而是**从当前聚焦节点向上找最近的可滚动
-祖先**（`keyboard_scroll.h:8-29`）——因为 `is_focusable()` 本来就拒绝
+祖先**（`keyboard_scroll.h`）——因为 `is_focusable()` 本来就拒绝
 `kScrollView`，"滚动被聚焦的东西"这个说法对键盘滚动不成立，唯一说得通的
 语义是"从任何持有焦点的非滚动 widget 出发，向上找滚动容器"，和滚轮滚动
 用的是同一条祖先查找逻辑（`scrollable_owner_of()`），只是起点不同。**只走
@@ -478,7 +485,8 @@ C ABI 不需要做任何事：`dg_wait_events()`/`dg_poll_events()` 的内部泵
   详见 `doc/contracts.md`。
 - 窗口级快捷键（level 3）目前只是声明性存在，没有任何 action 使用它，
   不要指望它能工作。
-- 快捷键绑定运行期不可改，只能重新生成。
+- **内置**快捷键绑定（`input/shortcuts.toml`）运行期不可改，只能重新生成；应用自己的绑定用
+  `App::add_shortcut()`/`Window::add_shortcut()` 在运行期增删。
 - `kScrollView`/`kList` 的 `is_focusable()` 为假；控件设 `Widget::focusable = true` 才能选择加入（运行时的 `kList` 节点就是这样，见 widgets.md「列表的键盘」），焦点遍历/点击/`Window::focus()` 都用 `takes_focus()` 判断。
 - 每个弹层需要独立的 `FocusRing` 实例，复用宿主窗口的环会导致绘制顺序
   错误。
@@ -489,6 +497,6 @@ C ABI 不需要做任何事：`dg_wait_events()`/`dg_poll_events()` 的内部泵
 
 - `examples/21_focus` — Tab 序、焦点环、弹层作用域。
 - `examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog` — 运行时里的弹层焦点限定与模态对话框（`--verify-*` 用注入的按键检查）。
-- 快捷键路由与剪贴板动作目前没有独立的可视化 example，主要靠
-  `tests/unit/test_shortcut_routing.cpp`、`tests/unit/test_shortcuts.cpp`
-  验证。
+- `examples/29_enterprise` — 运行时的应用级/作用域级快捷键、菜单栏键盘模式、键盘右键菜单。
+- 路由本身与剪贴板动作的细节主要靠 `tests/unit/test_shortcut_routing.cpp`、
+  `tests/unit/test_shortcuts.cpp` 验证。

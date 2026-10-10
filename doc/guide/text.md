@@ -18,6 +18,13 @@ const dg::NodeId field = window->create(dg::NodeKind::kTextField, root).value();
   方向键与 Home/End（加 Shift 选择）、Mod+C/X/V/A 剪贴板、撤销/重做、
   输入法预编辑（preedit 只做预览，不改已提交文本），全部由运行时处理。
   未聚焦且放不下的单行框显示省略号。
+- 鼠标选择：在聚焦的编辑框里按下并拖动，选区跟着指针扩展（拖出框外也继续，多行框会随之
+  滚动）；双击选词，三击在单行框全选、在多行框选所在的逻辑行。Shift+方向键扩展选区（运行时
+  的 Shift+点击目前不扩展选区，只放置光标）。
+- 光标：2 像素宽的竖线，两种编辑框规则相同——高度取字体的行高（上升 + 下降），但不超过字号的
+  1.2 倍（16px 字号最多约 19px，CJK/emoji 回退字体不会把它撑高），在所在文本行里垂直居中，
+  单行框里不会撑满整个框高。同一时刻只有聚焦的那个编辑框显示光标和选区；焦点移走（点击、Tab、
+  `Window::focus()`、打开或关闭对话框）时旧编辑框的光标和选区随之撤掉。
 - 占位符：`window->set_text(field, DG_PROP_PLACEHOLDER, "输入你的名字…")`
   （`kTextField`/`kTextArea`）。文字为空且没有组字时以 `color.on-surface` 的半透明色
   显示，随主题切换；其它节点返回 `kNotApplicable`。
@@ -28,7 +35,9 @@ const dg::NodeId field = window->create(dg::NodeKind::kTextField, root).value();
 - 任何节点写 `padding_*` 都会让它自己的文字在内容盒里排版（左对齐的标签向右
   缩进、换行宽度变窄、`padding_t` 下移）。
 - `DG_PROP_MAX_LENGTH` 限制编辑框长度。
-- 示例：`examples/12_text_input`（C++ 运行时）、`examples/26_text_area`（C ABI）。
+- 表单对话框里的编辑框和窗口里的一样工作（见 [popups.md](popups.md)「表单对话框」）。
+- 示例：`examples/12_text_input`（C++ 运行时）、`examples/26_text_area`（C ABI）、
+  `examples/29_enterprise`（搜索框和表单对话框里的编辑框）。
 
 下面的「直接使用底层」讲文本栈本身。
 

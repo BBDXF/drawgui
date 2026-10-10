@@ -8,33 +8,30 @@
 |---|---|---|
 | `kBox` | 容器/色块；`prop::row()/column()` 变成容器（见 [layout.md](layout.md)） | — |
 | `kLabel` | `set_text(DG_PROP_TEXT)`；`wrap_text()` 换行（见 [text.md](text.md)） | — |
-| `kButton` | `set_text(DG_PROP_TEXT)` | `ClickEvent`（`clicks` 为连击数） |
+| `kButton` | `set_text(DG_PROP_TEXT)`；子节点（图标、文字）自动居中；写过 `prop::checked()` 后是切换按钮，`checked(node)` 读状态 | `ClickEvent`（`clicks` 为连击数） |
 | `kCheckbox` | `checked(node)` | `ClickEvent`（点击自动切换） |
 | `kTextField` / `kTextArea` | `set_text`/`text(node)`、`DG_PROP_PLACEHOLDER`、`DG_PROP_MAX_LENGTH`（见 [text.md](text.md)） | `TextChangedEvent` |
-| `kList` | `window->list(node)` → `ListRef::set_items/select/selected` | `ListSelectEvent`（键盘选中时 `clicks == 0`） |
+| `kList` | `window->list(node)` → `ListRef::set_items/set_rows/set_row_actions/select/selected`、行键 | `ListSelectEvent`（键盘选中时 `clicks == 0`）、带行的 `ClickEvent`/`ContextClickEvent`、`RowPartEvent` |
 | `kScrollView` | 子节点直接 `create()` 到它下面；`scroll_offset()` | — |
 | `kImage` | `set_image(node, app.images()...)` | — |
 | `kDropdown` | `dropdown(node)` → `DropdownRef` | `ValueChangedEvent` |
 | `kProgress` | `progress(node)` → `ProgressRef` | — |
 | `kTabs` | `tabs(node)` → `TabsRef::add()` 返回面板节点 | `TabSelectEvent` |
-| `kTree` | `tree(node)` → `TreeRef` | `TreeEvent` |
-| `kTable` | `table(node)` → `TableRef` | `TableEvent`（`kSort` 时由你排序后 `set_rows()`） |
+| `kTree` | `tree(node)` → `TreeRef`（`TreeEntry` 带图标/副文字/复选框/行键）、`set_row_height()` | `TreeEvent`、带行的点击事件、`RowPartEvent` |
+| `kTable` | `table(node)` → `TableRef`（`set_rows()` 或带图标/复选框的 `set_cells()`）、`set_row_height()` | `TableEvent`（`kSort` 时由你排序后重新设行）、带行的点击事件、`RowPartEvent` |
 | `kSlider` | `slider(node)` → `SliderRef::set_value/value/set_range`；或 `DG_PROP_VALUE/MIN_VALUE/MAX_VALUE/STEP` | `SliderEvent`（`value`/`previous`，float） |
 | `kRadio` | `radio(node)` → `RadioRef::select/selected/set_group`；`checked(node)`；或 `DG_PROP_RADIO_GROUP` | `ClickEvent`（和 checkbox 一样；方向键选中时 `clicks == 0`） |
+| `kMenuBar` | `menu_bar(node)` → `MenuBarRef::set_menus/set_entry`（见 [popups.md](popups.md)「菜单栏」） | `MenuEvent{anchor = 菜单栏, bar_menu, item, command}` |
 
 - 列表只建固定数量的行节点并循环复用，1000 项和 10 项节点数相同；滚轮、
-  滚动条拖动、点击选择都由运行时处理（`examples/15_list`）。
-- **列表的键盘**：`kList` 和 `Tree`/`Table` 的外框一样可聚焦——点行或列表空白处、
-  Tab/Shift+Tab、`focus(node)` 都能让它获得焦点（外观同树/表格：没有额外焦点环，
-  选中行是柔和的 primary 底色）。获得焦点时 Up/Down 移动一行、Home/End 到首/末行、
-  PageUp/PageDown 按可见行数翻页（还没有选中时 Down/Home/PageUp/PageDown 从第 0 行、
-  Up/End 从末行开始），每次选中变化产生和点击相同的 `ListSelectEvent`（`clicks == 0`），
-  并滚动到刚好让该行完整可见；空格切换选中行的复选框（`RowPartEvent{kCheck}`，同点击
-  复选框）；Shift+F10/Menu 键的 `ContextClickEvent` 带选中行。带修饰键的这些按键不处理，
-  照常走快捷键路由。
+  滚动条拖动、点击选择、键盘导航都由运行时处理（`examples/15_list`）。
+- 任何节点都可以 `set(node, dg::prop::visible(false))` 隐藏：不占布局空间、不绘制、不接收
+  指针和焦点（`display:none`，见 [layout.md](layout.md)「隐藏节点」）。`examples/29_enterprise`
+  用它收起详情面板。
 - `set_disabled(node, true)`：整棵子树不再响应指针/键盘，进行中的按下不会产生
   `ClickEvent`，焦点会移走——不需要自己取消 hover/press 或模糊焦点。
-- 数据控件见 `examples/27_data_widgets`。`kList`/`kTree`/`kTable` 跟随布局后的
+- 数据控件见 `examples/27_data_widgets`；富行、行键、行菜单、切换按钮、行高的完整用法见
+  `examples/29_enterprise`。`kList`/`kTree`/`kTable` 跟随布局后的
   尺寸：`grow`、父容器 stretch、百分比高度都生效（树和表格高度变化后在下一次布局
   同步时重建内部视图）。`kTabs` 的标签栏背景铺满整个节点宽度。
 - 主题：`kButton`（`color.primary`/`-hover`/`-pressed`，文字 `color.on-primary`）、
@@ -60,6 +57,76 @@
   Right/Down 会把焦点**和选中**移到同组上一个/下一个未禁用的单选（按创建顺序，循环），
   并在新节点上产生 `clicks == 0`、`x/y == 0` 的 `ClickEvent`。每个单选都是独立的 Tab
   停靠点。`RadioRef::select()` 不产生事件。完整示例：`examples/11_form_controls`。
+
+### 列表的键盘
+
+`kList` 和 `Tree`/`Table` 的外框一样可聚焦——点行或列表空白处、
+Tab/Shift+Tab、`focus(node)` 都能让它获得焦点（外观同树/表格：没有额外焦点环，
+选中行是柔和的 primary 底色）。获得焦点时 Up/Down 移动一行、Home/End 到首/末行、
+PageUp/PageDown 按可见行数翻页（还没有选中时 Down/Home/PageUp/PageDown 从第 0 行、
+Up/End 从末行开始），每次选中变化产生和点击相同的 `ListSelectEvent`（`clicks == 0`），
+并滚动到刚好让该行完整可见；空格切换选中行的复选框（`RowPartEvent{kCheck}`，同点击
+复选框）；Shift+F10/Menu 键的 `ContextClickEvent` 带选中行。带修饰键的这些按键不处理，
+照常走快捷键路由。
+
+### 富行：图标、复选框、副文字、行尾操作、行键
+
+`ListRef::set_rows()` 接受固定结构的 `dg::RowItem`（`items.h`）：主文字 `text`、右对齐的
+暗色副文字 `secondary`、图标 `icon`（`App::load_image()` 的 id，按原样绘制）、行首复选框
+`check`（`nullopt` = 没有）、行尾操作按钮数 `trailing_actions`，以及应用自己的行键
+`key`。行尾按钮由 `set_row_actions()` 给出（整个列表共享、最多 8 个，每个有图标和
+tooltip），每行显示前 N 个。`TreeEntry` 同样有 `icon`/`secondary`/`check`/`key`，
+`TableRef::set_cells()` 的 `TableCell` 有 `text`/`icon`/`check`，表格行键用
+`set_row_keys()`。
+
+- **虚拟化不变**：第一次出现富内容时，给每个池行一次性加上固定的子节点（复选框、图标、副文字、
+  8 个操作图标），绑定到哪一行时只改它们的位置与内容；1 万行和 10 行的节点数相同。
+  树/表格只在数据里确有图标/复选框时才建这些子节点。
+- **命中优先级**：复选框和操作按钮优先于行本身。按下它们**不改变选中**，也不产生
+  `ClickEvent`，只产生 `events::RowPartEvent`：`kCheck` 时运行时**先切换**存储的状态
+  （`row_checked()`/`cell_checked()` 立即读到新值），`kAction` 时 `action` 是按钮序号。
+  悬停操作按钮显示它的 tooltip（期间临时借用列表节点的 tooltip，离开后还原）。
+- **空格**：`Tree`/`Table` 获得焦点时按空格切换选中行的复选框（表格取该行第一个可勾选的格）
+  并报告 `RowPartEvent{kCheck}`；运行时 `List` 获得焦点时同样如此。
+- **点击事件带行**：按在 List/Table 行或 Tree 条目上，除选择事件外还有
+  `ClickEvent{item, column, item_key}`（`item` 对树是先序下标，`column` 只有表格有）。
+  右键先**选中**该行（照常产生选择事件，已选中则不重复），再产生同样带行信息的
+  `ContextClickEvent`——适合"右键菜单作用于当前行"（行菜单的写法见 [popups.md](popups.md)）。
+- **行键**：`key`（0 = 无）只是被携带、从不解引用；数据重排后用
+  `index_of(key)`/`key_of(i)`/`select_key(key)` 找回同一行，事件里的 `item_key` 直接告诉
+  你是哪条记录。
+- 主题切换时颜色（复选框用 primary/on-primary，副文字用弱化的 on-surface）随之重算；
+  禁用的列表/树/表格不响应这些按下。
+
+### 切换按钮（toggle button）
+
+在 `kButton` 上写一次 `DG_PROP_CHECKED`（`prop::checked(true/false)`）它就成为切换按钮：
+每次完成的点击先翻转状态、再入队 `ClickEvent`（与复选框一致），用
+`Window::checked(button)` 读取；普通按钮的 `checked()` 返回 `kNotApplicable`。外观取主题：
+关闭时是安静的 surface 色调、文字 on-surface，打开时是与列表选中相同的柔和 primary 着色，
+hover/press 在此基础上加深；调用方写入的 `BACKGROUND_COLOR` 仍然优先。按钮里放的图片
+（`kImage` 子节点）不是控件，点击会落到按钮上，产生按钮的 `ClickEvent`。
+
+### 按钮内容居中
+
+`kButton` 默认是一个 **row 容器，主轴与交叉轴都居中**（`justify = center`，
+`align = center`）：放进按钮的子节点（`kImage` 图标、`kLabel` 文字，或二者组合）自动居中，
+纯图标按钮不再需要用 padding 去"挤"到中间。`DG_PROP_JUSTIFY` / `DG_PROP_ALIGN` /
+`DG_PROP_DIRECTION` / `DG_PROP_GAP` 都可以直接写在按钮上改变排布（例如图标在左、文字在右：
+保持 row，设 `gap`）。按钮自己的 `set_text()` 文字仍按 `text_align` 绘制在按钮盒内，与子节点无关。
+
+### 行高：`set_row_height()` / `DG_PROP_ROW_HEIGHT`
+
+```cpp
+window->table(table).value().set_row_height(40);   // 或 window->set(table, dg::prop::row_height(40))
+window->tree(tree).value().set_row_height(32);     // C ABI：dg_node_set_prop(n, DG_PROP_ROW_HEIGHT, 浮点整数值)
+```
+
+默认行高取主题（`ControlStyle::row_height`，26px）。按控件覆盖后：回收池按新行高重建
+（`ceil(viewport_height/row_height)+1` 行）、滚动范围按新行高计算，选中项保留并滚入可见区
+（重建时滚动回到顶部再 reveal 选中行，所以偏移总在合法范围内）。表格的**表头保持主题行高**，
+只改变数据行。取值必须是 1..1024 的整数，否则 `kValueOutOfRange`；写在其他类型的节点上
+返回 `kUnsupported`。`kList` 的行高仍通过 `ListRef::set_items/set_rows(…, item_height)` 设置。
 
 下面的「直接使用底层」讲 `WidgetSet` / `Interaction` 本身。
 
@@ -498,65 +565,6 @@ space.md），**没有新增 token**。
 `src/ui/control_visuals.cpp`。示例：`examples/27_data_widgets`（运行时版，`--verify`、
 `--dump-png`）；组件本身的单测在 `tests/unit/test_ui_components.cpp`。
 
-#### 行高：`set_row_height()` / `DG_PROP_ROW_HEIGHT`（运行时）
-
-```cpp
-window->table(table).value().set_row_height(40);   // 或 window->set(table, dg::prop::row_height(40))
-window->tree(tree).value().set_row_height(32);     // C ABI：dg_node_set_prop(n, DG_PROP_ROW_HEIGHT, 浮点整数值)
-```
-
-默认行高取主题（`ControlStyle::row_height`，26px）。按控件覆盖后：回收池按新行高重建
-（`ceil(viewport_height/row_height)+1` 行）、滚动范围按新行高计算，选中项保留并滚入可见区
-（重建时滚动回到顶部再 reveal 选中行，所以偏移总在合法范围内）。表格的**表头保持主题行高**，
-只改变数据行。取值必须是 1..1024 的整数，否则 `kValueOutOfRange`；写在其他类型的节点上
-返回 `kUnsupported`。`kList` 的行高仍通过 `ListRef::set_items/set_rows(…, item_height)` 设置。
-
-#### 按钮内容居中
-
-`kButton` 默认是一个 **row 容器，主轴与交叉轴都居中**（`justify = center`，
-`align = center`）：放进按钮的子节点（`kImage` 图标、`kLabel` 文字，或二者组合）自动居中，
-纯图标按钮不再需要用 padding 去"挤"到中间。`DG_PROP_JUSTIFY` / `DG_PROP_ALIGN` /
-`DG_PROP_DIRECTION` / `DG_PROP_GAP` 都可以直接写在按钮上改变排布（例如图标在左、文字在右：
-保持 row，设 `gap`）。按钮自己的 `set_text()` 文字仍按 `text_align` 绘制在按钮盒内，与子节点无关。
-
-#### 富行：图标、复选框、副文字、行尾操作、行键（运行时）
-
-`ListRef::set_rows()` 接受固定结构的 `dg::RowItem`（`items.h`）：主文字 `text`、右对齐的
-暗色副文字 `secondary`、图标 `icon`（`App::load_image()` 的 id，按原样绘制）、行首复选框
-`check`（`nullopt` = 没有）、行尾操作按钮数 `trailing_actions`，以及应用自己的行键
-`key`。行尾按钮由 `set_row_actions()` 给出（整个列表共享、最多 8 个，每个有图标和
-tooltip），每行显示前 N 个。`TreeEntry` 同样有 `icon`/`secondary`/`check`/`key`，
-`TableRef::set_cells()` 的 `TableCell` 有 `text`/`icon`/`check`，表格行键用
-`set_row_keys()`。
-
-- **虚拟化不变**：第一次出现富内容时，给每个池行一次性加上固定的子节点（复选框、图标、副文字、
-  8 个操作图标），绑定到哪一行时只改它们的位置与内容；1 万行和 10 行的节点数相同。
-  树/表格只在数据里确有图标/复选框时才建这些子节点。
-- **命中优先级**：复选框和操作按钮优先于行本身。按下它们**不改变选中**，也不产生
-  `ClickEvent`，只产生 `events::RowPartEvent`：`kCheck` 时运行时**先切换**存储的状态
-  （`row_checked()`/`cell_checked()` 立即读到新值），`kAction` 时 `action` 是按钮序号。
-  悬停操作按钮显示它的 tooltip（期间临时借用列表节点的 tooltip，离开后还原）。
-- **空格**：`Tree`/`Table` 获得焦点时按空格切换选中行的复选框（表格取该行第一个可勾选的格）
-  并报告 `RowPartEvent{kCheck}`；运行时 `List` 获得焦点时同样如此。
-- **点击事件带行**：按在 List/Table 行或 Tree 条目上，除选择事件外还有
-  `ClickEvent{item, column, item_key}`（`item` 对树是先序下标，`column` 只有表格有）。
-  右键先**选中**该行（照常产生选择事件，已选中则不重复），再产生同样带行信息的
-  `ContextClickEvent`——适合"右键菜单作用于当前行"。
-- **行键**：`key`（0 = 无）只是被携带、从不解引用；数据重排后用
-  `index_of(key)`/`key_of(i)`/`select_key(key)` 找回同一行，事件里的 `item_key` 直接告诉
-  你是哪条记录。
-- 主题切换时颜色（复选框用 primary/on-primary，副文字用弱化的 on-surface）随之重算；
-  禁用的列表/树/表格不响应这些按下。
-
-#### 切换按钮（toggle button）
-
-在 `kButton` 上写一次 `DG_PROP_CHECKED`（`prop::checked(true/false)`）它就成为切换按钮：
-每次完成的点击先翻转状态、再入队 `ClickEvent`（与复选框一致），用
-`Window::checked(button)` 读取；普通按钮的 `checked()` 返回 `kNotApplicable`。外观取主题：
-关闭时是安静的 surface 色调、文字 on-surface，打开时是与列表选中相同的柔和 primary 着色，
-hover/press 在此基础上加深；调用方写入的 `BACKGROUND_COLOR` 仍然优先。按钮里放的图片
-（`kImage` 子节点）不是控件，点击会落到按钮上，产生按钮的 `ClickEvent`。
-
 #### 多行编辑框（`kTextArea`）
 
 `kTextArea` 和 `kTextField` 共用同一个编辑内核（`include/drawgui/widget/text_edit.h`），
@@ -641,7 +649,7 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 ## 边界与坑
 
 - **没有 widget 树、没有 `createXxx()` 工厂函数**——上文已经讲透。
-- **dropdown/菜单/tooltip/对话框是组件层（`include/drawgui/ui/`），不是 `WidgetKind`**——由宿主循环驱动、不支持嵌套，见上文★和 `doc/limitations.md` B 节。
+- **dropdown/菜单/tooltip/对话框是组件层（`include/drawgui/ui/`），不是 `WidgetKind`**——由宿主循环驱动；叠放只支持「对话框之上一层下拉列表或菜单」，没有子菜单，见上文★、[popups.md](popups.md) 和 `doc/limitations.md`。
 - **WidgetSet 层的 `kScrollView`/`kList` 不能获得键盘焦点**，它们的滚动条也不能（`TreeView`/`Table` 的焦点在外框 `kButton` 上，运行时 `kList` 用 `Widget::focusable` 选择加入，都绕开了这一点）。
 - **数据控件（ProgressBar/Tabs/TreeView/Table）布局后要 `sync()`**，见上文★。
 - **滚动条的节点由调用方创建**，布局之后要 `sync_scrollbar()`；视口要自己留出槽，见上文「滚动条」。
@@ -666,3 +674,5 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
   `TREE`/`TABLE`/`DROPDOWN`（`doc/reference/c-abi.md` 第 5 节「组件」）
 - `examples/27_data_widgets` —— 运行时的进度条/页签/树/表格
 - `examples/25_showcase` —— 运行时把上面大多数控件放进一个窗口（含主题切换、tooltip、菜单、对话框）
+- `examples/29_enterprise` —— 运行时的完整桌面应用：富行与行键、行尾操作、切换按钮、图标按钮、
+  行高切换、`visible` 收起面板、行右键菜单

@@ -6,7 +6,7 @@
 
 **最可靠的做法：不要凭这份文档里的描述从零写主循环，直接照抄 `examples/` 里的循环结构**，尤其是 `examples/08` 之后涉及 resize、overlay、焦点的例子。这份文档的作用是让你在偏离 example 写法时知道自己在动哪条约定。
 
-（后续更新：第 1–8 条针对的是直接使用底层 `WindowManager`/`LayoutTree`/`PopupHost` 自己写主循环的情况。用 C++ 运行时 `dg::App`/`dg::Window` 或 C ABI 时，这些都由 `src/app/` 承担，调用方只需遵守第 9 条的 escape hatch 约定。）
+**先看你在哪一层**：第 1–8 条针对直接使用底层 `WindowManager`/`LayoutTree`/`PopupHost` 自己写主循环的情况。用 C++ 运行时 `dg::App`/`dg::Window` 或 C ABI 时，这些都由 `src/app/` 承担，调用方只需遵守第 9 条（escape hatch）和第 10 条（运行时对象的生命周期）。运行时写法的参考是 `examples/25_showcase` 和 `examples/29_enterprise`。
 
 ---
 
@@ -16,7 +16,7 @@
 
 **不做会怎样**：窗口被拖拽缩放后，继续用创建窗口时的 `WindowSpec` 尺寸分配 surface，会导致新一帧按旧尺寸光栅化——要么画面被拉伸/裁切，要么在 `present()` 里因尺寸不匹配而越界写入。这正是 commit `8ff1f4e` 修复前 5 个 example 里实际发生过的问题。
 
-**依据**：`include/drawgui/window/window_manager.h:440-445`（`needs_repaint` 字段注释：“the only correct response to either is the same: ask for the drawable size again”）；修复提交 `8ff1f4e`。
+**依据**：`include/drawgui/window/window_manager.h` 的 `PumpResult::needs_repaint`（字段注释：“the only correct response to either is the same: ask for the drawable size again”）；修复提交 `8ff1f4e`。
 
 **正确写法**：
 ```cpp
@@ -36,7 +36,7 @@ for (const WindowId id : frame.needs_repaint) {
 
 **不做会怎样**：resize 改变了每个控件的位置，如果先处理同一批里的指针事件，会拿旧布局做命中测试——点击位置和实际显示的控件对不上，通常是点偏或点空。
 
-**依据**：`include/drawgui/window/window_manager.h:451-453`。
+**依据**：`include/drawgui/window/window_manager.h` 的 `PumpResult::pointer` 字段注释（“A caller must handle `needs_repaint` BEFORE these”）。
 
 **正确写法**：按 `WindowManager::pump()` 返回结构体里字段声明的顺序处理：`closed`/`close_requested` → `needs_repaint` → `pointer` → `key`/`text_input`/`text_editing`。
 
@@ -48,7 +48,7 @@ for (const WindowId id : frame.needs_repaint) {
 
 **不做会怎样**：`repaint_full()` 会清空累积的 damage（它自己的文档注释这么说），紧接着如果用“检查 damage 是否非空”的守卫来决定是否 present，会因为 damage 刚被清空而判定“无需 present”，于是第一帧完全没有画面——直到第一次真实的鼠标移动产生新的 damage，窗口才会恢复正常显示。这是 `35b7c54` 修复前的实际 bug，`tests/unit/test_first_frame_present.cpp` 是它的回归测试。
 
-**依据**：`src/render/render_tree.cpp:467-474`（`repaint_full()` 用整个视口构造 damage 后立即 `retire_damage()`，清空累积 damage）；`tests/unit/test_first_frame_present.cpp`；提交 `35b7c54`、`a758cd3`。
+**依据**：`src/render/render_tree.cpp` 的 `RenderTree::repaint_full()`（用整个视口构造 damage 后立即 `retire_damage()`，清空累积 damage）；`tests/unit/test_first_frame_present.cpp`；提交 `35b7c54`、`a758cd3`。
 
 **正确写法**：
 ```cpp
@@ -66,7 +66,7 @@ windows.present(id, image, full_rect);   // 无条件 present，不要查 damage
 
 **不做会怎样**：不测量直接给一个随意高度，要么文字被裁切，要么留出大片空白——布局树不知道这段文字实际排出来是几行。
 
-**依据**：`include/drawgui/render/render_tree.h:115-123`（“A wrapping node's HEIGHT is not derived here … that stays the caller's job … a box must know its own size before its content is resolved, never the other way around”）；`doc/guide/text.md`。
+**依据**：`include/drawgui/render/render_tree.h` 中 wrap 文本的注释（“A wrapping node's HEIGHT is not derived here … that stays the caller's job … a box must know its own size before its content is resolved, never the other way around”）；`doc/guide/text.md`。
 
 **正确写法**：
 ```cpp
@@ -105,7 +105,7 @@ tree.set_local_bounds(node, {x, y, max_width, measured.height});      // 再定�
 
 **不做会怎样**：**完全静默**——`FontCatalog::holds(FontId)` 返回 false 时，`build_paragraph()`/`paragraph_runs` 直接返回空，不抛异常、不打日志，画面上该有文字的地方什么都没有。这是最难排查的一类问题，因为没有任何报错信号。
 
-**依据**：`include/drawgui/render/render_tree.h:541-545`（`TreeSpec::fonts`）；`src/render/paragraph_build.cpp:58`（`if (text.text.empty() || !fonts.holds(text.font) || text.size <= 0.0F) return nullptr;`）；`src/render/paragraph_runs.cpp:9`。
+**依据**：`include/drawgui/render/render_tree.h`（`TreeSpec::fonts`）；`src/render/paragraph_build.cpp` 开头的守卫（`if (text.text.empty() || !fonts.holds(text.font) || text.size <= 0.0F) return nullptr;`）；`src/render/paragraph_runs.cpp` 的同一守卫。
 
 **正确写法**：在事件循环、任何节点构造之前完成：
 ```cpp
@@ -154,6 +154,19 @@ dg::remove_subtree(render_tree, node_id, {...同上...});
 
 **依据**：`include/drawgui/app/window.h` 的 “Escape hatches” 注释块（“The contract: …”）；`include/drawgui/app/app.h` 中 `destroy_window()` 的注释。
 
+## 10. 运行时对象的生命周期（`dg::App`/`dg::Window`）
+
+**做什么**：
+- `Window*` 归 `App` 所有：用户关掉的窗口（`WindowClosedEvent`，`Window::closed()` 为真）仍留在 `App::windows()` 里，要释放就调用 `App::destroy_window()`。之后这个指针、指向它的所有 ref（`ListRef` 等）和逃生舱引用都悬空；已排队事件里的 `WindowId` 用 `App::find()` 解析会得到 null。不要在运行时代表该窗口执行的回调里（例如 `set_on_removed()` 的钩子）销毁它。
+- ref 是 `{窗口, 节点}` 的值，不保活节点：节点删除后每次调用返回 `kInvalidNode`，但 ref 本身不能比它的 `Window` 活得久。
+- `set_user_data()` 存的 64 位值、`RowItem`/`TreeEntry::key` 等行键，运行时只保存、只回传，从不解引用；存的是指针时，对象的生命周期由你负责。
+- 表单对话框的 `DialogOptions::content` 在对话框关闭后**不会**回到原父节点：它脱离、存活、停在窗口内部的停放盒里，放回去用 `Window::move()`，不要了用 `Window::remove()`。
+- 开启关闭确认（`Window::set_close_confirmation(true)`）后，标题栏关闭只产生 `CloseRequestedEvent`；不调用 `Window::close()`/`App::destroy_window()` 窗口就一直开着——什么都不做就是拒绝。
+
+**不做会怎样**：悬空指针或悬空 ref 是未定义行为；忘了处理 `CloseRequestedEvent` 的窗口关不掉；以为表单内容会自动回到原处，界面上就会少一块。
+
+**依据**：`include/drawgui/app/app.h` 的 `App::destroy_window()`/`windows()` 注释、`include/drawgui/app/refs.h` 文件头、`include/drawgui/app/items.h` 的 `DialogOptions::content`、`include/drawgui/app/window.h` 的 `set_user_data()`/`set_close_confirmation()`。
+
 ---
 
 ## 给「改动者」而非「调用方」的一条约束
@@ -168,6 +181,6 @@ dg::remove_subtree(render_tree, node_id, {...同上...});
 
 以下两条曾经是真实约束，最近的提交已经把它们从代码里去掉了，不要再遵守：
 
-- ~~一个 `PopupHost` 同时只能开一个 handle~~ —— `PopupHandle` 现在自带 `tree`/`window`/`flags`（`include/drawgui/window/popup_host.h` 的 `struct PopupHandle`），`PopupHost::show()` 的注释明确写着“may have any number of handles open at once, each entirely self-contained”（同文件约 :171）。
+- ~~一个 `PopupHost` 同时只能开一个 handle~~ —— `PopupHandle` 现在自带 `tree`/`window`/`flags`（`include/drawgui/window/popup_host.h` 的 `struct PopupHandle`），`PopupHost::show()` 的注释明确写着“may have any number of handles open at once, each entirely self-contained”。
 - ~~overlay 打开期间不能调用 `layout()`~~ —— 已被证伪，见上一节的解释。
 - 也不再需要在多处调用重复传同一个 `PopupFlags` 值——`show()` 现在把 flags 捕获进 `handle.flags`，后续 `handle_pointer()`/`handle_key()` 不再接受这个参数（`popup_host.h` 的 `PopupHandle::flags`）。

@@ -30,7 +30,34 @@ window->set_prop(row, DG_PROP_PADDING_L, dg::PropValue::number(20));
   内容节点（`Window::child_container()` 告诉你实际位置）；滚动条和滚轮由运行时处理，
   `Window::scroll_offset()` 读当前偏移。
 - 裁剪、透明度：`DG_PROP_OVERFLOW`、`DG_PROP_OPACITY`。
+- 尺寸的三种写法：像素（`prop::width(px)`）、百分比（`prop::width_percent(50)`，相对父节点的
+  内容盒，规则见下文「百分比尺寸」）、`auto`（`prop::width_auto()`，没有自己的尺寸）。同一字段
+  的像素和百分比互斥，后写的生效。
+- 隐藏：`prop::visible(false)`，见下文「隐藏节点」。
 - 属性清单：`doc/reference/`；`dg::prop::*` 只覆盖最常用的几个。
+
+### 隐藏节点：`visible`（display:none）
+
+```cpp
+window->set(panel, dg::prop::visible(false));   // C ABI：DG_PROP_VISIBLE，DG_VALUE_BOOL 0
+```
+
+`DG_PROP_VISIBLE`（bool，默认 1）采用 **CSS `display:none` 语义**，而不是
+`visibility:hidden`：隐藏的节点和它的整棵子树
+
+- **不占布局空间**：所有容器（row/column/wrap/absolute/leaf）把它当作不存在——没有尺寸、
+  没有 margin，也不计入 `gap`；它自身的矩形收成空矩形（子树内的矩形同样清空）；
+- **不绘制、不参与命中测试**（`hit_test()` 直接跳过子树）；
+- **不能获得焦点、不响应 hover/press、不弹 tooltip**：`dg::is_disabled()` 对隐藏节点及其后代
+  返回 true；隐藏正获得焦点的控件（或其祖先）会把焦点清掉（同 `disabled` 的
+  `blur_if_disabled()` 路径），`Window::focus()` 返回 `kUnsupported`。
+
+切换会触发重排：写 `visible` 同时标记节点和父节点。隐藏子树里的属性变更不会触发布局；
+重新显示时整棵子树从头布局，所以**增量布局与完整布局逐矩形一致**（单测
+`tests/unit/test_runtime_layout_props.cpp`）。为什么不选 `visibility:hidden`：想保留空位时，
+设 `opacity = 0` 加 `disabled` 即可得到同样效果；而「从布局里拿掉、但不销毁节点和它的状态」
+只有 `visible` 能做到。`examples/29_enterprise` 用它收起/展开详情面板（展开时再配一个
+`Window::animate()` 的淡入）。
 
 下面的「直接使用底层」讲布局引擎本身：约束协议、`LayoutTree` 的增量布局。
 用 `dg::App` 时这些都由运行时完成，读它是为了理解行为和排查问题。
@@ -181,27 +208,6 @@ group_style.opacity = 0.5F;   // 整个子树作为一张图片淡出，不是�
 
 `opacity` 是**组透明度**，走 `SkCanvas::saveLayer`：整个子树先合成到一张离屏图片上解决内部重叠，再把这张图片整体按透明度画出来。这和给每个子节点的 fill/border/text 颜色分别设 alpha（逐对象透明度）效果不同——后者会让重叠的子节点互相透过彼此，颜色会变暗。`opacity == 1` 不创建离屏层（免费），`opacity == 0` 直接跳过整个子树的绘制（和合成后 alpha=0 效果相同,但不必真的创建层）。**命中测试完全忽略 `opacity`,包括 0**——一个淡出到看不见的按钮仍然可以被点击,这是有意的,因为透明度是连续动画量,没有天然的截断点。
 
-#### 隐藏节点：`visible`（display:none）
-
-```cpp
-window->set(panel, dg::prop::visible(false));   // C ABI：DG_PROP_VISIBLE，DG_VALUE_BOOL 0
-```
-
-`DG_PROP_VISIBLE`（bool，默认 1）采用 **CSS `display:none` 语义**，而不是
-`visibility:hidden`：隐藏的节点和它的整棵子树
-
-- **不占布局空间**：所有容器（row/column/wrap/absolute/leaf）把它当作不存在——没有尺寸、
-  没有 margin，也不计入 `gap`；它自身的矩形收成空矩形（子树内的矩形同样清空）；
-- **不绘制、不参与命中测试**（`hit_test()` 直接跳过子树）；
-- **不能获得焦点、不响应 hover/press、不弹 tooltip**：`dg::is_disabled()` 对隐藏节点及其后代
-  返回 true；隐藏正获得焦点的控件（或其祖先）会把焦点清掉（同 `disabled` 的
-  `blur_if_disabled()` 路径），`Window::focus()` 返回 `kUnsupported`。
-
-切换会触发重排：写 `visible` 同时标记节点和父节点。隐藏子树里的属性变更不会触发布局；
-重新显示时整棵子树从头布局，所以**增量布局与完整布局逐矩形一致**（单测
-`tests/unit/test_runtime_layout_props.cpp`）。为什么不选 `visibility:hidden`：想保留空位时，
-设 `opacity = 0` 加 `disabled` 即可得到同样效果，而"真正移除又不销毁节点"此前没有手段。
-
 ## 边界与坑
 
 - **没有 intrinsic sizing**：auto 尺寸的容器取子节点的自然尺寸之和，但不会投机地二次测量子树。详见 `doc/limitations.md`。
@@ -219,3 +225,4 @@ window->set(panel, dg::prop::visible(false));   // C ABI：DG_PROP_VISIBLE，DG_
 - `examples/10_scrolling` —— 手搭 `kScrollView`：`scroll_axis` + `set_scroll_offset()`（运行时里直接用 `NodeKind::kScrollView`）
 - `examples/07_clipping` —— `Overflow::kClip` 对绘制/命中测试/damage 的联合影响
 - `examples/08_opacity` —— 组透明度 vs 逐对象 alpha 的对比
+- `examples/29_enterprise` —— 运行时：百分比/`grow` 撑满的主从布局、`visible` 收起详情面板

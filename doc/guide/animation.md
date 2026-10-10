@@ -21,6 +21,9 @@ win->cancel_animation(id.value());   // 停在当前值，不产生结束事件
   被 `cancel_animation()` 取消、节点被删除、隐式过渡都**不**产生这个事件。
 - 只插值 float/length/color 属性；其它类型直接跳到 `to` 并返回 0。`from` 省略时只有
   背景色、边框色、不透明度、left/top/width/height 读得回当前值，其它属性返回 `kUnsupported`。
+  负的时长或未知曲线返回 `kValueOutOfRange`，`from`/`to` 与属性类型不符返回 `kTypeMismatch`。
+- `set_transition()` 之后，读不回当前值的属性在第一次写入时直接跳到新值，之后的写入才插值；
+  进行中再次写入会从当前的中间值出发。
 - 动画写在节点自身：`set_prop()` 会转发到组合子节点的属性（编辑框的文字、滚动视图的内容）
   不参与动画/过渡。
 - `Window::animating()` 表示该窗口还有动画在跑。
@@ -98,13 +101,12 @@ kCurveLinear, kCurveEaseIn, kCurveEaseOut, kCurveEaseInOut
 float evaluate_curve(dg_curve_id curve_id, float t);  // t 已被调用方 clamp 到 [0,1]
 ```
 
-`dg_curve_id` **刻意不接入** prop_id/token_id/action_id 那套"生成器 +
-append-only lock"体系（`include/drawgui/anim/curve.h:10-23`）：那套机制存在
-的意义是防止一个事实在多个独立消费者之间漂移，而 `curve_id` 目前只有一个
-消费者——`evaluate_curve()` 自己。等 C ABI 真正导出 `dg_animate` 时，
-`curve_id` 才会成为第四个 ABI 编号族，在那之前只是普通 `constexpr` 常量。
-未知 curve_id 会退化成线性插值，而不是报错——因为这是一个完全在本地控制
-的小闭集，不像 prop_id 那样可能来自跨进程边界。
+`dg_curve_id` **没有接入** prop_id/token_id/action_id 那套"生成器 +
+append-only lock"体系（`include/drawgui/anim/curve.h`）：曲线只有四个值，C ABI 0.2 起以手写的
+`DG_CURVE_LINEAR`/`_EASE_IN`/`_EASE_OUT`/`_EASE_IN_OUT`（1..4）导出，与 `kCurve*` 数值相同。
+两层对未知 curve_id 的处理不同：`AnimationEngine`/`evaluate_curve()` 退化成线性插值，不报错；
+运行时的 `Window::animate()`/`set_transition()`（以及 C ABI）在入口处检查，返回
+`kValueOutOfRange`。
 
 ### 显式动画：`animate()`
 
@@ -114,7 +116,7 @@ slide_handle_ = engine_.animate(scene.tree, scene.handles.slide_chip, DG_PROP_LE
                                 anim_scene::kSlideDurationMs, dg::kCurveEaseInOut);
 ```
 
-（`examples/17_animation/anim_window.cpp:145-147`）
+（`examples/17_animation/anim_window.cpp`）
 
 覆盖所有 `PropType::k_float`/`k_length`/`k_color` 属性——`PropValue` 里
 "有明确的中间值"的三种标量类型。`k_enum`/`k_gradient`/`k_shadow`/
@@ -153,7 +155,7 @@ engine_.set_value(scene.tree, scene.handles.hover_panel, DG_PROP_BACKGROUND_COLO
 `set_value()` 第一次触发某个 (node, prop_id) 的隐式过渡时，需要知道
 "当前值"才能算出插值的起点（`from`）。这个"读回当前值"的能力由
 `AnimationEngine::read_current()` 提供，它的 switch 是**有限列表**，核实
-`src/anim/animation_engine.cpp:113-161` 后确认恰好是这 7 个：
+`src/anim/animation_engine.cpp` 后确认恰好是这 7 个：
 
 | prop_id | 读回的位置 |
 |---|---|
@@ -257,3 +259,5 @@ paint）而言完全无法区分。
 - `examples/17_animation` — 三个真实客户端：显式 `animate()` 做滑动、
   隐式 transition 做 hover 背景色渐变、四段串联的一次性动画做光标闪烁，
   以及 `--reduced-motion` 的降级效果。
+- `examples/29_enterprise` — 运行时：`Window::animate()` 让状态栏的新提示淡入、展开详情面板时淡入；
+  `--reduced-motion` 对应 `App::set_reduced_motion(true)`，动画在下一次 `pump()` 直接到终值。
