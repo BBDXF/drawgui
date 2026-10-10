@@ -225,6 +225,8 @@ Inventory::Inventory(dg::App& app, dg::Window& window, dg::ThemeVariant variant)
   record(assets_[0], 1, "价值改为 ¥12,800");
 
   build();
+  shown_last_ = last_;  // the start-up message appears without a fade
+  (void)w_.set_text(n_.last_action, DG_PROP_TEXT, last_);
   refresh_all();
 }
 
@@ -356,8 +358,6 @@ NodeId Inventory::icon_button(NodeId parent, const char* svg, const std::string&
                               NodeId& image) {
   const NodeId node = w_.create(NodeKind::kButton, parent).value();
   (void)w_.set(node, {dg::prop::width(34), dg::prop::height(32), dg::prop::row()});
-  // A button does not centre its children; pad the 18px icon into the middle.
-  pad(node, 8, 7);
   (void)w_.set_prop(node, DG_PROP_CURSOR, dg::PropValue::option(DG_CURSOR_POINTER));
   paint(node, DG_PROP_BACKGROUND_COLOR, Role::kChrome);
   radius(node, 6);
@@ -406,6 +406,9 @@ void Inventory::build() {
   (void)app_.add_shortcut("Ctrl+S", dg::kUserActionBase + kCmdSave);
   (void)app_.add_shortcut("Ctrl+Q", dg::kUserActionBase + kCmdQuit);
   (void)app_.add_shortcut("Ctrl+F", dg::kUserActionBase + kCmdFind);
+  w_.set_close_confirmation(true);
+  (void)w_.set(n_.table, dg::prop::row_height(28));
+  (void)w_.set(n_.tree, dg::prop::row_height(28));
 }
 
 void Inventory::build_menu_bar() {
@@ -823,7 +826,6 @@ void Inventory::refresh_tags() {
       (void)name;
       const NodeId remove = w_.create(NodeKind::kButton, row).value();
       (void)w_.set(remove, {dg::prop::width(26), dg::prop::height(26), dg::prop::row()});
-      pad(remove, 6, 6);
       paint(remove, DG_PROP_BACKGROUND_COLOR, Role::kChrome);
       radius(remove, 13);
       (void)w_.set_user_data(remove, t.id);
@@ -857,7 +859,13 @@ void Inventory::refresh_status() {
     text += " · 未保存";
   }
   (void)w_.set_text(n_.status, DG_PROP_TEXT, text);
-  (void)w_.set_text(n_.last_action, DG_PROP_TEXT, last_);
+  if (last_ != shown_last_) {
+    shown_last_ = last_;
+    (void)w_.set_text(n_.last_action, DG_PROP_TEXT, last_);
+    // A soft fade-in so the eye notices the new message.
+    (void)w_.animate(n_.last_action, DG_PROP_OPACITY, dg::PropValue::number(0.0F),
+                     dg::PropValue::number(1.0F), 320);
+  }
   (void)w_.set_title(dirty_ ? "资产管理 *" : "资产管理");
 }
 
@@ -948,7 +956,7 @@ void Inventory::run(Cmd cmd, std::uint64_t key) {
                           {"保存并退出", "不保存", "取消"}, 0, 2);
       } else {
         quit_ = true;
-        app_.quit();
+        w_.close();
       }
       return;
     case kCmdFind:
@@ -957,18 +965,20 @@ void Inventory::run(Cmd cmd, std::uint64_t key) {
       return;
     case kCmdShowDetail:
       show_detail_ = !show_detail_;
-      // No visibility property: collapse the panel to zero width instead.
-      (void)w_.set(n_.right, dg::prop::width(show_detail_ ? 330.0F : 0.0F));
-      pad(n_.right, show_detail_ ? 14.0F : 0.0F, show_detail_ ? 10.0F : 0.0F);
-      (void)w_.set_prop(n_.right, DG_PROP_BORDER_WIDTH_L,
-                        dg::PropValue::number(show_detail_ ? 1.0F : 0.0F));
-      (void)w_.set_disabled(n_.right, !show_detail_);
+      (void)w_.set(n_.right, dg::prop::visible(show_detail_));
+      if (show_detail_) {
+        // Fade the panel in (instant under App::set_reduced_motion()).
+        (void)w_.animate(n_.right, DG_PROP_OPACITY, dg::PropValue::number(0.0F),
+                         dg::PropValue::number(1.0F), 180);
+      }
       set_view_entry(0, "显示详情", show_detail_, kCmdShowDetail);
       set_last(show_detail_ ? "已显示详情面板" : "已隐藏详情面板");
       return;
     case kCmdCompact:
       compact_ = !compact_;
       set_view_entry(1, "紧凑行", compact_, kCmdCompact);
+      (void)w_.set(n_.table, dg::prop::row_height(compact_ ? 22.0F : 28.0F));
+      (void)w_.set(n_.tree, dg::prop::row_height(compact_ ? 22.0F : 28.0F));
       refresh_history();
       refresh_tags();
       set_last(compact_ ? "已切换为紧凑行" : "已切换为标准行高");
@@ -1131,24 +1141,12 @@ void Inventory::open_asset_dialog(DialogKind kind, std::uint64_t key, int dept) 
   (void)w_.set(*n_.dlg_owner, dg::prop::grow(1));
   n_.dlg_value = field(row("价值（元）"), "0");
   (void)w_.set(*n_.dlg_value, dg::prop::grow(1));
-  // A dropdown cannot open inside a modal dialog (no nested popups), so the
-  // type is a radio group here.
-  const NodeId types = box(row("类型"), true, 6);
-  (void)w_.set(types, {dg::prop::grow(1)});
-  (void)w_.set_prop(types, DG_PROP_WRAP, dg::PropValue::boolean(true));
-  (void)w_.set_prop(types, DG_PROP_RUN_GAP, dg::PropValue::number(8));
-  (void)w_.set_prop(types, DG_PROP_ALIGN, dg::PropValue::option(DG_ALIGN_CENTER));
-  n_.dlg_types.clear();
-  for (int t = 0; t < kTypeCount; ++t) {
-    const NodeId r = w_.create(NodeKind::kRadio, types).value();
-    (void)w_.set(r, {dg::prop::width(18), dg::prop::height(18)});
-    pad(r, 4, 4);
-    (void)w_.radio(r).value().set_group(29);
-    label(types, kTypeNames[t], 13, false, t == 4 ? 34.0F : 48.0F);
-    n_.dlg_types.push_back(r);
-  }
-  const int type = a != nullptr ? a->type : 0;
-  (void)w_.radio(n_.dlg_types[static_cast<std::size_t>(type)]).value().select();
+  n_.dlg_type = w_.create(NodeKind::kDropdown, row("类型")).value();
+  (void)w_.set(*n_.dlg_type,
+               {dg::prop::grow(1), dg::prop::height(32), dg::prop::font_size(13.5F)});
+  dg::DropdownRef types = w_.dropdown(*n_.dlg_type).value();
+  (void)types.set_items(std::vector<std::string>(kTypeNames, kTypeNames + kTypeCount));
+  (void)types.select(a != nullptr ? a->type : 0);
   if (a != nullptr) {
     (void)w_.set_text(*n_.dlg_name, DG_PROP_TEXT, a->name);
     (void)w_.set_text(*n_.dlg_owner, DG_PROP_TEXT, a->owner);
@@ -1222,7 +1220,7 @@ void Inventory::close_dialog_form() {
   n_.dlg_name.reset();
   n_.dlg_owner.reset();
   n_.dlg_value.reset();
-  n_.dlg_types.clear();
+  n_.dlg_type.reset();
   paints_.erase(std::remove_if(paints_.begin(), paints_.end(),
                                [&](const Paint& p) { return !w_.kind_of(p.node).has_value(); }),
                 paints_.end());
@@ -1249,11 +1247,7 @@ void Inventory::on_dialog(int button) {
         a.name = w_.text(*n_.dlg_name).value_or("");
         a.owner = w_.text(*n_.dlg_owner).value_or("");
         a.value = std::atoi(w_.text(*n_.dlg_value).value_or("0").c_str());
-        for (std::size_t t = 0; t < n_.dlg_types.size(); ++t) {
-          if (w_.checked(n_.dlg_types[t]).value_or(false)) {
-            a.type = static_cast<int>(t);
-          }
-        }
+        a.type = std::max(0, w_.dropdown(*n_.dlg_type).value().selected().value_or(a.type));
         if (old != nullptr) {
           *find_mut(a.id) = a;
           record(before, 1, "编辑了资产信息");
@@ -1326,7 +1320,7 @@ void Inventory::on_dialog(int button) {
       }
       if (button == 0 || button == 1) {
         quit_ = true;
-        app_.quit();
+        w_.close();
       }
       break;
     case DialogKind::kAbout:
@@ -1553,7 +1547,10 @@ void Inventory::on_event(const dg::Event& event) {
                    }
                  },
                  [&](const RowPartEvent& e) { on_row_part(e); },
-                 [&](const FocusChangedEvent& e) { focus_ = e.node; },
+                 [&](const CloseRequestedEvent&) {
+                   // The title-bar close: same path as 文件 → 退出.
+                   run(kCmdQuit);
+                 },
                  [&](const auto&) {},
              },
              event);

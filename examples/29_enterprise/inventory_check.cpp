@@ -133,6 +133,8 @@ int verify(dg::App& app, std::ostream& out) {
     return 1;
   }
   dg::Window& w = *window;
+  // Animations land at once: the run stays deterministic.
+  app.set_reduced_motion(true);
   Inventory inv(app, w, dg::ThemeVariant::kLight);
   Probe p(app, w, inv);
   const Inventory::Nodes& n = inv.nodes();
@@ -194,12 +196,12 @@ int verify(dg::App& app, std::ostream& out) {
 
   // -- F2 / Delete are table-scoped; Escape returns focus to the table. --------
   p.click_row(picked);
-  check(inv.focus_owner() == n.table, "clicking a row focuses the table");
+  check(w.focused() == n.table, "clicking a row focuses the table");
   p.chord(dg::LogicalKey::kF2);
   check(inv.dialog_kind() == DialogKind::kRename, "F2 in the table opens 重命名");
   escape();
   check(inv.dialog_kind() == DialogKind::kNone && !w.has_dialog(), "Escape cancels the dialog");
-  check(inv.focus_owner() == n.table, "focus returns to the table after Escape");
+  check(w.focused() == n.table, "focus returns to the table after Escape");
   p.chord(dg::LogicalKey::kDelete);
   check(inv.dialog_kind() == DialogKind::kDelete, "Delete in the table asks to delete");
   escape();
@@ -207,7 +209,7 @@ int verify(dg::App& app, std::ostream& out) {
 
   // -- F2 / Delete inside a text field only edit text. --------------------------
   p.chord(dg::LogicalKey::kF, dg::Modifier::kMod);
-  check(inv.focus_owner() == n.search, "Ctrl+F focuses the search field");
+  check(w.focused() == n.search, "Ctrl+F focuses the search field");
   p.type("xyz");
   p.key(dg::Key::kHome);
   const std::size_t count = inv.assets().size();
@@ -280,8 +282,8 @@ int verify(dg::App& app, std::ostream& out) {
   p.click_text("创建");
   check(inv.dialog_kind() == DialogKind::kNew && inv.assets().size() == count,
         "创建 stays disabled while the name is empty (Enter and click)");
-  // Pressing the disabled button leaves nothing focused; click into the field.
-  p.click(*n.dlg_name);
+  check(w.focused() == n.dlg_name,
+        "pressing the disabled button keeps focus in the name field");
   p.type("测试工作站");
   p.key(dg::Key::kEnter);
   const bool created = !w.has_dialog() && inv.assets().size() == count + 1 &&
@@ -345,6 +347,50 @@ int verify(dg::App& app, std::ostream& out) {
   escape();
   check(!inv.quit_requested() && !w.has_dialog(), "Escape keeps the app running");
 
+  // -- Double-click → 编辑; the dialog's 类型 is a real dropdown. ---------------
+  p.click_text("常规", n.tabs);
+  const std::uint64_t edited = inv.visible()[0];
+  p.click_row(edited, dg::PointerButton::kPrimary, 1);
+  p.click_row(edited, dg::PointerButton::kPrimary, 2);
+  check(inv.dialog_kind() == DialogKind::kEdit, "double-clicking a row opens 编辑资产");
+  if (n.dlg_type.has_value()) {
+    p.click(*n.dlg_type);
+  }
+  const int new_type = inv.find(edited)->type == 2 ? 3 : 2;
+  const char* const type_names[] = {"笔记本", "显示器", "服务器", "打印机", "手机"};
+  check(p.find_text(type_names[new_type]).has_value(),
+        "its 类型 dropdown opens inside the dialog");
+  p.click_text(type_names[new_type]);
+  check(w.has_dialog(), "picking an option leaves the dialog open");
+  p.click_text("确定");
+  check(!w.has_dialog() && inv.find(edited)->type == new_type, "确定 saves the picked 类型");
+
+  // -- 视图 toggles: row height and the detail panel. ------------------------------
+  const auto cell_height = [&] {
+    const std::optional<dg::NodeId> c = p.name_cell(inv.visible()[0]);
+    return c.has_value() ? p.bounds(*c).height : 0;
+  };
+  const int tall = cell_height();
+  p.click_text("视图", n.menu_bar);
+  p.click_text("紧凑行");
+  const int short_rows = cell_height();
+  check(tall == 28 && short_rows == 22, "紧凑行 shrinks table rows (" + std::to_string(tall) +
+                                            " -> " + std::to_string(short_rows) + " px)");
+  const std::optional<dg::NodeId> tree_row = p.find_text("全部资产", n.tree);
+  check(tree_row.has_value() && p.bounds(*tree_row).height == 22, "...and tree rows");
+  p.click_text("视图", n.menu_bar);
+  p.click_text("紧凑行");
+  check(cell_height() == 28, "turning it off restores the row height");
+  const int table_width = p.bounds(n.table).width;
+  p.click_text("视图", n.menu_bar);
+  p.click_text("显示详情");
+  check(p.bounds(n.table).width > table_width + 300,
+        "hiding 详情 gives its width to the table");
+  p.click_text("视图", n.menu_bar);
+  p.click_text("显示详情");
+  check(p.bounds(n.table).width == table_width && !w.animating(),
+        "showing it again restores the layout (its fade-in is instant under reduced motion)");
+
   // -- Node count stays bounded. ----------------------------------------------------
   p.click_text("常规", n.tabs);
   p.click_row(inv.visible()[0]);
@@ -368,6 +414,20 @@ int verify(dg::App& app, std::ostream& out) {
   check(w.node_count() == baseline, "node count is unchanged after 24 menus/dialogs (" +
                                         std::to_string(baseline) + " -> " +
                                         std::to_string(w.node_count()) + ")");
+
+  // -- The title-bar close asks about unsaved changes. ---------------------------
+  check(inv.dirty(), "there are unsaved changes");
+  app.window_manager().request_close(w.id());
+  got = p.pump();
+  check(example::events_of<dg::events::CloseRequestedEvent>(got).size() == 1 &&
+            inv.dialog_kind() == DialogKind::kQuit && !w.closed(),
+        "closing the window with unsaved changes asks first");
+  p.click_text("取消");
+  check(!w.closed() && !w.has_dialog(), "取消 keeps the window open");
+  app.window_manager().request_close(w.id());
+  p.pump();
+  p.click_text("不保存");
+  check(w.closed() && inv.quit_requested(), "不保存 closes the window");
 
   out << (all ? "enterprise: all checks passed\n" : "enterprise: FAILED\n");
   return all ? 0 : 1;

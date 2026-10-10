@@ -6,6 +6,7 @@
 //
 //   (no arguments)                         the app window
 //   --theme light|dark                     the starting theme (default light)
+//   --reduced-motion                       no animations (the accessibility setting)
 //   --run-ms N                             close after N milliseconds
 //   --font-dir DIR                         where the UI fonts are looked for
 //   --verify                               the headless check (CTest). No display needed.
@@ -33,6 +34,7 @@ struct Options {
   std::string png_path;
   std::string state = "default";
   int run_ms = 0;
+  bool reduced_motion = false;
   dg::ThemeVariant variant = dg::ThemeVariant::kLight;
 };
 
@@ -59,6 +61,8 @@ std::optional<Options> parse(int argc, char** argv) {
         return std::nullopt;
       }
       options.variant = name == "dark" ? dg::ThemeVariant::kDark : dg::ThemeVariant::kLight;
+    } else if (arg == "--reduced-motion") {
+      options.reduced_motion = true;
     } else if (arg == "--run-ms" && has_value) {
       options.run_ms = example::parse_int(args[++i]).value_or(0);
     } else if (arg == "--font-dir" && has_value) {
@@ -76,6 +80,7 @@ int dump_png(dg::App& app, const Options& options) {
   if (window == nullptr) {
     return 1;
   }
+  app.set_reduced_motion(true);
   inventory::Inventory inv(app, *window, options.variant);
   inventory::Probe probe(app, *window, inv);
   probe.pump(3);
@@ -101,6 +106,7 @@ int run_window(dg::App& app, const Options& options) {
   if (window == nullptr) {
     return 1;
   }
+  app.set_reduced_motion(options.reduced_motion);
   inventory::Inventory inv(app, *window, options.variant);
   const dg::TimerId quit_timer =
       options.run_ms > 0 ? app.add_timer(options.run_ms, false) : dg::TimerId{};
@@ -123,6 +129,7 @@ int main(int argc, char** argv) {
   if (!options.has_value()) {
     std::cerr
         << "usage: drawgui_enterprise [--theme light|dark] [--run-ms N] [--font-dir DIR]\n"
+           "                          [--reduced-motion]\n"
            "                          [--dump-png FILE [--state default|menu|context|dialog]]\n"
            "                          [--verify]\n";
     return 2;

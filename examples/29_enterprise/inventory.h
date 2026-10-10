@@ -103,7 +103,7 @@ class Inventory {
     dg::NodeId status, last_action;
     // The open form dialog's fields (none while closed).
     std::optional<dg::NodeId> dlg_form, dlg_name, dlg_owner, dlg_value;
-    std::vector<dg::NodeId> dlg_types;
+    std::optional<dg::NodeId> dlg_type;
     std::vector<dg::NodeId> tag_rows;
   };
 
@@ -125,9 +125,6 @@ class Inventory {
   [[nodiscard]] std::int32_t dialog_id() const { return dialog_id_; }
   [[nodiscard]] bool quit_requested() const { return quit_; }
   [[nodiscard]] const std::string& last_action() const { return last_; }
-  // The create() node holding focus, as FocusChangedEvent names it
-  // (Window::focused() answers a component's inner node instead).
-  [[nodiscard]] std::optional<dg::NodeId> focus_owner() const { return focus_; }
 
  private:
   enum class Role : std::uint8_t { kPage, kPanel, kChrome, kMuted, kSoft, kInput };
@@ -237,7 +234,7 @@ class Inventory {
   std::string search_;
   std::string last_ = "就绪";
   std::uint64_t menu_target_ = 0;
-  std::optional<dg::NodeId> focus_;
+  std::string shown_last_;
   DialogKind dialog_ = DialogKind::kNone;
   std::int32_t dialog_id_ = 0;
   std::uint64_t dialog_target_ = 0;
