@@ -76,10 +76,6 @@ std::int32_t menu_open(dg_window_t* window_h, dg_node_t* anchor, std::int32_t x,
     set_last_error("dg_menu_open: need 1..4096 labels");
     return DG_ERR_INVALID_ARGUMENT;
   }
-  if (window->window->has_dialog()) {
-    set_last_error("dg_menu_open: a dialog is open on this window");
-    return DG_ERR_UNSUPPORTED;
-  }
   std::optional<dg::NodeId> anchor_id;
   if (anchor != nullptr) {
     const NodeSlot* slot = slot_of(anchor);

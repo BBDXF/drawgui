@@ -835,8 +835,11 @@ export declare namespace DrawguiAbi {
   // letter jumps); it closes itself and queues DG_EVENT_MENU_ACTIVATE or
   // DG_EVENT_MENU_DISMISS. One menu per window: opening another dismisses the
   // first (DG_EVENT_MENU_DISMISS for it). DG_ERR_INVALID_ARGUMENT for count 0, a
-  // null `labels`, count above 4096 or a menu with no selectable item;
-  // DG_ERR_UNSUPPORTED while a dialog is open on the window.
+  // null `labels`, count above 4096 or a menu with no selectable item. Allowed
+  // while a dialog is open: the menu stacks above it and takes events first;
+  // Escape or a click outside closes only the menu (the dialog and its focus trap
+  // stay), and a right press in the dialog content still queues
+  // DG_EVENT_CONTEXT_CLICK.
   function dg_menu_open(window: dg_window_t | null, anchor: dg_node_t | null, x: number, y: number, labels: BigUint64Array | null, flags: Uint32Array | null, count: number): number;
   // ABI 0.2 phase B: closes the window's open dg_menu_open() menu without queuing
   // an event (DG_ERR_OK even when none is open). Focus returns where it was.

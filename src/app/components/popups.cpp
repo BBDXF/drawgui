@@ -287,6 +287,17 @@ bool route_open_dropdown_pointer(WinState& window, const dg::PointerEvent& event
 std::optional<bool> route_pointer_to_popups(WinState& window, const dg::PointerEvent& event) {
   dg::UiContext ctx = ui(window);
   if (window.dialog.is_open()) {
+    // A menu opened above the dialog takes every pointer event; a right
+    // press outside it dismisses it and then reaches the dialog (a context
+    // click when in its content).
+    if (window.menu.is_open()) {
+      const dg::MenuResult result = window.menu.handle_pointer(ctx, event);
+      menu_result(window, result, false);
+      if (result.event != dg::MenuEvent::kDismissed || event.action != dg::PointerAction::kDown ||
+          event.button != dg::PointerButton::kSecondary) {
+        return true;
+      }
+    }
     // A dropdown list opened from the dialog's content sits above it.
     if (route_open_dropdown_pointer(window, event)) {
       return true;
@@ -366,6 +377,11 @@ bool route_pointer(WinState& window, const dg::PointerEvent& event) {
 bool route_key(WinState& window, const dg::KeyEvent& event) {
   dg::UiContext ctx = ui(window);
   if (window.dialog.is_open()) {
+    // A menu above the dialog takes every key (Escape closes it only).
+    if (window.menu.is_open()) {
+      menu_result(window, window.menu.handle_key(ctx, event), true);
+      return true;
+    }
     // An open dropdown list above the dialog takes every key (Escape
     // closes the list only); a closed one in the content opens on its keys.
     for (NodeRecord* record : records_in_order(window)) {
@@ -427,6 +443,10 @@ bool route_key(WinState& window, const dg::KeyEvent& event) {
 bool route_text(WinState& window, const dg::TextInputEvent& event) {
   dg::UiContext ctx = ui(window);
   if (window.dialog.is_open()) {
+    if (window.menu.is_open()) {
+      menu_result(window, window.menu.handle_text(ctx, event), true);
+      return true;
+    }
     for (NodeRecord* record : records_in_order(window)) {
       std::optional<dg::Dropdown>* dropdown = dropdown_in(*record);
       if (dropdown != nullptr && dropdown->has_value() && (*dropdown)->is_open()) {
@@ -534,9 +554,6 @@ Expected<std::int32_t, Status> Window::open_menu(std::optional<NodeId> anchor, P
   });
   if (items.size() > limits::kMaxMenuItems || !any_selectable) {
     return Unexpected(Status::kInvalidArgument);
-  }
-  if (window.dialog.is_open()) {
-    return Unexpected(Status::kUnsupported);
   }
   std::optional<dg::PixelRect> anchor_rect;
   if (anchor.has_value()) {
@@ -677,6 +694,9 @@ void Window::close_dialog() {
   WinState& window = *state_;
   dg::UiContext ctx = app_detail::components::ui(window);
   const std::optional<dg::NodeId> before = window.focus.current();
+  // A menu stacked above the dialog closes first: it restores the dialog's
+  // scope, which the dialog then exits.
+  app_detail::components::dismiss_open_menu(window);
   window.dialog.close(ctx);
   app_detail::sync_editor_focus(window, before);
   window.dialog_id = 0;

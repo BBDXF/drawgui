@@ -246,6 +246,8 @@ schema_version = 1
 #        dg_window_close()); animation driven by the pump
 #        (dg_node_animate(), dg_node_set_transition(), dg_animation_cancel(),
 #        DG_CURVE_*, DG_EVENT_ANIMATION_FINISHED, dg_app_set_reduced_motion()).
+#        dg_menu_open()/dg_menu_open_ex() are allowed while a dialog is open
+#        (the menu stacks above it; previously DG_ERR_UNSUPPORTED).
 [meta]
 abi_major = 0
 abi_minor = 2
@@ -1049,7 +1051,7 @@ name = "dg_menu_open"
 ret = "int32_t"
 impl = "menu_open"
 params = [{ name = "window", type = "dg_window_t*" }, { name = "anchor", type = "dg_node_t*" }, { name = "x", type = "int32_t" }, { name = "y", type = "int32_t" }, { name = "labels", type = "const char* const*" }, { name = "flags", type = "const uint32_t*" }, { name = "count", type = "uint32_t" }]
-summary = "ABI 0.2 phase B: opens a popup menu (dg::Menu) over `window` - below the live node `anchor` (min width = its width), or, when `anchor` is null, at the point x/y (device pixels, e.g. a DG_EVENT_CONTEXT_CLICK's position). `labels`/`flags` are `count` parallel entries (copied; `flags` may be null = all 0; a null label is empty): DG_MENU_ITEM_*. Returns the menu id (positive) or a negative DG_ERR_*. While it is open the pump routes every pointer/key/text event of the window to it first (Up/Down/Home/End move, Enter or a click activates, Escape or a click outside dismisses, typing a letter jumps); it closes itself and queues DG_EVENT_MENU_ACTIVATE or DG_EVENT_MENU_DISMISS. One menu per window: opening another dismisses the first (DG_EVENT_MENU_DISMISS for it). DG_ERR_INVALID_ARGUMENT for count 0, a null `labels`, count above 4096 or a menu with no selectable item; DG_ERR_UNSUPPORTED while a dialog is open on the window."
+summary = "ABI 0.2 phase B: opens a popup menu (dg::Menu) over `window` - below the live node `anchor` (min width = its width), or, when `anchor` is null, at the point x/y (device pixels, e.g. a DG_EVENT_CONTEXT_CLICK's position). `labels`/`flags` are `count` parallel entries (copied; `flags` may be null = all 0; a null label is empty): DG_MENU_ITEM_*. Returns the menu id (positive) or a negative DG_ERR_*. While it is open the pump routes every pointer/key/text event of the window to it first (Up/Down/Home/End move, Enter or a click activates, Escape or a click outside dismisses, typing a letter jumps); it closes itself and queues DG_EVENT_MENU_ACTIVATE or DG_EVENT_MENU_DISMISS. One menu per window: opening another dismisses the first (DG_EVENT_MENU_DISMISS for it). DG_ERR_INVALID_ARGUMENT for count 0, a null `labels`, count above 4096 or a menu with no selectable item. Allowed while a dialog is open: the menu stacks above it and takes events first; Escape or a click outside closes only the menu (the dialog and its focus trap stay), and a right press in the dialog content still queues DG_EVENT_CONTEXT_CLICK."
 
 [[function]]
 name = "dg_menu_close"

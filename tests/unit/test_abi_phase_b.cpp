@@ -664,4 +664,62 @@ TEST_SUITE("abi phase b") {
     CHECK(dg_node_get_checked(second) == 1);
     CHECK(dg_node_get_checked(other) == 1);
   }
+  TEST_CASE("menus over a dialog: API and right-click in content, Escape keeps the dialog") {
+    App a;
+    dg_node_t* form = a.add(DG_NODE_TYPE_BOX);
+    App::set(form, DG_PROP_HEIGHT, length(160));
+    const char* buttons[] = {"OK", "Cancel"};
+    // A first dialog creates the window's (kept) parking box.
+    REQUIRE(dg_dialog_open_ex(a.window, "warm", nullptr, buttons, 2, 0, 1, form) > 0);
+    (void)a.pump(1);
+    REQUIRE(dg_dialog_close(a.window) == DG_ERR_OK);
+    REQUIRE(dg_node_insert_before(a.root, form, nullptr) == DG_ERR_OK);
+    (void)a.pump(1);
+    const int baseline = a.count();
+    const std::int32_t dialog =
+        dg_dialog_open_ex(a.window, "Form", nullptr, buttons, 2, 0, 1, form);
+    REQUIRE(dialog > 0);
+    (void)a.pump(1);
+    const int with_dialog = a.count();
+    const char* labels[] = {"Cut", "Paste"};
+    const std::int32_t commands[] = {7, 8};
+
+    for (int round = 0; round < 3; ++round) {
+      const std::int32_t id =
+          dg_menu_open_ex(a.window, nullptr, 40, 40, labels, nullptr, nullptr, commands, 2);
+      REQUIRE(id > 0);
+      (void)a.pump(1);
+      a.key("Down");
+      a.key("Enter");
+      std::vector<dg_event> events = a.pump();
+      std::vector<dg_event> hit = of_kind(events, DG_EVENT_MENU_ACTIVATE);
+      REQUIRE(hit.size() == 1);
+      CHECK(hit[0].y == id);
+      CHECK(hit[0].command != 0);
+      CHECK(of_kind(events, DG_EVENT_DIALOG_RESULT).empty());
+
+      // A right press in the content: a context click on it, then a menu.
+      a.press(240, 180, DG_POINTER_BUTTON_SECONDARY);
+      events = of_kind(a.pump(), DG_EVENT_CONTEXT_CLICK);
+      REQUIRE(events.size() == 1);
+      CHECK(events[0].node == form);
+      REQUIRE(dg_menu_open(a.window, nullptr, events[0].x, events[0].y, labels, nullptr, 2) > 0);
+      (void)a.pump(1);
+      CHECK(a.count() > with_dialog);
+      a.key("Escape");
+      events = a.pump();
+      CHECK(of_kind(events, DG_EVENT_MENU_DISMISS).size() == 1);
+      CHECK(of_kind(events, DG_EVENT_DIALOG_RESULT).empty());
+      CHECK(a.count() == with_dialog);
+    }
+
+    // The dialog is still there: Escape now cancels it.
+    a.key("Escape");
+    std::vector<dg_event> events = of_kind(a.pump(), DG_EVENT_DIALOG_RESULT);
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].y == dialog);
+    REQUIRE(dg_node_insert_before(a.root, form, nullptr) == DG_ERR_OK);
+    (void)a.pump();
+    CHECK(a.count() == baseline);
+  }
 }

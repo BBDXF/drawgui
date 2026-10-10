@@ -1529,8 +1529,11 @@ DG_EXPORT int32_t dg_debug_post_pointer_button_ex(dg_window_t* window, int32_t d
 /* letter jumps); it closes itself and queues DG_EVENT_MENU_ACTIVATE or */
 /* DG_EVENT_MENU_DISMISS. One menu per window: opening another dismisses the */
 /* first (DG_EVENT_MENU_DISMISS for it). DG_ERR_INVALID_ARGUMENT for count 0, a */
-/* null `labels`, count above 4096 or a menu with no selectable item; */
-/* DG_ERR_UNSUPPORTED while a dialog is open on the window. */
+/* null `labels`, count above 4096 or a menu with no selectable item. Allowed */
+/* while a dialog is open: the menu stacks above it and takes events first; */
+/* Escape or a click outside closes only the menu (the dialog and its focus trap */
+/* stay), and a right press in the dialog content still queues */
+/* DG_EVENT_CONTEXT_CLICK. */
 DG_EXPORT int32_t dg_menu_open(dg_window_t* window, dg_node_t* anchor, int32_t x, int32_t y,
                                const char* const* labels, const uint32_t* flags,
                                uint32_t count);

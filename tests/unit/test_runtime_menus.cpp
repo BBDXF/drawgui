@@ -419,4 +419,86 @@ TEST_SUITE("runtime menus") {
     options.content = t.root;
     CHECK(t.win->open_dialog(options).error() == dg::Status::kInvalidArgument);
   }
+  TEST_CASE("menu over a dialog: by API and right-click in content; Escape closes only the menu") {
+    Rt t;
+    const dg::NodeId form = t.add(dg::NodeKind::kBox);
+    t.set(form, DG_PROP_DIRECTION, dg::PropValue::option(DG_DIRECTION_COLUMN));
+    const dg::NodeId field = t.add(dg::NodeKind::kTextField, form);
+    t.set(field, DG_PROP_HEIGHT, dg::PropValue::length(32.0F));
+    dg::DialogOptions options;
+    options.title = "Rename";
+    options.buttons = {"OK", "Cancel"};
+    options.cancel_button = 1;
+    options.content = form;
+    // A first dialog creates the window's (kept) parking box.
+    REQUIRE(t.win->open_dialog(options).has_value());
+    (void)t.pump(1);
+    t.win->close_dialog();
+    REQUIRE(t.win->move(form, t.root) == dg::Status::kOk);
+    (void)t.pump(1);
+    const int baseline = t.count();
+    const std::int32_t dialog = t.win->open_dialog(options).value();
+    (void)t.pump(1);
+    const int with_dialog = t.count();
+    REQUIRE(t.win->focus(field) == dg::Status::kOk);
+    (void)t.pump();
+    const std::optional<dg::NodeId> focus_before = t.win->focused();
+
+    for (int round = 0; round < 3; ++round) {
+      // By API: activate an entry.
+      const std::vector<dg::MenuEntry> items = {entry("Cut", 1), entry("Paste", 2)};
+      const std::int32_t id = t.win->open_menu(std::nullopt, dg::PixelPoint{30, 30}, items).value();
+      (void)t.pump(1);
+      CHECK(t.win->has_dialog());
+      t.key(dg::Key::kDown);
+      t.key(dg::Key::kEnter);
+      std::vector<dg::Event> got = t.pump();
+      std::vector<ev::MenuEvent> menu = of<ev::MenuEvent>(got);
+      REQUIRE(menu.size() == 1);
+      CHECK(menu[0].menu_id == id);
+      CHECK(menu[0].item.has_value());
+      CHECK(menu[0].command != 0);
+      CHECK(of<ev::DialogResultEvent>(got).empty());
+      CHECK(t.win->has_dialog());
+      CHECK(t.win->focused() == focus_before);
+
+      // By right-click in the dialog content: a ContextClickEvent first.
+      const dg::PixelRect at = t.bounds(field);
+      t.press(at.x + 4, at.y + 4, dg::PointerButton::kSecondary);
+      got = t.pump();
+      const std::vector<ev::ContextClickEvent> context = of<ev::ContextClickEvent>(got);
+      REQUIRE(context.size() == 1);
+      REQUIRE(t.win->open_menu(std::nullopt, dg::PixelPoint{context[0].x, context[0].y}, items)
+                  .has_value());
+      (void)t.pump(1);
+      CHECK(t.count() > with_dialog);
+
+      // Escape closes only the menu; the dialog's focus trap is back.
+      t.key(dg::Key::kEscape);
+      got = t.pump();
+      menu = of<ev::MenuEvent>(got);
+      REQUIRE(menu.size() == 1);
+      CHECK(!menu[0].item.has_value());
+      CHECK(of<ev::DialogResultEvent>(got).empty());
+      CHECK(t.win->has_dialog());
+      CHECK(t.count() == with_dialog);
+      REQUIRE(t.win->focus(field) == dg::Status::kOk);
+      t.key(dg::Key::kTab);
+      t.key(dg::Key::kTab);
+      t.key(dg::Key::kTab);
+      (void)t.pump();
+      CHECK(t.win->focused() == field);  // Tab stays inside the dialog
+    }
+
+    // Closing the dialog closes a menu above it.
+    REQUIRE(t.win->open_menu(std::nullopt, dg::PixelPoint{30, 30}, {entry("A", 1)}).has_value());
+    (void)t.pump(1);
+    t.win->close_dialog();
+    CHECK(of<ev::MenuEvent>(t.pump()).size() == 1);
+    CHECK(!t.win->has_dialog());
+    CHECK(t.win->set_dialog_button_disabled(dialog, 0, true) == dg::Status::kUnknownId);
+    CHECK(t.win->move(form, t.root) == dg::Status::kOk);
+    (void)t.pump();
+    CHECK(t.count() == baseline);
+  }
 }

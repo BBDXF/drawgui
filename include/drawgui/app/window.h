@@ -157,7 +157,8 @@ class Window {
   // Opens a menu below `anchor`'s bounds (or at `at`); returns its id, which
   // its MenuEvent repeats. A menu already open is dismissed first.
   // kInvalidArgument for no entries, more than limits::kMaxMenuItems, or
-  // none that can be chosen; kUnsupported while a dialog is open.
+  // none that can be chosen. Allowed while a dialog is open: the menu stacks
+  // above it and closing the menu leaves the dialog (and its focus trap).
   [[nodiscard]] Expected<std::int32_t, Status> open_menu(std::optional<NodeId> anchor,
                                                          PixelPoint at,
                                                          const std::vector<MenuEntry>& items);
