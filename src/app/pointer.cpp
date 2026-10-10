@@ -30,7 +30,7 @@ void refresh_touched(WinState& window, const dg::InteractionChange& change) {
   }
 }
 
-// A drag that started on a focused text area extends its selection; one that
+// A drag that started on a focused text editor extends its selection; one that
 // started on a scrollbar thumb scrolls its owner.
 void drag_held(WinState& window, dg::PixelPoint at) {
   AppState& app = window.app;
@@ -48,6 +48,10 @@ void drag_held(WinState& window, dg::PixelPoint at) {
     window.widgets.text_area_click(window.tree.render(), *app.fonts, *held, at,
                                    /*extend_selection=*/true);
     follow_caret(window, *held);
+  } else if (app.fonts.has_value() && is_text_editor(window, *held) &&
+             window.focus.current() == held) {
+    window.widgets.text_field_click(window.tree.render(), *app.fonts, *held, at.x,
+                                    /*extend_selection=*/true);
   }
 }
 

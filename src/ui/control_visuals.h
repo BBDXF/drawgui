@@ -15,6 +15,10 @@
 
 namespace dg::control_visuals {
 
+// A selected row's fill: the soft primary tint TreeView / Table use (also
+// the runtime kList's selection, so the three look alike).
+[[nodiscard]] Color selection_fill(const ControlStyle& style);
+
 [[nodiscard]] int text_width(const ControlContext& ctx, float size, const std::string& text);
 
 struct ProgressNodes {

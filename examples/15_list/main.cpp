@@ -180,12 +180,13 @@ int verify(dg::App& app, std::ostream& out) {
   const dg::PixelRect track = drive.bounds(widget.scrollbar_track);
   const dg::PixelRect thumb = drive.bounds(widget.scrollbar_thumb);
   const int gutter = s.window->widgets().scrollbar_style().size;
-  check(gutter > 0 && track == dg::PixelRect{list.right() - gutter, list.y, gutter, list.height},
-        "the track is the list's right-hand gutter");
+  check(gutter > 0 && track == dg::PixelRect{list.right() - kListFrame - gutter, list.y + kListFrame, gutter,
+                                       list.height - (2 * kListFrame)},
+        "the track is the list's right-hand gutter, inside the frame");
   check(drive.bounds(widget.list_pool.front()).right() <= track.x,
         "no list item reaches under the scrollbar");
   check(thumb.height == s.window->widgets().scrollbar_style().min_thumb_length &&
-            thumb.y == list.y,
+            thumb.y == list.y + kListFrame,
         "the thumb is its minimum length, at the top");
   const dg::PixelPoint grab{thumb.x + 2, thumb.y + 2};
   drive.press(grab.x, grab.y, true);

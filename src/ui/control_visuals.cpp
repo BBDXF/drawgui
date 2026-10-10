@@ -64,10 +64,6 @@ bool is_dark(const ControlStyle& style) {
   return (299 * c.red()) + (587 * c.green()) + (114 * c.blue()) < 128000;
 }
 
-// A selected row: soft primary tint of the surface, text stays on-surface.
-Color selection_fill(const ControlStyle& style) {
-  return mix(style.surface, style.accent, is_dark(style) ? 0.30F : 0.16F);
-}
 // Neutral hover / header / track shades derived from surface + on-surface.
 Color neutral(const ControlStyle& style, float light, float dark) {
   return mix(style.surface, style.on_surface, is_dark(style) ? dark : light);
@@ -176,6 +172,11 @@ BoxStyle column_box(const TableColumn& column, int height) {
 }
 
 }  // namespace
+
+// A selected row: soft primary tint of the surface, text stays on-surface.
+Color selection_fill(const ControlStyle& style) {
+  return mix(style.surface, style.accent, is_dark(style) ? 0.30F : 0.16F);
+}
 
 int text_width(const ControlContext& ctx, float size, const std::string& text) {
   if (text.empty()) {

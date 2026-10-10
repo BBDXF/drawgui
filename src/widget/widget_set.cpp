@@ -621,7 +621,19 @@ ScrollbarGeometry WidgetSet::scrollbar_geometry(const RenderTree& tree, NodeId i
     return geometry;
   }
 
-  const PixelRect view = tree.local_bounds(id);
+  PixelRect view = tree.local_bounds(id);
+  // A framed list (the runtime kList's 1px border) keeps its bar inside the
+  // border, as TreeView / Table do, instead of painting over the right edge.
+  int frame_left = 0;
+  int frame_top = 0;
+  if (widget->kind == WidgetKind::kList) {
+    const BorderWidths& b = tree.style(id).border_width;
+    const auto px = [](float w) { return std::max(0, static_cast<int>(std::lround(w))); };
+    frame_left = px(b.left);
+    frame_top = px(b.top);
+    view.width = std::max(0, view.width - frame_left - px(b.right));
+    view.height = std::max(0, view.height - frame_top - px(b.bottom));
+  }
   const int length = vertical ? view.height : view.width;
   const int size =
       std::clamp(scrollbar_style_.size, 1, std::max(1, vertical ? view.width : view.height));
@@ -643,8 +655,8 @@ ScrollbarGeometry WidgetSet::scrollbar_geometry(const RenderTree& tree, NodeId i
           : 0;
 
   geometry.visible = true;
-  geometry.track = vertical ? PixelRect{view.width - size, 0, size, length}
-                            : PixelRect{0, view.height - size, length, size};
+  geometry.track = vertical ? PixelRect{frame_left + view.width - size, frame_top, size, length}
+                            : PixelRect{frame_left, frame_top + view.height - size, length, size};
   geometry.thumb =
       vertical ? PixelRect{0, position, size, thumb} : PixelRect{position, 0, thumb, size};
   return geometry;

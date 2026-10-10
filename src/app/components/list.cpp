@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "app/components/components.h"
-#include "app/components/editors.h"
 #include "app/internal.h"
+#include "ui/control_visuals.h"
 
 namespace dg::app_detail {
 namespace {
@@ -21,44 +21,24 @@ namespace {
 constexpr int kListWidth = 240;
 constexpr int kListHeight = 200;
 constexpr int kListPool = 32;
-constexpr int kListItemHeight = 28;
-constexpr int kListRowInset = 8;
-constexpr std::uint32_t kListSelectionAlpha = 0x66;
 // The frame TreeView / Table draw (control_visuals' build_frame()): a 1px
 // color.border outline around a color.surface fill, square corners.
 constexpr int kListFrame = 1;
 
-// The rows: text in color.on-surface, the selected row filled with
-// color.primary made translucent (the editors' selection rule).
+// Everything comes from the same dg::ControlStyle TreeView / Table are
+// built from (control_style_from_theme()), so the three share one border,
+// fill, text colour, soft selection tint, row height, inset and font size.
 struct ListPalette {
-  dg::Color text = dg::Color::from_argb(kTextFieldTextColorArgb);
-  dg::Color selection = dg::Color::from_argb((kListSelectionAlpha << 24U) |
-                                             (kTextFieldBorderFocusedArgb & 0xFFFFFFU));
-  dg::Color fill = dg::Color::from_argb(kTextFieldFillArgb);
-  dg::Color border = dg::Color::from_argb(kTextFieldBorderUnfocusedArgb);
+  dg::Color text;
+  dg::Color selection;
+  dg::Color fill;
+  dg::Color border;
 };
 
 ListPalette list_palette_for(const AppState& app) {
-  const auto [theme, variant] = theme_for(app);
-  ListPalette palette;
-  if (theme == nullptr) {
-    return palette;
-  }
-  if (const std::optional<dg::Color> c =
-          theme->color_value(DG_TOKEN_COLOR_ON_SURFACE, variant)) {
-    palette.text = *c;
-  }
-  if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_SURFACE, variant)) {
-    palette.fill = *c;
-  }
-  if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_BORDER, variant)) {
-    palette.border = *c;
-  }
-  if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_PRIMARY, variant)) {
-    palette.selection =
-        dg::Color::from_argb((kListSelectionAlpha << 24U) | (c->argb() & 0xFFFFFFU));
-  }
-  return palette;
+  const dg::ControlStyle style = components::control_style(app);
+  return ListPalette{style.on_surface, dg::control_visuals::selection_fill(style), style.surface,
+                     style.border};
 }
 
 }  // namespace
@@ -219,15 +199,17 @@ void compose_list(WinState& window, NodeRecord& record) {
   widget.kind = dg::WidgetKind::kList;
   widget.list_axis = dg::ScrollAxis::kVertical;
   widget.list_item_count = 0;  // list_set_items() fills it
-  widget.list_item_extent = kListItemHeight;
+  const dg::ControlStyle look = components::control_style(window.app);
+  widget.list_item_extent = look.row_height;
   dg::BoxStyle row_box;
-  row_box.height = kListItemHeight;
+  row_box.height = look.row_height;
   row_box.percent.width = 100.0F;
   dg::NodeStyle row_style;
   row_style.text.font = window.app.default_font;
-  row_style.text.size = default_text_size();
+  row_style.text.size = look.font_size;
   row_style.text.align = dg::TextAlign::kLeft;
-  row_style.text.inset = kListRowInset;
+  row_style.text.inset = look.padding;
+  row_style.radii = dg::Radii::all(static_cast<float>(look.radius));
   for (int i = 0; i < kListPool; ++i) {
     widget.list_pool.push_back(window.tree.add_child(new_id, row_box, row_style));
   }

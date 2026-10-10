@@ -159,7 +159,8 @@ int main() {
   const dg::NodeId button = window->create(dg::NodeKind::kButton, root).value();
   window->set_text(button, DG_PROP_TEXT, "Add");
   const dg::NodeId list_node = window->create(dg::NodeKind::kList, root).value();
-  // 默认带外框：和 kTree/kTable 一样 1px color.border 边框、color.surface 底；
+  // 外观与 kTree/kTable 一致：1px color.border 边框、color.surface 底，滚动条在边框内，
+  // 选中行是同样的浅色主色调圆角底，行高/字号/内边距取同一套控件样式；
   // 应用自己设置的 DG_PROP_BACKGROUND_COLOR / DG_PROP_BORDER_COLOR 优先，切换主题也不会被覆盖。
   dg::ListRef list = window->list(list_node).value();
   std::vector<std::string> rows;

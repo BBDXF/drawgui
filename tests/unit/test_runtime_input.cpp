@@ -219,6 +219,29 @@ TEST_SUITE("runtime input") {
     CHECK(t.win->text(field).value() == "ab");
   }
 
+  TEST_CASE("text field: a press-drag selects part of the text") {
+    Rt t;
+    const dg::NodeId field = t.add(dg::NodeKind::kTextField);
+    REQUIRE(t.win->set_text(field, DG_PROP_TEXT, "hello world") == dg::Status::kOk);
+    (void)t.pump(2);
+    const dg::PixelRect box = t.bounds(field);
+    const int y = box.y + (box.height / 2);
+    // Press just inside the left inset, drag a little way right, release.
+    t.wm().warp_pointer(t.win->id(), box.x + 11, y);
+    t.wm().post_pointer_button(t.win->id(), true, box.x + 11, y);
+    (void)t.pump(1);
+    t.wm().warp_pointer(t.win->id(), box.x + 40, y);
+    (void)t.pump(1);
+    t.wm().post_pointer_button(t.win->id(), false, box.x + 40, y);
+    (void)t.pump(1);
+    t.chord(dg::LogicalKey::kC);
+    (void)t.pump(1);
+    const std::string copied = t.wm().get_clipboard_text();
+    CHECK_FALSE(copied.empty());
+    CHECK(copied.size() < std::string("hello world").size());
+    CHECK(std::string("hello world").rfind(copied, 0) == 0);
+  }
+
   TEST_CASE("text area: typing, Mod+Z undo and Mod+Shift+Z redo") {
     Rt t;
     const dg::NodeId area = t.add(dg::NodeKind::kTextArea);
