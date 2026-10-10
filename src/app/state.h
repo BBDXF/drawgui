@@ -55,6 +55,11 @@ namespace dg::app_detail {
 struct ListState {
   std::vector<std::string> items;
   int selected = -1;
+  // The themed frame colours last written to the list node; a theme change
+  // only replaces a colour that still equals these (an app's own
+  // DG_PROP_BACKGROUND_COLOR / DG_PROP_BORDER_COLOR write survives).
+  mutable dg::Color frame_fill{};
+  mutable dg::Color frame_border{};
 };
 
 struct DropdownState {

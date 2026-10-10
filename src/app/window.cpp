@@ -416,6 +416,23 @@ std::optional<NodeKind> Window::kind_of(NodeId node) const {
   return record != nullptr ? std::optional<NodeKind>(record->kind) : std::nullopt;
 }
 
+bool Window::contains(NodeId ancestor, NodeId node) const {
+  if (app_detail::record_of(*state_, ancestor) == nullptr ||
+      app_detail::record_of(*state_, node) == nullptr) {
+    return false;
+  }
+  const dg::RenderTree& tree = state_->tree.render();
+  NodeId current = node;
+  while (current != ancestor) {
+    const NodeId parent = tree.parent(current);
+    if (parent == current) {
+      return false;
+    }
+    current = parent;
+  }
+  return true;
+}
+
 Status Window::set(NodeId node, const prop::Setting& setting) {
   return set_prop(node, setting.id, setting.value);
 }

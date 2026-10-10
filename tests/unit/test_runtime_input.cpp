@@ -82,6 +82,94 @@ TEST_SUITE("runtime input") {
     CHECK(context[0].y == 20);
   }
 
+  TEST_CASE("right-clicks open a context menu reliably, as an app would") {
+    Rt t;
+    const dg::NodeId other = t.add(dg::NodeKind::kButton);
+    const dg::NodeId card = t.add(dg::NodeKind::kBox);
+    t.set(card, DG_PROP_WIDTH, dg::PropValue::length(400.0F));
+    t.set(card, DG_PROP_HEIGHT, dg::PropValue::length(120.0F));
+    const dg::NodeId hint = t.add(dg::NodeKind::kLabel, card);
+    REQUIRE(t.win->set_text(hint, DG_PROP_TEXT, "right-click here") == dg::Status::kOk);
+    (void)t.pump(1);
+    CHECK(t.win->contains(card, hint));
+    CHECK(t.win->contains(card, card));
+    CHECK_FALSE(t.win->contains(card, other));
+    CHECK_FALSE(t.win->contains(hint, card));
+
+    int opened = 0;
+    int dismissed = 0;
+    int activated = 0;
+    const auto drive = [&](const std::vector<dg::Event>& events) {
+      for (const dg::Event& event : events) {
+        if (const auto* c = std::get_if<ev::ContextClickEvent>(&event)) {
+          if (c->node.has_value() && t.win->contains(card, *c->node)) {
+            const std::vector<dg::MenuEntry> entries(3);
+            if (t.win->open_menu(std::nullopt, {c->x, c->y}, entries).has_value()) {
+              ++opened;
+            }
+          }
+        } else if (const auto* m = std::get_if<ev::MenuEvent>(&event)) {
+          ++(m->item.has_value() ? activated : dismissed);
+        }
+      }
+      // A second pump lets the release (and anything after it) reach the
+      // just-opened menu, as the next frame would on a real display.
+      for (const dg::Event& event : t.pump()) {
+        if (const auto* m = std::get_if<ev::MenuEvent>(&event)) {
+          ++(m->item.has_value() ? activated : dismissed);
+        }
+      }
+    };
+    const auto right_down = [&](int x, int y, int clicks = 1) {
+      t.wm().warp_pointer(t.win->id(), x, y);
+      t.wm().post_pointer_button(t.win->id(), true, x, y, dg::PointerButton::kSecondary, clicks);
+    };
+    const auto right_up = [&](int x, int y, int clicks = 1) {
+      t.wm().post_pointer_button(t.win->id(), false, x, y, dg::PointerButton::kSecondary, clicks);
+    };
+    const dg::PixelRect label = t.bounds(hint);
+    const dg::PixelRect area = t.bounds(card);
+
+    SUBCASE("on a child label inside the card, press and release together") {
+      right_down(label.x + 2, label.y + 2);
+      right_up(label.x + 2, label.y + 2);
+      drive(t.pump());
+      CHECK(opened == 1);
+      CHECK(dismissed == 0);
+      CHECK(activated == 0);
+    }
+    SUBCASE("press, a small motion, then release: the release keeps it open") {
+      right_down(area.x + 200, area.y + 100);
+      drive(t.pump());
+      t.wm().warp_pointer(t.win->id(), area.x + 203, area.y + 102);
+      right_up(area.x + 203, area.y + 102);
+      drive(t.pump());
+      CHECK(opened == 1);
+      CHECK(dismissed == 0);
+      CHECK(activated == 0);
+    }
+    SUBCASE("a right-click elsewhere while the menu is open reopens it there") {
+      right_down(area.x + 300, area.y + 10);
+      right_up(area.x + 300, area.y + 10);
+      drive(t.pump());
+      right_down(area.x + 10, area.y + 100);
+      right_up(area.x + 10, area.y + 100);
+      drive(t.pump());
+      CHECK(opened == 2);
+      CHECK(dismissed == 1);
+      CHECK(activated == 0);
+    }
+    SUBCASE("a rapid double right-click still ends with a menu") {
+      right_down(label.x + 2, label.y + 2, 1);
+      right_up(label.x + 2, label.y + 2, 1);
+      right_down(area.x + 300, area.y + 100, 2);
+      right_up(area.x + 300, area.y + 100, 2);
+      drive(t.pump());
+      CHECK(opened >= 1);
+      CHECK(activated == 0);
+    }
+  }
+
   TEST_CASE("a list selects on a press through ListRef") {
     Rt t;
     const dg::NodeId node = t.add(dg::NodeKind::kList);

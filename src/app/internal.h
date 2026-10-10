@@ -82,6 +82,7 @@ dg::Status set_editor_padding(WinState& window, const NodeRecord& record,
 void paint_list_rows(WinState& window, const NodeRecord& record,
                      const std::vector<dg::ListSlot>& rows);
 void repaint_list(WinState& window, const NodeRecord& record);
+void restyle_list_frame(WinState& window, const NodeRecord& record);
 void apply_scroll_result(WinState& window, dg::NodeId owner, const dg::ScrollResult& result);
 bool press_list_row(WinState& window, dg::PixelPoint at, int clicks);
 dg::Status set_list_prop(WinState& window, const NodeRecord& record, std::uint16_t prop_id,

@@ -80,6 +80,10 @@ class Window {
   // content node; `node` itself otherwise).
   [[nodiscard]] NodeId child_container(NodeId node) const;
   [[nodiscard]] std::optional<NodeKind> kind_of(NodeId node) const;
+  // Whether `node` is `ancestor` or lies in its subtree (both live create()
+  // nodes). Events name the innermost created node under the pointer - a
+  // label inside a card, say - so "was it inside the card" asks this.
+  [[nodiscard]] bool contains(NodeId ancestor, NodeId node) const;
   // Marks `node`'s subtree for repaint and its composed children for
   // re-sync on the next pump(). See "Escape hatches" below.
   void invalidate(NodeId node);

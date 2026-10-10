@@ -74,6 +74,7 @@ void reapply_theme(AppState& app) {
     restyle_editors(window);
     for (const NodeRecord* record : records_in_order(window)) {
       if (record->kind == NodeKind::kList) {
+        restyle_list_frame(window, *record);
         repaint_list(window, *record);
       }
     }

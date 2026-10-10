@@ -150,6 +150,12 @@ bool route_pointer(WinState& window, const dg::PointerEvent& event) {
   if (window.menu.is_open()) {
     const dg::MenuResult result = window.menu.handle_pointer(ctx, event);
     menu_result(window, result);
+    if (result.event == dg::MenuEvent::kDismissed && event.action == dg::PointerAction::kDown &&
+        event.button == dg::PointerButton::kSecondary) {
+      // A right press outside the open menu dismisses it and is still a
+      // context click, so the caller can reopen the menu at the new spot.
+      return false;
+    }
     if (result.event != dg::MenuEvent::kIgnored) {
       return true;
     }

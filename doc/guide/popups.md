@@ -26,6 +26,12 @@ window->open_dialog(dialog);   // 结果：DialogResultEvent::button（-1 = 无�
 - 下拉框是一个节点（`NodeKind::kDropdown` + `DropdownRef`），选项列表的打开、
   高亮移动（上下键循环）、Enter/点击提交、Escape/点外部取消都由运行时处理，
   提交时报告 `ValueChangedEvent{selected, previous}`。
+- `ContextClickEvent::node` 是指针下**最内层**的 `create()` 节点（例如卡片里的文字标签），
+  不一定是你关心的区域本身；判断"是否点在某区域内"用 `window->contains(area, *c->node)`，
+  不要写 `c->node == area`。
+- 右键在**按下**时触发；菜单打开时，在菜单外右键会先关闭它（报告一次 `item = nullopt`
+  的 `MenuEvent`），同一次按下仍产生 `ContextClickEvent`，可直接在新位置重新打开。
+  松开右键不会关闭或激活刚打开的菜单。
 - 每个窗口同时最多一个 `open_menu()` 菜单和一个对话框（对话框打开期间
   `open_menu()` 返回 `kUnsupported`）；对话框是模态的，打开期间 Tab 不会离开它，
   点击它外面的控件不会产生事件。

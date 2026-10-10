@@ -12,6 +12,7 @@
 #include "drawgui/base/utf8.h"
 #include "drawgui/render/grapheme.h"
 #include "drawgui/render/paragraph.h"
+#include "widget/caret_metrics.h"
 
 namespace dg {
 namespace {
@@ -1121,8 +1122,20 @@ void WidgetSet::text_field_refresh_display(RenderTree& tree, const FontCatalog& 
   const int caret_x =
       std::clamp(static_cast<int>(std::lround(static_cast<double>(cursor_x))) - scroll_x, 0,
                  std::max(0, visible_width - kCaretWidthPx));
+  // Line-height tall (capped at 1.2x the font size) and centred in the
+  // field, where paint_text() centres the single text line - not the whole
+  // field height, which read as an oversized bar.
+  float metric_height = 0.0F;
+  if (para) {
+    const std::vector<LineInfo> lines = para->lines();
+    if (!lines.empty()) {
+      metric_height = lines.front().height;
+    }
+  }
+  const caret_metrics::Span span = caret_metrics::caret_span(
+      0.0F, static_cast<float>(inner_height), metric_height, size);
   tree.set_local_bounds(widget.caret,
-                        PixelRect{inset + caret_x, 0, kCaretWidthPx, inner_height});
+                        PixelRect{inset + caret_x, span.top, kCaretWidthPx, span.height});
 
   // selection_highlight is dual-purpose while composing (7-3):
   // the user's OWN selection when not composing, or SDL_TextEditingEvent's

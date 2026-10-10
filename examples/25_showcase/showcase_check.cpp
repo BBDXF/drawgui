@@ -298,22 +298,30 @@ class Check {
     feed(drive_.move(5, 5));
     const int baseline = w_.node_count();
     const dg::PixelRect area = bounds(n.menu_area);
-    const auto right_click = [&] {
+    const auto right_click_at = [&](int x, int y) {
       dg::WindowManager& wm = app_.window_manager();
-      const int x = area.x + 30;
-      const int y = area.y + 20;
       wm.warp_pointer(w_.id(), x, y);
       wm.post_pointer_button(w_.id(), true, x, y, dg::PointerButton::kSecondary);
       wm.post_pointer_button(w_.id(), false, x, y, dg::PointerButton::kSecondary);
       feed(drive_.pump());
       feed(drive_.pump());
     };
+    const auto right_click = [&] { right_click_at(area.x + 30, area.y + 20); };
     right_click();
     check(demo_.last_menu().has_value() && w_.node_count() > baseline,
           "a right-click opens the context menu");
     const std::vector<dg::events::MenuEvent> dismissed =
         example::events_of<dg::events::MenuEvent>(key(dg::Key::kEscape));
     check(dismissed.size() == 1 && !dismissed[0].item.has_value(), "Escape dismisses it");
+    const dg::PixelRect hint = bounds(n.menu_hint);
+    right_click_at(hint.x + (hint.width / 2), hint.y + (hint.height / 2));
+    check(demo_.last_menu().has_value() && w_.node_count() > baseline,
+          "a right-click on the hint text inside the area opens it too");
+    const std::int32_t first = demo_.last_menu().value_or(0);
+    right_click_at(area.x + area.width - 20, area.y + area.height - 10);
+    check(demo_.last_menu().value_or(0) != first,
+          "a right-click elsewhere while it is open reopens it there");
+    (void)key(dg::Key::kEscape);
     right_click();
     key(dg::Key::kDown);
     key(dg::Key::kEnter);

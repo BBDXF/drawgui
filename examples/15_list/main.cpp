@@ -37,6 +37,10 @@ constexpr int kItemCount = 1000;
 constexpr int kItemHeight = 48;
 constexpr int kViewportWidth = 340;
 constexpr int kViewportHeight = 480;
+// The runtime list draws a 1px frame (like TreeView / Table), so the rows
+// scroll inside a viewport 2px shorter than the box.
+constexpr int kListFrame = 1;
+constexpr int kRowViewport = kViewportHeight - (2 * kListFrame);
 constexpr int kWheelStepPx = 40;  // one wheel notch, as the runtime scrolls it
 
 enum class Mode : std::uint8_t { kWindow, kVerify, kDumpPng };
@@ -165,7 +169,7 @@ int verify(dg::App& app, std::ostream& out) {
   drive.wheel(cx, cy, 20.0F);
   check(s.window->scroll_offset(s.list).value().y == 0, "scrolling up from rest clamps to 0");
   drive.wheel(cx, cy, -100000.0F);
-  const int max_offset = (kItemCount * kItemHeight) - kViewportHeight;
+  const int max_offset = (kItemCount * kItemHeight) - kRowViewport;
   check(s.window->scroll_offset(s.list).value().y == max_offset,
         "scrolling far past the bottom clamps at exactly " + std::to_string(max_offset));
   drive.wheel(cx, cy, 100000.0F);
@@ -195,7 +199,7 @@ int verify(dg::App& app, std::ostream& out) {
         "the thumb reaches the bottom of the track");
   check(exact_content(s, out, "after thumb drag to end"), "no residue after the drag");
   drive.click(track.x + 2, track.y + 2);
-  check(s.window->scroll_offset(s.list).value().y == max_offset - kViewportHeight,
+  check(s.window->scroll_offset(s.list).value().y == max_offset - kRowViewport,
         "a track click pages up by one viewport");
 
   out << (ok ? "PASS\n" : "FAIL\n");

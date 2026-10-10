@@ -24,6 +24,9 @@ constexpr int kListPool = 32;
 constexpr int kListItemHeight = 28;
 constexpr int kListRowInset = 8;
 constexpr std::uint32_t kListSelectionAlpha = 0x66;
+// The frame TreeView / Table draw (control_visuals' build_frame()): a 1px
+// color.border outline around a color.surface fill, square corners.
+constexpr int kListFrame = 1;
 
 // The rows: text in color.on-surface, the selected row filled with
 // color.primary made translucent (the editors' selection rule).
@@ -31,6 +34,8 @@ struct ListPalette {
   dg::Color text = dg::Color::from_argb(kTextFieldTextColorArgb);
   dg::Color selection = dg::Color::from_argb((kListSelectionAlpha << 24U) |
                                              (kTextFieldBorderFocusedArgb & 0xFFFFFFU));
+  dg::Color fill = dg::Color::from_argb(kTextFieldFillArgb);
+  dg::Color border = dg::Color::from_argb(kTextFieldBorderUnfocusedArgb);
 };
 
 ListPalette list_palette_for(const AppState& app) {
@@ -43,6 +48,12 @@ ListPalette list_palette_for(const AppState& app) {
           theme->color_value(DG_TOKEN_COLOR_ON_SURFACE, variant)) {
     palette.text = *c;
   }
+  if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_SURFACE, variant)) {
+    palette.fill = *c;
+  }
+  if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_BORDER, variant)) {
+    palette.border = *c;
+  }
   if (const std::optional<dg::Color> c = theme->color_value(DG_TOKEN_COLOR_PRIMARY, variant)) {
     palette.selection =
         dg::Color::from_argb((kListSelectionAlpha << 24U) | (c->argb() & 0xFFFFFFU));
@@ -51,6 +62,28 @@ ListPalette list_palette_for(const AppState& app) {
 }
 
 }  // namespace
+
+// The list node's own frame, re-themed; a colour the app overrode is kept.
+void restyle_list_frame(WinState& window, const NodeRecord& record) {
+  const ListState& list = std::get<ListState>(record.state);
+  dg::RenderTree& tree = window.tree.render();
+  const ListPalette palette = list_palette_for(window.app);
+  dg::NodeStyle style = tree.style(record.id);
+  bool changed = false;
+  if (style.fill == list.frame_fill && style.fill != palette.fill) {
+    style.fill = palette.fill;
+    changed = true;
+  }
+  if (style.border_color == list.frame_border && style.border_color != palette.border) {
+    style.border_color = palette.border;
+    changed = true;
+  }
+  list.frame_fill = palette.fill;
+  list.frame_border = palette.border;
+  if (changed) {
+    tree.set_style(record.id, style);
+  }
+}
 
 // Paints recycled list rows with the items they now show.
 void paint_list_rows(WinState& window, const NodeRecord& record,
@@ -157,17 +190,28 @@ namespace components {
 
 void list_defaults(const WinState& window, dg::BoxStyle& box, dg::NodeStyle& style) {
   // A clipping kLeaf viewport with the scrollbar's gutter reserved on its
-  // trailing edge (examples/15_list's recipe). No fill.
+  // trailing edge (examples/15_list's recipe), framed like TreeView /
+  // Table: 1px color.border outline over a color.surface fill.
+  const ListPalette palette = list_palette_for(window.app);
   box.kind = dg::LayoutKind::kLeaf;
   box.width = kListWidth;
   box.height = kListHeight;
   box.scroll_axis = dg::ScrollAxis::kNone;
+  box.border = dg::EdgeInsets::all(kListFrame);
   box.padding.right = window.widgets.scrollbar_style().size;
   style.overflow = dg::Overflow::kClip;
+  style.fill = palette.fill;
+  style.border_color = palette.border;
+  style.border_width = dg::BorderWidths::all(static_cast<float>(kListFrame));
 }
 
 void compose_list(WinState& window, NodeRecord& record) {
-  record.state.emplace<ListState>();
+  ListState& state = record.state.emplace<ListState>();
+  {
+    const dg::NodeStyle& own = window.tree.render().style(record.id);
+    state.frame_fill = own.fill;
+    state.frame_border = own.border_color;
+  }
   const dg::NodeId new_id = record.id;
   // A fixed pool of rows, each 100% of the content width (the gutter is
   // padding), recycled by list_sync()/list_scroll_by().

@@ -110,6 +110,7 @@ struct Nodes {
   dg::NodeId dropdown;
   dg::NodeId dropdown_label;
   dg::NodeId menu_area;
+  dg::NodeId menu_hint;
   dg::NodeId menu_label;
   dg::NodeId delete_button;
   dg::NodeId info_button;

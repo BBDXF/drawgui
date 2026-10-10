@@ -498,6 +498,9 @@ space.md），**没有新增 token**。
 所以它们是**节点池**而不是单个节点；它自己就是垂直滚动容器（与 `kScrollView`
 相同的 `RenderTree::set_scroll_offset()` 机制），可以挂滚动条。
 
+光标是 2 像素宽的竖线，两种编辑框规则相同：高度取字体的行高（上升 + 下降），但不超过
+字号的 1.2 倍（16px 字号最多 19px），在所在文本行里垂直居中——单行框里也不再撑满整个框高。
+
 ```cpp
 Widget area;
 area.kind = WidgetKind::kTextArea;
@@ -532,7 +535,7 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
   池子大小就是能同时高亮的可见行数上限，超出的行不画。
 - **布局之后要 `text_area_refresh()`**：和滑块一样，`kLeaf` 的子节点每次重排都会被放回
   内容原点，C ABI 的事件泵每帧都会调一次。
-- **输入法候选框**：`text_area_caret_rect()` 给出光标的绝对矩形，交给
+- **输入法候选框**：`text_area_caret_rect()` 给出光标（上面那条竖线）的绝对矩形，交给
   `WindowManager::start_text_input()`（即 `SDL_SetTextInputArea`）。
 - 与 kind 无关的访问器 `editor_state()`/`editor_insert()`/`editor_select_all()`/
   `editor_set_text()`/`editor_is_composing()` 同时适用于两种编辑框——剪贴板动作和快捷键路由用的就是它们。

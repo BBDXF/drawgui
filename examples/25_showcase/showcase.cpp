@@ -717,8 +717,8 @@ void Showcase::build_popups(NodeId page) {
   paint(n_.menu_area, DG_PROP_BACKGROUND_COLOR, Role::kAccentSoft);
   radius(n_.menu_area, 10);
   (void)w_.set_prop(n_.menu_area, DG_PROP_CURSOR, dg::PropValue::option(DG_CURSOR_CROSSHAIR));
-  const NodeId hint = label(n_.menu_area, "右键点击这里", 14);
-  (void)w_.set_prop(hint, DG_PROP_TEXT_ALIGN, dg::PropValue::option(DG_TEXT_ALIGN_CENTER));
+  n_.menu_hint = label(n_.menu_area, "右键点击这里", 14);
+  (void)w_.set_prop(n_.menu_hint, DG_PROP_TEXT_ALIGN, dg::PropValue::option(DG_TEXT_ALIGN_CENTER));
   n_.menu_label = label(menu, "菜单还没打开过", 13, true);
 
   const NodeId bottom = box(page, true, 16);
@@ -1024,7 +1024,7 @@ void Showcase::on_event(const dg::Event& event) {
   std::visit(dg::Overloaded{
                  [&](const ClickEvent& e) { on_click(e); },
                  [&](const ContextClickEvent& e) {
-                   if (e.node == n_.menu_area) {
+                   if (e.node.has_value() && w_.contains(n_.menu_area, *e.node)) {
                      open_context_menu({e.x, e.y});
                    }
                  },

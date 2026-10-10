@@ -14,6 +14,7 @@
 
 #include "drawgui/render/paragraph.h"
 #include "drawgui/widget/widget_set.h"
+#include "widget/caret_metrics.h"
 
 namespace dg {
 namespace {
@@ -252,8 +253,11 @@ void WidgetSet::text_area_refresh_display(RenderTree& tree, const FontCatalog& f
     const bool upstream = widget.caret_upstream && !widget.edit.composing;
     const CaretRect c =
         para->caret_rect(projection.text.empty() ? 0 : projection.cursor, upstream);
+    // Same extent rule as the text field's caret (caret_metrics.h).
+    const caret_metrics::Span span = caret_metrics::caret_span(
+        c.top, c.height, c.height, tree.style(widget.content).text.size);
     caret = PixelRect{inset + std::clamp(round_px(c.x), 0, std::max(0, width - kCaretWidthPx)),
-                      inset + round_px(c.top), kCaretWidthPx, std::max(1, round_px(c.height))};
+                      inset + span.top, kCaretWidthPx, span.height};
   }
   if (tree.local_bounds(widget.caret) != caret) {
     tree.set_local_bounds(widget.caret, caret);
