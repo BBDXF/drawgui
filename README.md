@@ -1,231 +1,158 @@
 # drawgui
 
-drawgui is a lightweight self-drawn GUI kernel written in C++20, architected
-after Flutter's layered rendering model, exporting a pure C ABI so any
-language can embed it.
+[中文](README.zh-CN.md)
 
-## Unique value proposition
+drawgui is a lightweight, self-drawn GUI framework written in C++20. It draws
+every pixel itself with Skia on the CPU, opens windows through SDL3, and also
+exports a pure C ABI, so any language that can call C functions can use it.
 
-Relative to Qt QML or Flutter, the value of drawgui is **"a self-drawn GUI
-kernel that any language can embed through a C ABI"** - not "another complete
-desktop application framework". A host language needs no Dart VM, no QML
-engine, and no embedded Chromium - only the ability to call C functions.
+There are two ways to use it:
 
-## Accepted trade-off
+- **C++**: the `dg::App` / `dg::Window` runtime. You create nodes, set
+  properties, and read events. The runtime handles layout, painting, input,
+  focus, popups and animation.
+- **C**: a thin C ABI (`include/drawgui/abi/drawgui.h`) over the same runtime.
 
-This project does not compete with Qt or Flutter on feature completeness. It
-wins on embedding cost and language neutrality, and will lag long-term on
-accessibility, complex text editing, and depth of native integration.
+## What makes it different
 
-## Current status
+- **Embeddable from any language.** The whole framework is reachable through a
+  pure C ABI. A host language needs no Dart VM, no QML engine and no embedded
+  browser, only the ability to call C functions. The ABI is generated from one
+  definition file (`abi/drawgui.def.toml`) and locked, so accidental breaking
+  changes fail the build.
+- **One runtime, two front doors.** The C ABI is a thin shell over the same
+  C++ `dg::App` runtime, not a second implementation. C and C++ programs get
+  the same behaviour.
+- **Does only the work that changed.** Layout runs at most once per frame and
+  only for dirty nodes; scrolling, typing, slider drags, list recycling, focus
+  changes and theme switches cause no relayout at all. Repaint is limited to
+  the damaged rectangle.
+- **Sleeps when idle.** With nothing animating, the event loop blocks and uses
+  no CPU. Animations wake it only while they run.
+- **Large data on a fixed budget.** Lists, trees and tables recycle a small
+  pool of row nodes, so 10,000 rows cost about the same as 20.
+- **Small dependency footprint.** CPU rendering with Skia, so no GPU and no
+  libGL. Text shaping for CJK, BiDi and complex scripts works without ICU data
+  files.
+- **Built-in, not bolted on.** Keyboard navigation, focus traps in dialogs,
+  shortcuts, tooltips, disabled states, theming and close confirmation are part
+  of the components; the app does not write glue code for them.
+- **Skia rendering quality.** Everything is drawn by Skia, the 2D engine
+  behind Chrome and Flutter: anti-aliased shapes and rounded corners, smooth
+  gradients, soft shadows, group opacity, vector SVG and high-quality text, the
+  same on every machine. Lower-level C++ code can still reach the Skia canvas
+  directly (see `examples/02_skia_cpu_gallery`); a custom-paint node inside the
+  runtime is not available yet.
+- **Flexbox layout.** A layout model close to CSS Flexbox: row and column
+  direction, wrapping into several lines, `justify` (start/end/center,
+  space-between/around/evenly), `align` and `align_self`, `align_content` for
+  wrapped lines, `gap` and `run_gap`, `grow`/`shrink`/`basis`, min/max sizes,
+  `aspect_ratio`, percent and `auto` sizes, and absolute positioning with
+  `left`/`top`/`right`/`bottom`. Window resizes re-run only the parts that
+  depend on the new size.
+- **CSS-like styling.** 71 properties with familiar CSS names and meanings:
+  margin and padding, borders and rounded corners, linear and
+  radial gradients, box shadows, group opacity, and `overflow` clipping that
+  also clips hit testing. Each property has a numeric id, and simple values are
+  set from any language through one function, `dg_node_set_prop()`
+  (gradients and shadows are C++ only for now).
+- **Chinese and emoji out of the box.** One font family name covers Chinese,
+  Japanese, Korean and 9 other scripts plus colour emoji through automatic
+  font fallback. A language tag picks the right Han glyphs (Simplified,
+  Traditional, Japanese). Chinese text wraps correctly without spaces, and
+  editing moves by whole characters, so an emoji or a combined character is
+  never split.
+- **SVG icons as vectors.** SVG files are drawn as vectors, so icons stay
+  sharp at any size, and they can be tinted with a theme colour so they follow
+  light and dark themes. PNG, JPEG and WebP are supported too, with
+  fill/contain/cover/none fit modes.
+- **Checked by tests.** Every example has a self-check mode, rendering is
+  compared against golden images pixel by pixel, and the suite runs under
+  AddressSanitizer.
 
-The engine has layout, widgets, components, theming, a C++ application
-runtime and a C ABI, all running on a CPU raster path with no GPU
-dependency. Linux only; SDL3 is the sole window backend, with no
-platform-abstraction layer ahead of a second one.
+## Components
 
-- **Runtime**: `dg::App` / `dg::Window` (`include/drawgui/app/`) is the
-  public C++ entry point. Create nodes of 17 `NodeKind`s, set properties,
-  call `App::run()` (or `pump()` yourself); the runtime does layout, paint,
-  input routing, focus, popups, scrolling, list recycling, animation and
-  theming, and reports user actions as typed `dg::Event`s. Lists, dropdowns,
-  tabs, trees, tables, sliders, radios and the menu bar are reached through
-  typed refs
-  (`window->list(node)` and friends). The lower-level objects (`LayoutTree`,
-  `WidgetSet`, `Focus`, `PopupHost`, ...) stay public for callers that need
-  them - see `doc/guide/app.md`.
-- **Widgets**: 11 `WidgetKind` values - panel, label, button, checkbox
-  (a radio is a grouped checkbox), slider, scroll view, text field,
-  multi-line text area, virtualized list, dropdown, and the scrollbar part.
-  Widgets can be disabled (the whole subtree greys out and follows theme
-  switches), hidden (`visible`, takes no layout space) and choose a mouse
-  cursor; a button with `checked` set becomes a toggle button, and button
-  content (icon and/or text) is centred.
-- **Components** (`include/drawgui/ui/`): `Menu`, `Dropdown`, `Tooltip`,
-  `Dialog`, `ProgressBar`, `Tabs`, `TreeView` and `Table`, built on the
-  widget layer rather than as new kinds; tree and table rows recycle through
-  fixed node pools. Popups are overlay-only (`PopupHost`); the modal dialog
-  is a full-window overlay with a focus trap.
-- **Desktop-app features** (runtime and C ABI): a menu bar (F10/Alt
-  keyboard mode), menus with shortcut labels and command ids that can open
-  above a dialog, keyboard context menus (Shift+F10 / Menu key), form dialogs
-  that host your own nodes (dropdowns included) with disableable buttons,
-  rich list/tree/table rows (icons, check boxes, secondary text, trailing
-  action buttons) with per-row app keys, an adjustable `row_height`, a
-  keyboard-driven focusable list, per-node user data, app-defined keyboard
-  shortcuts, and a close-confirmation hook for unsaved changes.
-- **Layout**: a Flexbox-like model (row/column, wrap, absolute stack;
-  `justify` including `space_around`/`space_evenly`; `grow`/`shrink`/`basis`;
-  percentage and `auto` sizes) laid out exactly once per frame -
-  `LayoutStats` reports `nodes_visited == 0` for scrolling, slider drag,
-  typing, list recycling, theme colour switches and focus changes alike.
-  `RenderTree` still has no node-kind enum, and the six-value `LayoutKind`
-  set has not grown since the first layout slice.
-- **Properties**: 71 CSS-like properties addressable by numeric id
-  (`doc/reference/properties.md`).
-- **Text**: single- and multi-line, with CJK/BiDi/complex-script shaping via
-  `SkParagraph` + libgrapheme (no `icudtl.dat` needed), wrapping labels,
-  grapheme-cluster-correct editing, undo/redo, word moves, double/triple-click
-  selection, max length, placeholders, and IME composition.
-- **Images**: PNG, JPEG and WebP decoding, SVG icons drawn as vectors, four
-  fit modes, and a draw-time tint that can follow a theme colour.
-- **Input**: click counts, context clicks, pointer capture, Tab order via a
-  focus-scope model with a visible focus ring, per-node mouse cursors, and a
-  generated `action_id` family (11 intent actions - copy/cut/paste/select_all,
-  keyboard scrolling, undo/redo) resolved through a four-level router, with a
-  real platform clipboard.
-- **Timers and wake**: one-shot and repeating timers, and a thread-safe
-  wake / user event that unblocks a waiting event loop.
-- **Animation**: explicit animations and implicit transitions driven by the
-  event loop (`dg_node_animate()` / `dg_node_set_transition()`), with a
-  finished event and an app-wide reduced-motion switch; the loop sleeps when
-  nothing is animating.
-- **Windows**: several windows per app; title, size, position, min/max size,
-  minimize/maximize/restore, fullscreen, resizable, icon, and state events.
-- **Theming**: 20 tokens, light/dark variants, and external theme packages
-  (path-traversal-safe, hot-reloadable).
-- **C ABI** (version 0.2): a thin shell over `dg::App` - 116 exported
-  functions (12 of them `dg_debug_*` test-only hooks), 17 node types, 71
-  properties, 32 event kinds, 16 constant groups. It covers windows and
-  window operations (including close confirmation), every node kind above
-  (`BOX` becomes a row/column container through `DG_PROP_DIRECTION`), the
-  menu bar, menus, form dialogs and tooltips, rich rows and row keys, focus,
-  shortcuts, timers, wake, animation, images, user data, insert/move/remove
-  of whole subtrees (enough for a keyed reconciler) and themes. Everything is
-  poll-based: a click, a menu choice, a row-part press, a dialog answer, a
-  close request or a finished animation each arrive as one 56-byte
-  `dg_event` (ABI 0.2 is unreleased; callers built against an earlier header
-  must recompile). Not exported: callbacks, custom paint, the
-  gradient/shadow/transform setters and any IME composition surface.
-  `examples/19_c_client` and `examples/28_c_components` are pure C programs
-  built entirely on the ABI.
+| Component | Description |
+| --- | --- |
+| Box | Container that lays out children as a row, column, wrap or absolute stack |
+| Label | Text, single-line or wrapped, with ellipsis |
+| Image | PNG/JPEG/WebP/SVG with fit modes and theme-coloured tint |
+| Button | Push button; with `checked` it becomes a toggle button; icon and text centred |
+| Checkbox | Check box with label |
+| Radio | Radio buttons grouped by a shared group id |
+| Slider | Horizontal value slider, mouse and keyboard |
+| TextField | Single-line editor: selection, clipboard, undo/redo, placeholder, max length, IME |
+| TextArea | Multi-line editor with soft wrap and per-line navigation |
+| ScrollView | Scrollable area with scrollbars, wheel and drag |
+| List | Virtualized list; rows can have icons, secondary text, check boxes and action buttons |
+| Tree | Virtualized expandable tree with the same rich rows |
+| Table | Virtualized table with sortable columns and rich rows |
+| Dropdown | Selection popup, also usable inside dialogs |
+| ProgressBar | Determinate or indeterminate progress |
+| Tabs | Tab strip with pages and disabled tabs |
+| MenuBar | Application menu bar with shortcut labels and F10/Alt keyboard mode |
+| Menu | Context or popup menu, opened by mouse, Menu key or Shift+F10 |
+| Tooltip | Hover tooltip on any node |
+| Dialog | Modal dialog with buttons, optional form content and a focus trap |
 
-See `doc/limitations.md` for the full list of known gaps, costly corners
-and things that are deliberately out of scope.
+Every node also supports the common properties: size, margin, padding,
+colours, borders, rounded corners, gradients, shadows, opacity, `visible`,
+`disabled`, mouse cursor and per-node user data (71 properties in total).
 
-## Quick start
+## Other features
+
+- **Text**: CJK, emoji, BiDi and complex scripts, word wrap, selection,
+  clipboard, undo/redo and IME input.
+- **Input**: focus and Tab order, app-defined shortcuts (app-wide or per area),
+  keyboard context menus, double and triple click.
+- **Animation**: explicit animations and implicit transitions with easing
+  curves, a finished event, and a reduced-motion switch.
+- **Themes**: 20 design tokens, light and dark, and external theme packages
+  that reload while the app runs.
+- **Windows**: several windows per app, with title, size, position,
+  minimize/maximize, fullscreen, icon and close confirmation.
+- **C ABI** (version 0.2): 116 functions, 17 node types, 71 properties and 32
+  event kinds. Events are polled; there are no callbacks.
+
+## Examples
+
+All examples are in `examples/` and are built with the project. Most have a
+`--verify` style flag that runs a self-check without a window.
+
+| # | Example | What it shows |
+| --- | --- | --- |
+| 25 | `showcase` | **Start here.** Every feature in one window, split into tabs |
+| 29 | `enterprise` | A full asset-management app: menu bar, toolbar, tree, table, detail form, dialogs, shortcuts, light/dark theme |
+| 11, 12, 15 | `form_controls`, `text_input`, `list` | Basic controls, text editing, a 1000-item list |
+| 20, 26 | `multiline_text`, `text_area` | Wrapping, mixed scripts, multi-line editing |
+| 22, 23 | `dropdown_menu`, `menu_tooltip_dialog` | Dropdowns, context menus, tooltips, dialogs |
+| 27 | `data_widgets` | Progress bars, tabs, a 10,000-item tree and table |
+| 13, 16, 17, 18, 24 | `image`, `complex_properties`, `animation`, `theme`, `theme_package` | Images, gradients and shadows, animation, themes |
+| 19, 28 | `c_client`, `c_components` | Pure C programs using only the C ABI |
+| 00–10, 14, 21 | low-level examples | Rendering, damage, layout, clipping, opacity, scrolling, popups and focus built directly on the engine layers |
+
+## Progress
+
+- Works on **Linux** only, with SDL3 as the window backend.
+- Rendering is CPU-only; no GPU is needed.
+- The runtime, the widgets, and the desktop-app features listed above are
+  done and covered by tests: 43 CTest entries, 865 unit test cases and 8
+  golden images, all passing.
+- The C ABI is at version 0.2 and is not released yet, so it may still change.
+- Not done yet: Windows, macOS and mobile, accessibility, submenus, multiple
+  selection, cell editing, a custom-paint node, and language bindings (JavaScript is planned next).
+
+See `doc/limitations.md` for the full list of known gaps.
+
+## Build
 
 ```sh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ctest --test-dir build --output-on-failure
+./build/examples/drawgui_showcase
 ```
 
-That builds the engine, the examples and the test suite. For build
-prerequisites, a minimal C++ program, a minimal C-ABI program, and the
-per-frame call order, see **`doc/getting-started.md`**.
-
-## Documentation map
-
-| Read this | If you want to |
-| --- | --- |
-| `doc/getting-started.md` | Build the project and write your first program (C++ or C ABI) |
-| `doc/concepts.md` | Understand the engine's non-obvious design choices before writing code against it (two trees, side tables, damage, exactly-once layout, text does not participate in layout, integer pixels, zero virtual dispatch) |
-| `doc/contracts.md` | See the 10 rules the caller must follow that the code does not enforce |
-| `doc/limitations.md` | Know what will bite you before it does - costly corners, ABI capability limits, what the tests actually prove |
-| `doc/guide/app.md` | Build an application on the `dg::App` / `dg::Window` runtime |
-| `doc/guide/layout.md` | Work with the Flexbox-like layout model |
-| `doc/guide/text.md` | Work with text display and editing |
-| `doc/guide/widgets.md` | Use the 11 widget kinds and the ProgressBar/Tabs/TreeView/Table components |
-| `doc/guide/theming.md` | Use or write a theme package |
-| `doc/guide/input.md` | Work with pointer, keyboard, focus and shortcuts |
-| `doc/guide/popups.md` | Build a dropdown, menu, tooltip or dialog on the popup host |
-| `doc/guide/animation.md` | Drive animation and scrolling |
-| `doc/reference/properties.md` | Look up a property by name or id |
-| `doc/reference/c-abi.md` | Look up a C ABI function |
-| `doc/reference/theme-tokens.generated.md` / `shortcuts.generated.md` | Look up a theme token or a shortcut action (generated) |
-| `doc/contributing.md` | Add a property, extend the ABI, run the sanitized suite |
-| `doc/design.md` | Read the full design document and its decision/risk log (Chinese) |
-
-## Examples
-
-30 examples, `examples/00_*` through `examples/29_*`. Each builds to
-`build/examples/drawgui_*`. Most support `--dump-png out.png` (headless
-render) and a `--verify-*` flag (headless assertion, used in CTest); there
-is no `--help` - each example's flags are listed in the comment at the top
-of its `main` source file. **Start with `examples/25_showcase`** - one window, built on the public
-`dg::App` / `dg::Window` runtime, with a tab for every area (controls,
-text, layout, data, popups, images, window) and a live light/dark switch;
-`--verify-showcase` drives every tab with injected input. For a realistic
-desktop app built from the enterprise features, see `examples/29_enterprise`.
-
-| # | Example | What it demonstrates | Verify flag |
-| --- | --- | --- | --- |
-| 00 | `cpu_raster_png` | Renders a PNG with no window, no layout - the raster floor everything else builds on | - |
-| 01 | `sdl3_multi_window` | Three independent SDL3 windows, closing one leaves the others running | - (needs a display) |
-| 02 | `skia_cpu_gallery` | 16 Skia panels (geometry, text, gradients, blur, shadow, image) with raster/present timings | `--bench` |
-| 03 | `damage_repaint` | Partial repaint: only the damaged rectangle is re-rasterized | `--verify-damage` |
-| 04 | `layout` | Incremental layout re-run under resize and content change | `--verify-layout` |
-| 05 | `widgets` | Property-id-driven layout/paint, clipping probes, damage cost | `--verify-widgets` |
-| 06 | `font_fallback` | One family name covers 12 scripts plus emoji; BCP 47 tag selects Han face | `--verify-fallback` |
-| 07 | `clipping` | `overflow` clips paint, hit testing and damage together, including rounded clips | `--verify-clipping` |
-| 08 | `opacity` | Per-object alpha vs. group `opacity` (saveLayer) side by side | `--verify-opacity` |
-| 09 | `sizing` | `basis`/`shrink`/`main_size`/`aspect_ratio` under a resizing window | `--verify-sizing` |
-| 10 | `scrolling` | Two independent scroll viewports, wheel and drag, clamped at content edges (low-level teaching example) | `--verify-scrolling` |
-| 11 | `form_controls` | Checkbox, two radio groups, two sliders, a disable switch (on `dg::App`) | `--verify-form-controls` |
-| 12 | `text_input` | Single-line editing, selection, clipboard, ellipsis, IME composition preview (on `dg::App`) | `--verify-text-input` |
-| 13 | `image` | Decode + four fit modes (`fill`/`contain`/`cover`/`none`) plus a placeholder colour | `--verify-image` |
-| 14 | `popup` | Overlay popup placement/dismissal straight on `PopupHost` (low-level teaching example) | `--verify-popup` |
-| 15 | `list` | 1000-item virtualized list recycling a fixed row-node pool (on `dg::App`) | `--verify-list` |
-| 16 | `complex_properties` | Gradient, hard-edged shadow, id-based image attach through the dedicated-setter channel | `--verify-complex-properties` |
-| 17 | `animation` | Explicit animation, implicit hover transition, chained caret blink; `--idle-probe-ms` measures idle CPU | `--verify-animation` |
-| 18 | `theme` | Every visual token-bound; click to switch light/dark with zero relayout | `--verify-theme` |
-| 19 | `c_client` | Pure C program, two windows, cross-window click-to-recolour through the ABI (BOX/BUTTON, plus LABEL/CHECKBOX/TEXT_FIELD/LIST checks in the verify run) | `--verify-c-client` |
-| 20 | `multiline_text` | Word wrap, unspaced CJK wrap, mixed-script/emoji, BiDi Arabic-in-Latin, ellipsis | `--verify-multiline-text` |
-| 21 | `focus` | Tab/Shift-Tab order, `tab_index` override, popup focus confinement (low-level teaching example) | `--verify-focus` |
-| 22 | `dropdown_menu` | Keyboard/mouse dropdown selection between two buttons (on `dg::App`) | `--verify-dropdown` |
-| 23 | `menu_tooltip_dialog` | Context menu, hover tooltip and modal dialog through the runtime's `open_menu()`/`set_tooltip()`/`open_dialog()` (on `dg::App`) | `--verify-menus` |
-| 24 | `theme_package` | External theme package load, hot reload, path-traversal rejection | `--verify-theme-package` |
-| 25 | `showcase` | **Start here.** Every feature in one `dg::App` window: seven tabs (buttons/checkbox/radio/slider/disabled group/cursors/tooltips; text field, CJK+emoji text area, font sizes, wrapping; row/column, all `justify` modes, % widths, wrap; 1000-item list, tree, sortable table, timer-driven progress; dropdown, context menu, dialogs; PNG/JPEG/WebP + tinted SVG icons; window title/maximize/fullscreen, timer, `Waker`), live light/dark switch, last-event status line. `--dump-png FILE --tab N --theme light\|dark` | `--verify-showcase` |
-| 26 | `text_area` | A heading row (a `BOX` made a row) over a multi-line `TEXT_AREA`, all through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
-| 27 | `data_widgets` | Progress bars (determinate + indeterminate), tabs with a disabled tab, a 10,000-item tree and a 10,000-row sortable table on fixed node pools (on `dg::App`) | `--verify` |
-| 28 | `c_components` | Pure C: a context menu, a dropdown, tooltips, a modal dialog, a slider, a radio group, a progress bar, tabs holding a tree, and a table the app sorts on request - all through the poll-based C ABI | `--verify` |
-| 29 | `enterprise` | A realistic "资产管理" (asset inventory) app on `dg::App`: menu bar + shortcuts + context menus sharing one command switch, SVG icon toolbar with a toggle filter and search, a location tree filtering a sortable table with icon/check cells and row keys, detail tabs (form, undoable history list, tag rows via `set_user_data`), form dialogs (with a dropdown) and a disabled OK, compact rows (`row_height`), a hideable detail panel (`visible`), an unsaved-changes prompt on Ctrl+Q and the title-bar close (`CloseRequestedEvent`), fade-ins that respect reduced motion, status bar. `--dump-png FILE --theme light\|dark --state default\|menu\|context\|dialog` | `--verify` |
-
-## Unit tests
-
-`ctest` runs `drawgui_unit_test`, a doctest binary covering `dg::Expected`,
-the golden-image comparator, damage, layout, clipping, compositing, hit
-testing, interaction, UTF-8 decoding, font fallback, text editing, paragraph
-layout, focus, scrollbars, cursors, images, the UI components, theme-package
-security (path traversal, symlink escapes/loops, resource bounds, a fixed-seed
-fuzz pass), shortcut routing, clipboard, node removal, the `dg::App` runtime
-and the C ABI - **865 test cases**
-(`./build/tests/drawgui_unit_test`'s own summary line is the source of
-truth). Run it directly for per-case output:
-
-```sh
-./build/tests/drawgui_unit_test
-```
-
-## Golden-image tests
-
-`tests/golden/baseline/` holds 8 committed PNGs, compared pixel-by-pixel at
-**zero tolerance**. Four exercise bare `Canvas` primitives only - a clear,
-a rounded rect, two strokes, and alpha blending - not text, not a node
-tree, not layout, not a theme, not a widget; they are the raster floor.
-The other four are built entirely through the C ABI and captured with
-`dg_debug_capture_png()`: a label (`abi_label_text`), a checkbox off/on
-(`abi_checkbox_off`/`abi_checkbox_on`), and a typed-into text field
-(`abi_text_field`). `ctest` never regenerates them on its own:
-
-```sh
-cmake --build build --target golden_update
-```
-
-## Building
-
-The Skia distribution is `BBDXF/libskia2` (`cmake/FetchSkia2.cmake`), a
-purpose-built prebuilt Skia for self-drawn GUI frameworks. No OpenGL development
-package is needed - the prebuilt ships `GrGLMakeNativeInterface_none`, so GL
-entry points resolve at runtime through a caller-supplied proc loader and
-nothing links against libGL.
-
-The first configure downloads libskia2's release tarball into
-`third_party/skia-prebuilt/` and the doctest single header into
-`third_party/doctest-<version>/`, both SHA256-verified. Once present,
-building without network access works; `-DDRAWGUI_BUILD_TESTS=OFF` skips
-doctest. Prerequisites and the full build/prerequisite list live in
-`doc/getting-started.md`.
-
-All 43 CTest entries pass on Linux (`ctest --test-dir build -N`).
+The first configure downloads a prebuilt Skia and doctest. See
+`doc/getting-started.md` for prerequisites and first programs, and `doc/` for
+the guides and references.
