@@ -252,14 +252,17 @@ void process_pointer_event(WinState& window, const dg::PointerEvent& event) {
       // Window::scope_action() a real `focused` node to bubble FROM
       // (design.md section 5.5.2 level 2).
       const bool hit_is_focusable = hit.has_value() && window.widgets.has(*hit) &&
-                                    dg::is_focusable(window.widgets.at(*hit).kind);
+                                    dg::takes_focus(window.widgets.at(*hit));
       if (press_scrollbar(window, hit, at)) {
         break;
       }
       if (!hit.has_value() && press_list_row(window, at, window.last_press_clicks)) {
         break;
       }
-      const std::optional<dg::NodeId> new_focus = hit_is_focusable ? hit : std::nullopt;
+      std::optional<dg::NodeId> new_focus = hit_is_focusable ? hit : std::nullopt;
+      if (!hit.has_value()) {
+        new_focus = list_at(window, at);  // a press on a list's empty area
+      }
       // The border recolour + display re-derivation for editors, and
       // the FocusChangedEvent, all in apply_focus_change().
       apply_focus_change(window, window.focus.set(new_focus));

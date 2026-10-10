@@ -498,7 +498,7 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             on_window(e.window);
             out.node = node(e.node);
             out.x = e.index;
-            out.clicks = clicks_of(e.clicks, 1);
+            out.clicks = clicks_of(e.clicks, 0);
           },
           [&](const dg::events::ValueChangedEvent& e) {
             on_window(e.window);
@@ -957,6 +957,7 @@ std::int32_t window_set_root(dg_window_t* window_h, dg_node_t* node_h) {
   slot.state = NodeSlot::State::kLive;
   slot.window_index = window_h->index;
   slot.node_id = created.value();
+  (void)window->window->set_user_data(slot.node_id, slot.pending_user_data);
   return DG_ERR_OK;
 }
 
@@ -1099,6 +1100,7 @@ std::int32_t node_insert_before(dg_node_t* parent_h, dg_node_t* child_h, dg_node
     child_slot->state = NodeSlot::State::kLive;
     child_slot->window_index = parent_slot->window_index;
     child_slot->node_id = created.value();
+    (void)window.set_user_data(child_slot->node_id, child_slot->pending_user_data);
     return DG_ERR_OK;
   }
 

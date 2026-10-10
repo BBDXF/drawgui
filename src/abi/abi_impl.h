@@ -123,6 +123,8 @@ std::int32_t dropdown_set_selected(dg_node_t* node, std::int32_t index);
 std::int32_t slider_get_value(dg_node_t* node, float* out_value);
 std::int32_t radio_select(dg_node_t* node);
 std::int32_t node_set_tooltip(dg_node_t* node, const char* utf8);
+std::int32_t node_set_user_data(dg_node_t* node, std::uint64_t value);
+std::int32_t node_get_user_data(dg_node_t* node, std::uint64_t* out_value);
 std::int32_t app_set_tooltip_delay(dg_app_t* app, std::int32_t delay_ms);
 std::int32_t dialog_open(dg_window_t* window, const char* title, const char* body,
                          const char* const* buttons, std::uint32_t count,

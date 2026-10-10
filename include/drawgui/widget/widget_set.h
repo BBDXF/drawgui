@@ -179,6 +179,11 @@ struct Widget {
   // unfocusable (a direct click, or dg::Focus::set(), still reaches it).
   std::optional<int> tab_index;
 
+  // Opts a widget whose kind is_focusable() rejects into focus anyway (Tab
+  // order, clicks, dg::Window::focus()) - for an owner that supplies the
+  // keyboard handling itself, like the runtime's kList (dg::takes_focus()).
+  bool focusable = false;
+
   // The three fills an interactive widget cycles through. A panel or a label
   // never changes fill and leaves these alone.
   Color fill_normal;

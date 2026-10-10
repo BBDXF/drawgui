@@ -193,6 +193,127 @@ TEST_SUITE("runtime rows") {
     CHECK(list.selected().value() == 2);
   }
 
+  TEST_CASE("list: keyboard - focus, arrows/Home/End/Page keys, Space, Shift+F10, Tab") {
+    Rt t;
+    const dg::ImageId icon = load_icon(t.app);
+    const dg::NodeId before = t.add(dg::NodeKind::kButton);
+    const dg::NodeId node = t.add(dg::NodeKind::kList);
+    dg::ListRef list = t.win->list(node).value();
+    REQUIRE(list.set_rows(rows(100, icon), kRow) == dg::Status::kOk);
+    (void)t.pump();
+
+    // Tab reaches the list after the button, like a Tree/Table frame.
+    REQUIRE(t.win->focus(before) == dg::Status::kOk);
+    t.key(dg::Key::kTab);
+    (void)t.pump();
+    REQUIRE(t.win->focused() == node);
+
+    // No selection yet: Down starts at row 0. Keyboard selects report clicks = 0.
+    t.key(dg::Key::kDown);
+    std::vector<dg::Event> got = t.pump();
+    std::vector<ev::ListSelectEvent> selects = of<ev::ListSelectEvent>(got);
+    REQUIRE(selects.size() == 1);
+    CHECK(selects[0].index == 0);
+    CHECK(selects[0].clicks == 0);
+    CHECK(selects[0].node == node);
+    t.key(dg::Key::kDown);
+    t.key(dg::Key::kDown);
+    (void)t.pump();
+    CHECK(list.selected().value() == 2);
+    t.key(dg::Key::kUp);
+    (void)t.pump();
+    CHECK(list.selected().value() == 1);
+
+    // End scrolls the last row into view; Home scrolls back.
+    t.key(dg::Key::kEnd);
+    got = t.pump();
+    CHECK(list.selected().value() == 99);
+    CHECK(of<ev::ListSelectEvent>(got).size() == 1);
+    const int viewport = t.bounds(node).height - 2;
+    CHECK(t.win->scroll_offset(node).value().y == (100 * kRow) - viewport);
+    t.key(dg::Key::kDown);  // already last: no new event
+    CHECK(of<ev::ListSelectEvent>(t.pump()).empty());
+    t.key(dg::Key::kPageUp);
+    (void)t.pump();
+    const int page = viewport / kRow;
+    CHECK(list.selected().value() == 99 - page);
+    t.key(dg::Key::kHome);
+    (void)t.pump();
+    CHECK(list.selected().value() == 0);
+    CHECK(t.win->scroll_offset(node).value().y == 0);
+    t.key(dg::Key::kPageDown);
+    (void)t.pump();
+    CHECK(list.selected().value() == page);
+
+    // Space toggles the selected row's check box, like a press on it.
+    REQUIRE(list.select(4) == dg::Status::kOk);
+    const bool was = list.row_checked(4).value();
+    t.chord(dg::LogicalKey::kSpace, dg::Modifier::kNone);
+    got = t.pump();
+    const auto parts = of<ev::RowPartEvent>(got);
+    REQUIRE(parts.size() == 1);
+    CHECK(parts[0].part == ev::RowPartEvent::Part::kCheck);
+    CHECK(parts[0].item == 4);
+    CHECK(parts[0].item_key == 1004U);
+    CHECK(list.row_checked(4).value() == !was);
+    CHECK(of<ev::ListSelectEvent>(got).empty());
+
+    // Shift+F10 names the selected row.
+    t.chord(dg::LogicalKey::kF10, dg::Modifier::kShift);
+    const auto context = of<ev::ContextClickEvent>(t.pump());
+    REQUIRE(context.size() == 1);
+    CHECK(context[0].node == node);
+    CHECK(context[0].item == 4);
+
+    // A disabled list neither keeps focus nor takes keys.
+    t.set(node, DG_PROP_DISABLED, dg::PropValue::boolean(true));
+    (void)t.pump();
+    CHECK(t.win->focused() != node);
+    CHECK(t.win->focus(node) == dg::Status::kUnsupported);
+  }
+
+  TEST_CASE("list: a press on a row or the empty area focuses the list") {
+    Rt t;
+    const dg::NodeId button = t.add(dg::NodeKind::kButton);
+    const dg::NodeId node = t.add(dg::NodeKind::kList);
+    dg::ListRef list = t.win->list(node).value();
+    REQUIRE(list.set_items({"a", "b"}, kRow) == dg::Status::kOk);
+    (void)t.pump();
+    REQUIRE(t.win->focus(button) == dg::Status::kOk);
+    t.press(100, row_y(t, node, 1, kRow));
+    (void)t.pump();
+    CHECK(t.win->focused() == node);
+    CHECK(list.selected().value() == 1);
+
+    REQUIRE(t.win->focus(button) == dg::Status::kOk);
+    t.press(100, t.bounds(node).y + t.bounds(node).height - 10);  // below the rows
+    (void)t.pump();
+    CHECK(t.win->focused() == node);
+    CHECK(list.selected().value() == 1);
+  }
+
+  TEST_CASE("Window::set_user_data: opaque per-node value, 0 by default, gone with the node") {
+    Rt t;
+    const dg::NodeId a = t.add(dg::NodeKind::kButton);
+    const dg::NodeId b = t.add(dg::NodeKind::kList);
+    CHECK(t.win->user_data(a).value() == 0);
+    CHECK(t.win->set_user_data(a, 0xDEADBEEF00000001ULL) == dg::Status::kOk);
+    CHECK(t.win->set_user_data(b, 9) == dg::Status::kOk);
+    CHECK(t.win->user_data(a).value() == 0xDEADBEEF00000001ULL);
+    CHECK(t.win->user_data(b).value() == 9);
+    // A composed child is not a node of the app's.
+    const dg::NodeId row = t.win->layout().render().children(b).front();
+    CHECK(t.win->set_user_data(row, 1) == dg::Status::kInvalidNode);
+    // Survives a move; cleared by removal (a reused slot starts at 0).
+    REQUIRE(t.win->move(a, t.root) == dg::Status::kOk);
+    CHECK(t.win->user_data(a).value() == 0xDEADBEEF00000001ULL);
+    REQUIRE(t.win->remove(a) == dg::Status::kOk);
+    CHECK(t.win->user_data(a).error() == dg::Status::kInvalidNode);
+    CHECK(t.win->set_user_data(a, 1) == dg::Status::kInvalidNode);
+    const dg::NodeId again = t.add(dg::NodeKind::kButton);
+    CHECK(t.win->user_data(again).value() == 0);
+  }
+
   TEST_CASE("list: row keys follow their rows across a reorder") {
     Rt t;
     const dg::NodeId node = t.add(dg::NodeKind::kList);

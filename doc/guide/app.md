@@ -56,13 +56,19 @@ C ABI（`drawgui.h`）是这一层之上的薄壳。C++ 程序可以直接使用
 - 属性：`set_prop`、`set(node, {dg::prop::width(120), dg::prop::row()})`（逐个应用，返回第一个失败）、`bind_token`、`set_text` / `text`、`checked`（checkbox 与 radio）、
   `set_disabled`（被禁用的子树不再接收指针/键盘；进行中的按下不会产生
   `ClickEvent`，焦点会移走）、`set_tooltip`、`set_image`、`scope_action`。
+- 用户数据：`set_user_data(node, std::uint64_t)` / `user_data(node)` 在节点上存一个
+  不透明的 64 位值（下标、转成整数的指针……），省得自己维护 `NodeId → 对象` 的表。
+  运行时从不读取、从不解引用它，事件里也不带；没设过为 0，`move` 保留，`remove` 后
+  随节点消失（之后 `kInvalidNode`，复用同一槽位的新节点从 0 开始）。组合类节点的内部
+  子节点不能设（`kInvalidNode`）。
 - 尺寸：`kBox` 等节点创建时带默认尺寸（`kBox` 240×120），`prop::width_auto()` /
   `prop::height_auto()` 去掉它，回到按内容/由父容器决定（[layout.md](layout.md)）。
 - 主题：按钮、复选框、单选的颜色来自主题 token（与编辑框、滚动条一样），切换
   主题自动重涂；你在它们上 `set_prop`/`bind_token` 的 `BACKGROUND_COLOR`/
   `TEXT_COLOR`/`BORDER_COLOR` 优先（背景色的悬停/按下色由它派生），不必再改
   `widgets()` 里的 `fill_*`。
-- 焦点：`focus`、`clear_focus`、`focused`；变化以 `FocusChangedEvent` 报告。
+- 焦点：`focus`、`clear_focus`、`focused`；变化以 `FocusChangedEvent` 报告。`kList`
+  和树/表格一样可聚焦（键盘导航见 [widgets.md](widgets.md)「列表的键盘」）。
 - 弹层：`open_menu(anchor, at, std::vector<MenuEntry>)`、`close_menu`、
   `open_dialog(DialogOptions)`、`close_dialog`；返回的 id 会出现在对应的
   `MenuEvent` / `DialogResultEvent` 里。

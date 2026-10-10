@@ -164,7 +164,7 @@ dg::Status set_widget_prop(WinState& window, const NodeRecord& record, std::uint
     window.widgets.editor_set_max_length(record.id, *number);
     return dg::Status::kOk;
   }
-  if (!window.widgets.has(record.id) || !dg::is_focusable(window.widgets.at(record.id).kind)) {
+  if (!window.widgets.has(record.id) || !dg::takes_focus(window.widgets.at(record.id))) {
     return dg::Status::kNotApplicable;
   }
   // attach() replaces the stored Widget by value; a copy with only the tab
@@ -643,6 +643,23 @@ Expected<std::string, Status> Window::text(NodeId node) const {
   }
   const TextEditState* state = state_->widgets.editor_state(record->id);
   return state != nullptr ? state->text : std::string();
+}
+
+Status Window::set_user_data(NodeId node, std::uint64_t value) {
+  NodeRecord* record = app_detail::record_of(*state_, node);
+  if (record == nullptr) {
+    return Status::kInvalidNode;
+  }
+  record->user_data = value;
+  return Status::kOk;
+}
+
+Expected<std::uint64_t, Status> Window::user_data(NodeId node) const {
+  const NodeRecord* record = app_detail::record_of(*state_, node);
+  if (record == nullptr) {
+    return Unexpected(Status::kInvalidNode);
+  }
+  return record->user_data;
 }
 
 Expected<bool, Status> Window::checked(NodeId node) const {

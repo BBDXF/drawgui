@@ -161,6 +161,69 @@ TEST_SUITE("abi rows") {
     CHECK(contexts[0].item_key == 0xA0000000000001ULL);
   }
 
+  TEST_CASE("dg_node_focus accepts a LIST; Down/End/Space drive it") {
+    App a;
+    dg_node_t* list = a.add(DG_NODE_TYPE_LIST);
+    const char* texts[] = {"alpha", "beta", "gamma"};
+    const std::uint32_t flags[] = {0, DG_ROW_CHECKABLE, 0};
+    REQUIRE(dg_list_set_rows(list, texts, nullptr, nullptr, flags, nullptr, 3, 28) == DG_ERR_OK);
+    (void)a.pump();
+    REQUIRE(dg_node_focus(list) == DG_ERR_OK);
+    CHECK(dg_window_get_focus(a.window) == list);
+    const auto key = [&a](const char* name) {
+      REQUIRE(dg_debug_post_key(a.window, 1, name) == DG_ERR_OK);
+      REQUIRE(dg_debug_post_key(a.window, 0, name) == DG_ERR_OK);
+    };
+    key("Down");
+    key("Down");
+    std::vector<dg_event> got = a.pump();
+    const auto selects = of_kind(got, DG_EVENT_LIST_SELECT);
+    REQUIRE(selects.size() == 2);
+    CHECK(selects[1].x == 1);
+    CHECK(selects[1].clicks == 0);
+    CHECK(dg_list_get_selected(list) == 1);
+    key("Space");
+    got = a.pump();
+    const auto parts = of_kind(got, DG_EVENT_ROW_PART);
+    REQUIRE(parts.size() == 1);
+    CHECK(parts[0].x == DG_ROW_PART_CHECK);
+    CHECK(parts[0].item == 1);
+    CHECK(dg_list_row_checked(list, 1) == 1);
+    key("End");
+    (void)a.pump();
+    CHECK(dg_list_get_selected(list) == 2);
+  }
+
+  TEST_CASE("dg_node_set_user_data/get: pending and live, never in events") {
+    App a;
+    dg_node_t* node = dg_node_create(a.app, DG_NODE_TYPE_BUTTON);
+    REQUIRE(node != nullptr);
+    std::uint64_t value = 7;
+    CHECK(dg_node_get_user_data(node, &value) == DG_ERR_OK);
+    CHECK(value == 0);
+    CHECK(dg_node_get_user_data(node, nullptr) == DG_ERR_INVALID_ARGUMENT);
+    CHECK(dg_node_set_user_data(node, 0xFEEDFACECAFEBEEFULL) == DG_ERR_OK);
+    CHECK(dg_node_get_user_data(node, &value) == DG_ERR_OK);
+    CHECK(value == 0xFEEDFACECAFEBEEFULL);
+    // Kept when the pending node goes live.
+    REQUIRE(dg_node_insert_before(a.root, node, nullptr) == DG_ERR_OK);
+    value = 0;
+    CHECK(dg_node_get_user_data(node, &value) == DG_ERR_OK);
+    CHECK(value == 0xFEEDFACECAFEBEEFULL);
+    CHECK(dg_node_set_user_data(node, 42) == DG_ERR_OK);
+    CHECK(dg_node_get_user_data(node, &value) == DG_ERR_OK);
+    CHECK(value == 42);
+    // A sibling is independent.
+    dg_node_t* other = a.add(DG_NODE_TYPE_LABEL);
+    CHECK(dg_node_get_user_data(other, &value) == DG_ERR_OK);
+    CHECK(value == 0);
+    // Gone with the node.
+    REQUIRE(dg_node_remove(node) == DG_ERR_OK);
+    CHECK(dg_node_get_user_data(node, &value) == DG_ERR_INVALID_HANDLE);
+    CHECK(dg_node_set_user_data(node, 1) == DG_ERR_INVALID_HANDLE);
+    CHECK(dg_node_set_user_data(nullptr, 1) == DG_ERR_INVALID_HANDLE);
+  }
+
   TEST_CASE("dg_tree_set_items_ex and dg_table_set_cells_ex: checks and keys") {
     App a;
     const auto icon = static_cast<std::uint32_t>(load_icon(a.app));

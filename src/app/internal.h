@@ -86,6 +86,8 @@ void repaint_list(WinState& window, const NodeRecord& record);
 void restyle_list_frame(WinState& window, const NodeRecord& record);
 void apply_scroll_result(WinState& window, dg::NodeId owner, const dg::ScrollResult& result);
 bool press_list_row(WinState& window, dg::PixelPoint at, int clicks);
+// The enabled runtime List under `at` (any part of it), or nothing.
+[[nodiscard]] std::optional<dg::NodeId> list_at(WinState& window, dg::PixelPoint at);
 dg::Status set_list_prop(WinState& window, const NodeRecord& record, std::uint16_t prop_id,
                          const dg::PropValue& value);
 void resync_list(WinState& window, const NodeRecord& record);

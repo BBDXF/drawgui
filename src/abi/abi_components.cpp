@@ -200,6 +200,42 @@ std::int32_t node_set_tooltip(dg_node_t* node_h, const char* utf8) {
       slot->node_id, text_or_empty(utf8)));
 }
 
+std::int32_t node_set_user_data(dg_node_t* node_h, std::uint64_t value) {
+  NodeSlot* slot = slot_of(node_h);
+  if (slot == nullptr || slot->state == NodeSlot::State::kRemoved) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (slot->state == NodeSlot::State::kPending) {
+    slot->pending_user_data = value;
+    return DG_ERR_OK;
+  }
+  AppImpl& impl = *app_of(node_h->app);
+  return to_error_code(
+      impl.windows[slot->window_index]->window->set_user_data(slot->node_id, value));
+}
+
+std::int32_t node_get_user_data(dg_node_t* node_h, std::uint64_t* out_value) {
+  if (out_value == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  NodeSlot* slot = slot_of(node_h);
+  if (slot == nullptr || slot->state == NodeSlot::State::kRemoved) {
+    return DG_ERR_INVALID_HANDLE;
+  }
+  if (slot->state == NodeSlot::State::kPending) {
+    *out_value = slot->pending_user_data;
+    return DG_ERR_OK;
+  }
+  AppImpl& impl = *app_of(node_h->app);
+  const dg::Expected<std::uint64_t, dg::Status> value =
+      impl.windows[slot->window_index]->window->user_data(slot->node_id);
+  if (!value) {
+    return to_error_code(value.error());
+  }
+  *out_value = value.value();
+  return DG_ERR_OK;
+}
+
 std::int32_t app_set_tooltip_delay(dg_app_t* app, std::int32_t delay_ms) {
   AppImpl* impl = app_of(app);
   if (impl == nullptr) {

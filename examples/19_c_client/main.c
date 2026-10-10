@@ -877,6 +877,9 @@ static int run_verify(void) {
     dg_debug_warp_pointer(window_c, 40, 45); /* row 1: 30..59 */
     dg_debug_post_pointer_button(window_c, 1, 40, 45);
     dg_debug_post_pointer_button(window_c, 0, 40, 45);
+    /* Deliver the press first: it focuses the list (a focusable node), and
+     * the focus call below must come after it to win. */
+    dg_wait_events(app, 0);
     check(dg_node_focus(focus_button) == DG_ERR_OK, "dg_node_focus focuses the button");
     timer = dg_timer_add(app, 0, 0);
     check(timer != 0, "dg_timer_add returns a timer id");

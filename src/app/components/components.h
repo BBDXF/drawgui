@@ -218,6 +218,8 @@ bool control_key(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
 }
 bool control_key(WinState& window, NodeRecord& record, TabsState& state,
                  const dg::KeyEvent& event);
+bool control_key(WinState& window, NodeRecord& record, ListState& state,
+                 const dg::KeyEvent& event);
 bool control_key(WinState& window, NodeRecord& record, TreeState& state,
                  const dg::KeyEvent& event);
 bool control_key(WinState& window, NodeRecord& record, TableState& state,

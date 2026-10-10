@@ -11,7 +11,7 @@
 | `kButton` | `set_text(DG_PROP_TEXT)` | `ClickEvent`（`clicks` 为连击数） |
 | `kCheckbox` | `checked(node)` | `ClickEvent`（点击自动切换） |
 | `kTextField` / `kTextArea` | `set_text`/`text(node)`、`DG_PROP_PLACEHOLDER`、`DG_PROP_MAX_LENGTH`（见 [text.md](text.md)） | `TextChangedEvent` |
-| `kList` | `window->list(node)` → `ListRef::set_items/select/selected` | `ListSelectEvent` |
+| `kList` | `window->list(node)` → `ListRef::set_items/select/selected` | `ListSelectEvent`（键盘选中时 `clicks == 0`） |
 | `kScrollView` | 子节点直接 `create()` 到它下面；`scroll_offset()` | — |
 | `kImage` | `set_image(node, app.images()...)` | — |
 | `kDropdown` | `dropdown(node)` → `DropdownRef` | `ValueChangedEvent` |
@@ -24,6 +24,14 @@
 
 - 列表只建固定数量的行节点并循环复用，1000 项和 10 项节点数相同；滚轮、
   滚动条拖动、点击选择都由运行时处理（`examples/15_list`）。
+- **列表的键盘**：`kList` 和 `Tree`/`Table` 的外框一样可聚焦——点行或列表空白处、
+  Tab/Shift+Tab、`focus(node)` 都能让它获得焦点（外观同树/表格：没有额外焦点环，
+  选中行是柔和的 primary 底色）。获得焦点时 Up/Down 移动一行、Home/End 到首/末行、
+  PageUp/PageDown 按可见行数翻页（还没有选中时 Down/Home/PageUp/PageDown 从第 0 行、
+  Up/End 从末行开始），每次选中变化产生和点击相同的 `ListSelectEvent`（`clicks == 0`），
+  并滚动到刚好让该行完整可见；空格切换选中行的复选框（`RowPartEvent{kCheck}`，同点击
+  复选框）；Shift+F10/Menu 键的 `ContextClickEvent` 带选中行。带修饰键的这些按键不处理，
+  照常走快捷键路由。
 - `set_disabled(node, true)`：整棵子树不再响应指针/键盘，进行中的按下不会产生
   `ClickEvent`，焦点会移走——不需要自己取消 hover/press 或模糊焦点。
 - 数据控件见 `examples/27_data_widgets`。`kList`/`kTree`/`kTable` 跟随布局后的
@@ -508,7 +516,7 @@ tooltip），每行显示前 N 个。`TreeEntry` 同样有 `icon`/`secondary`/`c
   （`row_checked()`/`cell_checked()` 立即读到新值），`kAction` 时 `action` 是按钮序号。
   悬停操作按钮显示它的 tooltip（期间临时借用列表节点的 tooltip，离开后还原）。
 - **空格**：`Tree`/`Table` 获得焦点时按空格切换选中行的复选框（表格取该行第一个可勾选的格）
-  并报告 `RowPartEvent{kCheck}`。`List` 不可聚焦，没有这条键盘路径。
+  并报告 `RowPartEvent{kCheck}`；运行时 `List` 获得焦点时同样如此。
 - **点击事件带行**：按在 List/Table 行或 Tree 条目上，除选择事件外还有
   `ClickEvent{item, column, item_key}`（`item` 对树是先序下标，`column` 只有表格有）。
   右键先**选中**该行（照常产生选择事件，已选中则不重复），再产生同样带行信息的
@@ -603,7 +611,9 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 
 #### kScrollView/kList 不能获得焦点
 
-`is_focusable()` 刻意排除 `kScrollView`/`kList`/`kScrollbar`；键盘滚动由
+`is_focusable()` 刻意排除 `kScrollView`/`kList`/`kScrollbar`（运行时的 `kList` 节点
+设了 `Widget::focusable = true` 自带键盘处理，所以可以聚焦，见上文「列表的键盘」；
+`dg::takes_focus(widget)` 是两者的合并判断）；键盘滚动由
 `apply_keyboard_scroll()` 从当前焦点向上找最近的可滚动祖先完成，原因和完整列表见
 [input.md](input.md) 的焦点一节。
 
@@ -611,7 +621,7 @@ widgets.text_area_click(tree.render(), fonts, area_node, pointer, /*extend=*/dra
 
 - **没有 widget 树、没有 `createXxx()` 工厂函数**——上文已经讲透。
 - **dropdown/菜单/tooltip/对话框是组件层（`include/drawgui/ui/`），不是 `WidgetKind`**——由宿主循环驱动、不支持嵌套，见上文★和 `doc/limitations.md` B 节。
-- **`kScrollView`/`kList` 不能获得键盘焦点**，它们的滚动条也不能（`TreeView`/`Table` 的焦点在外框 `kButton` 上，绕开了这一点）。
+- **WidgetSet 层的 `kScrollView`/`kList` 不能获得键盘焦点**，它们的滚动条也不能（`TreeView`/`Table` 的焦点在外框 `kButton` 上，运行时 `kList` 用 `Widget::focusable` 选择加入，都绕开了这一点）。
 - **数据控件（ProgressBar/Tabs/TreeView/Table）布局后要 `sync()`**，见上文★。
 - **滚动条的节点由调用方创建**，布局之后要 `sync_scrollbar()`；视口要自己留出槽，见上文「滚动条」。
 - **禁用是节点属性，写完要同步**：C++ 侧写 `DG_PROP_DISABLED` 后要调用

@@ -170,6 +170,8 @@ C_PRIMITIVE_TYPES = frozenset(
         "const float*",
         # ABI 0.2: dg_slider_get_value()'s scalar out-param.
         "float*",
+        # ABI 0.2: dg_node_get_user_data()'s scalar out-param.
+        "uint64_t*",
     }
 )
 
@@ -774,6 +776,7 @@ _C_TO_TS = {
     "const int32_t*": "Int32Array | null",
     "const float*": "Float32Array | null",
     "float*": "Float32Array | null",
+    "uint64_t*": "BigUint64Array | null",
 }
 
 

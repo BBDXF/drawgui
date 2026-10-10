@@ -16,7 +16,7 @@ void collect_focus_order(const RenderTree& tree, const WidgetSet& widgets, NodeI
   }
   if (widgets.has(id)) {
     const Widget& widget = widgets.at(id);
-    if (is_focusable(widget.kind) &&
+    if (takes_focus(widget) &&
         (!widget.tab_index.has_value() || *widget.tab_index >= 0) &&
         !tree.absolute_bounds(id).is_empty()) {
       out.push_back(id);

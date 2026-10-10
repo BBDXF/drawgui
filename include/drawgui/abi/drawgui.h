@@ -304,7 +304,10 @@ typedef struct dg_theme_err {
 /* color.primary at reduced opacity) and queues DG_EVENT_LIST_SELECT. The wheel */
 /* and its scrollbar scroll it, as for DG_NODE_TYPE_SCROLL_VIEW. Rows draw with */
 /* the default font in color.on-surface; DG_PROP_FONT_SIZE on the list sets */
-/* their size. Not focusable and no keyboard navigation in this version. */
+/* their size. Focusable (a press, Tab, dg_node_focus()): while focused, */
+/* Up/Down/Home/End/PageUp/PageDown move the selection, scroll it into view and */
+/* queue DG_EVENT_LIST_SELECT with `clicks` 0; Space toggles the selected row's */
+/* check box (DG_EVENT_ROW_PART). */
 #define DG_NODE_TYPE_LIST 8u
 /* ABI 0.2: a box that paints a decoded image (no fill of its own), 64x64 by */
 /* default. dg_node_set_image_data()/dg_node_set_image_file() set its picture */
@@ -469,9 +472,10 @@ typedef struct dg_theme_err {
 /* pointer position in device pixels, `clicks` the click count. Fires on the */
 /* press, before any release; it does not focus or press anything. */
 #define DG_EVENT_CONTEXT_CLICK 17u
-/* ABI 0.2: a primary press selected a row of a DG_NODE_TYPE_LIST. `node` is the */
-/* list, `x` the row index, `y` 0, `clicks` the click count (2 for a */
-/* double-click - the usual 'activate' gesture). */
+/* ABI 0.2: a primary press (or, on a focused list, a navigation key) selected a */
+/* row of a DG_NODE_TYPE_LIST. `node` is the list, `x` the row index, `y` 0, */
+/* `clicks` the click count (2 for a double-click - the usual 'activate' */
+/* gesture; 0 for a key). */
 #define DG_EVENT_LIST_SELECT 18u
 /* ABI 0.2 phase B: an item of a dg_menu_open() menu was chosen (click or */
 /* Enter); the menu has closed. `x` is the item index, `y` the menu id */
@@ -1396,9 +1400,10 @@ DG_EXPORT int32_t dg_debug_get_cursor(dg_window_t* window);
 /* ABI 0.2: gives keyboard focus to a LIVE node, exactly as a click on it would */
 /* (an editor shows its caret and starts taking text input). Queues */
 /* DG_EVENT_FOCUS_CHANGED when focus actually moved. DG_ERR_UNSUPPORTED for a */
-/* node that cannot take focus (focusable types: BUTTON, CHECKBOX, TEXT_FIELD, */
-/* TEXT_AREA) or is disabled; DG_ERR_NO_WINDOW for a pending node; */
-/* DG_ERR_INVALID_HANDLE for a stale one. */
+/* node that cannot take focus (focusable types: BUTTON, CHECKBOX, RADIO, */
+/* SLIDER, TEXT_FIELD, TEXT_AREA, DROPDOWN, TABS, TREE, TABLE, LIST) or is */
+/* disabled; DG_ERR_NO_WINDOW for a pending node; DG_ERR_INVALID_HANDLE for a */
+/* stale one. */
 DG_EXPORT int32_t dg_node_focus(dg_node_t* node);
 
 /* ABI 0.2: the node that has keyboard focus in `window`, or null when nothing */
@@ -1533,6 +1538,18 @@ DG_EXPORT int32_t dg_dropdown_set_selected(dg_node_t* node, int32_t index);
 /* leaving the window hides it. dg_wait_events() wakes for the delay by itself. */
 /* Null or empty removes the tooltip. Removing the node removes its tooltip. */
 DG_EXPORT int32_t dg_node_set_tooltip(dg_node_t* node, const char* utf8);
+
+/* ABI 0.2: stores an opaque 64-bit value on a node (an index or a pointer cast */
+/* to an integer) for the caller's own bookkeeping; drawgui never reads or */
+/* dereferences it, and events do not carry it. Works on a pending node too */
+/* (kept when it is attached). 0 until set; gone with the node. */
+/* DG_ERR_INVALID_HANDLE for a removed or invalid handle. */
+DG_EXPORT int32_t dg_node_set_user_data(dg_node_t* node, uint64_t value);
+
+/* ABI 0.2: writes the value dg_node_set_user_data() stored (0 if never set) to */
+/* `out_value`. Pending or live. DG_ERR_INVALID_ARGUMENT for a null `out_value`; */
+/* DG_ERR_INVALID_HANDLE for a removed or invalid handle. */
+DG_EXPORT int32_t dg_node_get_user_data(dg_node_t* node, uint64_t* out_value);
 
 /* ABI 0.2 phase B: the hover delay before any tooltip of this app shows, */
 /* 0..60000 ms (default 500). Applies to every window, including ones already */

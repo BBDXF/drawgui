@@ -950,4 +950,60 @@ TEST_CASE("a padding change on the parent reaches its percentage children") {
   CHECK(all_bounds(incremental) == all_bounds(full));
 }
 
+TEST_CASE("moving a relayout boundary by left/top moves it") {
+  // A child with a definite width and height is its own relayout boundary,
+  // and its left/top are read by its parent rather than by itself.
+  const auto build = [](LayoutTree& tree, NodeId& host, NodeId& pinned) {
+    tree.set_box(LayoutTree::root(), stack_of(LayoutKind::kAbsolute));
+    BoxStyle layer = stack_of(LayoutKind::kAbsolute);
+    layer.width = 200;
+    layer.height = 100;
+    layer.left = 3;
+    layer.top = 4;
+    host = tree.add_child(LayoutTree::root(), layer, NodeStyle{});
+    BoxStyle corner = sized(30, 12);
+    corner.left = 5;
+    corner.top = 7;
+    pinned = tree.add_child(host, corner, NodeStyle{});
+  };
+  LayoutTree tree{spec_of(400, 300)};
+  NodeId host;
+  NodeId pinned;
+  build(tree, host, pinned);
+  tree.layout();
+  REQUIRE(tree.bounds(pinned) == PixelRect{8, 11, 30, 12});
+
+  BoxStyle moved = tree.box(pinned);
+  moved.left = 50;
+  moved.top = 60;
+  tree.set_box(pinned, moved);
+  tree.layout();
+  CHECK(tree.bounds(pinned) == PixelRect{53, 64, 30, 12});
+
+  BoxStyle moved_host = tree.box(host);
+  moved_host.left = 20;
+  moved_host.top = 30;
+  tree.set_box(host, moved_host);
+  tree.layout();
+  CHECK(tree.bounds(host) == PixelRect{20, 30, 200, 100});
+  CHECK(tree.bounds(pinned) == PixelRect{70, 90, 30, 12});
+
+  // Pinned by both edges: tight constraints, so the node absorbs its own
+  // style change - the parent still has to re-place it.
+  BoxStyle stretched = tree.box(pinned);
+  stretched.right = 100;
+  tree.set_box(pinned, stretched);
+  tree.layout();
+  REQUIRE(tree.bounds(pinned) == PixelRect{70, 90, 50, 12});
+  stretched.left = 10;
+  stretched.top = 5;
+  tree.set_box(pinned, stretched);
+  tree.layout();
+  CHECK(tree.bounds(pinned) == PixelRect{30, 35, 90, 12});
+
+  const std::vector<PixelRect> incremental = all_bounds(tree);
+  tree.layout_full();
+  CHECK(incremental == all_bounds(tree));
+}
+
 }  // namespace

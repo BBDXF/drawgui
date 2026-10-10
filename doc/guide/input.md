@@ -473,7 +473,7 @@ C ABI 不需要做任何事：`dg_wait_events()`/`dg_poll_events()` 的内部泵
 - 窗口级快捷键（level 3）目前只是声明性存在，没有任何 action 使用它，
   不要指望它能工作。
 - 快捷键绑定运行期不可改，只能重新生成。
-- `kScrollView`/`kList` 永远不可聚焦。
+- `kScrollView`/`kList` 的 `is_focusable()` 为假；控件设 `Widget::focusable = true` 才能选择加入（运行时的 `kList` 节点就是这样，见 widgets.md「列表的键盘」），焦点遍历/点击/`Window::focus()` 都用 `takes_focus()` 判断。
 - 每个弹层需要独立的 `FocusRing` 实例，复用宿主窗口的环会导致绘制顺序
   错误。
 - `Platform::kMacos` 不代表有 macOS 后端。

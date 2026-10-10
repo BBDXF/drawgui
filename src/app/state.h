@@ -156,6 +156,8 @@ struct NodeRecord {
   // text DG_PROP_PLACEHOLDER set.
   dg::NodeId placeholder{};
   std::string placeholder_text;
+  // Window::set_user_data(): opaque to the runtime, never dereferenced.
+  std::uint64_t user_data = 0;
 };
 
 struct NodeIdHash {

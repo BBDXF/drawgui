@@ -98,7 +98,7 @@ Status Window::focus(NodeId node) {
     return Status::kInvalidNode;
   }
   const dg::NodeId id = app_detail::components::focus_target(*record);
-  if (!window.widgets.has(id) || !dg::is_focusable(window.widgets.at(id).kind) ||
+  if (!window.widgets.has(id) || !dg::takes_focus(window.widgets.at(id)) ||
       dg::is_disabled(window.tree.render(), id)) {
     return Status::kUnsupported;
   }

@@ -266,6 +266,21 @@ ListRowAt list_row_at(WinState& window, dg::PixelPoint at) {
 
 }  // namespace
 
+std::optional<dg::NodeId> list_at(WinState& window, dg::PixelPoint at) {
+  dg::RenderTree& tree = window.tree.render();
+  const std::optional<dg::NodeId> hit = tree.hit_test(at);
+  const std::optional<dg::NodeId> list =
+      hit.has_value() ? window.widgets.list_owner_of(tree, *hit) : std::nullopt;
+  if (!list.has_value() || dg::is_disabled(tree, *list)) {
+    return std::nullopt;
+  }
+  const NodeRecord* record = record_of(window, *list);
+  if (record == nullptr || record->kind != NodeKind::kList) {
+    return std::nullopt;
+  }
+  return list;
+}
+
 // A primary press on a list row selects it and queues a ListSelectEvent,
 // then a ClickEvent naming the row. A press on a row's check box or action
 // button reports RowPartEvent instead and leaves the selection alone. True
@@ -276,6 +291,7 @@ bool press_list_row(WinState& window, dg::PixelPoint at, int clicks) {
     return false;
   }
   NodeRecord& record = *row.record;
+  apply_focus_change(window, window.focus.set_guarded(window.tree.render(), record.id));
   ListState& state = std::get<ListState>(record.state);
   const auto index = static_cast<std::size_t>(row.index);
   const dg::RowItem* item = index < state.rows.size() ? &state.rows[index] : nullptr;
@@ -426,6 +442,9 @@ void compose_list(WinState& window, NodeRecord& record) {
   // padding), recycled by list_sync()/list_scroll_by().
   dg::Widget widget;
   widget.kind = dg::WidgetKind::kList;
+  // A tab stop like TreeView / Table's frame: control_key() below moves the
+  // selection.
+  widget.focusable = true;
   widget.list_axis = dg::ScrollAxis::kVertical;
   widget.list_item_count = 0;  // list_set_items() fills it
   const dg::ControlStyle look = components::control_style(window.app);
@@ -447,6 +466,106 @@ void compose_list(WinState& window, NodeRecord& record) {
   const dg::NodeId thumb = window.tree.add_child(track, dg::BoxStyle{}, dg::NodeStyle{});
   window.widgets.attach_scrollbar(window.tree.render(), new_id, track, thumb);
   window.relaid = true;
+}
+
+namespace {
+
+// Scrolls the minimum needed so `row` is fully visible (row_list::reveal()'s
+// rule, with this list's own item extent and content viewport).
+void reveal_list_row(WinState& window, const NodeRecord& record, int row) {
+  dg::RenderTree& tree = window.tree.render();
+  const int extent = std::max(1, window.widgets.at(record.id).list_item_extent);
+  const int height = viewport_extent(window, record.id);
+  const int offset = tree.scroll_offset(record.id).y;
+  const int top = row * extent;
+  int target = offset;
+  if (top < offset) {
+    target = top;
+  } else if (top + extent > offset + height) {
+    target = top + extent - height;
+  }
+  if (target != offset) {
+    const std::vector<dg::ListSlot> rows =
+        window.widgets.list_scroll_by(tree, record.id, height, 0, target - offset);
+    apply_scroll_result(window, record.id, dg::ScrollResult{true, rows});
+  }
+}
+
+// Up/Down/Home/End/PageUp/PageDown from `current` over `count` rows; no
+// selection yet: Down/Home/PageDown start at 0, Up/End at the end.
+std::optional<int> list_nav_target(const WinState& window, const NodeRecord& record,
+                                   dg::Key key, int current, int count) {
+  if (count <= 0) {
+    return std::nullopt;
+  }
+  const int extent = std::max(1, window.widgets.at(record.id).list_item_extent);
+  const int page = std::max(1, viewport_extent(window, record.id) / extent);
+  const int last = count - 1;
+  const bool none = current < 0;
+  switch (key) {
+    case dg::Key::kUp:
+      return none ? last : std::max(0, current - 1);
+    case dg::Key::kDown:
+      return none ? 0 : std::min(last, current + 1);
+    case dg::Key::kHome:
+      return 0;
+    case dg::Key::kEnd:
+      return last;
+    case dg::Key::kPageUp:
+      return none ? 0 : std::max(0, current - page);
+    case dg::Key::kPageDown:
+      return none ? 0 : std::min(last, current + page);
+    default:
+      return std::nullopt;
+  }
+}
+
+// Space on a focused list: the selected row's check box, as a press on it.
+bool toggle_list_selected(WinState& window, NodeRecord& record, ListState& state) {
+  if (state.selected < 0) {
+    return false;
+  }
+  const auto index = static_cast<std::size_t>(state.selected);
+  if (index >= state.rows.size()) {
+    return false;
+  }
+  std::optional<bool>& check = state.rows[index].check;
+  if (!check.has_value()) {
+    return false;
+  }
+  check = !*check;
+  repaint_list(window, record);
+  emit(window.app,
+       dg::events::RowPartEvent{window.sdl_window, record.id, state.selected, -1,
+                                dg::events::RowPartEvent::Part::kCheck, -1,
+                                state.rows[index].key});
+  return true;
+}
+
+}  // namespace
+
+bool control_key(WinState& window, NodeRecord& record, ListState& state,
+                 const dg::KeyEvent& event) {
+  if (event.action != dg::KeyAction::kDown || window.focus.current() != record.id ||
+      dg::is_disabled(window.tree.render(), record.id) || event.mods != dg::Modifier::kNone) {
+    return false;
+  }
+  if (event.logical_key == dg::LogicalKey::kSpace) {
+    return toggle_list_selected(window, record, state);
+  }
+  const std::optional<int> target = list_nav_target(
+      window, record, event.key, state.selected, static_cast<int>(state.items.size()));
+  if (!target.has_value()) {
+    return false;
+  }
+  if (*target != state.selected) {
+    state.selected = *target;
+    repaint_list(window, record);
+    emit(window.app,
+         dg::events::ListSelectEvent{window.sdl_window, record.id, *target, 0});
+  }
+  reveal_list_row(window, record, *target);
+  return true;
 }
 
 }  // namespace components

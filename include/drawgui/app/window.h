@@ -111,6 +111,11 @@ class Window {
   // key input (a press in progress produces no ClickEvent) and lose focus.
   Status set_disabled(NodeId node, bool disabled);
   Status set_tooltip(NodeId node, std::string text);
+  // An opaque per-node value for the caller (an index, a pointer cast to an
+  // integer): the runtime stores it and never reads or dereferences it.
+  // 0 until set; gone with the node. Events do not carry it.
+  Status set_user_data(NodeId node, std::uint64_t value);
+  [[nodiscard]] Expected<std::uint64_t, Status> user_data(NodeId node) const;
   Status set_image(NodeId node, ImageId image);
   Status scope_action(NodeId node, std::uint16_t action_id);
   // Binds `chord` (e.g. "Ctrl+Shift+K", the input/shortcuts.toml syntax) to

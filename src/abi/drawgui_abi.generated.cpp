@@ -1081,6 +1081,36 @@ extern "C" DG_EXPORT int32_t dg_node_set_tooltip(dg_node_t* node, const char* ut
   }
 }
 
+extern "C" DG_EXPORT int32_t dg_node_set_user_data(dg_node_t* node, uint64_t value) {
+  try {
+    return dg::abi::node_set_user_data(node, value);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_set_user_data: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_set_user_data: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_set_user_data: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_node_get_user_data(dg_node_t* node, uint64_t* out_value) {
+  try {
+    return dg::abi::node_get_user_data(node, out_value);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_node_get_user_data: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_node_get_user_data: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_node_get_user_data: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
 extern "C" DG_EXPORT int32_t dg_app_set_tooltip_delay(dg_app_t* app, int32_t delay_ms) {
   try {
     return dg::abi::app_set_tooltip_delay(app, delay_ms);

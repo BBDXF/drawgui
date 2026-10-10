@@ -139,7 +139,7 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，87 个函数，其中 12 个是 `dg_debug_*` 测试钩子，完整列表见 `doc/reference/c-abi.md`）是 C++ 运行时 `dg::App`/`dg::Window` 之上的薄壳，现在能做到：
+C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，110 个函数，其中 12 个是 `dg_debug_*` 测试钩子，完整列表见 `doc/reference/c-abi.md`）是 C++ 运行时 `dg::App`/`dg::Window` 之上的薄壳，现在能做到：
 
 - **窗口**：开窗并操作（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询），接收 `DG_EVENT_WINDOW_*` 状态事件。没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
 - **节点**：十六种——`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`、`SLIDER`、`RADIO`，以及 phase B 的组件 `DROPDOWN`、`PROGRESS`、`TABS`、`TREE`、`TABLE`；按位置插入、同窗口内移动、整棵子树删除。

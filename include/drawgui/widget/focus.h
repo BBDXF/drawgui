@@ -129,6 +129,11 @@ struct FocusChange {
   return false;
 }
 
+// is_focusable(kind), or a widget that opted in through Widget::focusable.
+[[nodiscard]] constexpr bool takes_focus(const Widget& widget) {
+  return is_focusable(widget.kind) || widget.focusable;
+}
+
 // Whether `id` is `scope_root` itself or a descendant of it, walked through
 // RenderTree::parent() - the identical ancestor climb WidgetSet::owner_of()
 // already uses, one direction. This is the whole of what a "focus scope"

@@ -736,9 +736,10 @@ export declare namespace DrawguiAbi {
   // ABI 0.2: gives keyboard focus to a LIVE node, exactly as a click on it would
   // (an editor shows its caret and starts taking text input). Queues
   // DG_EVENT_FOCUS_CHANGED when focus actually moved. DG_ERR_UNSUPPORTED for a
-  // node that cannot take focus (focusable types: BUTTON, CHECKBOX, TEXT_FIELD,
-  // TEXT_AREA) or is disabled; DG_ERR_NO_WINDOW for a pending node;
-  // DG_ERR_INVALID_HANDLE for a stale one.
+  // node that cannot take focus (focusable types: BUTTON, CHECKBOX, RADIO,
+  // SLIDER, TEXT_FIELD, TEXT_AREA, DROPDOWN, TABS, TREE, TABLE, LIST) or is
+  // disabled; DG_ERR_NO_WINDOW for a pending node; DG_ERR_INVALID_HANDLE for a
+  // stale one.
   function dg_node_focus(node: dg_node_t | null): number;
   // ABI 0.2: the node that has keyboard focus in `window`, or null when nothing
   // has (or the window is invalid - dg_last_error() then says so).
@@ -846,6 +847,16 @@ export declare namespace DrawguiAbi {
   // leaving the window hides it. dg_wait_events() wakes for the delay by itself.
   // Null or empty removes the tooltip. Removing the node removes its tooltip.
   function dg_node_set_tooltip(node: dg_node_t | null, utf8: string | null): number;
+  // ABI 0.2: stores an opaque 64-bit value on a node (an index or a pointer cast
+  // to an integer) for the caller's own bookkeeping; drawgui never reads or
+  // dereferences it, and events do not carry it. Works on a pending node too
+  // (kept when it is attached). 0 until set; gone with the node.
+  // DG_ERR_INVALID_HANDLE for a removed or invalid handle.
+  function dg_node_set_user_data(node: dg_node_t | null, value: bigint): number;
+  // ABI 0.2: writes the value dg_node_set_user_data() stored (0 if never set) to
+  // `out_value`. Pending or live. DG_ERR_INVALID_ARGUMENT for a null `out_value`;
+  // DG_ERR_INVALID_HANDLE for a removed or invalid handle.
+  function dg_node_get_user_data(node: dg_node_t | null, out_value: BigUint64Array | null): number;
   // ABI 0.2 phase B: the hover delay before any tooltip of this app shows,
   // 0..60000 ms (default 500). Applies to every window, including ones already
   // open. DG_ERR_VALUE_OUT_OF_RANGE outside that range.

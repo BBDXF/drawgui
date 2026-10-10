@@ -85,6 +85,10 @@ struct NodeSlot {
   std::size_t window_index = 0;
   dg::NodeId node_id{};
 
+  // dg_node_set_user_data() on a PENDING node; handed to the window's record
+  // when the node goes live (a live node's value lives there).
+  std::uint64_t pending_user_data = 0;
+
   // The SAME pointer dg_node_create() returned, reused verbatim by every
   // dg_event naming this node - a fresh wrapper here would still compare
   // equal in content but not in address, and a host is entitled to compare
