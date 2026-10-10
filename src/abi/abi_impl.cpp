@@ -1220,19 +1220,15 @@ std::int32_t poll_events(dg_app_t* app, dg_event* out, std::int32_t max) {
   drain_events(*impl);
   const auto count =
       std::min<std::size_t>(static_cast<std::size_t>(max), impl->pending_events.size());
-  // A caller built against the 40-byte dg_event (before item/column/command)
-  // says so in out[0].size; its entries are then written at that stride and
-  // truncated. Any other size value means the current struct.
-  constexpr std::size_t kLegacySize = offsetof(dg_event, item);
-  std::size_t stride = sizeof(dg_event);
-  if (count > 0 && out[0].size >= kLegacySize && out[0].size < sizeof(dg_event)) {
-    stride = kLegacySize;
-  }
+  // Every entry is written as the full current dg_event. out[0].size is NOT
+  // read: callers routinely pass uninitialised arrays, so a size-based
+  // stride switch would read indeterminate memory. ABI 0.2 is unreleased, so
+  // no caller was ever built against an older event layout.
   auto* bytes = reinterpret_cast<unsigned char*>(out);
   for (std::size_t i = 0; i < count; ++i) {
     dg_event entry = impl->pending_events[i];
-    entry.size = static_cast<std::uint32_t>(stride);
-    std::memcpy(bytes + (i * stride), &entry, stride);
+    entry.size = static_cast<std::uint32_t>(sizeof(dg_event));
+    std::memcpy(bytes + (i * sizeof(dg_event)), &entry, sizeof(dg_event));
   }
   impl->pending_events.erase(impl->pending_events.begin(),
                              impl->pending_events.begin() + static_cast<std::ptrdiff_t>(count));

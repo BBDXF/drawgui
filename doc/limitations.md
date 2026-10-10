@@ -36,7 +36,7 @@
 - `DG_PROP_WIDTH`
 - `DG_PROP_HEIGHT`
 
-显式调用 `animate(from, to)` 不受这个限制，可以对任意可插值属性显式指定起止值做动画。
+显式调用 `animate(from, to)` 不受这个限制，可以对任意可插值属性显式指定起止值做动画。`dg::App` 运行时与 C ABI（`dg_node_animate()`）同样如此：`from` 为 NULL（取当前值）只对这 7 个属性有效，其它返回 `DG_ERR_UNSUPPORTED`；非浮点/长度/颜色属性直接跳到终值。动画由事件泵推进，有动画在跑时 `dg_wait_events()` 最多等约 16 ms，帧率取决于泵的调用频率，不跟显示器垂直同步。
 
 ### A4. 主题里的 int token 切换会触发重排，color token 不会
 
@@ -48,9 +48,9 @@
 
 **结论**：小于约 8×8 像素（默认 `gap`+`thickness` 参数下）的可聚焦控件，聚焦时会整体变色而不是显示细边框。控件设计时避免做得比这个阈值更小。
 
-### A6. `kScrollView`/`kList` 不能用 Tab 聚焦
+### A6. 底层 `kScrollView`/`kList` 不能用 Tab 聚焦
 
-`include/drawgui/widget/focus.h` 的 `is_focusable()`：焦点遍历不会落到滚动容器本身上。`dg::App` 运行时与 C ABI 在焦点落在滚动视图**里面**的控件上时，用 PageUp/PageDown/Home/End（`scroll_*` action）滚动它；但滚动视图本身不是 Tab 停靠点，`kList` 也没有方向键导航——没有可聚焦的子控件时只能用滚轮或滚动条。直接使用底层 C++ 时，键盘滚动要自己实现为 action。
+`include/drawgui/widget/focus.h` 的 `is_focusable()`：底层控件层的焦点遍历不会落到滚动容器或 `kList` 上，直接使用底层 C++ 时键盘滚动/选择要自己实现为 action。`dg::App` 运行时与 C ABI 的 `LIST` 是可聚焦的（点击、Tab、`dg_node_focus()`），有方向键/Home/End/翻页导航、空格切换复选框和 Shift+F10 上下文菜单；`SCROLL_VIEW` 本身仍不是 Tab 停靠点，焦点落在它里面的控件上时 PageUp/PageDown/Home/End 滚动它，没有可聚焦的子控件时只能用滚轮或滚动条。
 
 ### A6b. 滚动条：节点由调用方创建，布局后要 sync，没有连续翻页
 
@@ -110,10 +110,10 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 ### A15. 数据控件（ProgressBar/Tabs/TreeView/Table）的边界
 
 - **直接使用时布局后要 `sync()`**；忘了会看到隐藏面板重新出现、树/表的行叠在原点、进度填充回到 0。
-- **只读文本行**：树/表的行只有文字，没有图标、行内控件、单元格编辑或多选；行高固定（`ControlStyle::row_height`），不支持可变行高。
+- **行内容有限**：行可以带图标、复选框、暗色副文字和（`LIST`）行尾按钮，但没有任意行内控件、单元格编辑或多选；同一控件内所有行等高——行高可以按控件设置（`DG_PROP_ROW_HEIGHT`，1..1024），不支持逐行不同的行高；表头保持主题行高。
 - **Table 列宽固定**：不能拖拽调整列宽、没有横向滚动；排序由应用完成（只报告 `kSortRequested`）。表格持有一份单元格字符串副本，`set_rows()` 会清掉选择。
 - **TreeView 模型是先序扁平列表**，展开/折叠是 O(n) 重算可见行；没有懒加载子节点。
-- **Tabs 的隐藏面板借用 `NodeStyle::disabled` 实现"惰性"**：隐藏期间面板内节点 `is_disabled()` 为真；整树 `refresh_subtree()` 会给它们涂禁用色，重新选中时由 Tabs 恢复。标签条不会溢出滚动，标签过多会超出宽度。Enter/方向键之外没有 Space 激活（`Key` 无 Space）。
+- **Tabs 的隐藏面板借用 `NodeStyle::disabled` 实现"惰性"**：隐藏期间面板内节点 `is_disabled()` 为真；整树 `refresh_subtree()` 会给它们涂禁用色，重新选中时由 Tabs 恢复。标签条不会溢出滚动，标签过多会超出宽度。Enter/方向键之外没有 Space 激活标签。
 - **指针事件在按下（kDown）时生效**；控件不接 `Interaction`，悬停反馈只来自调用方自己的 `Interaction` 循环（标签与表头是普通 `kButton`）。
 - 以上是直接使用 `include/drawgui/ui/` 组件时的义务；`dg::App` 运行时与 C ABI（`PROGRESS`/`TABS`/`TREE`/`TABLE`）替调用方做 `sync()` 和事件路由。视觉集中在 `src/ui/control_visuals.cpp`，选中行的文字用 `on-primary`。
 
@@ -125,11 +125,11 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 - **由宿主循环驱动，没有回调**：直接使用这些组件时，调用方自己把 `pump()` 出来的事件交给组件的 `handle_pointer()`/`handle_key()`/`handle_text()`/`tick()`，读回 `MenuResult`/`DropdownResult`/`TooltipEvent`/`DialogResult`。组件打开期间，事件该不该再分发给宿主场景由调用方决定（菜单/对话框打开时示例都是"组件吃掉全部事件"）。
 - **每次关闭都 `destroy()`**：节点和控件计数回到基线（单测 `tests/unit/test_ui_components.cpp` 验证）；关闭后组件给出的 NodeId（`item_nodes()`/`buttons()`/`body()`）全部失效。
-- **不支持嵌套**：菜单里开子菜单、对话框里再开下拉都不行——`Focus` 只有一个作用域，不是栈；后开的会替换前一个的作用域。
+- **直接使用时不支持嵌套**：`Focus` 只有一个作用域，不是栈，后开的会替换前一个的作用域。`dg::App` 运行时自己处理了常见的两层：对话框打开时可以再开菜单（叠在对话框之上，关掉后对话框的焦点陷阱恢复），对话框内容里的 `DROPDOWN` 也能展开。仍然没有子菜单，也不能在对话框上再开对话框。
 - **菜单高亮就是焦点**：高亮项是 `Focus::current()`，没有单独的"高亮游标"；菜单不画焦点环，用 `PopupStyle::item_hover` 填充高亮行。分隔线不挂控件、禁用项带 `NodeStyle::disabled`，所以键盘导航跳过它们是 `focus_order()` 现成的规则。
 - **激活发生在按下（kDown）**，不是松开；Type-ahead 只看首字母、ASCII 大小写不敏感。
 - **文字宽度**：给了 `FontCatalog` 时用 `Paragraph` 实测，没给时按每字节 0.6em 估算；没给 `FontCatalog` 时 `Dropdown` 无法提交选择（`dropdown_select()` 需要它）。
-- **对话框覆盖整个窗口**，尺寸取 `RenderTree::viewport()`；窗口打开期间改尺寸不会重新居中（关掉重开即可）。面板/按钮布局是手算的固定几何，不走 `LayoutTree`。
+- **对话框覆盖整个窗口**，尺寸取 `RenderTree::viewport()`；窗口打开期间改尺寸不会重新居中（关掉重开即可）。面板/按钮布局是手算的固定几何，不走 `LayoutTree`；表单对话框（`dg_dialog_open_ex()`）的内容节点宽度等于正文宽度，高度由内容自己决定。
 - **主题**：颜色/尺寸来自已有 token（`popup_style_from_theme()`），遮罩色 `PopupStyle::scrim` 取自 `color.scrim`（内建主题：暗色 `#00000099`、亮色 `#0F141A66`）。
 - **视觉是最小可用版**：所有绘制/节点形状集中在 `src/ui/ui_visuals.cpp`，等设计侧打磨。
 - **`dg::App` 运行时与 C ABI 已封装这些组件**：`Window::open_menu()`/`open_dialog()`/`set_tooltip()`、`NodeKind::kDropdown`（C ABI：`dg_menu_open()`、`DG_NODE_TYPE_DROPDOWN`、`dg_node_set_tooltip()`、`dg_dialog_open()`），运行时替调用方做路由、tick 和 `destroy()`；`examples/22`、`23`、`25` 都走这条路。
@@ -139,11 +139,14 @@ C ABI 的 `dg_node_insert_before(parent, child, ref)` 已支持按 `ref` 定位�
 
 ## C. C ABI 的能力边界
 
-C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，110 个函数，其中 12 个是 `dg_debug_*` 测试钩子，完整列表见 `doc/reference/c-abi.md`）是 C++ 运行时 `dg::App`/`dg::Window` 之上的薄壳，现在能做到：
+C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，116 个函数，其中 12 个是 `dg_debug_*` 测试钩子，完整列表见 `doc/reference/c-abi.md`）是 C++ 运行时 `dg::App`/`dg::Window` 之上的薄壳，现在能做到：
 
-- **窗口**：开窗并操作（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询），接收 `DG_EVENT_WINDOW_*` 状态事件。没有关闭单个窗口的函数——窗口只会因用户关闭或 `dg_app_destroy()` 而消失。
-- **节点**：十六种——`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`、`SLIDER`、`RADIO`，以及 phase B 的组件 `DROPDOWN`、`PROGRESS`、`TABS`、`TREE`、`TABLE`；按位置插入、同窗口内移动、整棵子树删除。
-- **弹层**（phase B）：菜单 `dg_menu_open()`（锚定节点或坐标，`DG_EVENT_MENU_ACTIVATE`/`_DISMISS`）、模态对话框 `dg_dialog_open()`（`DG_EVENT_DIALOG_RESULT`）、tooltip `dg_node_set_tooltip()`（`dg_wait_events()` 自己为延迟醒来）。
+- **窗口**：开窗并操作（标题、尺寸、位置、最小/最大尺寸、最小化/最大化/还原、全屏、可调整大小、图标、状态查询），接收 `DG_EVENT_WINDOW_*` 状态事件；`dg_window_close()` 关闭单个窗口，`dg_window_set_close_confirmation()` 让用户的关闭请求只报 `DG_EVENT_CLOSE_REQUESTED`、由应用决定是否关闭。
+- **节点**：十七种——`BOX`、`BUTTON`（写 `DG_PROP_CHECKED` 即成切换按钮）、`LABEL`、`CHECKBOX`、`TEXT_FIELD`、`TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`、`SLIDER`、`RADIO`、组件 `DROPDOWN`、`PROGRESS`、`TABS`、`TREE`、`TABLE`，以及 `MENUBAR`；按位置插入、同窗口内移动、整棵子树删除、`DG_PROP_VISIBLE` 隐藏（不占布局）、每节点一个 `uint64_t` 用户数据。
+- **弹层**：菜单 `dg_menu_open()`/`_ex()`（锚定节点或坐标，可带快捷键文字和命令号）、菜单栏 `MENUBAR`、模态对话框 `dg_dialog_open()` 与带自定义内容的表单对话框 `dg_dialog_open_ex()`（`DG_EVENT_DIALOG_RESULT`，按钮可禁用）、tooltip `dg_node_set_tooltip()`（`dg_wait_events()` 自己为延迟醒来）；菜单可以叠在对话框之上。
+- **数据行**：`LIST`/`TREE`/`TABLE` 的富行（图标、复选框、副文字、行尾按钮，`DG_EVENT_ROW_PART`）、行键（事件里的 `item_key`）、行上的点击/右键带 `item`/`column`；Shift+F10/Menu 键产生键盘上下文菜单事件。
+- **快捷键**：应用级和作用域级自定义组合键（`dg_app_add_shortcut()`/`dg_window_add_shortcut()`，`DG_EVENT_ACTION`），`dg_chord_label()` 生成菜单里的快捷键文字。
+- **动画**：`dg_node_animate()`/`dg_node_set_transition()`/`dg_animation_cancel()`、`DG_EVENT_ANIMATION_FINISHED`、`dg_app_set_reduced_motion()`。
 - **布局**：`BOX` 写 `DG_PROP_DIRECTION` 变成行/列容器（`JUSTIFY`/`ALIGN`/`GAP`/`WRAP` 等随之可用）；百分比长度（`DG_LENGTH_UNIT_PERCENT`）与 `DG_LENGTH_UNIT_AUTO`（回到按内容/由父容器拉伸，去掉创建时的默认尺寸），都只用于 `WIDTH`/`HEIGHT`/`MIN_*`/`MAX_*`。
 - **文字**：`DG_PROP_TEXT`/`TEXT_COLOR`/`FONT_SIZE`/`TEXT_ALIGN`/`WRAP_TEXT`（自动换行），`PADDING_*` 同时移动节点自己的文字；编辑框 `DG_PROP_MAX_LENGTH`、`DG_PROP_PLACEHOLDER`（`dg_node_set_text()`）、文字内边距（默认 10px，`PADDING_*` 修改）。
 - **主题**：`BUTTON`/`CHECKBOX`/`RADIO` 的颜色来自主题 token 并随切换更新；调用方写入或绑定的 `BACKGROUND_COLOR`/`TEXT_COLOR`/`BORDER_COLOR` 优先（背景色的悬停/按下色由它派生）。
@@ -157,27 +160,27 @@ C ABI（`include/drawgui/abi/drawgui.h`，版本 0.2，110 个函数，其中 12
 - **容器不能变回叶子**：`BOX` 一旦写过 `DIRECTION` 就一直是容器；`row_reverse`/`column_reverse` 未实现。`WRAP` 必须在 `DIRECTION` 之后写。
 - **文字没有字族/字重属性**：只有 `dg_app_add_font()` 注册的第一个字族，`TextStyle` 本身没有字重。改大字号不会撑高节点盒子，开了 `WRAP_TEXT` 的标签也不会按行数长高（高度仍由调用方给）；编辑框的 `TEXT_COLOR` 在下次切换主题时被主题色覆盖。编辑框的 `PADDING_*` 只设一个对称的文字内边距（最后写入的那一边的值；`TEXT_FIELD` 只用于左右，`TEXT_AREA` 四边），不进入布局盒子。
 - **`SCROLL_VIEW`** 只沿一个轴滚动；它的内容节点没有句柄，`PADDING`/`BACKGROUND` 之类只能写在视口上（容器属性会转给内容节点）。写 `PADDING_R`/`PADDING_B` 会覆盖为滚动条预留的槽。键盘滚动只在焦点落在它里面的控件上时生效（滚动视图本身不可聚焦，见 A6）。
-- **`LIST`** 只有单列文字行：同时可见最多 30 行（32 个复用行节点），数据整体推送（`dg_list_set_items()` 全量拷贝，没有增量更新、也没有按索引拉取的回调），行高统一、不可聚焦、没有键盘导航、没有悬停高亮，选中发生在按下而不是松开。
+- **`LIST`** 是单列：同时可见最多 30 行（32 个复用行节点），数据整体推送（`dg_list_set_items()`/`dg_list_set_rows()` 全量拷贝，没有增量更新、也没有按索引拉取的回调），行高统一，没有悬停高亮、没有多选，选中发生在按下而不是松开；行尾按钮最多 8 个且全列表共享。行键（`dg_*_set_*_keys()`）在下一次推送数据时被清掉，要重新设置。
 - **`IMAGE`**：同步解码；图片表只增不减，app 存活期间不释放（换图片会留下旧图）；SVG 视为可信资源（经 Skia SVG 解析器）；`svg_tint_argb` 是解码时的整图 SrcIn 着色；`DG_PROP_IMAGE_TINT`（可绑定主题 token）在绘制时着色、覆盖解码时的 tint，同一张图可在多个节点上着不同颜色。见 E 节的图片格式边界。
 - **定时器 id 低于 2^31**，事件里放在 `int32_t x` 中；用户事件的 64 位负载拆在 `x`/`y` 两个字段里。
 - **焦点事件只报新焦点**，不报失去焦点的是谁；焦点落在没有句柄的节点上时 `node` 为 NULL。
 
-以下几项不是遗漏，是 `abi/drawgui.def.toml` 头部注释里逐项具名拒绝的，各有各的理由：
+以下两项不是遗漏，是 `abi/drawgui.def.toml` 头部注释里具名拒绝的：
 
 - **无回调模式**（`dg_set_event_callback`）——没有真实嵌入 QuickJS 的调用方之前，接口形状无从设计
 - **无自定义绘制**（`dg_custom_paint_set_cmds`）——不在当前验收路径上
-- **无动画 API**（`dg_animate`/`dg_node_set_transition`）——C++ 侧 `AnimationEngine` 已存在，只是没有调用方需要它被导出
 
-此外 IME 组字接口也在同一处注释里具名不导出（组字偏移换算从未经真机 IME 验证，见 A10）。那里原先也拒绝了 `Widget::group`（radio），0.2 已作为 `DG_NODE_TYPE_RADIO` 导出。
+此外 IME 组字接口也在同一处注释里具名不导出（组字偏移换算从未经真机 IME 验证，见 A10）。那里原先也拒绝了 `Widget::group`（radio，0.2 已作为 `DG_NODE_TYPE_RADIO` 导出）和动画 API（已作为 `dg_node_animate()`/`dg_node_set_transition()` 导出）。
 
 phase B 组件（菜单、下拉框、tooltip、对话框、ProgressBar、Tabs、Tree、Table）的边界：
 
-- **每个窗口同时最多一个 `dg_menu_open()` 菜单、一个对话框**；再开菜单会先关旧的（旧菜单报 `DG_EVENT_MENU_DISMISS`），对话框打开时 `dg_menu_open()` 返回 `DG_ERR_UNSUPPORTED`。不支持子菜单。菜单/对话框打开期间该窗口的全部指针/按键/文字事件都交给它们（菜单外的点击关掉菜单，且这次点击被吃掉）。
+- **每个窗口同时最多一个菜单、一个对话框**；再开菜单会先关旧的（旧菜单报 `DG_EVENT_MENU_DISMISS`）。对话框打开时可以开菜单（叠在其上，Escape/点外面只关菜单）。没有子菜单，菜单栏也没有助记符。菜单/对话框打开期间该窗口的全部指针/按键/文字事件都交给它们（菜单外的点击关掉菜单，且这次点击被吃掉）。
 - **弹层不随主题切换重绘**：已打开的菜单/对话框/tooltip 保持打开时的样式，下次打开才用新主题；`DROPDOWN`/`PROGRESS`/`TABS`/`TREE`/`TABLE` 本身在主题切换时**重建内部节点**（状态、选中、展开、排序指示、调用方的标签页面板都保留；节点数不变），内部节点上的焦点移到重建后的对应节点。
-- **数据整体推送**：`dg_tree_set_items()`/`dg_table_set_cells()`/`dg_dropdown_set_items()` 全量拷贝，没有增量更新；`dg_table_set_columns()` 清空行。表格**不自己排序**：`DG_EVENT_TABLE_SORT` 之后由调用方排好、重新推送、`dg_table_set_sort_indicator()`。
+- **数据整体推送**：`dg_tree_set_items()`/`_ex()`/`dg_table_set_cells()`/`_ex()`/`dg_dropdown_set_items()`/`dg_menubar_set_menus()` 全量拷贝（菜单栏可用 `dg_menubar_set_entry()` 改单项），没有增量更新；`dg_table_set_columns()` 清空行。表格**不自己排序**：`DG_EVENT_TABLE_SORT` 之后由调用方排好、重新推送、`dg_table_set_sort_indicator()`。
 - **尺寸**：`TREE`/`TABLE` 的内部视图跟随布局后的节点高度（像素、百分比、`GROW`、父容器拉伸都算）：高度变化后在下一次布局同步时重建内部节点（池大小随之变化），所以变化后的第一帧仍是旧高度；`PROGRESS` 的轨道填满节点；宽度跟随节点（内部是 100%）。
 - **`TABS`** 只能通过 `dg_tabs_add()` 加标签（没有删除/改名）；`dg_node_insert_before(tabs, …)` 返回 `DG_ERR_UNSUPPORTED`，内容放进返回的面板 `BOX`。隐藏面板被禁用（离开 Tab 序列）。
 - **`dg_tree_set_selected(-1)`/`dg_table_set_selected(-1)`** 通过重建/重推清空选中，滚动位置会回到顶部（树）或被夹紧（表）。
+- **关闭确认**：`DG_EVENT_CLOSE_REQUESTED` 只针对用户在标题栏/窗口管理器上的关闭；`dg_app_destroy()` 和 `dg_window_close()` 不经过确认。
 - **焦点事件**：组件自己移动焦点（点标签、点树）时，事件泵比较前后焦点补发 `DG_EVENT_FOCUS_CHANGED`，`node` 是最近的有句柄祖先（标签页报 `TABS` 节点）；弹层打开期间不报。
 - **测试钩子**：`dg_debug_post_text_field_key()` 追加 `Escape`；`dg_debug_node_count()` 返回窗口树的节点总数（含弹层），用于验证关闭/删除后回到基线。
 

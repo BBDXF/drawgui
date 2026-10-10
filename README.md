@@ -25,11 +25,12 @@ dependency. Linux only; SDL3 is the sole window backend, with no
 platform-abstraction layer ahead of a second one.
 
 - **Runtime**: `dg::App` / `dg::Window` (`include/drawgui/app/`) is the
-  public C++ entry point. Create nodes of 16 `NodeKind`s, set properties,
+  public C++ entry point. Create nodes of 17 `NodeKind`s, set properties,
   call `App::run()` (or `pump()` yourself); the runtime does layout, paint,
-  input routing, focus, popups, scrolling, list recycling and theming, and
-  reports user actions as typed `dg::Event`s. Lists, dropdowns, tabs, trees,
-  tables, sliders and radios are reached through typed refs
+  input routing, focus, popups, scrolling, list recycling, animation and
+  theming, and reports user actions as typed `dg::Event`s. Lists, dropdowns,
+  tabs, trees, tables, sliders, radios and the menu bar are reached through
+  typed refs
   (`window->list(node)` and friends). The lower-level objects (`LayoutTree`,
   `WidgetSet`, `Focus`, `PopupHost`, ...) stay public for callers that need
   them - see `doc/guide/app.md`.
@@ -37,12 +38,22 @@ platform-abstraction layer ahead of a second one.
   (a radio is a grouped checkbox), slider, scroll view, text field,
   multi-line text area, virtualized list, dropdown, and the scrollbar part.
   Widgets can be disabled (the whole subtree greys out and follows theme
-  switches) and choose a mouse cursor.
+  switches), hidden (`visible`, takes no layout space) and choose a mouse
+  cursor; a button with `checked` set becomes a toggle button, and button
+  content (icon and/or text) is centred.
 - **Components** (`include/drawgui/ui/`): `Menu`, `Dropdown`, `Tooltip`,
   `Dialog`, `ProgressBar`, `Tabs`, `TreeView` and `Table`, built on the
   widget layer rather than as new kinds; tree and table rows recycle through
   fixed node pools. Popups are overlay-only (`PopupHost`); the modal dialog
   is a full-window overlay with a focus trap.
+- **Desktop-app features** (runtime and C ABI): a menu bar (F10/Alt
+  keyboard mode), menus with shortcut labels and command ids that can open
+  above a dialog, keyboard context menus (Shift+F10 / Menu key), form dialogs
+  that host your own nodes (dropdowns included) with disableable buttons,
+  rich list/tree/table rows (icons, check boxes, secondary text, trailing
+  action buttons) with per-row app keys, an adjustable `row_height`, a
+  keyboard-driven focusable list, per-node user data, app-defined keyboard
+  shortcuts, and a close-confirmation hook for unsaved changes.
 - **Layout**: a Flexbox-like model (row/column, wrap, absolute stack;
   `justify` including `space_around`/`space_evenly`; `grow`/`shrink`/`basis`;
   percentage and `auto` sizes) laid out exactly once per frame -
@@ -50,7 +61,7 @@ platform-abstraction layer ahead of a second one.
   typing, list recycling, theme colour switches and focus changes alike.
   `RenderTree` still has no node-kind enum, and the six-value `LayoutKind`
   set has not grown since the first layout slice.
-- **Properties**: 68 CSS-like properties addressable by numeric id
+- **Properties**: 71 CSS-like properties addressable by numeric id
   (`doc/reference/properties.md`).
 - **Text**: single- and multi-line, with CJK/BiDi/complex-script shaping via
   `SkParagraph` + libgrapheme (no `icudtl.dat` needed), wrapping labels,
@@ -65,19 +76,26 @@ platform-abstraction layer ahead of a second one.
   real platform clipboard.
 - **Timers and wake**: one-shot and repeating timers, and a thread-safe
   wake / user event that unblocks a waiting event loop.
+- **Animation**: explicit animations and implicit transitions driven by the
+  event loop (`dg_node_animate()` / `dg_node_set_transition()`), with a
+  finished event and an app-wide reduced-motion switch; the loop sleeps when
+  nothing is animating.
 - **Windows**: several windows per app; title, size, position, min/max size,
   minimize/maximize/restore, fullscreen, resizable, icon, and state events.
 - **Theming**: 20 tokens, light/dark variants, and external theme packages
   (path-traversal-safe, hot-reloadable).
-- **C ABI** (version 0.2): a thin shell over `dg::App` - 87 exported
-  functions (12 of them `dg_debug_*` test-only hooks), 16 node types, 68
-  properties, 29 event kinds. It covers windows and window operations, every
-  node kind above (`BOX` becomes a row/column container through
-  `DG_PROP_DIRECTION`), menus, dialogs and tooltips, focus, timers, wake,
-  images, insert/move/remove of whole subtrees (enough for a keyed
-  reconciler) and themes. Everything is poll-based: a click, a menu choice,
-  a dropdown change, a dialog answer or a tab/tree/table selection each
-  arrive as one `dg_event`. Not exported: animation, custom paint, the
+- **C ABI** (version 0.2): a thin shell over `dg::App` - 116 exported
+  functions (12 of them `dg_debug_*` test-only hooks), 17 node types, 71
+  properties, 32 event kinds, 16 constant groups. It covers windows and
+  window operations (including close confirmation), every node kind above
+  (`BOX` becomes a row/column container through `DG_PROP_DIRECTION`), the
+  menu bar, menus, form dialogs and tooltips, rich rows and row keys, focus,
+  shortcuts, timers, wake, animation, images, user data, insert/move/remove
+  of whole subtrees (enough for a keyed reconciler) and themes. Everything is
+  poll-based: a click, a menu choice, a row-part press, a dialog answer, a
+  close request or a finished animation each arrive as one 56-byte
+  `dg_event` (ABI 0.2 is unreleased; callers built against an earlier header
+  must recompile). Not exported: callbacks, custom paint, the
   gradient/shadow/transform setters and any IME composition surface.
   `examples/19_c_client` and `examples/28_c_components` are pure C programs
   built entirely on the ABI.
@@ -128,7 +146,8 @@ is no `--help` - each example's flags are listed in the comment at the top
 of its `main` source file. **Start with `examples/25_showcase`** - one window, built on the public
 `dg::App` / `dg::Window` runtime, with a tab for every area (controls,
 text, layout, data, popups, images, window) and a live light/dark switch;
-`--verify-showcase` drives every tab with injected input.
+`--verify-showcase` drives every tab with injected input. For a realistic
+desktop app built from the enterprise features, see `examples/29_enterprise`.
 
 | # | Example | What it demonstrates | Verify flag |
 | --- | --- | --- | --- |
@@ -171,7 +190,7 @@ testing, interaction, UTF-8 decoding, font fallback, text editing, paragraph
 layout, focus, scrollbars, cursors, images, the UI components, theme-package
 security (path traversal, symlink escapes/loops, resource bounds, a fixed-seed
 fuzz pass), shortcut routing, clipboard, node removal, the `dg::App` runtime
-and the C ABI - **804 test cases**
+and the C ABI - **865 test cases**
 (`./build/tests/drawgui_unit_test`'s own summary line is the source of
 truth). Run it directly for per-case output:
 
@@ -209,4 +228,4 @@ building without network access works; `-DDRAWGUI_BUILD_TESTS=OFF` skips
 doctest. Prerequisites and the full build/prerequisite list live in
 `doc/getting-started.md`.
 
-All 42 CTest entries pass on Linux (`ctest --test-dir build -N`).
+All 43 CTest entries pass on Linux (`ctest --test-dir build -N`).

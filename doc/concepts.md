@@ -52,8 +52,8 @@
 ## 3. 属性是数字，不是字段
 
 节点的视觉/布局属性不是 C++ 结构体字段，而是通过一个 `uint16_t`
-（`dg_prop_id`）寻址的通道：`set_prop(node, id, PropValue)`。目前有 68 个
-属性，从 `DG_PROP_WIDTH`(1) 到 `DG_PROP_IMAGE_TINT`(68)
+（`dg_prop_id`）寻址的通道：`set_prop(node, id, PropValue)`。目前有 71 个
+属性，从 `DG_PROP_WIDTH`(1) 到 `DG_PROP_ROW_HEIGHT`(71)
 （`include/drawgui/abi/drawgui.h` 里的 `DG_PROP_*` 宏）。
 
 这么做是为了 ABI 稳定：id 从 `props/drawgui.props.toml` 生成，被

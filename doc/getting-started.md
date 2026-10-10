@@ -100,19 +100,22 @@ int main() {
 
 C ABI（`drawgui.h`）是 `dg::App` 之上的薄壳，节点种类、属性、事件一一对应：
 
-- 开窗并操作窗口（`dg_window_create`、`dg_window_set_size` 等）
-- 十六种节点：`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`RADIO`、`SLIDER`、`TEXT_FIELD`、
-  `TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`，以及组件 `DROPDOWN`/`PROGRESS`/`TABS`/
-  `TREE`/`TABLE`；另有菜单、对话框、tooltip 函数（`examples/28_c_components`）
-- 68 个 `dg_prop_id`（`dg_node_set_prop` / `dg_node_set_text`）
-- 节点插入、移动、删除；焦点、定时器、跨线程唤醒；点击、右键、焦点、
-  列表选择、文字变化、action、窗口状态等事件
+- 开窗并操作窗口（`dg_window_create`、`dg_window_set_size` 等），关闭确认
+  （`dg_window_set_close_confirmation`、`dg_window_close`）
+- 十七种节点：`BOX`、`BUTTON`、`LABEL`、`CHECKBOX`、`RADIO`、`SLIDER`、`TEXT_FIELD`、
+  `TEXT_AREA`、`SCROLL_VIEW`、`LIST`、`IMAGE`，组件 `DROPDOWN`/`PROGRESS`/`TABS`/
+  `TREE`/`TABLE`，以及菜单栏 `MENUBAR`；另有菜单、表单对话框、tooltip 函数
+  （`examples/28_c_components`）
+- 71 个 `dg_prop_id`（`dg_node_set_prop` / `dg_node_set_text`）
+- 节点插入、移动、删除、用户数据；富行与行键；焦点、自定义快捷键、定时器、
+  跨线程唤醒、动画；共 32 种事件（点击、右键、行内部件、菜单、对话框、
+  关闭请求、动画结束、窗口状态等）
 - 字体目录、主题
 
 `examples/19_c_client/main.c` 演示了其中大部分；`examples/26_text_area`
 演示了行容器 + 多行编辑框。
 
-只有直接使用 C++ 底层才有的：动画 API、渐变/阴影的专用 setter、自定义绘制、
+只有直接使用 C++ 底层才有的：渐变/阴影的专用 setter、自定义绘制、
 原生对话框窗口（`WindowManager::open_dialog()`）等（见 `doc/limitations.md` C 节）。
 
 ## 4. 离屏光栅
