@@ -36,6 +36,70 @@ window->open_dialog(dialog);   // 结果：DialogResultEvent::button（-1 = 无�
   `open_menu()` 返回 `kUnsupported`）；对话框是模态的，打开期间 Tab 不会离开它，
   点击它外面的控件不会产生事件。
 - tooltip 的计时、显示、按下后隐藏都由运行时完成，不需要 `tick()`。
+- 快捷键列与命令号：`MenuEntry::shortcut_label` 在该行右侧以暗色右对齐显示（只是
+  文字，常用 `app.chord_label("Ctrl+S")` 生成；绑定本身仍要 `App::add_shortcut()`），
+  菜单按最宽的快捷键文字加宽；`MenuEntry::command` 在选中时原样放进
+  `MenuEvent::command`（0 = 无 / 被关闭）。`open_menu()` 和菜单栏都支持。
+
+### 菜单栏（`NodeKind::kMenuBar`）
+
+```cpp
+const dg::NodeId bar = window->create(dg::NodeKind::kMenuBar, root).value();
+dg::MenuBarRef menus = window->menu_bar(bar).value();
+std::vector<dg::MenuBarMenu> m(2);
+m[0].title = "File";
+m[0].entries = {entry("New", kCmdNew, app.chord_label("Ctrl+N").value()), entry("Open", kCmdOpen)};
+m[1].title = "Edit";
+m[1].entries = {entry("Undo", kCmdUndo)};
+menus.set_menus(m);
+// MenuEvent{anchor = bar, bar_menu = 1, item = 0, command = kCmdUndo}
+```
+
+- 一行主题色标题（默认高 28，宽度随父容器），不接受子节点。
+- 鼠标：点标题在其下方展开菜单（复用 `open_menu()` 的同一套菜单机制，同一时刻每窗口
+  仍只有一个菜单），再点同一标题收起（报一次 `item = nullopt` 的 `MenuEvent`）；
+  菜单展开时指针移到另一个标题上直接切换过去，不报关闭事件。
+- 键盘：F10，或**单独**按下并松开 Alt，进入键盘模式——焦点不动，高亮第一个标题；
+  Left/Right 在标题间循环，Down/Enter 展开；菜单展开时 Left/Right 切换到相邻菜单；
+  Escape 先关菜单（报关闭事件，仍在键盘模式），再按一次退出；其它键、F10、点击
+  菜单栏以外都会退出键盘模式。窗口里有多个菜单栏时 F10/Alt 只作用于第一个可用的。
+- 事件：选中报 `MenuEvent{anchor = 菜单栏, bar_menu, item, command}`，关闭报
+  `item = nullopt`（`bar_menu` 仍有值）。`open_menu()` 的菜单 `bar_menu` 为空。
+- `set_entry(menu, item, entry)` 替换一项（切换勾选/禁用等），越界 `kValueOutOfRange`；
+  该菜单正展开时先收起。`set_menus()` 替换全部（会关闭已展开的）。
+- 不支持子菜单和助记符（`&File`）。
+
+### 表单对话框（`DialogOptions::content`）
+
+```cpp
+const dg::NodeId form = window->create(dg::NodeKind::kBox, root).value();  // 任意位置建好
+const dg::NodeId name = window->create(dg::NodeKind::kTextField, form).value();
+dg::DialogOptions d;
+d.title = "Rename";
+d.body = "New name:";
+d.buttons = {"OK", "Cancel"};
+d.cancel_button = 1;
+d.content = form;
+const std::int32_t id = window->open_dialog(d).value();
+window->set_dialog_button_disabled(id, 0, true);   // 名字为空时禁用 OK
+```
+
+- `content` 是本窗口一个 live 的 `create()` 节点（不能是窗口根），打开时被挪进对话框
+  正文：正文文字下方、按钮上方，宽度等于正文宽度（内容按 stretch 撑满），高度取内容的
+  自然高度，面板随之加高。
+- **关闭后的去向**：内容**脱离原父节点、保持存活**（`DialogOptions` 头文件的约定：
+  "detached again (alive, parentless)"）——停放在窗口里一个不可见、禁用的停放盒里，
+  文字/勾选等状态都保留；不会自动放回原父节点。要放回用 `Window::move(form, parent)`，
+  也可以下次 `open_dialog()` 再用，或 `remove()`。打开期间删除内容是允许的。
+- 焦点陷阱包含内容里的控件：Tab/Shift+Tab 按树序在内容控件和按钮之间循环。
+  焦点在内容里时，键盘、文字输入和指针都照常交给控件（编辑、勾选、点击）；
+  Tab 和 Escape 仍归对话框；**Enter 触发默认按钮**（焦点在按钮上时触发该按钮），
+  但焦点在 `TextArea` 里时 Enter 是换行。Escape 报 `cancel_button`。
+- `Window::set_dialog_button_disabled(id, button, disabled)`：被禁用的按钮变暗、
+  Tab 跳过，点击和 Enter（作为默认按钮时）都不会触发；对话框未打开/id 不符为
+  `kUnknownId`，按钮越界为 `kValueOutOfRange`。
+- 对话框打开期间不路由应用快捷键。
+
 - 示例：`examples/22_dropdown_menu`、`examples/23_menu_tooltip_dialog`、`examples/25_showcase`。
 
 下面的「直接使用底层」讲 `PopupHost` 和库组件本身。
@@ -215,6 +279,9 @@ if (r.event == DialogEvent::kIgnored && dialog.is_open()) { /* 交给 body 里�
 - 覆盖整个窗口（`tree.viewport()`）：遮罩吞掉所有点击，面板居中。
 - 焦点陷阱就是现成的模态作用域：`enter_scope(panel, true)` + `set_guarded()`；
   Tab/Shift-Tab 在面板内循环；对话框自带一个挂在面板下的焦点环。
+- `adopt(ctx, node)` 把调用方的节点（仅渲染树一侧）挂进 `body()`，`close()` 在销毁
+  浮层前把它挂回原父节点——运行时的表单对话框就是这样把布局好的内容放进来的；
+  `set_button_disabled(ctx, i, disabled)` 禁用按钮（变暗、Tab 跳过、点击和 Enter 都不触发）。
 - `body()` 是留给调用方的区域（`DialogSpec::body_height` 预留高度，
   `body_content_top()` 是正文文字下方的起点）：自己在里面加控件后，用
   `focus.set_guarded()` + `dialog.refresh_ring(ctx)` 聚焦它。指针 kDown 的

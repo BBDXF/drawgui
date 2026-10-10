@@ -19,6 +19,7 @@ constexpr int kButtonHeight = 32;
 constexpr int kButtonMinWidth = 84;
 constexpr float kTitleGrow = 3.0F;  // title is this much larger than body text
 constexpr const char* kCheckGlyph = "\u2713";
+constexpr int kShortcutGap = 24;  // label -> shortcut column
 
 // `base` with `over` laid on top at `amount` (0..1).
 Color mix(Color base, Color over, float amount) {
@@ -77,6 +78,17 @@ int wrapped_height(const UiContext& ctx, const TextStyle& text, int width) {
   return line * std::max(1, (total + width - 1) / width);
 }
 
+int shortcut_column(const UiContext& ctx, const MenuSpec& spec) {
+  int widest = 0;
+  for (const MenuItem& item : spec.items) {
+    if (!item.separator && !item.shortcut.empty()) {
+      widest = std::max(
+          widest, measure_text_width(ctx.fonts, ctx.font, ctx.style.font_size, item.shortcut));
+    }
+  }
+  return widest > 0 ? widest + kShortcutGap : 0;
+}
+
 }  // namespace
 
 PixelSize menu_size(const UiContext& ctx, const MenuSpec& spec) {
@@ -92,7 +104,8 @@ PixelSize menu_size(const UiContext& ctx, const MenuSpec& spec) {
     }
   }
   const int width =
-      std::max(spec.min_width, widest + check_column + (check_column > 0 ? 1 : 2) * style.padding +
+      std::max(spec.min_width, widest + check_column + shortcut_column(ctx, spec) +
+                                   ((check_column > 0 ? 1 : 2) * style.padding) +
                                    (2 * style.padding) + (2 * (kFrame + kMenuInset)));
   return PixelSize{width, height};
 }
@@ -147,6 +160,16 @@ std::vector<NodeId> build_menu(UiContext& ctx, NodeId parent, const MenuSpec& sp
       mark.text = text_style(ctx, kCheckGlyph, style.font_size,
                              item.disabled ? style.on_disabled : style.accent, TextAlign::kCenter);
       ctx.tree.add_child(row, PixelRect{0, 0, check_column, h}, mark);
+    }
+
+    if (!item.shortcut.empty()) {
+      NodeStyle accel;
+      accel.text = text_style(ctx, item.shortcut, style.font_size,
+                              item.disabled ? style.on_disabled
+                                            : mix(style.on_surface, style.surface, 0.4F),
+                              TextAlign::kRight);
+      accel.text.inset = style.padding;
+      ctx.tree.add_child(row, PixelRect{0, 0, row_width, h}, accel);
     }
 
     NodeStyle label;
@@ -210,7 +233,7 @@ DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
   ctx.tree.add_child(parent, PixelRect{0, 0, window.width, window.height}, scrim);
 
   const int width = std::min(spec.panel_size.width, std::max(0, window.width - pad));
-  const int inner = std::max(0, width - (2 * pad));
+  const int inner = dialog_inner_width(ctx, window, spec);
 
   // Body text sits a step below the title: the same hue, pulled toward the
   // surface.
@@ -278,6 +301,7 @@ DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
     widget.fill_normal = normal;
     widget.fill_hover = is_default ? style.accent_hover : style.item_hover;
     widget.fill_pressed = is_default ? style.accent_pressed : style.item_pressed;
+    widget.fill_disabled = style.surface;
     ctx.tables.widgets.attach(node, widget);
 
     NodeStyle label;
@@ -289,6 +313,35 @@ DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
     bx += widths[i] + style.padding;
   }
   return nodes;
+}
+
+int dialog_inner_width(const UiContext& ctx, PixelSize window, const DialogSpec& spec) {
+  const int pad = 3 * ctx.style.padding;
+  const int width = std::min(spec.panel_size.width, std::max(0, window.width - pad));
+  return std::max(0, width - (2 * pad));
+}
+
+void paint_dialog_button(UiContext& ctx, NodeId button, bool is_default, bool disabled) {
+  if (!ctx.tree.is_valid(button)) {
+    return;
+  }
+  const PopupStyle& style = ctx.style;
+  NodeStyle node = ctx.tree.style(button);
+  node.disabled = disabled;
+  const bool accent = is_default && !disabled;
+  node.fill = accent ? style.accent : style.surface;
+  node.border_color = accent ? style.accent : style.border;
+  ctx.tree.set_style(button, node);
+  const std::vector<NodeId> kids = ctx.tree.children(button);
+  if (!kids.empty()) {
+    TextStyle text = ctx.tree.style(kids.back()).text;
+    text.color = is_default ? style.on_accent : style.on_surface;
+    if (disabled) {
+      text.color = style.on_disabled;
+    }
+    ctx.tree.set_text(kids.back(), text);
+  }
+  ctx.tables.widgets.refresh_subtree(ctx.tree, button, ctx.tables.interaction);
 }
 
 }  // namespace dg::ui_visuals

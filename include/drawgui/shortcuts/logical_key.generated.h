@@ -11,14 +11,15 @@
 #include <cstdint>
 
 // The closed set of physical/logical keys a shortcut binding in
-// input/shortcuts.toml actually references - GENERATED, unlike
+// input/shortcuts.toml references, plus its [keys] extra list (the
+// keys app-defined shortcuts may bind) - GENERATED, unlike
 // dg_action_id above, because this is the opposite ABI shape: a
 // LogicalKey is produced internally (the platform layer mapping an SDL
 // keysym, once 8-2 exists) and never arrives as an arbitrary
 // host-supplied number, so it stays a real `enum class` with an
 // EXHAUSTIVE-SWITCH contract - the same shape dg::Key, dg::WidgetKind
 // and dg::PointerAction already have, and for the identical reason
-// dg::Key's own comment gives: an enumerator naming a key nothing binds
+// dg::Key's own comment gives: an enumerator naming a key nothing reads
 // is a promise this engine does not keep. This is NOT dg::Key
 // (include/drawgui/window/window_manager.h) - design.md section 5.5.2 is
 // explicit that a text-editing key is not a shortcut; they route at
@@ -27,18 +28,77 @@ namespace dg {
 
 enum class LogicalKey : std::uint16_t {
   kInvalid = 0,
+  k0,
+  k1,
+  k2,
+  k3,
+  k4,
+  k5,
+  k6,
+  k7,
+  k8,
+  k9,
   kA,
+  kAltKey,
+  kB,
+  kBackspace,
   kC,
+  kComma,
+  kD,
+  kDelete,
+  kDown,
+  kE,
   kEnd,
+  kEnter,
+  kEquals,
+  kEscape,
+  kF,
+  kF1,
+  kF10,
+  kF11,
+  kF12,
+  kF2,
+  kF3,
+  kF4,
+  kF5,
+  kF6,
+  kF7,
+  kF8,
+  kF9,
+  kG,
+  kH,
   kHome,
+  kI,
+  kInsert,
+  kJ,
+  kK,
+  kL,
+  kLeft,
+  kM,
+  kMenu,
+  kMinus,
+  kN,
+  kO,
+  kP,
   kPageDown,
   kPageUp,
+  kPeriod,
+  kQ,
+  kR,
+  kRight,
+  kS,
+  kSlash,
+  kSpace,
+  kT,
+  kU,
+  kUp,
   kV,
+  kW,
   kX,
   kY,
   kZ,
 };
 
-inline constexpr std::uint16_t kLogicalKeyCount = 10;
+inline constexpr std::uint16_t kLogicalKeyCount = 69;
 
 }  // namespace dg

@@ -109,6 +109,18 @@ struct ShortcutBinding {
 // referenced, never a speculative superset.
 [[nodiscard]] std::optional<Chord> parse_chord(std::string_view text);
 
+// `key`'s name in the generated key table ("F10", "K", "7"); empty for
+// kInvalid.
+[[nodiscard]] std::string_view logical_key_name(LogicalKey key);
+
+// The app-facing chord syntax (App::add_shortcut(), Window::add_shortcut()):
+// parse_chord()'s grammar relaxed for hand-written text - modifiers in any
+// order and any letter case, "Ctrl"/"Control"/"Cmd" accepted as "Mod", and
+// a case-insensitive key name ("ctrl+shift+n", "Shift+F10", "Alt+Left").
+// Still std::nullopt for an unknown word, a repeated modifier, an empty
+// segment, a bare modifier, or AltKey (a lone Alt press is not a chord).
+[[nodiscard]] std::optional<Chord> parse_user_chord(std::string_view text);
+
 // design.md section 5.5.1: "Mod" is macOS's Cmd, everyone else's Ctrl. The
 // substitution rule itself - the only part of the platform table that is
 // unit-testable without a macOS machine.

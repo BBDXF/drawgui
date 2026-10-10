@@ -19,6 +19,7 @@ void TreeView::build(ControlContext& ctx, NodeId parent, TreeViewSpec spec) {
   thumb_ = nodes.thumb;
   pool_ = std::move(nodes.pool);
   items_ = std::move(spec.items);
+  rich_ = !pool_.empty() && ctx.tree().children(pool_.front()).size() >= 5;
   built_ = true;
   rebuild_visible();
   reset_rows(ctx);
@@ -32,6 +33,7 @@ void TreeView::destroy(ControlContext& ctx) {
     remove_subtree(ctx.layout, root_, ctx.tables);
   }
   built_ = false;
+  rich_ = false;
   dragging_ = false;
   items_.clear();
   visible_.clear();
@@ -162,6 +164,41 @@ bool TreeView::set_expanded(ControlContext& ctx, int item, bool expanded) {
   rebuild_visible();
   reset_rows(ctx);
   return true;
+}
+
+bool TreeView::toggle_check(ControlContext& ctx, int item) {
+  if (!built_ || item < 0 || static_cast<std::size_t>(item) >= items_.size()) {
+    return false;
+  }
+  std::optional<bool>& check = items_[static_cast<std::size_t>(item)].check;
+  if (!check.has_value()) {
+    return false;
+  }
+  check = !*check;
+  repaint(ctx);
+  return true;
+}
+
+std::optional<TreeView::Hit> TreeView::hit(const ControlContext& ctx, PixelPoint point) const {
+  if (!built_) {
+    return std::nullopt;
+  }
+  const std::optional<int> row =
+      row_list::row_at(ctx, list_, point, static_cast<int>(visible_.size()));
+  if (!row.has_value()) {
+    return std::nullopt;
+  }
+  Hit out;
+  out.item = visible_[static_cast<std::size_t>(*row)];
+  if (rich_ && items_[static_cast<std::size_t>(out.item)].check.has_value()) {
+    const RenderTree& tree = ctx.tree();
+    if (const std::optional<NodeId> node = tree.hit_test(point)) {
+      const NodeId parent = tree.parent(*node);
+      const std::vector<NodeId> kids = tree.children(parent);
+      out.check = kids.size() >= 5 && kids[2] == *node;
+    }
+  }
+  return out;
 }
 
 TreeResult TreeView::select_row(ControlContext& ctx, int row) {

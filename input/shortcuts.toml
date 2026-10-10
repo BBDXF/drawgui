@@ -198,3 +198,20 @@ scope = "text_field"
 consumer = "text editor undo history"
 binding = "Mod+Y"
 summary = "Redo (the alternative chord, same effect as redo)."
+
+# Logical keys no built-in action binds but that the platform layer must
+# still report: app-defined shortcuts (App::add_shortcut() /
+# Window::add_shortcut()) can bind any of them, and the runtime itself reads
+# F10 / AltKey (menu bar), Menu / Shift+F10 (keyboard context menu).
+# AltKey is a bare Alt press (Left or Right Alt) - it is not a chord key.
+[keys]
+extra = [
+  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+  "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+  "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+  "Delete", "Insert", "Enter", "Escape", "Space", "Backspace",
+  "Left", "Right", "Up", "Down", "Home", "End", "PageUp", "PageDown",
+  "Minus", "Equals", "Comma", "Period", "Slash",
+  "Menu", "AltKey",
+]

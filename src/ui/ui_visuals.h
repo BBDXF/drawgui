@@ -36,5 +36,11 @@ struct DialogNodes {
 };
 DialogNodes build_dialog(UiContext& ctx, NodeId parent, PixelSize window,
                          const DialogSpec& spec);
+// The usable width inside the dialog panel build_dialog() makes.
+[[nodiscard]] int dialog_inner_width(const UiContext& ctx, PixelSize window,
+                                     const DialogSpec& spec);
+// Repaints one dialog button enabled or disabled (dimmed; NodeStyle::
+// disabled, so Tab skips it).
+void paint_dialog_button(UiContext& ctx, NodeId button, bool is_default, bool disabled);
 
 }  // namespace dg::ui_visuals

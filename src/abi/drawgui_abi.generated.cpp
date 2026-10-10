@@ -1574,6 +1574,54 @@ extern "C" DG_EXPORT int32_t dg_table_cell_checked(dg_node_t* node, int32_t row,
   }
 }
 
+extern "C" DG_EXPORT int32_t dg_list_set_row_keys(dg_node_t* node, const uint64_t* keys,
+                                                  uint32_t count) {
+  try {
+    return dg::abi::list_set_row_keys(node, keys, count);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_list_set_row_keys: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_list_set_row_keys: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_list_set_row_keys: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_tree_set_item_keys(dg_node_t* node, const uint64_t* keys,
+                                                   uint32_t count) {
+  try {
+    return dg::abi::tree_set_item_keys(node, keys, count);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_tree_set_item_keys: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_tree_set_item_keys: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_tree_set_item_keys: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
+extern "C" DG_EXPORT int32_t dg_table_set_row_keys(dg_node_t* node, const uint64_t* keys,
+                                                   uint32_t count) {
+  try {
+    return dg::abi::table_set_row_keys(node, keys, count);
+  } catch (const std::bad_alloc&) {
+    dg::abi::set_last_error("dg_table_set_row_keys: out of memory");
+    return DG_ERR_OOM;
+  } catch (const std::exception& e) {
+    dg::abi::set_last_error(std::string("dg_table_set_row_keys: ") + e.what());
+    return DG_ERR_INTERNAL;
+  } catch (...) {
+    dg::abi::set_last_error("dg_table_set_row_keys: unknown exception");
+    return DG_ERR_INTERNAL;
+  }
+}
+
 extern "C" DG_EXPORT int32_t dg_menubar_set_menus(dg_node_t* node, const char* const* titles,
                                                   const uint32_t* entry_counts,
                                                   uint32_t menu_count,

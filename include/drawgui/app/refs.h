@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -58,6 +59,15 @@ class ListRef : public ComponentRef {
   Status set_row_actions(std::vector<RowAction> actions);
   // A set_rows() row's check state; kNotApplicable for a row without one.
   [[nodiscard]] Expected<bool, Status> row_checked(int row) const;
+  // Replaces every row's RowItem::key (set_items() rows included);
+  // kInvalidArgument unless keys.size() == the row count.
+  Status set_row_keys(std::vector<std::uint64_t> keys);
+  // Row keys (RowItem/TreeEntry::key, TableRef::set_row_keys()): the key
+  // of a row (0 = none), the row of a key (kUnknownId when no row has it,
+  // kInvalidArgument for 0), and select(index_of(key)).
+  [[nodiscard]] Expected<std::uint64_t, Status> key_of(int index) const;
+  [[nodiscard]] Expected<int, Status> index_of(std::uint64_t key) const;
+  Status select_key(std::uint64_t key);
 
  private:
   friend class Window;
@@ -106,6 +116,15 @@ class TreeRef : public ComponentRef {
   Status set_expanded(int index, bool expanded);
   // An item's check state (TreeEntry::check); kNotApplicable without one.
   [[nodiscard]] Expected<bool, Status> row_checked(int index) const;
+  // Replaces every item's TreeEntry::key; kInvalidArgument unless
+  // keys.size() == the item count.
+  Status set_row_keys(std::vector<std::uint64_t> keys);
+  // Row keys (RowItem/TreeEntry::key, TableRef::set_row_keys()): the key
+  // of a row (0 = none), the row of a key (kUnknownId when no row has it,
+  // kInvalidArgument for 0), and select(index_of(key)).
+  [[nodiscard]] Expected<std::uint64_t, Status> key_of(int index) const;
+  [[nodiscard]] Expected<int, Status> index_of(std::uint64_t key) const;
+  Status select_key(std::uint64_t key);
 
  private:
   friend class Window;
@@ -131,6 +150,15 @@ class TableRef : public ComponentRef {
   Status set_cells(std::vector<std::vector<TableCell>> rows);
   // A cell's check state (TableCell::check); kNotApplicable without one.
   [[nodiscard]] Expected<bool, Status> cell_checked(int row, int column) const;
+  // One key per row (cleared by set_rows()/set_cells()); kInvalidArgument
+  // unless keys.size() == the row count.
+  Status set_row_keys(std::vector<std::uint64_t> keys);
+  // Row keys (RowItem/TreeEntry::key, TableRef::set_row_keys()): the key
+  // of a row (0 = none), the row of a key (kUnknownId when no row has it,
+  // kInvalidArgument for 0), and select(index_of(key)).
+  [[nodiscard]] Expected<std::uint64_t, Status> key_of(int index) const;
+  [[nodiscard]] Expected<int, Status> index_of(std::uint64_t key) const;
+  Status select_key(std::uint64_t key);
 
  private:
   friend class Window;

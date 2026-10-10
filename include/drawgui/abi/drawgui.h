@@ -176,6 +176,12 @@ typedef struct dg_event {
   /* ABI 0.2: DG_EVENT_MENU_ACTIVATE: the chosen entry's command */
   /* (dg_menu_open_ex()/dg_menubar_*; 0 = none). 0 for every other kind. */
   int32_t command;
+  /* ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK/DG_EVENT_ROW_PART on a */
+  /* LIST/TREE/TABLE row: the app's key for that row */
+  /* (dg_list_set_row_keys()/dg_tree_set_item_keys()/dg_table_set_row_keys(); */
+  /* never dereferenced). 0 = none / every other kind. Appended: sizeof(dg_event) */
+  /* grows from 48 to 56 on a 64-bit target. */
+  uint64_t item_key;
 } dg_event;
 
 /* 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed. */
@@ -1713,6 +1719,21 @@ DG_EXPORT int32_t dg_table_set_cells_ex(dg_node_t* node, const char* const* cell
 /* ABI 0.2: 1/0 for a dg_table_set_cells_ex() cell's check box, or a negative */
 /* DG_ERR_*. */
 DG_EXPORT int32_t dg_table_cell_checked(dg_node_t* node, int32_t row, int32_t column);
+
+/* ABI 0.2: one app key per row of a DG_NODE_TYPE_LIST (count must equal the row */
+/* count; replaced by the next dg_list_set_items()/dg_list_set_rows()). Echoed */
+/* as dg_event::item_key; never dereferenced. */
+DG_EXPORT int32_t dg_list_set_row_keys(dg_node_t* node, const uint64_t* keys, uint32_t count);
+
+/* ABI 0.2: one app key per pre-order item of a DG_NODE_TYPE_TREE (count must */
+/* equal the item count; replaced by the next dg_tree_set_items*()). Echoed as */
+/* dg_event::item_key. */
+DG_EXPORT int32_t dg_tree_set_item_keys(dg_node_t* node, const uint64_t* keys, uint32_t count);
+
+/* ABI 0.2: one app key per row of a DG_NODE_TYPE_TABLE (count must equal the */
+/* row count; cleared by the next dg_table_set_cells*()). Echoed as */
+/* dg_event::item_key. */
+DG_EXPORT int32_t dg_table_set_row_keys(dg_node_t* node, const uint64_t* keys, uint32_t count);
 
 /* ABI 0.2: replaces a DG_NODE_TYPE_MENUBAR's menus: `menu_count` titles, menu i */
 /* owning the next entry_counts[i] entries of the flattened */

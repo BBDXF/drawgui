@@ -173,6 +173,79 @@ BoxStyle column_box(const TableColumn& column, int height) {
 
 }  // namespace
 
+Color secondary_text(const ControlStyle& style) {
+  return muted_text(style);
+}
+
+NodeId add_part(ControlContext& ctx, NodeId row) {
+  BoxStyle box;
+  box.kind = LayoutKind::kLeaf;
+  box.width = 0;
+  box.height = 0;
+  return ctx.layout.add_child(row, box, NodeStyle{});
+}
+
+void hide_part(ControlContext& ctx, NodeId node) {
+  set_bounds_if(ctx.tree(), node, PixelRect{0, 0, 0, 0});
+}
+
+void paint_check(ControlContext& ctx, NodeId node, int x, int height, std::optional<bool> check) {
+  if (!check.has_value()) {
+    hide_part(ctx, node);
+    return;
+  }
+  const ControlStyle& style = ctx.style;
+  RenderTree& tree = ctx.tree();
+  set_bounds_if(tree, node,
+                PixelRect{x, std::max(0, (height - kCheckSize) / 2), kCheckSize, kCheckSize});
+  NodeStyle want = tree.style(node);
+  want.radii = Radii::all(3.0F);
+  want.border_width = BorderWidths::all(1.0F);
+  want.fill = *check ? style.accent : style.surface;
+  want.border_color = *check ? style.accent : muted_text(style);
+  want.text = text_style(ctx, *check ? "\u2713" : "", style.on_accent, TextAlign::kCenter);
+  want.text.size = std::max(8.0F, style.font_size - 3.0F);
+  const NodeStyle& now = tree.style(node);
+  if (now.fill != want.fill || now.border_color != want.border_color ||
+      now.text.text != want.text.text || now.text.color != want.text.color ||
+      !(now.radii == want.radii) || !(now.border_width == want.border_width) ||
+      now.text.size != want.text.size || now.text.font != want.text.font) {
+    tree.set_style(node, want);
+  }
+}
+
+void paint_icon(ControlContext& ctx, NodeId node, const PixelRect& rect, ImageId image) {
+  if (!image.is_valid()) {
+    hide_part(ctx, node);
+    return;
+  }
+  RenderTree& tree = ctx.tree();
+  set_bounds_if(tree, node, rect);
+  const NodeStyle& now = tree.style(node);
+  if (now.image.source != image || now.image.fit != ImageFit::kContain) {
+    NodeStyle want = now;
+    want.image.source = image;
+    want.image.fit = ImageFit::kContain;
+    tree.set_style(node, want);
+  }
+}
+
+void paint_part_text(ControlContext& ctx, NodeId node, const PixelRect& rect,
+                     const std::string& text, TextAlign align) {
+  RenderTree& tree = ctx.tree();
+  if (text.empty() || rect.width <= 0) {
+    hide_part(ctx, node);
+    return;
+  }
+  set_bounds_if(tree, node, rect);
+  const TextStyle& now = tree.style(node).text;
+  const Color color = muted_text(ctx.style);
+  if (now.text != text || now.color != color || now.align != align || now.font != ctx.font ||
+      now.size != ctx.style.font_size) {
+    tree.set_text(node, text_style(ctx, text, color, align));
+  }
+}
+
 // A selected row: soft primary tint of the surface, text stays on-surface.
 Color selection_fill(const ControlStyle& style) {
   return mix(style.surface, style.accent, is_dark(style) ? 0.30F : 0.16F);
@@ -308,6 +381,9 @@ RowListNodes build_tree(ControlContext& ctx, NodeId parent, const TreeViewSpec& 
   nodes.header = nodes.root;
   nodes.list = build_list(ctx, nodes.root, spec.viewport_height);
   const int count = pool_size(ctx, spec.viewport_height);
+  const bool rich = std::any_of(spec.items.begin(), spec.items.end(), [](const TreeItem& item) {
+    return item.icon.is_valid() || item.check.has_value() || !item.secondary.empty();
+  });
   for (int i = 0; i < count; ++i) {
     BoxStyle row_box;
     row_box.kind = LayoutKind::kLeaf;
@@ -325,6 +401,11 @@ RowListNodes build_tree(ControlContext& ctx, NodeId parent, const TreeViewSpec& 
     NodeStyle label;
     label.text = text_style(ctx, "", style.on_surface, TextAlign::kLeft);
     ctx.layout.add_child(row, part_box, label);
+    if (rich) {
+      for (int part = 0; part < 3; ++part) {  // check, icon, secondary
+        (void)add_part(ctx, row);
+      }
+    }
     nodes.pool.push_back(row);
   }
   finish_list(ctx, nodes, 0);
@@ -343,7 +424,26 @@ void paint_tree_row(ControlContext& ctx, NodeId row, const TreeItem& item, bool 
   const int x = tree_disclosure_x(ctx, item.depth);
   set_bounds_if(tree, kids[0], PixelRect{x, 0, style.indent, bounds.height});
 
-  const int label_x = x + style.indent;
+  int label_x = x + style.indent;
+  if (kids.size() >= 5) {
+    paint_check(ctx, kids[2], label_x, bounds.height, item.check);
+    if (item.check.has_value()) {
+      label_x += kCheckSize + kPartGap;
+    }
+    paint_icon(ctx, kids[3],
+               PixelRect{label_x, std::max(0, (bounds.height - kIconSize) / 2), kIconSize,
+                         kIconSize},
+               item.icon);
+    if (item.icon.is_valid()) {
+      label_x += kIconSize + kPartGap;
+    }
+    const int label_w =
+        item.secondary.empty() ? 0 : text_width(ctx, style.font_size, item.label);
+    const int sec_x = label_x + label_w + style.padding;
+    paint_part_text(ctx, kids[4],
+                    PixelRect{sec_x, 0, std::max(0, bounds.width - sec_x), bounds.height},
+                    item.secondary, TextAlign::kLeft);
+  }
   set_bounds_if(tree, kids[1],
                 PixelRect{label_x, 0, std::max(0, bounds.width - label_x), bounds.height});
   set_fill_if(tree, row, selected ? selection_fill(style) : Color{});
@@ -401,6 +501,11 @@ RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& sp
 
   nodes.list = build_list(ctx, nodes.root, spec.viewport_height);
   const int count = pool_size(ctx, spec.viewport_height);
+  const bool rich = std::any_of(spec.parts.begin(), spec.parts.end(), [](const auto& row) {
+    return std::any_of(row.begin(), row.end(), [](const TableCellPart& part) {
+      return part.icon.is_valid() || part.check.has_value();
+    });
+  });
   for (int i = 0; i < count; ++i) {
     BoxStyle row_box;
     row_box.kind = LayoutKind::kRow;
@@ -411,7 +516,15 @@ RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& sp
       NodeStyle cell;
       cell.text = text_style(ctx, "", style.on_surface, TextAlign::kLeft);
       cell.text.inset = style.padding;
-      ctx.layout.add_child(row, column_box(column, style.row_height), cell);
+      BoxStyle cell_box = column_box(column, style.row_height);
+      if (rich) {
+        cell_box.kind = LayoutKind::kLeaf;
+      }
+      const NodeId cell_node = ctx.layout.add_child(row, cell_box, cell);
+      if (rich) {
+        (void)add_part(ctx, cell_node);  // check
+        (void)add_part(ctx, cell_node);  // icon
+      }
     }
     nodes.pool.push_back(row);
   }
@@ -420,7 +533,7 @@ RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& sp
 }
 
 void paint_table_row(ControlContext& ctx, NodeId row, const std::vector<std::string>* cells,
-                     bool selected) {
+                     const std::vector<TableCellPart>* parts, bool selected) {
   const ControlStyle& style = ctx.style;
   RenderTree& tree = ctx.tree();
   set_fill_if(tree, row, selected ? selection_fill(style) : Color{});
@@ -429,7 +542,31 @@ void paint_table_row(ControlContext& ctx, NodeId row, const std::vector<std::str
   static const std::string kEmpty;
   for (std::size_t i = 0; i < kids.size(); ++i) {
     const bool has = cells != nullptr && i < cells->size();
+    const std::vector<NodeId> cell_parts = tree.children(kids[i]);
+    int pad = 0;
+    if (cell_parts.size() >= 2) {
+      const TableCellPart part =
+          parts != nullptr && i < parts->size() ? (*parts)[i] : TableCellPart{};
+      const int height = tree.local_bounds(kids[i]).height;
+      int x = style.padding;
+      paint_check(ctx, cell_parts[0], x, height, part.check);
+      if (part.check.has_value()) {
+        x += kCheckSize + kPartGap;
+      }
+      paint_icon(ctx, cell_parts[1],
+                 PixelRect{x, std::max(0, (height - kIconSize) / 2), kIconSize, kIconSize},
+                 part.icon);
+      if (part.icon.is_valid()) {
+        x += kIconSize + kPartGap;
+      }
+      pad = x - style.padding;
+    }
     set_text_if(tree, kids[i], has ? (*cells)[i] : kEmpty, text);
+    if (tree.style(kids[i]).text.pad_left != pad) {
+      TextStyle shifted = tree.style(kids[i]).text;
+      shifted.pad_left = pad;
+      tree.set_text(kids[i], shifted);
+    }
   }
 }
 

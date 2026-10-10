@@ -149,10 +149,30 @@ void context_click(WinState& window, const dg::PointerEvent& event) {
   if (hit.has_value() && dg::is_disabled(window.tree.render(), *hit)) {
     return;
   }
-  emit(window.app,
-       dg::events::ContextClickEvent{
-           window.sdl_window, hit.has_value() ? nearest_node(window, *hit) : std::nullopt,
-           event.x, event.y, event.clicks});
+  const std::optional<dg::NodeId> node =
+      hit.has_value() ? nearest_node(window, *hit) : std::nullopt;
+  // A press on a List/Tree/Table row selects that row first and names it.
+  RowHit row;
+  if (NodeRecord* record = node.has_value() ? record_of(window, *node) : nullptr) {
+    if (record->kind == NodeKind::kList) {
+      row = list_context_row(window, *record, at);
+    } else if (record->kind == NodeKind::kTree) {
+      row = tree_context_row(window, *record, at);
+    } else if (record->kind == NodeKind::kTable) {
+      row = table_context_row(window, *record, at);
+    }
+  }
+  emit(window.app, dg::events::ContextClickEvent{window.sdl_window, node, event.x, event.y,
+                                                 event.clicks, row.item, row.column, row.key});
+}
+
+// A completed click on a toggle button (DG_PROP_CHECKED written on a
+// kButton) flips it before its ClickEvent, like a checkbox.
+void flip_toggle(WinState& window, std::optional<dg::NodeId> clicked) {
+  NodeRecord* record = clicked.has_value() ? record_of(window, *clicked) : nullptr;
+  if (record != nullptr && components::is_toggle_button(*record)) {
+    components::flip_toggle_button(window, *record);
+  }
 }
 
 // PointerEvent::clicks (WindowManager's count), restarted at 1 when a key
@@ -218,6 +238,7 @@ void process_pointer_event(WinState& window, const dg::PointerEvent& event) {
       change =
           window.interaction.moved_over(window.widgets.widget_at(window.tree.render(), at));
       drag_held(window, at);
+      hover_list_actions(window, at);
       break;
     }
     case dg::PointerAction::kDown: {
@@ -280,6 +301,7 @@ void process_pointer_event(WinState& window, const dg::PointerEvent& event) {
       window.widgets.refresh(window.tree.render(), other, window.interaction.state_of(other));
     }
   }
+  flip_toggle(window, change.clicked);
   if (change.clicked.has_value()) {
     // The release carries no count of its own; the press that started this
     // click did, and Interaction only clicks on a release after a press.

@@ -238,7 +238,9 @@ schema_version = 1
 #        dg_table_set_cells_ex(), dg_table_cell_checked());
 #        dg_menu_open_ex() (shortcut labels, commands); dg_dialog_open_ex()
 #        (an app-built content node) and dg_dialog_set_button_disabled();
-#        DG_PROP_CHECKED (toggle buttons).
+#        DG_PROP_CHECKED (toggle buttons); row keys (dg_list_set_row_keys(),
+#        dg_tree_set_item_keys(), dg_table_set_row_keys(), dg_event's
+#        appended item_key: sizeof(dg_event) 48 -> 56 on a 64-bit target).
 [meta]
 abi_major = 0
 abi_minor = 2
@@ -326,6 +328,7 @@ fields = [
   { name = "item", type = "int32_t", summary = "ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK on a LIST/TABLE row (the row) or a TREE item (the pre-order item); DG_EVENT_ROW_PART the row/item; DG_EVENT_MENU_ACTIVATE the item index. -1 for every other kind or a press outside the rows. Appended (with `column` and `command`): sizeof(dg_event) grows from 40 to 56 on a 64-bit target; `size` tells which fields a struct has." },
   { name = "column", type = "int32_t", summary = "ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK/DG_EVENT_ROW_PART on a TABLE: the column. DG_EVENT_MENU_ACTIVATE/_DISMISS of a DG_NODE_TYPE_MENUBAR menu: the bar menu index. -1 otherwise." },
   { name = "command", type = "int32_t", summary = "ABI 0.2: DG_EVENT_MENU_ACTIVATE: the chosen entry's command (dg_menu_open_ex()/dg_menubar_*; 0 = none). 0 for every other kind." },
+  { name = "item_key", type = "uint64_t", summary = "ABI 0.2: DG_EVENT_CLICK/DG_EVENT_CONTEXT_CLICK/DG_EVENT_ROW_PART on a LIST/TREE/TABLE row: the app's key for that row (dg_list_set_row_keys()/dg_tree_set_item_keys()/dg_table_set_row_keys(); never dereferenced). 0 = none / every other kind. Appended: sizeof(dg_event) grows from 48 to 56 on a 64-bit target." },
 ]
 
 [[struct]]
@@ -1280,6 +1283,27 @@ ret = "int32_t"
 impl = "table_cell_checked"
 params = [{ name = "node", type = "dg_node_t*" }, { name = "row", type = "int32_t" }, { name = "column", type = "int32_t" }]
 summary = "ABI 0.2: 1/0 for a dg_table_set_cells_ex() cell's check box, or a negative DG_ERR_*."
+
+[[function]]
+name = "dg_list_set_row_keys"
+ret = "int32_t"
+impl = "list_set_row_keys"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "keys", type = "const uint64_t*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2: one app key per row of a DG_NODE_TYPE_LIST (count must equal the row count; replaced by the next dg_list_set_items()/dg_list_set_rows()). Echoed as dg_event::item_key; never dereferenced."
+
+[[function]]
+name = "dg_tree_set_item_keys"
+ret = "int32_t"
+impl = "tree_set_item_keys"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "keys", type = "const uint64_t*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2: one app key per pre-order item of a DG_NODE_TYPE_TREE (count must equal the item count; replaced by the next dg_tree_set_items*()). Echoed as dg_event::item_key."
+
+[[function]]
+name = "dg_table_set_row_keys"
+ret = "int32_t"
+impl = "table_set_row_keys"
+params = [{ name = "node", type = "dg_node_t*" }, { name = "keys", type = "const uint64_t*" }, { name = "count", type = "uint32_t" }]
+summary = "ABI 0.2: one app key per row of a DG_NODE_TYPE_TABLE (count must equal the row count; cleared by the next dg_table_set_cells*()). Echoed as dg_event::item_key."
 
 [[function]]
 name = "dg_menubar_set_menus"

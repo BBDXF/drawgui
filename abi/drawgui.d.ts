@@ -64,6 +64,7 @@ export interface dg_event {
   item: number;
   column: number;
   command: number;
+  item_key: bigint;
 }
 
 // 7-6: out-param naming why dg_theme_load_dir()/dg_theme_load_memory() failed.
@@ -981,6 +982,18 @@ export declare namespace DrawguiAbi {
   // ABI 0.2: 1/0 for a dg_table_set_cells_ex() cell's check box, or a negative
   // DG_ERR_*.
   function dg_table_cell_checked(node: dg_node_t | null, row: number, column: number): number;
+  // ABI 0.2: one app key per row of a DG_NODE_TYPE_LIST (count must equal the row
+  // count; replaced by the next dg_list_set_items()/dg_list_set_rows()). Echoed
+  // as dg_event::item_key; never dereferenced.
+  function dg_list_set_row_keys(node: dg_node_t | null, keys: BigUint64Array | null, count: number): number;
+  // ABI 0.2: one app key per pre-order item of a DG_NODE_TYPE_TREE (count must
+  // equal the item count; replaced by the next dg_tree_set_items*()). Echoed as
+  // dg_event::item_key.
+  function dg_tree_set_item_keys(node: dg_node_t | null, keys: BigUint64Array | null, count: number): number;
+  // ABI 0.2: one app key per row of a DG_NODE_TYPE_TABLE (count must equal the
+  // row count; cleared by the next dg_table_set_cells*()). Echoed as
+  // dg_event::item_key.
+  function dg_table_set_row_keys(node: dg_node_t | null, keys: BigUint64Array | null, count: number): number;
   // ABI 0.2: replaces a DG_NODE_TYPE_MENUBAR's menus: `menu_count` titles, menu i
   // owning the next entry_counts[i] entries of the flattened
   // labels/shortcut_labels/flags (DG_MENU_ITEM_*)/commands arrays (`entry_total`

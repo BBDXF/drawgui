@@ -29,6 +29,8 @@ bool Dialog::open(UiContext& ctx, DialogSpec spec, std::optional<NodeId> restore
   body_ = nodes.body;
   body_content_top_ = nodes.body_content_top;
   buttons_ = nodes.buttons;
+  disabled_.assign(buttons_.size(), false);
+  adopted_.reset();
   ring_ = FocusRing{};
 
   ctx.tables.focus.enter_scope(panel_, /*modal=*/true);
@@ -49,9 +51,15 @@ void Dialog::close(UiContext& ctx) {
     return;
   }
   ctx.tables.focus.exit_scope(ctx.tree);
+  if (adopted_.has_value() && ctx.tree.is_valid(*adopted_) &&
+      ctx.tree.is_valid(adopted_parent_)) {
+    (void)ctx.tree.move_child(*adopted_, adopted_parent_, std::nullopt);
+  }
+  adopted_.reset();
   ctx.popups.destroy(*handle_, ctx.tables);
   handle_.reset();
   buttons_.clear();
+  disabled_.clear();
   panel_ = NodeId{};
   body_ = NodeId{};
   ring_ = FocusRing{};
@@ -59,6 +67,39 @@ void Dialog::close(UiContext& ctx) {
     ctx.tables.focus.set(restore_focus_);
   }
   restore_focus_.reset();
+}
+
+void Dialog::set_button_disabled(UiContext& ctx, int index, bool disabled) {
+  if (!is_open() || index < 0 || static_cast<std::size_t>(index) >= buttons_.size()) {
+    return;
+  }
+  const auto at = static_cast<std::size_t>(index);
+  disabled_[at] = disabled;
+  ui_visuals::paint_dialog_button(ctx, buttons_[at], spec_.default_button == index, disabled);
+  if (disabled && ctx.tables.focus.current() == buttons_[at]) {
+    ctx.tables.focus.focus_next(ctx.tree, ctx.tables.widgets, panel_);
+    if (ctx.tables.focus.current() == buttons_[at]) {
+      ctx.tables.focus.set_guarded(ctx.tree, std::nullopt);
+    }
+  }
+  refresh_ring(ctx);
+}
+
+bool Dialog::button_disabled(int index) const {
+  return index >= 0 && static_cast<std::size_t>(index) < disabled_.size() &&
+         disabled_[static_cast<std::size_t>(index)];
+}
+
+void Dialog::adopt(UiContext& ctx, NodeId node) {
+  if (!is_open() || !ctx.tree.is_valid(node)) {
+    return;
+  }
+  const NodeId parent = ctx.tree.parent(node);
+  if (!ctx.tree.move_child(node, body_, std::nullopt)) {
+    return;
+  }
+  adopted_ = node;
+  adopted_parent_ = parent;
 }
 
 void Dialog::refresh_ring(UiContext& ctx) {
@@ -97,6 +138,9 @@ DialogResult Dialog::handle_pointer(UiContext& ctx, const PointerEvent& event) {
       ctx.tables.widgets.widget_at(ctx.tree, PixelPoint{event.x, event.y});
   if (hit.has_value() && event.button == PointerButton::kPrimary) {
     if (const std::optional<int> index = button_index(*hit)) {
+      if (button_disabled(*index)) {
+        return DialogResult{DialogEvent::kHandled, std::nullopt, std::nullopt};
+      }
       return finish(ctx, index);
     }
   }
@@ -126,11 +170,17 @@ DialogResult Dialog::handle_key(UiContext& ctx, const KeyEvent& event) {
       const std::optional<NodeId> current = ctx.tables.focus.current();
       if (current.has_value()) {
         if (const std::optional<int> index = button_index(*current)) {
+          if (button_disabled(*index)) {
+            return DialogResult{DialogEvent::kHandled, std::nullopt, std::nullopt};
+          }
           return finish(ctx, index);
         }
       }
       const int def = spec_.default_button.value_or(-1);
       if (def >= 0 && static_cast<std::size_t>(def) < buttons_.size()) {
+        if (button_disabled(def)) {
+          return DialogResult{DialogEvent::kHandled, std::nullopt, std::nullopt};
+        }
         return finish(ctx, def);
       }
       return {};

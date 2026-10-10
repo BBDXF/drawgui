@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "drawgui/layout/box.h"
+#include "drawgui/render/image_catalog.h"
 #include "drawgui/ui/control_context.h"
 #include "drawgui/window/window_manager.h"
 
@@ -39,9 +40,18 @@ struct TableColumn {
   bool sortable = true;
 };
 
+// A cell's optional icon and check box (TableSpec::parts), before its text.
+struct TableCellPart {
+  ImageId icon{};
+  std::optional<bool> check = std::nullopt;
+};
+
 struct TableSpec {
   std::vector<TableColumn> columns;
   std::vector<std::vector<std::string>> rows;  // a missing cell shows empty
+  // Parallel to `rows` (may be shorter / empty); any icon or check builds
+  // the part nodes per cell.
+  std::vector<std::vector<TableCellPart>> parts;
   int viewport_height = 240;                   // the row area, below the header
   BoxStyle box;                                // kind/height overridden
 };
@@ -71,6 +81,17 @@ class Table {
   // clamped to the new row count.
   void set_rows(ControlContext& ctx, std::vector<std::vector<std::string>> rows);
   bool select(ControlContext& ctx, int row);
+  // Flips a checkable cell's check box; false when it has none.
+  bool toggle_check(ControlContext& ctx, int row, int column);
+  [[nodiscard]] std::optional<bool> cell_check(int row, int column) const;
+  // The cell under absolute `point` and whether the point is on its check
+  // box; nothing outside the rows.
+  struct Hit {
+    int row = -1;
+    int column = -1;
+    bool check = false;
+  };
+  [[nodiscard]] std::optional<Hit> hit(const ControlContext& ctx, PixelPoint point) const;
   // Shows " ^" (ascending) or " v" after `column`'s title; nullopt clears.
   void set_sort_indicator(ControlContext& ctx, std::optional<int> column, bool ascending);
   void sync(ControlContext& ctx);
@@ -90,6 +111,8 @@ class Table {
 
   std::vector<TableColumn> columns_;
   std::vector<std::vector<std::string>> rows_;
+  std::vector<std::vector<TableCellPart>> parts_;
+  bool rich_ = false;
   std::optional<int> selected_;
   NodeId root_;
   NodeId list_;

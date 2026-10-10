@@ -329,6 +329,45 @@ std::int32_t table_cell_checked(dg_node_t* node_h, std::int32_t row, std::int32_
   return bool_or_error(r.window->table(r.slot->node_id).value().cell_checked(row, column));
 }
 
+std::int32_t list_set_row_keys(dg_node_t* node_h, const std::uint64_t* keys,
+                               std::uint32_t count) {
+  const Resolved r = resolve(node_h, DG_NODE_TYPE_LIST);
+  if (r.status != DG_ERR_OK) {
+    return r.status;
+  }
+  if (count > 0 && keys == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return to_error_code(r.window->list(r.slot->node_id).value().set_row_keys(
+      std::vector<std::uint64_t>(keys, keys + count)));
+}
+
+std::int32_t tree_set_item_keys(dg_node_t* node_h, const std::uint64_t* keys,
+                                std::uint32_t count) {
+  const Resolved r = resolve(node_h, DG_NODE_TYPE_TREE);
+  if (r.status != DG_ERR_OK) {
+    return r.status;
+  }
+  if (count > 0 && keys == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return to_error_code(r.window->tree(r.slot->node_id).value().set_row_keys(
+      std::vector<std::uint64_t>(keys, keys + count)));
+}
+
+std::int32_t table_set_row_keys(dg_node_t* node_h, const std::uint64_t* keys,
+                                std::uint32_t count) {
+  const Resolved r = resolve(node_h, DG_NODE_TYPE_TABLE);
+  if (r.status != DG_ERR_OK) {
+    return r.status;
+  }
+  if (count > 0 && keys == nullptr) {
+    return DG_ERR_INVALID_ARGUMENT;
+  }
+  return to_error_code(r.window->table(r.slot->node_id).value().set_row_keys(
+      std::vector<std::uint64_t>(keys, keys + count)));
+}
+
 // -- Menu bar ----------------------------------------------------------------
 
 std::int32_t menubar_set_menus(dg_node_t* node_h, const char* const* titles,

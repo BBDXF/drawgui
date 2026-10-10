@@ -36,6 +36,9 @@ struct ClickEvent {
   std::optional<int> item = std::nullopt;
   // The column of a Table press; none elsewhere.
   std::optional<int> column = std::nullopt;
+  // The row's app key (RowItem/TreeEntry::key, TableRef::set_row_keys());
+  // 0 = none.
+  std::uint64_t item_key = 0;
 };
 
 // A secondary-button press on the nearest created node under the pointer.
@@ -45,9 +48,10 @@ struct ContextClickEvent {
   int x = 0;
   int y = 0;
   int clicks = 1;
-  // As ClickEvent::item/column.
+  // As ClickEvent::item/column/item_key.
   std::optional<int> item = std::nullopt;
   std::optional<int> column = std::nullopt;
+  std::uint64_t item_key = 0;
 };
 
 // A routed shortcut action; `node` = its target (none = app-wide). An
@@ -185,6 +189,8 @@ struct RowPartEvent {
   int column = -1;
   Part part = Part::kCheck;
   int action = -1;
+  // As ClickEvent::item_key.
+  std::uint64_t item_key = 0;
 };
 
 }  // namespace events

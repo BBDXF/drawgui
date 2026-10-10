@@ -44,6 +44,9 @@ struct RowItem {
   ImageId icon{};
   std::optional<bool> check = std::nullopt;
   std::uint8_t trailing_actions = 0;
+  // The app's own id for the row (0 = none), echoed as item_key in
+  // Click/ContextClick/RowPart events; never dereferenced.
+  std::uint64_t key = 0;
 };
 
 // One trailing action button shared by every row of a list.
@@ -70,6 +73,8 @@ struct TreeEntry {
   std::string secondary{};
   // A check box before the label (nullopt = none).
   std::optional<bool> check = std::nullopt;
+  // As RowItem::key.
+  std::uint64_t key = 0;
 };
 
 // One column of TableRef::set_columns(). Neither width = an equal share of

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,23 @@ struct RowListNodes {
   NodeId thumb;
   std::vector<NodeId> pool;
 };
+// Row parts (check box, icon, dimmed secondary text, action buttons) the
+// runtime list, TreeView and Table share. A part is a plain child placed at
+// paint time; a hidden one gets empty bounds so it neither paints nor hits.
+inline constexpr int kCheckSize = 14;
+inline constexpr int kIconSize = 16;
+inline constexpr int kPartGap = 6;
+inline constexpr int kActionBox = 22;
+[[nodiscard]] Color secondary_text(const ControlStyle& style);
+[[nodiscard]] NodeId add_part(ControlContext& ctx, NodeId row);
+// `check` nullopt hides it; `x` is row-local, centred vertically in `height`.
+void paint_check(ControlContext& ctx, NodeId node, int x, int height, std::optional<bool> check);
+// An invalid `image` hides it.
+void paint_icon(ControlContext& ctx, NodeId node, const PixelRect& rect, ImageId image);
+void paint_part_text(ControlContext& ctx, NodeId node, const PixelRect& rect,
+                     const std::string& text, TextAlign align);
+void hide_part(ControlContext& ctx, NodeId node);
+
 RowListNodes build_tree(ControlContext& ctx, NodeId parent, const TreeViewSpec& spec);
 RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& spec);
 
@@ -61,7 +79,7 @@ RowListNodes build_table(ControlContext& ctx, NodeId parent, const TableSpec& sp
 void paint_tree_row(ControlContext& ctx, NodeId row, const TreeItem& item, bool has_children,
                     bool expanded, bool selected);
 void paint_table_row(ControlContext& ctx, NodeId row, const std::vector<std::string>* cells,
-                     bool selected);
+                     const std::vector<TableCellPart>* parts, bool selected);
 void paint_table_header(ControlContext& ctx, NodeId cell, const std::string& title);
 
 }  // namespace dg::control_visuals

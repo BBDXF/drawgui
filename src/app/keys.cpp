@@ -4,6 +4,7 @@
 // action becomes an ActionEvent.
 
 #include <optional>
+#include <vector>
 
 #include "app/components/components.h"
 #include "app/internal.h"
@@ -199,6 +200,117 @@ bool handle_tab(WinState& window, const dg::KeyEvent& event) {
   return true;
 }
 
+// Menu, or Shift+F10: the keyboard's context click.
+bool is_context_menu_key(const dg::KeyEvent& event) {
+  return (event.logical_key == dg::LogicalKey::kMenu && event.mods == dg::Modifier::kNone) ||
+         (event.logical_key == dg::LogicalKey::kF10 && event.mods == dg::Modifier::kShift);
+}
+
+// The selected row of a List/Tree/Table record, through the public refs.
+std::optional<int> selected_item(WinState& window, const NodeRecord& record) {
+  dg::Window& self = *window.self;
+  std::optional<int> selected;
+  const auto take = [&](const auto& ref) {
+    if (ref.has_value()) {
+      const dg::Expected<int, dg::Status> index = ref.value().selected();
+      if (index.has_value() && index.value() >= 0) {
+        selected = index.value();
+      }
+    }
+  };
+  switch (record.kind) {
+    case NodeKind::kList:
+      take(self.list(record.id));
+      break;
+    case NodeKind::kTree:
+      take(self.tree(record.id));
+      break;
+    case NodeKind::kTable:
+      take(self.table(record.id));
+      break;
+    default:
+      break;
+  }
+  return selected;
+}
+
+// A ContextClickEvent on the focused node's record (else the window root),
+// at that node's bottom-left corner; a List/Tree/Table names its selected
+// row as `item`. Row geometry is not public, so the position is the node's
+// own corner, not the row's.
+void keyboard_context_click(WinState& window) {
+  std::optional<dg::NodeId> target;
+  if (const std::optional<dg::NodeId> focused = window.focus.current()) {
+    target = nearest_node(window, *focused);
+  }
+  if (!target.has_value()) {
+    target = window.root;
+  }
+  if (!target.has_value()) {
+    return;
+  }
+  const NodeRecord* record = record_of(window, *target);
+  dg::events::ContextClickEvent event{window.sdl_window, target};
+  const dg::PixelRect bounds = window.tree.render().absolute_bounds(*target);
+  event.x = bounds.x;
+  event.y = bounds.y + bounds.height;
+  event.clicks = 0;
+  if (record != nullptr) {
+    event.item = selected_item(window, *record);
+  }
+  emit(window.app, event);
+}
+
+// A TextField's own keys that never reach the router: the six editing
+// intents always, and Enter/Up/Down/PageUp/PageDown/Escape unless Mod or
+// Alt is held (so an app's Ctrl+Enter still routes).
+bool text_field_owns(const dg::KeyEvent& event) {
+  switch (event.key) {
+    case dg::Key::kOther:
+    case dg::Key::kTab:
+      return false;
+    case dg::Key::kLeft:
+    case dg::Key::kRight:
+    case dg::Key::kHome:
+    case dg::Key::kEnd:
+    case dg::Key::kBackspace:
+    case dg::Key::kDelete:
+      return true;
+    case dg::Key::kEscape:
+    case dg::Key::kUp:
+    case dg::Key::kDown:
+    case dg::Key::kEnter:
+    case dg::Key::kPageUp:
+    case dg::Key::kPageDown:
+      return !dg::has(event.mods, dg::Modifier::kMod) && !dg::has(event.mods, dg::Modifier::kAlt);
+  }
+  return true;
+}
+
+// After the editors: a form dialog keeps shortcuts off; Menu / Shift+F10
+// is the keyboard context click; everything else goes through the router
+// with the user tables (the window's scoped bindings, then the app-wide
+// ones - the router filters each level by UserShortcut::scope).
+std::optional<dg::ResolvedAction> route_shortcut(WinState& window, const dg::KeyEvent& event) {
+  if (window.dialog.is_open()) {
+    return std::nullopt;
+  }
+  if (is_context_menu_key(event)) {
+    keyboard_context_click(window);
+    return std::nullopt;
+  }
+  std::vector<dg::UserShortcut> user = window.user_shortcuts;
+  user.insert(user.end(), window.app.user_shortcuts.begin(), window.app.user_shortcuts.end());
+  const dg::RoutingContext ctx{window.tree.render(), window.widgets, window.action_scopes,
+                               dg::all_shortcut_bindings()};
+  const dg::KeyRouteResult routed =
+      dg::route_key_event(event, window.sdl_window, window.focus.current(), ctx, user);
+  if (routed.outcome != dg::KeyRouteOutcome::kRouted) {
+    return std::nullopt;
+  }
+  return routed.action;
+}
+
 }  // namespace
 
 // 8-3d: design.md section 5.5.2's four-level router, driven by a REAL
@@ -261,22 +373,19 @@ void process_key_event(WinState& window, const dg::KeyEvent& event) {
     if (text_changed_now) {
       text_changed(window, *focused);
     }
-    if (event.key != dg::Key::kOther) {
-      // One of the six editing keys handle_text_field_key() switches on
-      // (kOther is everything else - a plain character key SDL also
-      // reports as a KeyEvent beside its own TextInputEvent, which must
-      // still reach the router for e.g. Mod+C).
+    if (text_field_owns(event)) {
+      // One of the keys handle_text_field_key() switches on (kOther is
+      // everything else - a plain character key SDL also reports as a
+      // KeyEvent beside its own TextInputEvent, which must still reach the
+      // router for e.g. Mod+C).
       return;
     }
   }
-  const dg::RoutingContext ctx{window.tree.render(), window.widgets, window.action_scopes,
-                               dg::all_shortcut_bindings()};
-  const dg::KeyRouteResult routed =
-      dg::route_key_event(event, window.sdl_window, window.focus.current(), ctx);
-  if (routed.outcome != dg::KeyRouteOutcome::kRouted || !routed.action.has_value()) {
+  const std::optional<dg::ResolvedAction> routed = route_shortcut(window, event);
+  if (!routed.has_value()) {
     return;
   }
-  const dg::ResolvedAction& action = *routed.action;
+  const dg::ResolvedAction& action = *routed;
   // ABI 0.2: the keyboard-scrolling actions scroll the focused node's
   // scroll view (a no-op when there is none); still reported below.
   if (action.action_id == DG_ACTION_SCROLL_PAGE_UP ||

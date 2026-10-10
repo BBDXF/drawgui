@@ -87,6 +87,78 @@ std::optional<Chord> parse_chord(std::string_view text) {
   }
 }
 
+namespace {
+
+bool iequals(std::string_view a, std::string_view b) {
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    const auto lower = [](char c) {
+      return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    };
+    if (lower(a[i]) != lower(b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::optional<Modifier> user_modifier(std::string_view word) {
+  constexpr std::array<std::pair<std::string_view, Modifier>, 6> kWords = {{
+      {"Mod", Modifier::kMod},
+      {"Ctrl", Modifier::kMod},
+      {"Control", Modifier::kMod},
+      {"Cmd", Modifier::kMod},
+      {"Shift", Modifier::kShift},
+      {"Alt", Modifier::kAlt},
+  }};
+  for (const auto& [name, bit] : kWords) {
+    if (iequals(name, word)) {
+      return bit;
+    }
+  }
+  return std::nullopt;
+}
+
+}  // namespace
+
+std::string_view logical_key_name(LogicalKey key) {
+  for (const auto& entry : kKeyNames) {
+    if (entry.key == key) {
+      return entry.name;
+    }
+  }
+  return {};
+}
+
+std::optional<Chord> parse_user_chord(std::string_view text) {
+  Modifier mods = Modifier::kNone;
+  std::string_view remaining = text;
+  while (true) {
+    const auto plus = remaining.find('+');
+    const std::string_view segment =
+        plus == std::string_view::npos ? remaining : remaining.substr(0, plus);
+    if (segment.empty()) {
+      return std::nullopt;
+    }
+    if (plus == std::string_view::npos) {
+      for (const auto& entry : kKeyNames) {
+        if (iequals(entry.name, segment) && entry.key != LogicalKey::kAltKey) {
+          return Chord{mods, entry.key};
+        }
+      }
+      return std::nullopt;
+    }
+    const std::optional<Modifier> bit = user_modifier(segment);
+    if (!bit.has_value() || has(mods, *bit)) {
+      return std::nullopt;
+    }
+    mods = mods | *bit;
+    remaining = remaining.substr(plus + 1);
+  }
+}
+
 std::string_view mod_label(Platform platform) {
   switch (platform) {
     case Platform::kLinux:

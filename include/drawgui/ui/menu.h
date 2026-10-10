@@ -34,6 +34,9 @@ struct MenuItem {
   // nullopt: no check column for this item. A menu where ANY item has a
   // value reserves the check column on every row so labels line up.
   std::optional<bool> checked;
+  // Accelerator text drawn right-aligned and dimmed (e.g. "Ctrl+S");
+  // display only. Any item with one widens the menu by the widest.
+  std::string shortcut;
 };
 
 // Builders, so callers need not spell every field (aggregate init with

@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -88,6 +89,27 @@ bool press_list_row(WinState& window, dg::PixelPoint at, int clicks);
 dg::Status set_list_prop(WinState& window, const NodeRecord& record, std::uint16_t prop_id,
                          const dg::PropValue& value);
 void resync_list(WinState& window, const NodeRecord& record);
+// A pointer move: shows a hovered row action's tooltip (borrowed onto the
+// list record while hovered).
+void hover_list_actions(WinState& window, dg::PixelPoint at);
+
+// -- Row parts (list.cpp / tree.cpp / table.cpp) -----------------------------------
+
+// The row a secondary press over a List/Tree/Table `record` lands on: it is
+// selected first (its normal select event queued) and named for the
+// ContextClickEvent. Empty outside the rows.
+struct RowHit {
+  std::optional<int> item;
+  std::optional<int> column;
+  std::uint64_t key = 0;
+};
+RowHit list_context_row(WinState& window, NodeRecord& record, dg::PixelPoint at);
+RowHit tree_context_row(WinState& window, NodeRecord& record, dg::PixelPoint at);
+RowHit table_context_row(WinState& window, NodeRecord& record, dg::PixelPoint at);
+// Space on a focused Tree/Table: toggles the selected row's check box
+// (RowPartEvent{kCheck}). True when consumed.
+bool toggle_tree_row_check(WinState& window, NodeRecord& record);
+bool toggle_table_row_check(WinState& window, NodeRecord& record);
 
 // -- components/scroll_view.cpp ---------------------------------------------------
 

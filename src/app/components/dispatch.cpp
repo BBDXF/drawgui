@@ -76,7 +76,9 @@ void defaults(const WinState& window, NodeKind kind, dg::BoxStyle& box, dg::Node
     case NodeKind::kRadio:
       slider_radio_defaults(kind, box, style);
       return;
-    case NodeKind::kMenuBar:  // Contract stub: a plain box until the menu bar lands.
+    case NodeKind::kMenuBar:
+      menubar_defaults(box, style);
+      return;
     case NodeKind::kBox:
     case NodeKind::kButton:
     case NodeKind::kLabel:
@@ -124,7 +126,10 @@ void compose(WinState& window, NodeRecord& record) {
     case NodeKind::kRadio:
       compose_radio(window, record);
       return;
-    case NodeKind::kMenuBar:  // Contract stub: a plain box until the menu bar lands.
+    case NodeKind::kMenuBar:
+      record.state.emplace<MenuBarState>();
+      build_menubar(window, record);
+      return;
     case NodeKind::kBox:
     case NodeKind::kButton:
     case NodeKind::kLabel:

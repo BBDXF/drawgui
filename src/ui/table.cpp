@@ -21,6 +21,9 @@ void Table::build(ControlContext& ctx, NodeId parent, TableSpec spec) {
   pool_ = std::move(nodes.pool);
   columns_ = std::move(spec.columns);
   rows_ = std::move(spec.rows);
+  parts_ = std::move(spec.parts);
+  rich_ = !pool_.empty() && !ctx.tree().children(pool_.front()).empty() &&
+          !ctx.tree().children(ctx.tree().children(pool_.front()).front()).empty();
   built_ = true;
   reset_rows(ctx);
 }
@@ -36,6 +39,8 @@ void Table::destroy(ControlContext& ctx) {
   dragging_ = false;
   columns_.clear();
   rows_.clear();
+  parts_.clear();
+  rich_ = false;
   headers_.clear();
   pool_.clear();
   selected_.reset();
@@ -58,8 +63,10 @@ void Table::repaint(ControlContext& ctx) {
     if (row < 0 || row >= row_count()) {
       continue;
     }
-    control_visuals::paint_table_row(ctx, list.list_pool[slot],
-                                     &rows_[static_cast<std::size_t>(row)], selected_ == row);
+    const auto index = static_cast<std::size_t>(row);
+    control_visuals::paint_table_row(ctx, list.list_pool[slot], &rows_[index],
+                                     index < parts_.size() ? &parts_[index] : nullptr,
+                                     selected_ == row);
   }
 }
 
@@ -74,6 +81,7 @@ void Table::set_rows(ControlContext& ctx, std::vector<std::vector<std::string>> 
     return;
   }
   rows_ = std::move(rows);
+  parts_.clear();
   selected_.reset();
   reset_rows(ctx);
 }
@@ -90,6 +98,55 @@ bool Table::select(ControlContext& ctx, int row) {
   reveal(ctx, row);
   repaint(ctx);
   return true;
+}
+
+std::optional<bool> Table::cell_check(int row, int column) const {
+  if (row < 0 || column < 0 || static_cast<std::size_t>(row) >= parts_.size() ||
+      static_cast<std::size_t>(column) >= parts_[static_cast<std::size_t>(row)].size()) {
+    return std::nullopt;
+  }
+  return parts_[static_cast<std::size_t>(row)][static_cast<std::size_t>(column)].check;
+}
+
+bool Table::toggle_check(ControlContext& ctx, int row, int column) {
+  const std::optional<bool> now = cell_check(row, column);
+  if (!built_ || !now.has_value()) {
+    return false;
+  }
+  parts_[static_cast<std::size_t>(row)][static_cast<std::size_t>(column)].check = !*now;
+  repaint(ctx);
+  return true;
+}
+
+std::optional<Table::Hit> Table::hit(const ControlContext& ctx, PixelPoint point) const {
+  if (!built_) {
+    return std::nullopt;
+  }
+  const std::optional<int> row = row_list::row_at(ctx, list_, point, row_count());
+  if (!row.has_value()) {
+    return std::nullopt;
+  }
+  Hit out;
+  out.row = *row;
+  const RenderTree& tree = ctx.tree();
+  const std::optional<NodeId> node = tree.hit_test(point);
+  for (const NodeId slot : pool_) {
+    const std::vector<NodeId> cells = tree.children(slot);
+    for (std::size_t c = 0; c < cells.size(); ++c) {
+      const PixelRect bounds = tree.absolute_bounds(cells[c]);
+      if (point.x >= bounds.x && point.x < bounds.x + bounds.width && point.y >= bounds.y &&
+          point.y < bounds.y + bounds.height) {
+        out.column = static_cast<int>(c);
+      }
+      if (rich_ && node.has_value()) {
+        const std::vector<NodeId> parts = tree.children(cells[c]);
+        if (!parts.empty() && parts.front() == *node) {
+          out.check = cell_check(out.row, static_cast<int>(c)).has_value();
+        }
+      }
+    }
+  }
+  return out;
 }
 
 void Table::set_sort_indicator(ControlContext& ctx, std::optional<int> column, bool ascending) {

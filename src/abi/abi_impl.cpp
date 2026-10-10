@@ -469,6 +469,7 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.clicks = clicks_of(e.clicks, 0);
             out.item = e.item.value_or(-1);
             out.column = e.column.value_or(-1);
+            out.item_key = e.item_key;
           },
           [&](const dg::events::ContextClickEvent& e) {
             on_window(e.window);
@@ -478,6 +479,7 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.clicks = clicks_of(e.clicks, 1);
             out.item = e.item.value_or(-1);
             out.column = e.column.value_or(-1);
+            out.item_key = e.item_key;
           },
           [&](const dg::events::ActionEvent& e) {
             on_window(e.window);
@@ -560,6 +562,7 @@ dg_event to_dg_event(AppImpl& impl, const dg::Event& event) {
             out.x = e.part == dg::events::RowPartEvent::Part::kCheck ? DG_ROW_PART_CHECK
                                                                       : DG_ROW_PART_ACTION;
             out.y = e.action;
+            out.item_key = e.item_key;
           },
       },
       event);

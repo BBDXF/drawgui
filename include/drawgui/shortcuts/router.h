@@ -98,6 +98,18 @@ struct ResolvedAction {
   WindowId window;
 };
 
+// An app-defined binding (App::add_shortcut() / Window::add_shortcut()),
+// kept in runtime tables beside the generated one. `scope` none = app-wide
+// (level 4); otherwise level 2, live while focus is inside `scope`. At each
+// level a user binding is consulted before the generated table, so an app
+// can shadow a built-in chord there - but never a text-editing key, which
+// still bypasses the router before any table is read.
+struct UserShortcut {
+  Chord chord;
+  dg_action_id action_id = DG_ACTION_INVALID;
+  std::optional<NodeId> scope;
+};
+
 // Levels 2 and 4 of design.md section 5.5.2, over already-parsed input:
 // building the Chord (from a KeyEvent's mods/logical_key) and deciding
 // whether this key is even eligible to reach here (level 1's IME isolation,
@@ -109,6 +121,12 @@ struct ResolvedAction {
 [[nodiscard]] std::optional<ResolvedAction> resolve_action(
     Chord chord, WindowId window, std::optional<NodeId> focused, const RenderTree& tree,
     const ActionScopes& scopes, std::span<const ShortcutBinding> app_table);
+
+// The same, with `user` bindings resolved first at each level.
+[[nodiscard]] std::optional<ResolvedAction> resolve_action(
+    Chord chord, WindowId window, std::optional<NodeId> focused, const RenderTree& tree,
+    const ActionScopes& scopes, std::span<const ShortcutBinding> app_table,
+    std::span<const UserShortcut> user);
 
 // The four read-only inputs every route_key_event() call needs together -
 // grouped rather than passed as four more parameters alongside the event/
@@ -160,5 +178,14 @@ struct KeyRouteResult {
 [[nodiscard]] KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
                                              std::optional<NodeId> focused,
                                              const RoutingContext& ctx);
+
+// The same, with app-defined `user` bindings. One more bypass applies to
+// them only: while a text editor is focused, a user chord without Mod/Alt on
+// a printable key (a letter, digit, Space or punctuation - typing) is not
+// consulted, so binding bare "K" never eats a typed 'k'.
+[[nodiscard]] KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
+                                             std::optional<NodeId> focused,
+                                             const RoutingContext& ctx,
+                                             std::span<const UserShortcut> user);
 
 }  // namespace dg

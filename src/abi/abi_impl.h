@@ -170,6 +170,9 @@ std::int32_t tree_row_checked(dg_node_t* node, std::int32_t index);
 std::int32_t table_set_cells_ex(dg_node_t* node, const char* const* cells,
                                 const std::uint32_t* icons, const std::uint32_t* flags,
                                 std::uint32_t rows);
+std::int32_t list_set_row_keys(dg_node_t* node, const std::uint64_t* keys, std::uint32_t count);
+std::int32_t tree_set_item_keys(dg_node_t* node, const std::uint64_t* keys, std::uint32_t count);
+std::int32_t table_set_row_keys(dg_node_t* node, const std::uint64_t* keys, std::uint32_t count);
 std::int32_t table_cell_checked(dg_node_t* node, std::int32_t row, std::int32_t column);
 std::int32_t menubar_set_menus(dg_node_t* node, const char* const* titles,
                                const std::uint32_t* entry_counts, std::uint32_t menu_count,

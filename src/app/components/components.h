@@ -126,6 +126,29 @@ inline int laid_out_height(const WinState& window, const NodeRecord& record, int
   return laid_out > 0 ? laid_out : wrapper_height(window, record, fallback);
 }
 
+// -- Menus (popups.cpp / menubar.cpp) -------------------------------------------
+
+// The ui menu rows / per-row commands of MenuEntry rows.
+[[nodiscard]] dg::MenuSpec menu_spec_of(const std::vector<dg::MenuEntry>& entries);
+[[nodiscard]] std::vector<std::int32_t> commands_of(const std::vector<dg::MenuEntry>& entries);
+// Forgets which menu is open (id, anchor, commands, bar) - after it closed.
+void clear_menu_owner(WinState& window);
+// Closes the open menu, reporting the dismissal.
+void dismiss_open_menu(WinState& window);
+
+void menubar_defaults(dg::BoxStyle& box, dg::NodeStyle& style);
+void build_menubar(WinState& window, NodeRecord& record);
+// An open bar menu's own pointer/key hooks (hovering or pressing another
+// title, Left/Right); true = consumed.
+bool menubar_menu_pointer(WinState& window, const dg::PointerEvent& event);
+bool menubar_menu_key(WinState& window, const dg::KeyEvent& event);
+// A bar menu closed: the bar stays in keyboard mode when `keep_active`.
+void menubar_menu_closed(WinState& window, dg::NodeId bar, bool keep_active);
+// F10 / Alt and the keyboard mode of a bar, before the controls.
+bool menubar_route_key(WinState& window, const dg::KeyEvent& event);
+// Closes `record`'s open menu, if any, without an event.
+void menubar_forget(WinState& window, NodeRecord& record);
+
 // -- Per-kind builders ----------------------------------------------------------
 
 // basic.cpp: box, button, label, checkbox, image.
@@ -135,6 +158,12 @@ void compose_basic(WinState& window, NodeRecord& record);
 // The theme colours of a button, checkbox or radio (a no-op for other
 // kinds); again after every theme change and caller colour write.
 void style_control(WinState& window, NodeRecord& record);
+// DG_PROP_CHECKED: a checkbox's mark, or (on a kButton) makes it a toggle
+// button in that state.
+dg::Status set_checked_prop(WinState& window, NodeRecord& record, const dg::PropValue& value);
+[[nodiscard]] bool is_toggle_button(const NodeRecord& record);
+// A completed click on a toggle button: flips and restyles it.
+void flip_toggle_button(WinState& window, NodeRecord& record);
 // editors.cpp: text field, text area.
 void editor_defaults(const AppState& app, NodeKind kind, dg::BoxStyle& box,
                      dg::NodeStyle& style);
@@ -179,6 +208,8 @@ bool control_pointer(WinState& window, NodeRecord& record, TableState& state,
                      const dg::PointerEvent& event);
 bool control_pointer(WinState& window, NodeRecord& record, SliderState& state,
                      const dg::PointerEvent& event);
+bool control_pointer(WinState& window, NodeRecord& record, MenuBarState& state,
+                     const dg::PointerEvent& event);
 
 template <class S>
 bool control_key(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,
@@ -212,6 +243,7 @@ void restyle_state(WinState& window, NodeRecord& record, TreeState& state);
 void restyle_state(WinState& window, NodeRecord& record, TableState& state);
 void restyle_state(WinState& window, NodeRecord& record, SliderState& state);
 void restyle_state(WinState& window, NodeRecord& record, RadioState& state);
+void restyle_state(WinState& window, NodeRecord& record, MenuBarState& state);
 
 template <class S>
 void tick_state(WinState& /*window*/, NodeRecord& /*record*/, S& /*state*/,

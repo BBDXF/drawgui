@@ -7,6 +7,7 @@
 
 #include "app/components/components.h"
 #include "app/internal.h"
+#include "ui/control_visuals.h"
 
 namespace dg::app_detail::components {
 namespace {
@@ -52,6 +53,25 @@ bool user_set(const NodeRecord& record, std::uint16_t prop_id) {
 }
 
 constexpr int kImageSize = 64;
+
+// A caller fill (pressed shade when a toggle is on), or a toggle button's
+// own tone: quiet surface when off, the lists' soft selection tint when on.
+void set_toggle_or_user_fills(dg::Widget& widget, const dg::ControlStyle& cs,
+                              std::optional<dg::Color> user_fill, bool toggle) {
+  if (user_fill.has_value()) {
+    const dg::Color base = toggle && widget.checked ? shade(*user_fill, kPressShade) : *user_fill;
+    widget.fill_normal = base;
+    widget.fill_hover = shade(base, kHoverShade);
+    widget.fill_pressed = shade(base, kPressShade);
+    return;
+  }
+  const float hover = is_dark(cs.surface) ? 0.10F : 0.06F;
+  const dg::Color base = widget.checked ? dg::control_visuals::selection_fill(cs)
+                                        : mix(cs.surface, cs.on_surface, hover / 2.0F);
+  widget.fill_normal = base;
+  widget.fill_hover = mix(base, cs.on_surface, hover / 2.0F);
+  widget.fill_pressed = mix(base, cs.on_surface, hover);
+}
 
 }  // namespace
 
@@ -174,10 +194,9 @@ void style_control(WinState& window, NodeRecord& record) {
   }
   dg::RenderTree& tree = window.tree.render();
   dg::Widget widget = window.widgets.at(record.id);
-  if (record.user_fill.has_value()) {
-    widget.fill_normal = *record.user_fill;
-    widget.fill_hover = shade(*record.user_fill, kHoverShade);
-    widget.fill_pressed = shade(*record.user_fill, kPressShade);
+  const bool toggle = button && is_toggle_button(record);
+  if (record.user_fill.has_value() || toggle) {
+    set_toggle_or_user_fills(widget, cs, record.user_fill, toggle);
   } else if (button) {
     widget.fill_normal = cs.accent;
     widget.fill_hover = token(DG_TOKEN_COLOR_PRIMARY_HOVER, shade(cs.accent, kHoverShade));
@@ -191,7 +210,7 @@ void style_control(WinState& window, NodeRecord& record) {
   dg::NodeStyle style = tree.style(record.id);
   if (button) {
     if (!user_set(record, DG_PROP_TEXT_COLOR)) {
-      style.text.color = cs.on_accent;
+      style.text.color = toggle ? cs.on_surface : cs.on_accent;
     }
   } else {
     widget.indicator_on = cs.accent;
@@ -203,6 +222,35 @@ void style_control(WinState& window, NodeRecord& record) {
   tree.set_style(record.id, style);
   window.widgets.attach(record.id, widget);
   window.widgets.refresh(tree, record.id, window.interaction.state_of(record.id));
+}
+
+bool is_toggle_button(const NodeRecord& record) {
+  return record.kind == NodeKind::kButton && user_set(record, DG_PROP_CHECKED);
+}
+
+dg::Status set_checked_prop(WinState& window, NodeRecord& record, const dg::PropValue& value) {
+  if (value.type() != dg::PropType::k_bool) {
+    return dg::Status::kTypeMismatch;
+  }
+  if ((record.kind != NodeKind::kButton && record.kind != NodeKind::kCheckbox) ||
+      !window.widgets.has(record.id)) {
+    return dg::Status::kUnsupported;
+  }
+  if (record.kind == NodeKind::kButton && !user_set(record, DG_PROP_CHECKED)) {
+    record.user_props.push_back(DG_PROP_CHECKED);
+  }
+  dg::Widget widget = window.widgets.at(record.id);
+  widget.checked = value.ordinal() != 0U;
+  window.widgets.attach(record.id, widget);
+  style_control(window, record);
+  return dg::Status::kOk;
+}
+
+void flip_toggle_button(WinState& window, NodeRecord& record) {
+  dg::Widget widget = window.widgets.at(record.id);
+  widget.checked = !widget.checked;
+  window.widgets.attach(record.id, widget);
+  style_control(window, record);
 }
 
 }  // namespace dg::app_detail::components

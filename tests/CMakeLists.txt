@@ -144,7 +144,11 @@ if(DRAWGUI_HAVE_SDL3)
     unit/test_runtime_components.cpp
     unit/test_runtime_polish.cpp
     unit/test_runtime_form_controls.cpp
-    unit/test_runtime_loop.cpp)
+    unit/test_runtime_loop.cpp
+    unit/test_runtime_rows.cpp
+    unit/test_abi_rows.cpp
+    unit/test_runtime_menus.cpp
+    unit/test_abi_menus.cpp)
 endif()
 
 target_include_directories(drawgui_unit_test PRIVATE

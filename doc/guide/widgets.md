@@ -490,6 +490,44 @@ space.md），**没有新增 token**。
 `src/ui/control_visuals.cpp`。示例：`examples/27_data_widgets`（运行时版，`--verify`、
 `--dump-png`）；组件本身的单测在 `tests/unit/test_ui_components.cpp`。
 
+#### 富行：图标、复选框、副文字、行尾操作、行键（运行时）
+
+`ListRef::set_rows()` 接受固定结构的 `dg::RowItem`（`items.h`）：主文字 `text`、右对齐的
+暗色副文字 `secondary`、图标 `icon`（`App::load_image()` 的 id，按原样绘制）、行首复选框
+`check`（`nullopt` = 没有）、行尾操作按钮数 `trailing_actions`，以及应用自己的行键
+`key`。行尾按钮由 `set_row_actions()` 给出（整个列表共享、最多 8 个，每个有图标和
+tooltip），每行显示前 N 个。`TreeEntry` 同样有 `icon`/`secondary`/`check`/`key`，
+`TableRef::set_cells()` 的 `TableCell` 有 `text`/`icon`/`check`，表格行键用
+`set_row_keys()`。
+
+- **虚拟化不变**：第一次出现富内容时，给每个池行一次性加上固定的子节点（复选框、图标、副文字、
+  8 个操作图标），绑定到哪一行时只改它们的位置与内容；1 万行和 10 行的节点数相同。
+  树/表格只在数据里确有图标/复选框时才建这些子节点。
+- **命中优先级**：复选框和操作按钮优先于行本身。按下它们**不改变选中**，也不产生
+  `ClickEvent`，只产生 `events::RowPartEvent`：`kCheck` 时运行时**先切换**存储的状态
+  （`row_checked()`/`cell_checked()` 立即读到新值），`kAction` 时 `action` 是按钮序号。
+  悬停操作按钮显示它的 tooltip（期间临时借用列表节点的 tooltip，离开后还原）。
+- **空格**：`Tree`/`Table` 获得焦点时按空格切换选中行的复选框（表格取该行第一个可勾选的格）
+  并报告 `RowPartEvent{kCheck}`。`List` 不可聚焦，没有这条键盘路径。
+- **点击事件带行**：按在 List/Table 行或 Tree 条目上，除选择事件外还有
+  `ClickEvent{item, column, item_key}`（`item` 对树是先序下标，`column` 只有表格有）。
+  右键先**选中**该行（照常产生选择事件，已选中则不重复），再产生同样带行信息的
+  `ContextClickEvent`——适合"右键菜单作用于当前行"。
+- **行键**：`key`（0 = 无）只是被携带、从不解引用；数据重排后用
+  `index_of(key)`/`key_of(i)`/`select_key(key)` 找回同一行，事件里的 `item_key` 直接告诉
+  你是哪条记录。
+- 主题切换时颜色（复选框用 primary/on-primary，副文字用弱化的 on-surface）随之重算；
+  禁用的列表/树/表格不响应这些按下。
+
+#### 切换按钮（toggle button）
+
+在 `kButton` 上写一次 `DG_PROP_CHECKED`（`prop::checked(true/false)`）它就成为切换按钮：
+每次完成的点击先翻转状态、再入队 `ClickEvent`（与复选框一致），用
+`Window::checked(button)` 读取；普通按钮的 `checked()` 返回 `kNotApplicable`。外观取主题：
+关闭时是安静的 surface 色调、文字 on-surface，打开时是与列表选中相同的柔和 primary 着色，
+hover/press 在此基础上加深；调用方写入的 `BACKGROUND_COLOR` 仍然优先。按钮里放的图片
+（`kImage` 子节点）不是控件，点击会落到按钮上，产生按钮的 `ClickEvent`。
+
 #### 多行编辑框（`kTextArea`）
 
 `kTextArea` 和 `kTextField` 共用同一个编辑内核（`include/drawgui/widget/text_edit.h`），

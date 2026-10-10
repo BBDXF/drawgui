@@ -51,12 +51,22 @@ LOGICAL_KEY_HEADER_RELPATH = Path("include") / "drawgui" / "shortcuts" / "logica
 ACTION_SCOPE_HEADER_RELPATH = Path("include") / "drawgui" / "shortcuts" / "action_scope.generated.h"
 LOGICAL_KEY_TABLE_RELPATH = Path("src") / "shortcuts" / "logical_key_table.generated.inc"
 BINDING_TABLE_RELPATH = Path("src") / "shortcuts" / "binding_table.generated.inc"
+SDL_KEY_TABLE_RELPATH = Path("src") / "platform" / "sdl3" / "sdl_key_table.generated.inc"
+
+# The SDL keycode(s) behind a LogicalKey name, where it is not simply
+# "SDLK_" + the upper-cased name. The first keycode is the one
+# post_logical_key() sends.
+SDL_KEYCODE_OVERRIDES = {
+    "Enter": ("SDLK_RETURN", "SDLK_KP_ENTER"),
+    "Menu": ("SDLK_APPLICATION", "SDLK_MENU"),
+    "AltKey": ("SDLK_LALT", "SDLK_RALT"),
+}
 DOC_RELPATH = Path("doc") / "reference" / "shortcuts.generated.md"
 
 SUPPORTED_SCHEMA_VERSION = 1
 
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
-KEY_NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z0-9]*$")
+KEY_NAME_PATTERN = re.compile(r"^(?:[A-Z][A-Za-z0-9]*|[0-9])$")
 MAX_ACTION_ID = 0xFFFF
 
 # Fixed engineering vocabulary, NOT generated from the TOML - a chord's
@@ -120,10 +130,11 @@ class Definitions:
     schema_version: int
     next_id: int
     actions: tuple[Action, ...]
+    extra_keys: tuple[str, ...] = ()
 
     @property
     def logical_keys(self) -> tuple[str, ...]:
-        return tuple(sorted({action.key for action in self.actions}))
+        return tuple(sorted({action.key for action in self.actions} | set(self.extra_keys)))
 
     @property
     def scopes(self) -> tuple[str, ...]:
@@ -338,7 +349,33 @@ def load_definitions(toml_path: Path) -> Definitions:
     _check_no_duplicate_bindings(actions_tuple)
     _check_every_platform_bound(actions_tuple)
 
-    return Definitions(schema_version=schema_version, next_id=next_id, actions=actions_tuple)
+    extra_keys = _parse_extra_keys(raw.get("keys"), toml_path)
+
+    return Definitions(
+        schema_version=schema_version,
+        next_id=next_id,
+        actions=actions_tuple,
+        extra_keys=extra_keys,
+    )
+
+
+def _parse_extra_keys(keys: object, toml_path: Path) -> tuple[str, ...]:
+    """[keys] extra: logical keys no built-in action binds but app-defined
+    shortcuts (App::add_shortcut()) and the runtime's own keyboard handling
+    (F10, the Menu key) need the platform layer to report."""
+    if keys is None:
+        return ()
+    if not isinstance(keys, dict) or set(keys) - {"extra"}:
+        raise GenError(f"{toml_path}: [keys] may only hold 'extra'")
+    extra = keys.get("extra", [])
+    if not isinstance(extra, list) or not all(isinstance(key, str) for key in extra):
+        raise GenError("[keys]: 'extra' must be a list of key names")
+    for key in extra:
+        if not KEY_NAME_PATTERN.match(key):
+            raise GenError(f"[keys]: key {key!r} must match {KEY_NAME_PATTERN.pattern}")
+    if len(set(extra)) != len(extra):
+        raise GenError("[keys]: 'extra' lists a key twice")
+    return tuple(extra)
 
 
 def _banner(comment: str = "//") -> list[str]:
@@ -407,14 +444,15 @@ def render_logical_key_header(defs: Definitions) -> str:
         "#include <cstdint>",
         "",
         "// The closed set of physical/logical keys a shortcut binding in",
-        "// input/shortcuts.toml actually references - GENERATED, unlike",
+        "// input/shortcuts.toml references, plus its [keys] extra list (the",
+        "// keys app-defined shortcuts may bind) - GENERATED, unlike",
         "// dg_action_id above, because this is the opposite ABI shape: a",
         "// LogicalKey is produced internally (the platform layer mapping an SDL",
         "// keysym, once 8-2 exists) and never arrives as an arbitrary",
         "// host-supplied number, so it stays a real `enum class` with an",
         "// EXHAUSTIVE-SWITCH contract - the same shape dg::Key, dg::WidgetKind",
         "// and dg::PointerAction already have, and for the identical reason",
-        "// dg::Key's own comment gives: an enumerator naming a key nothing binds",
+        "// dg::Key's own comment gives: an enumerator naming a key nothing reads",
         "// is a promise this engine does not keep. This is NOT dg::Key",
         "// (include/drawgui/window/window_manager.h) - design.md section 5.5.2 is",
         "// explicit that a text-editing key is not a shortcut; they route at",
@@ -482,6 +520,20 @@ def render_logical_key_table(defs: Definitions) -> str:
     return "\n".join(lines)
 
 
+def render_sdl_key_table(defs: Definitions) -> str:
+    """SDL_Keycode <-> LogicalKey pairs for the SDL3 backend's
+    to_logical_key()/from_logical_key(); a key with several keycodes lists
+    the one post_logical_key() sends first."""
+    lines = list(_banner())
+    lines += [""]
+    for key in defs.logical_keys:
+        codes = SDL_KEYCODE_OVERRIDES.get(key, ("SDLK_" + key.upper(),))
+        for code in codes:
+            lines.append(f"{{{code}, LogicalKey::k{key}}},")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_binding_table(defs: Definitions) -> str:
     """The action -> chord table src/shortcuts/chord.cpp's ShortcutBinding
     array is built from. `Chord` stays symbolic on `Modifier::kMod` for
@@ -539,6 +591,7 @@ def build_outputs(defs: Definitions, root: Path) -> list[tuple[Path, str]]:
         (root / ACTION_SCOPE_HEADER_RELPATH, render_action_scope_header(defs)),
         (root / LOGICAL_KEY_TABLE_RELPATH, render_logical_key_table(defs)),
         (root / BINDING_TABLE_RELPATH, render_binding_table(defs)),
+        (root / SDL_KEY_TABLE_RELPATH, render_sdl_key_table(defs)),
         (root / DOC_RELPATH, render_doc(defs)),
     ]
 

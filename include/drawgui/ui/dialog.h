@@ -8,6 +8,12 @@
 // reports the cancel button; Enter activates the focused button, or the
 // default button when focus is not on one. Closing destroys the overlay
 // (PopupHost::destroy()) and returns focus to the restore target.
+//
+// A disabled button (set_button_disabled()) is dimmed, skipped by Tab and
+// never activated - not by a click, nor by Enter as the default button.
+// adopt() hangs a caller-owned node into the body for the dialog's life;
+// close() hands it back (re-parented under its former parent) before the
+// overlay is destroyed.
 
 #pragma once
 
@@ -68,6 +74,16 @@ class Dialog {
   DialogResult handle_pointer(UiContext& ctx, const PointerEvent& event);
   DialogResult handle_key(UiContext& ctx, const KeyEvent& event);
 
+  // Disables/enables button `index` (ignored when out of range or closed).
+  void set_button_disabled(UiContext& ctx, int index, bool disabled);
+  [[nodiscard]] bool button_disabled(int index) const;
+
+  // Re-parents (render side only) `node` under body() while open; close()
+  // moves it back under its former parent before destroying the overlay.
+  // The caller positions it (body-local; body_content_top() is free).
+  void adopt(UiContext& ctx, NodeId node);
+  [[nodiscard]] std::optional<NodeId> adopted() const { return adopted_; }
+
   // Repositions the dialog's own focus ring onto Focus::current() - call
   // after moving focus yourself (e.g. into a body widget).
   void refresh_ring(UiContext& ctx);
@@ -92,6 +108,9 @@ class Dialog {
   NodeId body_;
   int body_content_top_ = 0;
   std::vector<NodeId> buttons_;
+  std::vector<bool> disabled_;
+  std::optional<NodeId> adopted_;
+  NodeId adopted_parent_;
   FocusRing ring_;
   std::optional<NodeId> restore_focus_;
 };

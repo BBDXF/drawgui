@@ -165,6 +165,8 @@ C_PRIMITIVE_TYPES = frozenset(
         # widths), read before the call returns.
         "const uint32_t*",
         "const int32_t*",
+        # ABI 0.2: per-row app keys (dg_list_set_row_keys() and friends).
+        "const uint64_t*",
         "const float*",
         # ABI 0.2: dg_slider_get_value()'s scalar out-param.
         "float*",
@@ -768,6 +770,7 @@ _C_TO_TS = {
     "uint64_t": "bigint",
     "const char* const*": "BigUint64Array | null",
     "const uint32_t*": "Uint32Array | null",
+    "const uint64_t*": "BigUint64Array | null",
     "const int32_t*": "Int32Array | null",
     "const float*": "Float32Array | null",
     "float*": "Float32Array | null",

@@ -75,12 +75,54 @@ namespace {
   return false;
 }
 
+// A key that types a character when pressed bare or with Shift.
+[[nodiscard]] bool is_typing_key(LogicalKey key) {
+  switch (key) {
+    case LogicalKey::kSpace:
+    case LogicalKey::kMinus:
+    case LogicalKey::kEquals:
+    case LogicalKey::kComma:
+    case LogicalKey::kPeriod:
+    case LogicalKey::kSlash:
+      return true;
+    default:
+      break;
+  }
+  return logical_key_name(key).size() == 1;  // a letter or a digit
+}
+
+// Level 2 at one node: its user binding of `chord`, else a generated
+// action it scopes.
+[[nodiscard]] std::optional<dg_action_id> scoped_action(
+    Chord chord, NodeId node, const ActionScopes& scopes,
+    std::span<const ShortcutBinding> app_table, std::span<const UserShortcut> user) {
+  for (const UserShortcut& binding : user) {
+    if (binding.chord == chord && binding.scope == node) {
+      return binding.action_id;
+    }
+  }
+  for (const ShortcutBinding& binding : app_table) {
+    if (binding.chord == chord && scopes.consumes(node, binding.action_id)) {
+      return binding.action_id;
+    }
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 std::optional<ResolvedAction> resolve_action(Chord chord, WindowId window,
                                              std::optional<NodeId> focused,
                                              const RenderTree& tree, const ActionScopes& scopes,
                                              std::span<const ShortcutBinding> app_table) {
+  return resolve_action(chord, window, focused, tree, scopes, app_table, {});
+}
+
+std::optional<ResolvedAction> resolve_action(Chord chord, WindowId window,
+                                             std::optional<NodeId> focused,
+                                             const RenderTree& tree, const ActionScopes& scopes,
+                                             std::span<const ShortcutBinding> app_table,
+                                             std::span<const UserShortcut> user) {
   // Level 2: focused -> ancestors -> root, nearest match wins. RenderTree::
   // parent()'s own comment is what lets this stop on `id == parent(id)`
   // with no separate root check. A DISABLED focus (a caller that wrote
@@ -89,10 +131,9 @@ std::optional<ResolvedAction> resolve_action(Chord chord, WindowId window,
   if (focused.has_value() && !is_disabled(tree, *focused)) {
     NodeId node = *focused;
     while (true) {
-      for (const ShortcutBinding& binding : app_table) {
-        if (binding.chord == chord && scopes.consumes(node, binding.action_id)) {
-          return ResolvedAction{binding.action_id, node, window};
-        }
+      if (const std::optional<dg_action_id> id =
+              scoped_action(chord, node, scopes, app_table, user)) {
+        return ResolvedAction{*id, node, window};
       }
       const NodeId parent = tree.parent(node);
       if (parent == node) {
@@ -107,6 +148,11 @@ std::optional<ResolvedAction> resolve_action(Chord chord, WindowId window,
   // header comment. There is no ActionScope::kWindow to look up yet.
 
   // Level 4: the app-wide table, no target node.
+  for (const UserShortcut& binding : user) {
+    if (binding.chord == chord && !binding.scope.has_value()) {
+      return ResolvedAction{binding.action_id, std::nullopt, window};
+    }
+  }
   for (const ShortcutBinding& binding : app_table) {
     if (binding.chord == chord && binding.scope == ActionScope::kApp) {
       return ResolvedAction{binding.action_id, std::nullopt, window};
@@ -117,6 +163,12 @@ std::optional<ResolvedAction> resolve_action(Chord chord, WindowId window,
 
 KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
                                std::optional<NodeId> focused, const RoutingContext& ctx) {
+  return route_key_event(event, window, focused, ctx, {});
+}
+
+KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
+                               std::optional<NodeId> focused, const RoutingContext& ctx,
+                               std::span<const UserShortcut> user) {
   if (focused.has_value() && is_disabled(ctx.tree, *focused)) {
     focused.reset();
   }
@@ -140,9 +192,15 @@ KeyRouteResult route_key_event(const KeyEvent& event, WindowId window,
   }
 
   const Chord chord{event.mods, event.logical_key};
+  const bool typing = focused.has_value() && ctx.widgets.has(*focused) &&
+                      (ctx.widgets.at(*focused).kind == WidgetKind::kTextField ||
+                       ctx.widgets.at(*focused).kind == WidgetKind::kTextArea) &&
+                      !has(event.mods, Modifier::kMod) && !has(event.mods, Modifier::kAlt) &&
+                      is_typing_key(event.logical_key);
   KeyRouteResult result;
   result.outcome = KeyRouteOutcome::kRouted;
-  result.action = resolve_action(chord, window, focused, ctx.tree, ctx.scopes, ctx.app_table);
+  result.action = resolve_action(chord, window, focused, ctx.tree, ctx.scopes, ctx.app_table,
+                                 typing ? std::span<const UserShortcut>{} : user);
   return result;
 }
 

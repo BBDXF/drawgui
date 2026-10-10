@@ -32,6 +32,7 @@
 #include "drawgui/render/image_catalog.h"
 #include "drawgui/render/render_tree.h"
 #include "drawgui/shortcuts/action_scopes.h"
+#include "drawgui/shortcuts/router.h"
 #include "drawgui/theme/theme.h"
 #include "drawgui/theme/theme_bindings.h"
 #include "drawgui/ui/dialog.h"
@@ -60,6 +61,16 @@ struct ListState {
   // DG_PROP_BACKGROUND_COLOR / DG_PROP_BORDER_COLOR write survives).
   mutable dg::Color frame_fill{};
   mutable dg::Color frame_border{};
+  // ListRef::set_rows(): one per item (empty after set_items()), and the
+  // shared trailing actions. `rich` once the pool rows carry part children.
+  std::vector<dg::RowItem> rows;
+  std::vector<dg::RowAction> actions;
+  bool rich = false;
+  // An action button's tooltip borrowed onto the list record while hovered:
+  // the app's own tooltip to restore and the borrowed text.
+  bool tooltip_borrowed = false;
+  std::string own_tooltip;
+  std::string borrowed_tooltip;
 };
 
 struct DropdownState {
@@ -90,6 +101,10 @@ struct TableState {
   dg::Table table;
   std::vector<dg::TableColumn> columns;
   std::vector<std::vector<std::string>> rows;
+  // TableRef::set_cells()' icons/check boxes (empty after set_rows()).
+  std::vector<std::vector<dg::TableCellPart>> parts;
+  // TableRef::set_row_keys() (empty = none).
+  std::vector<std::uint64_t> keys;
   std::optional<int> sort_column;
   bool sort_ascending = true;
   int built_height = 0;
@@ -106,9 +121,20 @@ struct SliderState {
 // alternative only routes the arrow keys to it.
 struct RadioState {};
 
+// NodeKind::kMenuBar (components/menubar.cpp): its menus, one composed
+// title node per menu, and the keyboard mode (F10 / Alt) with the title it
+// highlights.
+struct MenuBarState {
+  std::vector<dg::MenuBarMenu> menus;
+  std::vector<dg::NodeId> titles;
+  bool active = false;
+  int highlight = -1;
+  std::optional<int> hover;
+};
+
 using ComponentState = std::variant<std::monostate, ListState, DropdownState, TabsState,
                                     TreeState, TableState, ProgressState, SliderState,
-                                    RadioState>;
+                                    RadioState, MenuBarState>;
 
 struct NodeRecord {
   NodeKind kind = NodeKind::kBox;
@@ -207,8 +233,24 @@ struct WinState {
   dg::Menu menu;
   std::int32_t menu_id = 0;
   std::optional<dg::NodeId> menu_anchor;
+  // The open menu's MenuEntry::command per item, and - for a menu-bar
+  // menu - the bar and which of its menus (components/menubar.cpp).
+  std::vector<std::int32_t> menu_commands;
+  std::optional<dg::NodeId> menu_bar;
+  int bar_menu = -1;
+  // A bare Alt press not yet followed by another key (focuses the menu bar
+  // on release).
+  bool alt_armed = false;
   dg::Dialog dialog;
   std::int32_t dialog_id = 0;
+  // DialogOptions::content while its dialog is open, the layout box hosting
+  // it inside the dialog body, and the hidden box content is parked in once
+  // the dialog closes (created on first use).
+  std::optional<dg::NodeId> dialog_content;
+  std::optional<dg::NodeId> dialog_host;
+  std::optional<dg::NodeId> parking;
+  // Window::add_shortcut() bindings (router level 2).
+  std::vector<dg::UserShortcut> user_shortcuts;
   dg::Tooltip tooltip;
   // The last pointer position inside the window (tooltip hover), and the
   // focus last reported through FocusChangedEvent - components move
@@ -257,6 +299,9 @@ struct AppState {
   // Every image a node shows, shared by all of this app's windows (each
   // TreeSpec gets a copy of this handle).
   dg::ImageCatalog images;
+
+  // App::add_shortcut() bindings (router level 4; UserShortcut::scope none).
+  std::vector<dg::UserShortcut> user_shortcuts;
 
   // set_tooltip_delay(), and the ids handed out by open_menu()/open_dialog().
   int tooltip_delay_ms = 500;

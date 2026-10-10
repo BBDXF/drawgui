@@ -544,6 +544,9 @@ Status Window::set_prop(NodeId node, std::uint16_t prop_id, const PropValue& val
   if (record == nullptr) {
     return Status::kInvalidNode;
   }
+  if (prop_id == DG_PROP_CHECKED) {
+    return app_detail::components::set_checked_prop(window, *record, value);
+  }
   const NodeId target = app_detail::prop_target(*record, window, prop_id);
   if (const std::optional<Status> handled =
           app_detail::components::set_prop(window, *record, prop_id, value)) {
@@ -647,7 +650,11 @@ Expected<bool, Status> Window::checked(NodeId node) const {
   if (record == nullptr) {
     return Unexpected(Status::kInvalidNode);
   }
-  if (record->kind != NodeKind::kCheckbox && record->kind != NodeKind::kRadio) {
+  if (record->kind == NodeKind::kButton) {
+    if (!app_detail::components::is_toggle_button(*record)) {
+      return Unexpected(Status::kNotApplicable);
+    }
+  } else if (record->kind != NodeKind::kCheckbox && record->kind != NodeKind::kRadio) {
     return Unexpected(Status::kUnsupported);
   }
   return state_->widgets.is_checked(record->id);

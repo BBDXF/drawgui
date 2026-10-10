@@ -22,7 +22,7 @@ dg_theme_t
 dg_value: size:uint32_t,type:uint32_t,number:float,bits:uint32_t
 dg_app_opts: size:uint32_t
 dg_window_opts: size:uint32_t,title:const char*,width:int32_t,height:int32_t,background_argb:uint32_t,resizable:int32_t,min_width:int32_t,min_height:int32_t,max_width:int32_t,max_height:int32_t
-dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t,action_id:uint16_t,clicks:uint16_t,item:int32_t,column:int32_t,command:int32_t
+dg_event: size:uint32_t,kind:uint32_t,window:dg_window_t*,node:dg_node_t*,x:int32_t,y:int32_t,action_id:uint16_t,clicks:uint16_t,item:int32_t,column:int32_t,command:int32_t,item_key:uint64_t
 dg_theme_err: size:uint32_t,status:uint32_t
 
 [constant_group]
@@ -229,6 +229,9 @@ dg_tree_set_items_ex: int32_t(dg_node_t*,const char* const*,const int32_t*,const
 dg_tree_row_checked: int32_t(dg_node_t*,int32_t)
 dg_table_set_cells_ex: int32_t(dg_node_t*,const char* const*,const uint32_t*,const uint32_t*,uint32_t)
 dg_table_cell_checked: int32_t(dg_node_t*,int32_t,int32_t)
+dg_list_set_row_keys: int32_t(dg_node_t*,const uint64_t*,uint32_t)
+dg_tree_set_item_keys: int32_t(dg_node_t*,const uint64_t*,uint32_t)
+dg_table_set_row_keys: int32_t(dg_node_t*,const uint64_t*,uint32_t)
 dg_menubar_set_menus: int32_t(dg_node_t*,const char* const*,const uint32_t*,uint32_t,const char* const*,const char* const*,const uint32_t*,const int32_t*,uint32_t)
 dg_menubar_set_entry: int32_t(dg_node_t*,int32_t,int32_t,const char*,const char*,uint32_t,int32_t)
 dg_menu_open_ex: int32_t(dg_window_t*,dg_node_t*,int32_t,int32_t,const char* const*,const uint32_t*,const char* const*,const int32_t*,uint32_t)

@@ -22,6 +22,11 @@ app.run([&](const dg::Event& event) {
   焦点环由运行时画。菜单和对话框打开时自动限制焦点范围。
 - 快捷键：`Window::scope_action(node, action_id)` 让某个节点处理一个 action，
   触发时得到 `ActionEvent`。编辑框的复制/剪切/粘贴/全选/撤销由运行时直接处理。
+- 应用自定义快捷键：`App::add_shortcut("Ctrl+Shift+N", id)`（第 4 级，所有窗口，
+  `ActionEvent::node` 为空）、`Window::add_shortcut(scope, "F2", id)`（第 2 级，焦点在
+  `scope` 子树内时触发，`node` = `scope`）、`App::remove_shortcut(chord)`、
+  `App::chord_label(chord)`（菜单快捷键列的文字），见下文「应用自定义快捷键」。
+- 键盘右键菜单：Menu 键或 Shift+F10 对焦点节点产生 `ContextClickEvent`，见下文。
 - 鼠标指针形状：写 `DG_PROP_CURSOR`，运行时在指针移动时自己切换。
 - 定时器与跨线程唤醒：`App::add_timer()` / `cancel_timer()`，`App::waker()`
   返回的 `Waker` 可以在任意线程调用。
@@ -255,7 +260,8 @@ thickness=2，即 8px）时，`fill_ring()` 直接把整个目标涂成环颜色
 ### 快捷键：11 个 action，四级路由
 
 `input/shortcuts.toml` 是唯一真相源，生成 action id、`LogicalKey` 枚举、
-`ActionScope` 枚举——**运行期不可改键**，改绑定要改这个 toml 重新生成。
+`ActionScope` 枚举——**内置绑定运行期不可改**，改它们要改这个 toml 重新生成
+（应用自己的快捷键走运行期用户表，见下文「应用自定义快捷键」）。
 
 当前定义的 11 个 action（`input/shortcuts.toml`，完整表见 `doc/reference/shortcuts.generated.md`）：
 
@@ -328,6 +334,49 @@ Ctrl+Left/Right 按词移动（加 Shift 扩展选区）、Ctrl+Backspace/Ctrl+D
 `route_key_event()` 把这两条早退写在函数体最前面，`resolve_action()` 本身
 甚至不会被提到——这是测试能直接验证的结构性保证：删掉
 早退语句，`tests/unit/test_shortcut_routing.cpp` 就会失败。
+
+#### 应用自定义快捷键（运行期表）
+
+生成表之外，运行时另有一张**运行期用户表**（`dg::UserShortcut`，`router.h`）：
+
+```cpp
+app.add_shortcut("Ctrl+Shift+N", dg::kUserActionBase + 1);        // 第 4 级
+window->add_shortcut(panel, "F2", dg::kUserActionBase + 2);        // 第 2 级
+std::string label = app.chord_label("ctrl+shift+n").value();       // "Ctrl+Shift+N"
+```
+
+- **id 空间**：`action_id >= dg::kUserActionBase`（0x8000，C 的
+  `DG_USER_ACTION_BASE`）归应用；更小的是 `input/shortcuts.toml` 的内置
+  `DG_ACTION_*`。id 太小或组合键解析失败返回 `kInvalidArgument`。
+- **语法**：`parse_user_chord()`——修饰键 `Ctrl`/`Control`/`Mod`/`Cmd`（都是
+  `Mod`）、`Shift`、`Alt`，任意顺序、不分大小写，最后一段是键名（同样不分大小写）。
+  可用键由 `input/shortcuts.toml` 的 `[keys] extra` 列表生成：A–Z、0–9、F1–F12、
+  Delete、Insert、Enter、Escape、Space、Backspace、方向键、Home/End/PageUp/PageDown、
+  Minus/Equals/Comma/Period/Slash、Menu（以及仅供菜单栏用的 `AltKey`，不能做组合键）。
+  SDL 键码映射也从这张表生成（`src/platform/sdl3/sdl_key_table.generated.inc`）。
+- **优先级**：每一级先查用户表、再查生成表——第 2 级在冒泡到的每个节点上
+  先看该节点的 `Window::add_shortcut()` 绑定，第 4 级先看 `App::add_shortcut()`。
+  所以自定义键能遮蔽内置键（例如把 `PageDown` 改作他用）。
+- **编辑键永远优先**：编辑框自己的编辑键（方向键、Home/End、Backspace/Delete、
+  TextField 上不带 Ctrl/Alt 的 Enter/Up/Down/PageUp/PageDown/Escape）、撤销/重做、
+  剪贴板组合键都在路由之前被编辑框吃掉，不会触发同名的自定义键。另外，焦点在
+  编辑框里时，**不带 Ctrl/Alt 的可打字键**（字母、数字、Space、标点，含 Shift+字母）
+  不查用户表——绑定裸 `K` 不会吞掉键入的 k。F2 之类的非编辑键照常触发。
+- **冲突与替换**：`App::add_shortcut()` 对同一组合键再绑定即替换；
+  `Window::add_shortcut()` 在同一个 `scope` 上重复绑定同一组合键返回
+  `kAlreadyAttached`（不同 scope 各自独立，最近的 scope 胜）。
+  `App::remove_shortcut(chord)` 删除该组合键的全部用户绑定（应用级和所有窗口的
+  作用域级），没有则 `kUnknownId`。scope 节点被删除时它的绑定随之删除。
+- 模态对话框打开期间不路由快捷键。
+
+#### 键盘右键菜单（Menu 键 / Shift+F10）
+
+Menu 键（裸按）或 Shift+F10 在编辑键处理之后、快捷键路由之前被运行时直接处理
+（不是生成表里的 action，不占锁定 id）：对**焦点节点**所属的 create() 节点（没有
+焦点时是窗口根）产生 `ContextClickEvent`，`clicks = 0`。若该节点是 List/Tree/Table
+且有选中行，`item` = 选中行（通过公开的 `ListRef/TreeRef/TableRef::selected()`）。
+`x`/`y` 是该**节点**的左下角——行几何不是公开接口，所以不是行本身的位置；在此处
+`open_menu()` 即得到节点下方的菜单。
 
 #### `Mod` 伪修饰键
 

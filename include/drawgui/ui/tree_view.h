@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "drawgui/layout/box.h"
+#include "drawgui/render/image_catalog.h"
 #include "drawgui/ui/control_context.h"
 #include "drawgui/window/window_manager.h"
 
@@ -43,6 +44,12 @@ struct TreeItem {
   std::string label;
   int depth = 0;
   bool expanded = false;
+  // Optional row parts: an icon and a check box before the label, dimmed
+  // text after it. A tree with any of them builds the part nodes per row.
+  ImageId icon{};
+  std::string secondary;
+  std::optional<bool> check = std::nullopt;
+  std::uint64_t key = 0;  // the app's id, carried only
 };
 
 struct TreeViewSpec {
@@ -77,6 +84,16 @@ class TreeView {
 
   bool select(ControlContext& ctx, int item);  // also expands its ancestors
   bool set_expanded(ControlContext& ctx, int item, bool expanded);
+  // Flips a checkable item's check box; false when it has none.
+  bool toggle_check(ControlContext& ctx, int item);
+  // The item under absolute `point` and whether the point is on its check
+  // box; nothing outside the rows.
+  struct Hit {
+    int item = -1;
+    bool check = false;
+  };
+  [[nodiscard]] std::optional<Hit> hit(const ControlContext& ctx, PixelPoint point) const;
+  [[nodiscard]] const std::vector<TreeItem>& items() const { return items_; }
   void sync(ControlContext& ctx);
 
   [[nodiscard]] std::optional<int> selected() const { return selected_; }
@@ -109,6 +126,7 @@ class TreeView {
   std::vector<NodeId> pool_;
   bool dragging_ = false;
   bool built_ = false;
+  bool rich_ = false;
 };
 
 }  // namespace dg
