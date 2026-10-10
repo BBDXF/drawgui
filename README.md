@@ -121,7 +121,7 @@ per-frame call order, see **`doc/getting-started.md`**.
 
 ## Examples
 
-29 examples, `examples/00_*` through `examples/28_*`. Each builds to
+30 examples, `examples/00_*` through `examples/29_*`. Each builds to
 `build/examples/drawgui_*`. Most support `--dump-png out.png` (headless
 render) and a `--verify-*` flag (headless assertion, used in CTest); there
 is no `--help` - each example's flags are listed in the comment at the top
@@ -161,6 +161,7 @@ text, layout, data, popups, images, window) and a live light/dark switch;
 | 26 | `text_area` | A heading row (a `BOX` made a row) over a multi-line `TEXT_AREA`, all through the C ABI: soft wrap, Enter, Up/Down column, Home/End per visual line, PageUp/PageDown, drag selection, scrollbar | `--verify-text-area` |
 | 27 | `data_widgets` | Progress bars (determinate + indeterminate), tabs with a disabled tab, a 10,000-item tree and a 10,000-row sortable table on fixed node pools (on `dg::App`) | `--verify` |
 | 28 | `c_components` | Pure C: a context menu, a dropdown, tooltips, a modal dialog, a slider, a radio group, a progress bar, tabs holding a tree, and a table the app sorts on request - all through the poll-based C ABI | `--verify` |
+| 29 | `enterprise` | A realistic "资产管理" (asset inventory) app on `dg::App`: menu bar + shortcuts + context menus sharing one command switch, SVG icon toolbar with a toggle filter and search, a location tree filtering a sortable table with icon/check cells and row keys, detail tabs (form, undoable history list, tag rows via `set_user_data`), form dialogs with a disabled OK, unsaved-changes prompt, status bar. `--dump-png FILE --theme light\|dark --state default\|menu\|context\|dialog` | `--verify` |
 
 ## Unit tests
 

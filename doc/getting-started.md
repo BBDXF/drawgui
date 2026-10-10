@@ -92,6 +92,9 @@ int main() {
   `22_dropdown_menu`、`23_menu_tooltip_dialog`、`27_data_widgets` 都建在 `dg::App` 上，
   它们的 `--verify` 模式演示了如何在无显示器环境下注入输入并检查结果
   （`examples/common/example_app.h`）。
+- 想看一个完整的"真实应用"怎么组织：`examples/29_enterprise`（资产管理）把菜单栏、
+  快捷键、右键菜单共用一个命令 `switch`，行键（`item_key`）让右键/勾选/撤销都作用在
+  正确的那一行，表单对话框用 `DialogOptions::content`。
 
 ## 3. C++ 运行时 vs C ABI
 
